@@ -11,7 +11,7 @@
   import axios from 'axios';
 
   // To adjust url based on whether in prod or not
-  const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://api-endpoint.take-stock.app'
+  const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
 
   const username = ref('')
 

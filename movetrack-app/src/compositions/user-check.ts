@@ -5,7 +5,7 @@ export default function useCheckUser() {
     // input and check to see if authorized for that user id and if so, 
     // return it and if not return one for which they are authorized
     async function checkUser(user_name: string, user_id: string, token: string): Promise<String> {
-        const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://api-endpoint.take-stock.app'
+        const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
         const returnValue = await axios({
             method: 'get',
             url: core_url + '/users/',
@@ -30,7 +30,7 @@ export default function useCheckUser() {
     };
 
     async function returnUsername(user_id: string, token: string): Promise<String> {
-        const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://api-endpoint.take-stock.app'
+        const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
         const username = await axios({
             method: 'get',
             url: core_url + '/users/',

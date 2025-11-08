@@ -34,7 +34,7 @@ router.post('/request-magic-link', async function(req, res, next) {
         // Send magic link email
         const baseUrl = process.env.NODE_ENV === 'development'
             ? 'http://localhost:4050'
-            : 'https://movetrack.app';
+            : 'https://movetrack-app-7hwn7ggbiq-uc.a.run.app';
 
         const emailResult = await authService.sendMagicLinkEmail(email, result.token, baseUrl);
 
