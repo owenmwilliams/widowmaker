@@ -5,9 +5,9 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/movetrack-api:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-api:$COMMIT_SHA'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/movetrack-api:latest'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-api:latest'
       - './movetrack-api'
     id: 'build-api'
 
@@ -16,9 +16,9 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/movetrack-app:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA'
       - '-t'
-      - 'gcr.io/$PROJECT_ID/movetrack-app:latest'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:latest'
       - './movetrack-app'
     id: 'build-app'
 
@@ -26,7 +26,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/$PROJECT_ID/movetrack-api:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-api:$COMMIT_SHA'
     id: 'push-api'
     waitFor: ['build-api']
 
@@ -34,24 +34,26 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/$PROJECT_ID/movetrack-app:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA'
     id: 'push-app'
     waitFor: ['build-app']
 
   # Run database migrations
-  - name: 'gcr.io/google-cloud-cli:alpine'
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
     entrypoint: sh
     args:
       - '-c'
       - |
-        # Install PostgreSQL client
-        apk add --no-cache postgresql-client
+        # Install PostgreSQL client and Cloud SQL Proxy
+        apk add --no-cache postgresql-client wget
+        wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
+        chmod +x cloud_sql_proxy
         
         # Get database password from Secret Manager
         DB_PASSWORD=$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$PROJECT_ID)
         
         # Run migrations via Cloud SQL Proxy
-        (cloud-sql-proxy $_CLOUD_SQL_CONNECTION &) && sleep 5
+        (./cloud_sql_proxy -instances=$_CLOUD_SQL_CONNECTION=tcp:5432 &) && sleep 10
         PGPASSWORD=$$DB_PASSWORD psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f init-movetrack.sql
     id: 'run-migrations'
     waitFor: ['build-api']
@@ -64,7 +66,7 @@ steps:
       - 'deploy'
       - 'movetrack-api'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/movetrack-api:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-api:$COMMIT_SHA'
       - '--region'
       - 'us-central1'
       - '--platform'
@@ -87,7 +89,7 @@ steps:
       - 'deploy'
       - 'movetrack-app'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/movetrack-app:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA'
       - '--region'
       - 'us-central1'
       - '--platform'
@@ -96,12 +98,12 @@ steps:
     id: 'deploy-app'
     waitFor: ['push-app', 'deploy-api']
 
-# Store images in Container Registry
+# Store images in Artifact Registry
 images:
-  - 'gcr.io/$PROJECT_ID/movetrack-api:$COMMIT_SHA'
-  - 'gcr.io/$PROJECT_ID/movetrack-api:latest'
-  - 'gcr.io/$PROJECT_ID/movetrack-app:$COMMIT_SHA'
-  - 'gcr.io/$PROJECT_ID/movetrack-app:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-api:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-api:latest'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:latest'
 
 # Substitution variables (will be configured in Cloud Build trigger)
 substitutions:
