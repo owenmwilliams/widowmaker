@@ -36,6 +36,11 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - URL_ENCRYPTION_KEY=${URL_ENCRYPTION_KEY:-changeThisToRandomString}
+      - EMAIL_FROM=${EMAIL_FROM:-owen@we3kings.dev}
+      - SMTP_HOST=${SMTP_HOST:-smtp.sendgrid.net}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-apikey}
+      - SMTP_PASS=${SMTP_PASS:-}
     ports:
       - '3050:3050'
     working_dir: /root/movetrack-api
