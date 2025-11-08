@@ -132,13 +132,40 @@ CREATE TABLE storage_units (
 -- Users table
 CREATE TABLE users (
     user_id BIGSERIAL NOT NULL PRIMARY KEY,
-    user_name VARCHAR UNIQUE NOT NULL,
+    user_name VARCHAR UNIQUE,
     first_name VARCHAR,
     last_name VARCHAR,
-    email VARCHAR UNIQUE,
+    email VARCHAR UNIQUE NOT NULL,
     phone VARCHAR(50),
+    last_login_at TIMESTAMPTZ,
+    email_verified_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Auth tokens table for magic links and sessions
+CREATE TABLE auth_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    token VARCHAR(500) NOT NULL UNIQUE,
+    token_type VARCHAR(50) NOT NULL, -- 'magic_link' or 'session'
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    ip_address VARCHAR(45),
+    user_agent TEXT
+);
+
+-- Login history table for security and analytics
+CREATE TABLE login_history (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    login_method VARCHAR(50) NOT NULL, -- 'magic_link', 'password', 'google', etc.
+    success BOOLEAN NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    failure_reason VARCHAR(255),
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Permissions table: Sharing items/collections with family, movers, etc.
@@ -183,6 +210,12 @@ CREATE INDEX idx_move_tasks_project ON move_tasks(move_project_id);
 CREATE INDEX idx_item_history_item ON item_history(item_id);
 CREATE INDEX idx_item_history_project ON item_history(move_project_id);
 CREATE INDEX idx_permissions_user ON permissions(user_name);
+CREATE INDEX idx_auth_tokens_user_id ON auth_tokens(user_id);
+CREATE INDEX idx_auth_tokens_token ON auth_tokens(token);
+CREATE INDEX idx_auth_tokens_expires_at ON auth_tokens(expires_at);
+CREATE INDEX idx_login_history_user_id ON login_history(user_id);
+CREATE INDEX idx_login_history_created_at ON login_history(created_at);
+CREATE INDEX idx_users_email ON users(email);
 
 -- Sample data for testing
 -- INSERT INTO users (user_name, first_name, last_name, email)
