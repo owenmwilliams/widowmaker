@@ -1,0 +1,96 @@
+# Cloud Build configuration for automated deployments
+steps:
+  # Build API Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/movetrack-api:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/movetrack-api:latest'
+      - './movetrack-api'
+    id: 'build-api'
+
+  # Build Frontend Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/movetrack-app:$COMMIT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/movetrack-app:latest'
+      - './movetrack-app'
+    id: 'build-app'
+
+  # Push API image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/movetrack-api:$COMMIT_SHA'
+    id: 'push-api'
+    waitFor: ['build-api']
+
+  # Push Frontend image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/movetrack-app:$COMMIT_SHA'
+    id: 'push-app'
+    waitFor: ['build-app']
+
+  # Deploy API to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'movetrack-api'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/movetrack-api:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--add-cloudsql-instances'
+      - '$_CLOUD_SQL_CONNECTION'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,MT_DATALAYER_HOSTNAME=/cloudsql/$_CLOUD_SQL_CONNECTION,MT_DATALAYER_PORT=5432,MT_DATALAYER_DATABASE=$_DB_NAME,MT_DATALAYER_USERNAME=$_DB_USER'
+      - '--set-secrets'
+      - 'MT_DATALAYER_PASSWORD=movetrack-db-password:latest,JWT_SECRET=movetrack-jwt-secret:latest,SMTP_PASS=sendgrid-api-key:latest'
+    id: 'deploy-api'
+    waitFor: ['push-api']
+
+  # Deploy Frontend to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'movetrack-app'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/movetrack-app:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+    id: 'deploy-app'
+    waitFor: ['push-app', 'deploy-api']
+
+# Store images in Container Registry
+images:
+  - 'gcr.io/$PROJECT_ID/movetrack-api:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/movetrack-api:latest'
+  - 'gcr.io/$PROJECT_ID/movetrack-app:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/movetrack-app:latest'
+
+# Substitution variables (will be configured in Cloud Build trigger)
+substitutions:
+  _CLOUD_SQL_CONNECTION: 'widowmaker-477505:us-central1:movetrack-db'
+  _DB_NAME: 'movetrack_db'
+  _DB_USER: 'movetrack_user'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'

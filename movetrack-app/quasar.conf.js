@@ -1,0 +1,19 @@
+
+module.exports = function (ctx) {
+  return {
+    // ...
+    // Quasar App Configuration
+    // ...
+    build: {
+      // ...
+    },
+    devServer: {
+      // ...
+    },
+    framework: {
+        // ...
+        capacitor: true,
+      },
+    // ...
+  }
+}
