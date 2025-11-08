@@ -38,6 +38,24 @@ steps:
     id: 'push-app'
     waitFor: ['build-app']
 
+  # Run database migrations
+  - name: 'gcr.io/google-cloud-cli:alpine'
+    entrypoint: sh
+    args:
+      - '-c'
+      - |
+        # Install PostgreSQL client
+        apk add --no-cache postgresql-client
+        
+        # Get database password from Secret Manager
+        DB_PASSWORD=$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$PROJECT_ID)
+        
+        # Run migrations via Cloud SQL Proxy
+        (cloud-sql-proxy $_CLOUD_SQL_CONNECTION &) && sleep 5
+        PGPASSWORD=$$DB_PASSWORD psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f init-movetrack.sql
+    id: 'run-migrations'
+    waitFor: ['build-api']
+
   # Deploy API to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
@@ -59,7 +77,7 @@ steps:
       - '--set-secrets'
       - 'MT_DATALAYER_PASSWORD=movetrack-db-password:latest,JWT_SECRET=movetrack-jwt-secret:latest,SMTP_PASS=sendgrid-api-key:latest'
     id: 'deploy-api'
-    waitFor: ['push-api']
+    waitFor: ['push-api', 'run-migrations']
 
   # Deploy Frontend to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
