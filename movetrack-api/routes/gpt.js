@@ -3,15 +3,21 @@ var router = express.Router();
 const OpenAI = require('openai');
 const multer = require('multer');
 
-// const openai = require('openai');
-
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-});
+// Initialize OpenAI only if API key is provided
+let openai = null;
+if (process.env.OPENAI_API_KEY) {
+    openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+    });
+}
 
 // POST route to analyze an uploaded image
 router.post('/object', async (req, res) => {
     try {
+        if (!openai) {
+            return res.status(503).json({ error: 'OpenAI service not configured' });
+        }
+        
         if (!req.body) {
             return res.status(400).json({ error: `No image file, only received: ${req.body}` });
           }
@@ -113,6 +119,10 @@ router.post('/object', async (req, res) => {
 
   router.post('/bookshelf', async (req, res) => {
     try {
+        if (!openai) {
+            return res.status(503).json({ error: 'OpenAI service not configured' });
+        }
+        
         if (!req.body) {
             return res.status(400).json({ error: `No data, only received: ${req.body}` });
           }
