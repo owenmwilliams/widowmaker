@@ -4,7 +4,7 @@
   "description": "Moving and storage inventory management API",
   "private": true,
   "scripts": {
-    "start": "node ./app",
+    "start": "node ./bin/www.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
