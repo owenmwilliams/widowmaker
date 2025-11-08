@@ -56,7 +56,8 @@ var corsOptions = {
     'http://localhost:4050', 
     'http://localhost:5173', 
     'http://localhost:5174', 
-    'https://movetrack-app-7hwn7ggbiq-uc.a.run.app'
+    'https://movetrack-app-7hwn7ggbiq-uc.a.run.app',
+    'https://movetrack-app-203537990119.us-central1.run.app'
   ],
   // allowedHeaders: ['Authorization', 'Content-Type'],
   credentials: true,
