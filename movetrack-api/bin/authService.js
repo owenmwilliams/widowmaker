@@ -189,7 +189,7 @@ async function sendMagicLinkEmail(email, token, baseUrl) {
     }
 
     const mailOptions = {
-        from: process.env.EMAIL_FROM || 'noreply@movetrack.app',
+        from: process.env.EMAIL_FROM || 'owen@we3kings.dev',
         to: email,
         subject: 'Your MoveTrack Login Link',
         html: `
