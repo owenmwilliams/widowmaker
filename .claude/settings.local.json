@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker info:*)",
+      "Bash(/dev/null)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker-compose ps:*)",
+      "Bash(lsof:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(docker exec:*)",
+      "Bash(NODE_ENV=development MT_DATALAYER_HOSTNAME=localhost MT_DATALAYER_PORT=5432 MT_DATALAYER_DATABASE=movetrack_db MT_DATALAYER_USERNAME=movetrack_user MT_DATALAYER_PASSWORD=changeme123 PORT=3050 npm start:*)",
+      "Bash(curl:*)",
+      "Bash(npm run dev)",
+      "Bash(npx vite)",
+      "Bash(node --version:*)",
+      "Bash(npm --version:*)",
+      "Bash(npm install:*)",
+      "Bash(npx vite:*)",
+      "Bash(node:*)",
+      "Bash(cat:*)",
+      "Bash(xargs kill:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

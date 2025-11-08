@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "take-stock-364901",
+  "private_key_id": "c11c49339bff71846aa2aa2e042beb140021212c",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC0yq0zYoCGyblu\nHSsTozqfK4IXirsUvjDz+46jYuBzVyZenVdoXaZYi6PgGFEJslXZmyDB/A66Wyqy\ngKTOdsifKstVg2t3UBccejrzOHSx4ktvkzqBO+UEw6OQi7WLic+7UyuGqoSdwhIq\nBSiyVMkyaUPh57P/7xnTyTieG8staoSJG9SWauyOKbGG692myEudavd3xgUxh0UH\ngt77sFqGcES68E9HahIKtcbsQV6No6SRcHRA4+mHd1yTCEbwTMmLaeKjoD/fu6ZZ\nXB7X9GBQK/trl1azTDYfecyHxsgFodAl0xAO0Zs+C9pYLLRXL9dDs5I6Tc5Cxg4u\ndlYylERLAgMBAAECggEAA5d7NWghkYv0aSGfN3aotXzRytHwwYq9wjsfLFPMjb4P\nfxW1JNendF7h1JPnGEA4wGf6kKAHUuB4yq8PlyJ4/eCFxZ8kxWwL6X7sKOTYPKh4\nQzEzmlmsRRn15+s+ohUM0XXniXddxxyR68/KbTCOBrhcpuJJiy4e3zxCKbH3qWFJ\nzz4T812D1BZzseYkTVQw84sODreiKHw2OtLZHjG/Wg+C4MfOW+jHKeS31jovh0Vo\nHDujHMtT19h+9xx0gG12ba+PwM+j9sCtcD3PsP8E2v/CX4rKBAcaKEwcFGJkTLwh\n2zAkyCpSI9kLcOzF7U+zzpt8tSNn0VhTGMlr3xo5kQKBgQDecCnmEJqw0PrSfGsN\nfTNOHOtriALgSsD2Sz0mSOdX7mWjil/zAlxMAEGYHz9Sp8c19OcJKmPj1kwLEhrN\nu2DwmRr5Xp031nfhf2Cyb44V8u0WTOtA7nwzOFlHeD9jbT9PvpAb6K70Yj/JmQGW\ndFg219JbAuNOgGM4cN7Jbwqd3wKBgQDQEeOKWw4heE+NkjQXcXK5IVUntHGSMv2d\nLhmwoOtPtPi/zh59W6NjNI3L6VEi0AyHdN58suxudO/HjaAUwbVpbve40+Cqwr+a\nM2U38q5IZP1Y3r0U0lsuq7Hx5C3+IYp+9stqD4D4OfErfj3TJ1bRH1YknHTtuCJB\nqdP6xLLPFQKBgQC23BZVn4jLmsDXkJig+i/XI0cVmzZiFJIU5z1Z38zvKHg9vV+r\ncmFVyVAjMmzoEi1eWfokOsjrYBwbbcLDJitHH1Zhcjpk0Na0dfaUOcjgmlf1YT50\nnplTshsS+fOCVSka8Vme1+Yb2Tj/Dd2URgjO7RVs5C7hNgJbP86mYbakmQKBgEOb\nvHLleWb4v+jBe/muHFf5c8EOCeU2emALbb+N2kgxBq7UW+Xh0+pVVknOy1Vjgt60\n4+JjBR4zEwKli0GTW84hh47gEd2KoFWLo7UVPvo5DnVFEu1kGMrGcXCm8ybjYSw2\nJwyUcxS1Rx8Zyx8EZlpXM1d8GyZvMXpio4WVSoCtAoGBAKybJVdhpC+8dOTLfb8b\nyQNRX5b4duote4nP8Z3dtXTsHCJYQ6q1iDiwicbyYXDo6PBajnb3yYBaDVrObBS2\nuqGLiBICnsrZtGSe9ZBAd00ALFHdZIyMrlNl3Z2viQEQifvgwIUxYTJy2XZ9jQ1u\nx6ckXRSGMSdCwT/CXgm2cDxn\n-----END PRIVATE KEY-----\n",
+  "client_email": "take-stock-dev@take-stock-364901.iam.gserviceaccount.com",
+  "client_id": "117492679702946841116",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/take-stock-dev%40take-stock-364901.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}

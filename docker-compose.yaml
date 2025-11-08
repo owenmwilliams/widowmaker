@@ -1,0 +1,72 @@
+version: "3.8"
+
+services:
+  movetrack-app:
+    build:
+      context: "./movetrack-app"
+      dockerfile: 'Dockerfile'
+      target: build-stage
+    environment:
+      - NODE_ENV=development
+      - CORE_URL=http://localhost:3050
+      - PORT=4050
+    ports:
+      - '4050:4050'
+    working_dir: /movetrack-app
+    volumes:
+      - ./movetrack-app:/root/movetrack-app:cached
+    depends_on:
+      - movetrack-api
+
+  movetrack-api:
+    depends_on:
+      - pg
+    build:
+      context: "./movetrack-api"
+      dockerfile: 'Dockerfile'
+      target: build-stage
+    environment:
+      - NODE_ENV=development
+      - PORT=3050
+      - MT_DATALAYER_HOSTNAME=pg
+      - MT_DATALAYER_PORT=5432
+      - MT_DATALAYER_DATABASE=movetrack_db
+      - MT_DATALAYER_USERNAME=movetrack_user
+      - MT_DATALAYER_PASSWORD=${DB_PASSWORD:-changeme123}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - URL_ENCRYPTION_KEY=${URL_ENCRYPTION_KEY:-changeThisToRandomString}
+    ports:
+      - '3050:3050'
+    working_dir: /root/movetrack-api
+    volumes:
+      - ./movetrack-api:/root/movetrack-api:cached
+
+  pg:
+    container_name: movetrack_pg
+    image: postgres:14.0
+    restart: always
+    environment:
+      POSTGRES_USER: movetrack_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
+      POSTGRES_DB: movetrack_db
+    volumes:
+      - ./init-movetrack.sql:/docker-entrypoint-initdb.d/init-movetrack.sql
+      - movetrack_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+
+  pgadmin:
+    container_name: movetrack_pgadmin
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@movetrack.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    ports:
+      - '5050:80'
+    depends_on:
+      - pg
+
+volumes:
+  movetrack_data:
