@@ -4,7 +4,7 @@ import { Ref, ref } from 'vue';
 import router from '../router';
 
 export const inventoryStore = defineStore("inventory", () => {
-    const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://api-endpoint.take-stock.app'
+    const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
     const url_suffix = import.meta.env.MODE == 'development' ? 'dev' : 'demo'
 
     // Helper function to get headers with auth token

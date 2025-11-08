@@ -12,7 +12,7 @@
   import { useQuasar } from 'quasar';
 //STORE
   const store = inventoryStore();
-  const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://api-endpoint.take-stock.app';
+  const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
 
   // const $q = useQuasar()
 

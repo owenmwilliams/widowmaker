@@ -52,7 +52,12 @@ if (process.env.NODE_ENV == 'development') {
 
 
 var corsOptions = {
-  origin: ['http://localhost:4050', 'http://localhost:5173', 'http://localhost:5174', 'https://www.take-stock.app', 'https://take-stock.app', 'https://www.take-stock.xyz', 'https://take-stock.xyz'],
+  origin: [
+    'http://localhost:4050', 
+    'http://localhost:5173', 
+    'http://localhost:5174', 
+    'https://movetrack-app-7hwn7ggbiq-uc.a.run.app'
+  ],
   // allowedHeaders: ['Authorization', 'Content-Type'],
   credentials: true,
   optionsSuccessStatus: 200
