@@ -8,7 +8,7 @@ export const inventoryStore = defineStore("inventory", () => {
     const url_suffix = import.meta.env.MODE == 'development' ? 'dev' : 'demo'
 
     // Helper function to get headers with auth token
-    function getHeaders() {
+    function getHeaders(): Record<string, string> {
         const sessionToken = localStorage.getItem('session_token');
         if (sessionToken) {
             return { Authorization: 'Bearer ' + sessionToken };
