@@ -127,7 +127,7 @@ const verifyMagicLink = async (token: string) => {
 
       $q.notify({
         type: 'positive',
-        message: `Welcome back, ${response.data.user.username}!`
+        message: `Welcome back!`
       });
 
       // Redirect to items page
