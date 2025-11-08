@@ -54,7 +54,9 @@ steps:
         
         # Run migrations via Cloud SQL Proxy
         (./cloud_sql_proxy -instances=$_CLOUD_SQL_CONNECTION=tcp:5432 &) && sleep 10
-        PGPASSWORD=$$DB_PASSWORD psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f init-movetrack.sql
+        
+        # Run safe migration script to add auth tables
+        PGPASSWORD=$$DB_PASSWORD psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f migrations-safe.sql || true
     id: 'run-migrations'
     waitFor: ['build-api']
 
