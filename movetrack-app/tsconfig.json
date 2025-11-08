@@ -11,11 +11,12 @@
     "isolatedModules": true,
     "esModuleInterop": true,
     "lib": ["ESNext", "DOM"],
-    "skipLibCheck": true, 
+    "skipLibCheck": true,
     "noImplicitAny": false,
-    "allowJs": true
+    "allowJs": true,
+    "outDir": "./dist",
+    "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "src/stores/InventoryStore.js", "src/stores/InventoryStore.js"],
-  "references": [{ "path": "./tsconfig.node.json" }],
-  "outDir": "./dist"
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "references": [{ "path": "./tsconfig.node.json" }]
 }

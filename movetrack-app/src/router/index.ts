@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type NavigationGuardNext, type RouteLocationNormalized } from 'vue-router'
 
 import Home from '../views/Home.vue'
 import Profile from '../components/Profile.vue'
@@ -10,7 +10,7 @@ import Items from '../components/Items.vue'
 import NotFound from '../views/NotFound.vue'
 
 // Custom auth guard using session tokens
-const authGuard = (to: any, from: any, next: any) => {
+const authGuard = (to: RouteLocationNormalized, from: RouteLocationNormalized, next: NavigationGuardNext) => {
   const sessionToken = localStorage.getItem('session_token');
 
   if (sessionToken) {

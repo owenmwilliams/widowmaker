@@ -25,65 +25,44 @@
 
   async function checkUser() {
     emits('app:loading', true)
-    var timer = 0
-
-    // TEMPORARY: Development bypass for Auth0 - REMOVE BEFORE PRODUCTION!
-    if (import.meta.env.MODE === 'development') {
-      const devUser = localStorage.getItem('dev_user');
-      if (devUser) {
-        console.log('Using dev user:', devUser);
-        username.value = devUser;
-        emits('app:loading', false);
-        return;
-      }
-    }
-
-    // This has to do the login first, then check the user...
 
     try {
-        if (timer == 0) {
-            await getAccessTokenSilently()
-            .then(token => {
-                const data = axios({
-                method: 'get',
-                url: core_url + '/users/',
-                params: {
-                    user_id: user.value.sub
-                },
-                headers: {
-                    Authorization: 'Bearer ' + token
-                }
-                })
-                return data
-            })
-            .then(response => {
-                if (response.data == 'nodata') {
-                  emits('app:loading', false)
-                  router.push({ path: '/profile' })
-                } else {
-                  username.value = response.data.user_name
-                  emits('app:loading', false)
-                }
-            })
+        // Check for magic link session
+        const sessionToken = localStorage.getItem('session_token');
+
+        if (!sessionToken) {
+          // No session, redirect to login
+          emits('app:loading', false);
+          router.push('/login');
+          return;
+        }
+
+        // Verify session is still valid with the API
+        const response = await axios.get(`${core_url}/auth/me`, {
+          headers: {
+            Authorization: `Bearer ${sessionToken}`
+          }
+        });
+
+        if (response.data.success) {
+          // Use email as username if user_name is not set
+          username.value = response.data.user.username || response.data.user.email;
+          emits('app:loading', false);
         } else {
-            setTimeout(() => {
-            timer--
-            }, 1000)
+          // Session expired, redirect to login
+          localStorage.removeItem('session_token');
+          localStorage.removeItem('user_data');
+          emits('app:loading', false);
+          router.push('/login');
         }
 
     } catch (error) {
-        console.error('Auth error (expected in dev mode):', error)
-        // In development mode, fall back to dev_user if Auth0 fails
-        if (import.meta.env.MODE === 'development') {
-          const devUser = localStorage.getItem('dev_user');
-          if (devUser) {
-            console.log('Auth failed, using dev user:', devUser);
-            username.value = devUser;
-          }
-        }
-    } finally {
-        emits('app:loading', false)
-        timer = 10
+        console.error('Auth error:', error);
+        // Clear invalid session and redirect to login
+        localStorage.removeItem('session_token');
+        localStorage.removeItem('user_data');
+        emits('app:loading', false);
+        router.push('/login');
     }
   };
 
