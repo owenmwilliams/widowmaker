@@ -58,11 +58,19 @@ function verifySessionToken(token) {
  */
 async function createMagicLinkToken(email, ipAddress, userAgent) {
     try {
-        // Check if user exists
-        const user = await db.oneOrNone('SELECT user_id, email FROM users WHERE email = $1', [email]);
+        // Check if user exists, create if not
+        let user = await db.oneOrNone('SELECT user_id, email FROM users WHERE email = $1', [email]);
 
         if (!user) {
-            return { success: false, error: 'User not found' };
+            // Create new user
+            console.log('Creating new user for email:', email);
+            user = await db.one(
+                `INSERT INTO users (email, created_at, last_login_at)
+                 VALUES ($1, NOW(), NOW())
+                 RETURNING user_id, email`,
+                [email]
+            );
+            console.log('New user created:', user.user_id);
         }
 
         // Generate magic link token
