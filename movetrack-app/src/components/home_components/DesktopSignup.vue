@@ -1,6 +1,9 @@
 <script setup lang="ts">
     import { ref, defineEmits } from 'vue';
-    import router from '../../router';
+    import axios from 'axios';
+    import { useQuasar } from 'quasar';
+
+    const $q = useQuasar();
 
     // To adjust url based on whether in prod or not
     const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
@@ -10,79 +13,134 @@
         (e: 'app:loading', id: boolean): void
     }>()
 
-    // Login function - redirect to login page
-    function login(provider: string) {
-        router.push('/login');
-    }
-
     const email = ref('');
+    const emailError = ref(false);
+    const emailErrorMessage = ref('');
+    const isSubmitting = ref(false);
+    const emailSent = ref(false);
 
     const slide = ref(1);
 
-    const imageUrls = [
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Antiques.png', label: '...piece for the corner of your room.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Art.png', label: '...expression of your taste.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Books.png', label: '...addition to your library.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Ceramics.png', label: '...display piece for the china cabinet.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Coins.png', label: '...gem in your numismatic journey.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Collectible%20Cards.png', label: '...perfect card for your deck.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Figurines.png', label: '...member to the league.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Hats.png', label: '...unique cap to crown your collection.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Jewelry.png', label: '...sparkling touch to wear and pass down.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Playing%20Cards.png', label: '...deck to ante up on.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Records.png', label: '...vinyl to set just the right mood.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Shoes.png', label: '...fresh pair of kicks.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Sports%20Memorabilia.png', label: '...game worn jersey.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Stamps.png', label: '...colorful mark of history.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Textiles.png', label: '...tapestry that tells a tale.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Watches.png', label: '...timeless piece and family heirloom.' },
-        // { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/Wine.png', label: '...bottle for your cellar.'},
+    const validateEmail = () => {
+      if (!email.value) {
+        emailError.value = true;
+        emailErrorMessage.value = 'Email is required';
+        return false;
+      }
 
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/MateGourd.PNG', label: '...mate gourd.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/CopperBowl.PNG', label: '...copper bowl.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/ChinaCup.PNG', label: '...china cup.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/PlayingCards.PNG', label: '...playing cards.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/BeltBuckle.PNG', label: '...belt buckle.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/MintJulepCups.PNG', label: '...mint julep cups.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/NutDish.PNG', label: '...nut dish.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/ShotGlasses.PNG', label: '...pair of shot glasses.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/VeuveHat.PNG', label: '...yellow hat.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/ChinaTeaCup.PNG', label: '...tea cup.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/MetalFlute.PNG', label: '...metal flute.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/BlueFlute.PNG', label: '...glass vase.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/MiniSteins.PNG', label: '...set of mini steins.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/PepperGrinder.PNG', label: '...pepper grinder.' },
-        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/FlowerVase.PNG', label: '...flower vase.' }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.value)) {
+        emailError.value = true;
+        emailErrorMessage.value = 'Invalid email format';
+        return false;
+      }
+
+      emailError.value = false;
+      emailErrorMessage.value = '';
+      return true;
+    };
+
+    const requestMagicLink = async () => {
+      if (!validateEmail()) {
+        return;
+      }
+
+      isSubmitting.value = true;
+
+      try {
+        const response = await axios.post(`${core_url}/auth/request-magic-link`, {
+          email: email.value
+        });
+
+        if (response.data.success) {
+          emailSent.value = true;
+          $q.notify({
+            type: 'positive',
+            message: 'Check your email for the login link!',
+            caption: 'The link will expire in 15 minutes'
+          });
+        } else {
+          $q.notify({
+            type: 'negative',
+            message: response.data.error || 'Failed to send magic link'
+          });
+        }
+      } catch (error: any) {
+        console.error('Error requesting magic link:', error);
+        $q.notify({
+          type: 'negative',
+          message: error.response?.data?.error || 'Failed to send magic link'
+        });
+      } finally {
+        isSubmitting.value = false;
+      }
+    };
+
+    const imageUrls = [
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/MateGourd.PNG', label: 'Mate gourd', qty: '1', size: '6"×4"×4"', weight: '0.9 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/CopperBowl.PNG', label: 'Copper bowl', qty: '1', size: '3.5"×5.5"×5.5"', weight: '0.8 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/ChinaCup.PNG', label: 'China cup', qty: '1', size: '4"×4.5"×4.5"', weight: '0.7 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/PlayingCards.PNG', label: 'Playing cards', qty: '1', size: '3.5"×2.5"×0.75"', weight: '0.4 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/BeltBuckle.PNG', label: 'Belt buckle', qty: '1', size: '2"×3"×0.5"', weight: '0.3 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/MintJulepCups.PNG', label: 'Mint julep cups', qty: '2', size: '4.5"×3.5"×3.5"', weight: '0.9 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/NutDish.PNG', label: 'Nut dish', qty: '1', size: '6"×9"×4"', weight: '1.6 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/ShotGlasses.PNG', label: 'Shot glasses', qty: '3', size: '2.5"×2"×2"', weight: '0.4 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/VeuveHat.PNG', label: 'Veuve Clicquot hat', qty: '1', size: '5"×8"×8"', weight: '0.3 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/ChinaTeaCup.PNG', label: 'Tea cup with saucer', qty: '1', size: '3"×5.5"×5.5"', weight: '0.9 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/MetalFlute.PNG', label: 'Metal vase', qty: '1', size: '10"×3"×3"', weight: '1.3 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/BlueFlute.PNG', label: 'Glass vase (blue)', qty: '1', size: '12"×4"×4"', weight: '1.4 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/MiniSteins.PNG', label: 'Mini steins', qty: '2', size: '5"×3"×3"', weight: '1.2 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/PepperGrinder.PNG', label: 'Pepper grinder', qty: '1', size: '5"×2.5"×2.5"', weight: '0.8 lbs' },
+        { url: 'https://storage.googleapis.com/take-stock-design-assets/Home/FlowerVase.PNG', label: 'Flower vase', qty: '1', size: '8"×4"×3"', weight: '1.5 lbs' }
     ];
 </script>
 
 <template>
 
     <div class="banner row q-pa-md">
-        <div stack class="col-5">
-            <h3 class="my_font_class q-pa-none">Your collection.</h3>
-            <h3 class="my_font_class q-pa-none">Your marketplace.</h3>
-            <h2 class="text-weight-medium text-accent my_font_class">Your place to find the next...</h2>
-            <button @click="login('google')" class="gsi-material-button">
-                <div class="gsi-material-button-state"></div>
-                <div class="gsi-material-button-content-wrapper">
-                    <div class="gsi-material-button-icon">
-                    <svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" xmlns:xlink="http://www.w3.org/1999/xlink" style="display: block;">
-                        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                        <path fill="none" d="M0 0h48v48H0z"></path>
-                    </svg>
-                    </div>
-                    <span class="gsi-material-button-contents">Continue with Google</span>
-                    <span style="display: none;">Continue with Google</span>
-                </div>
-            </button>
-            <q-btn flat dense standout lowercase size="md" class="thin-italic-button row" @click="login('email')">Or sign up with email</q-btn>
+        <div stack class="col-5 content-left-align">
+            <h1 class="my_font_class q-pa-none main-tagline">Moving made manageable.</h1>
+            <h2 class="my_font_class q-pa-none tagline">Log it. Store it. Ship it.</h2>
+            <p class="subtitle q-mt-md">Track your inventory and organize your move with ease.</p>
+
+            <div v-if="!emailSent" class="email-signup-form q-mt-lg">
+                <q-input
+                    v-model="email"
+                    label="Enter your email"
+                    type="email"
+                    outlined
+                    dark
+                    standout="bg-white text-dark"
+                    :error="emailError"
+                    :error-message="emailErrorMessage"
+                    @update:model-value="emailError = false"
+                    @keyup.enter="requestMagicLink"
+                    class="email-input"
+                >
+                    <template v-slot:prepend>
+                        <q-icon name="mail" />
+                    </template>
+                </q-input>
+                <q-btn
+                    color="white"
+                    text-color="dark"
+                    :loading="isSubmitting"
+                    :disable="isSubmitting"
+                    class="q-mt-md action-button"
+                    @click="requestMagicLink"
+                >
+                    Get Started
+                </q-btn>
+            </div>
+            <div v-else class="success-message q-mt-lg">
+                <q-icon name="check_circle" size="48px" color="white" />
+                <p class="q-mt-md text-h6">Check your email!</p>
+                <p class="text-body2">We've sent a login link to {{ email }}</p>
+            </div>
         </div>
 
         <div class="col-7" style="max-width: 100%;">
+            <div class="inventory-book-frame">
             <q-carousel
             class="carousel"
             animated
@@ -90,16 +148,36 @@
             infinite
             autoplay
             animation="1000"
-            
+
             style="max-width: 85%;
             height: 65%;"
             >
-            <q-carousel-slide v-for="(img, index) in imageUrls" :name="index+1">
-                <div class="text-h5 text-weight-medium flex flex-center q-pb-lg">{{ img.label }}</div>  
-                <q-img :src="img.url" style="height: 60vh;" fit="contain" />
+            <q-carousel-slide v-for="(img, index) in imageUrls" :name="index+1" class="carousel-slide">
+                <div class="image-container">
+                    <q-img :src="img.url" style="height: 60vh;" fit="contain" />
+                    <div class="logbook-overlay">
+                        <div class="logbook-entry">
+                            <span class="entry-label">Item:</span>
+                            <span class="entry-value">{{ img.label }}</span>
+                        </div>
+                        <div class="logbook-entry">
+                            <span class="entry-label">Qty:</span>
+                            <span class="entry-value">{{ img.qty }}</span>
+                        </div>
+                        <div class="logbook-entry">
+                            <span class="entry-label">Size:</span>
+                            <span class="entry-value">{{ img.size }}</span>
+                        </div>
+                        <div class="logbook-entry">
+                            <span class="entry-label">Weight:</span>
+                            <span class="entry-value">{{ img.weight }}</span>
+                        </div>
+                    </div>
+                </div>
             </q-carousel-slide>
 
             </q-carousel>
+            </div>
         </div>
 
     </div>
@@ -111,162 +189,157 @@
     color: white;
     font-weight: 800;
 }
+.content-left-align {
+    padding-left: 40px;
+}
+.main-tagline {
+    font-size: 3rem;
+    line-height: 1.2;
+    margin: 0 0 0.5rem 0;
+    font-weight: 800;
+}
+.tagline {
+    font-size: 1.8rem;
+    line-height: 1.3;
+    margin: 0;
+    font-weight: 600;
+}
+.subtitle {
+    font-size: 1.1rem;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 300;
+}
+.email-signup-form {
+    max-width: 400px;
+    width: 100%;
+}
+.email-input {
+    border-radius: 8px;
+}
+.email-input .q-field__control {
+    background-color: rgba(255, 255, 255, 0.95);
+}
+.action-button {
+    font-weight: 600;
+    padding: 16px 48px;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    min-height: 52px;
+}
+.success-message {
+    text-align: left;
+}
 .card-colors {
     background-color: #f5f9e9;
 }
+.inventory-book-frame {
+    background: linear-gradient(to right, #8b7355 0%, #a0826d 3%, #c9b8a0 5%, #e8dcc8 8%, #f5f0e8 10%, #f5f0e8 90%, #e8dcc8 92%, #c9b8a0 95%, #a0826d 97%, #8b7355 100%);
+    padding: 30px 25px;
+    border-radius: 8px;
+    box-shadow:
+        0 10px 30px rgba(0, 0, 0, 0.3),
+        inset 0 0 0 2px #6d5844,
+        inset 3px 0 8px rgba(0, 0, 0, 0.2);
+    position: relative;
+    margin-left: auto;
+    max-width: 85%;
+}
+
+.inventory-book-frame::before {
+    content: "";
+    position: absolute;
+    left: 20px;
+    top: 10px;
+    bottom: 10px;
+    width: 3px;
+    background: linear-gradient(to bottom,
+        transparent 0%,
+        rgba(109, 88, 68, 0.3) 5%,
+        rgba(109, 88, 68, 0.5) 50%,
+        rgba(109, 88, 68, 0.3) 95%,
+        transparent 100%);
+    border-radius: 1px;
+}
+
+.inventory-book-frame::after {
+    content: "INVENTORY LEDGER";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    font-weight: bold;
+    color: #6d5844;
+    letter-spacing: 3px;
+    opacity: 0.6;
+}
+
 .carousel {
     background-color: rgba(255, 255, 255, 0);
-    margin-left: auto;
+    margin-left: 0;
+}
+.carousel-slide {
+    position: relative;
+}
+.image-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+.logbook-overlay {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: rgba(245, 245, 220, 0.95);
+    border: 2px solid #8b7355;
+    border-radius: 4px;
+    padding: 12px 20px;
+    font-family: 'Courier New', monospace;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    min-width: 220px;
+    max-width: 280px;
+}
+.logbook-entry {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    margin-bottom: 4px;
+}
+.logbook-entry:last-child {
+    margin-bottom: 0;
+}
+.entry-label {
+    font-weight: bold;
+    color: #4a4a4a;
+    font-size: 12px;
+    min-width: 55px;
+}
+.entry-value {
+    color: #2c2c2c;
+    font-size: 13px;
+    font-style: italic;
 }
 .banner {
-    /* Using gradientmagic.com */
-    background-image: linear-gradient(44deg, rgba(243, 243, 243, 0.05) 0%, rgba(243, 243, 243, 0.05) 33.333%,rgba(79, 79, 79, 0.05) 33.333%, rgba(79, 79, 79, 0.05) 66.666%,rgba(9, 9, 9, 0.05) 66.666%, rgba(9, 9, 9, 0.05) 99.999%),linear-gradient(97deg, rgba(150, 150, 150, 0.05) 0%, rgba(150, 150, 150, 0.05) 33.333%,rgba(34, 34, 34, 0.05) 33.333%, rgba(34, 34, 34, 0.05) 66.666%,rgba(40, 40, 40, 0.05) 66.666%, rgba(40, 40, 40, 0.05) 99.999%),linear-gradient(29deg, rgba(56, 56, 56, 0.05) 0%, rgba(56, 56, 56, 0.05) 33.333%,rgba(226, 226, 226, 0.05) 33.333%, rgba(226, 226, 226, 0.05) 66.666%,rgba(221, 221, 221, 0.05) 66.666%, rgba(221, 221, 221, 0.05) 99.999%),linear-gradient(90deg, rgb(70,117,153),rgb(238,132,52));
+    /* Professional, trustworthy moving company aesthetic */
+    background: linear-gradient(135deg, #2c5f7c 0%, #3a7ca5 50%, #4a90c4 100%);
     color: white;
     align-items: center;
     justify-content: center;
     height: 90vh;
+    position: relative;
 }
-
-.gsi-material-button {
-  background-color: WHITE;
-  background-image: none;
-  border: 1px solid #747775;
-  -webkit-border-radius: 4px;
-  border-radius: 4px;
-  -webkit-box-sizing: border-box;
-  box-sizing: border-box;
-  color: #1f1f1f;
-  cursor: pointer;
-  font-family: 'Roboto', arial, sans-serif;
-  font-size: 14px;
-  height: 40px;
-  letter-spacing: 0.25px;
-  outline: none;
-  overflow: hidden;
-  padding: 0 12px;
-  position: relative;
-  text-align: center;
-  -webkit-transition: background-color .218s, border-color .218s, box-shadow .218s;
-  transition: background-color .218s, border-color .218s, box-shadow .218s;
-  vertical-align: middle;
-  white-space: nowrap;
-  width: auto;
-  max-width: 400px;
-  min-width: min-content;
+.banner::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image:
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.03) 0px, transparent 1px, transparent 40px, rgba(255,255,255,0.03) 41px),
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0px, transparent 1px, transparent 40px, rgba(255,255,255,0.03) 41px);
+    pointer-events: none;
 }
-
-.gsi-material-button .gsi-material-button-icon {
-  height: 20px;
-  margin-right: 12px;
-  min-width: 20px;
-  width: 20px;
-}
-
-.gsi-material-button .gsi-material-button-content-wrapper {
-  -webkit-align-items: center;
-  align-items: center;
-  display: flex;
-  -webkit-flex-direction: row;
-  flex-direction: row;
-  -webkit-flex-wrap: nowrap;
-  flex-wrap: nowrap;
-  height: 100%;
-  justify-content: space-between;
-  position: relative;
-  width: 100%;
-}
-
-.gsi-material-button .gsi-material-button-contents {
-  -webkit-flex-grow: 1;
-  flex-grow: 1;
-  font-family: 'Roboto', arial, sans-serif;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  vertical-align: top;
-}
-
-.gsi-material-button .gsi-material-button-state {
-  -webkit-transition: opacity .218s;
-  transition: opacity .218s;
-  bottom: 0;
-  left: 0;
-  opacity: 0;
-  position: absolute;
-  right: 0;
-  top: 0;
-}
-
-.gsi-material-button:disabled {
-  cursor: default;
-  background-color: #ffffff61;
-  border-color: #1f1f1f1f;
-}
-
-.gsi-material-button:disabled .gsi-material-button-contents {
-  opacity: 38%;
-}
-
-.gsi-material-button:disabled .gsi-material-button-icon {
-  opacity: 38%;
-}
-
-.gsi-material-button:not(:disabled):active .gsi-material-button-state, 
-.gsi-material-button:not(:disabled):focus .gsi-material-button-state {
-  background-color: #303030;
-  opacity: 12%;
-}
-
-.gsi-material-button:not(:disabled):hover {
-  -webkit-box-shadow: 0 1px 2px 0 rgba(60, 64, 67, .30), 0 1px 3px 1px rgba(60, 64, 67, .15);
-  box-shadow: 0 1px 2px 0 rgba(60, 64, 67, .30), 0 1px 3px 1px rgba(60, 64, 67, .15);
-}
-
-.gsi-material-button:not(:disabled):hover .gsi-material-button-state {
-  background-color: #303030;
-  opacity: 8%;
-}
-    .video-div {
-        padding: 0.75vw;
-    }
-    .form-container {
-        background-image: url('https://storage.googleapis.com/take-stock-design-assets/roy_background_1');
-        background-size: cover;
-        background-position: center;
-        border-radius: 20px;
-        padding: 20px;
-        position: relative;
-        top: 25%;
-        height: 50%;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-    }
-    .form-container::before {
-        content: "";
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0, 0, 0, 0.8);
-        border-radius: 20px;
-    }
-    .signup-div {
-        z-index: 1;
-        width: 100%;
-    }
-    .form-class {
-        height: 100%;
-        padding: 0.75vw;
-        display: flex;
-    }
-    .thin-italic-button {
-        font-size: 12px; /* Customize the font size */
-        font-weight: 100; /* Customize the font weight */
-        font-style: italic; /* Apply italic style */
-        text-transform: lowercase;
-        padding-left: 20px;
-        padding-right: 20px;
-    }
 </style>

@@ -63,12 +63,15 @@ async function createMagicLinkToken(email, ipAddress, userAgent) {
 
         if (!user) {
             // Create new user
+            // Generate username from email (part before @)
+            const username = email.split('@')[0];
+
             console.log('Creating new user for email:', email);
             user = await db.one(
-                `INSERT INTO users (email, created_at, last_login_at)
-                 VALUES ($1, NOW(), NOW())
+                `INSERT INTO users (email, user_name, created_at, last_login_at)
+                 VALUES ($1, $2, NOW(), NOW())
                  RETURNING user_id, email`,
-                [email]
+                [email, username]
             );
             console.log('New user created:', user.user_id);
         }

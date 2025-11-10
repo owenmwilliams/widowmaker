@@ -1,6 +1,8 @@
 const express = require('express');
 const path = require('path');
 const vision = require('@google-cloud/vision');
+const visionService = require('../bin/visionService');
+const { verifyToken } = require('../bin/jwtMiddleware');
 var router = express.Router();
 const multer = require('multer');
 const isLocalEnvironment = process.env.NODE_ENV !== 'production'; // Detect local development environment
@@ -40,7 +42,7 @@ const upload = multer({
   },
 });
 
-// POST route to analyze an uploaded image
+// POST route to analyze an uploaded image (legacy Google Cloud Vision)
 router.post('/analyze', upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
@@ -69,6 +71,69 @@ router.post('/analyze', upload.single('file'), async (req, res) => {
   } catch (error) {
     console.error('Error analyzing image:', error);
     res.status(500).send('Internal server error');
+  }
+});
+
+// POST route to analyze item photo using multimodal AI (Claude, GPT-4, or Gemini)
+// REQUIRES AUTHENTICATION
+router.post('/analyze-item', verifyToken, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file uploaded' });
+    }
+
+    // Get provider from query param or body (optional - defaults to current provider)
+    const provider = req.query.provider || req.body.provider;
+
+    // Convert buffer to base64
+    const base64Image = req.file.buffer.toString('base64');
+    const mimeType = req.file.mimetype;
+
+    console.log(`Analyzing item photo - Size: ${req.file.size} bytes, Type: ${mimeType}, Provider: ${provider || 'default'}`);
+
+    // Call vision service
+    const result = await visionService.analyzeItemPhoto(base64Image, mimeType, provider);
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    console.error('Error analyzing item photo:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// GET current vision provider
+// REQUIRES AUTHENTICATION
+router.get('/provider', verifyToken, (req, res) => {
+  res.json({
+    current: visionService.getCurrentProvider(),
+    available: visionService.getAvailableProviders()
+  });
+});
+
+// POST set vision provider
+// REQUIRES AUTHENTICATION
+router.post('/provider', verifyToken, (req, res) => {
+  try {
+    const { provider } = req.body;
+    if (!provider) {
+      return res.status(400).json({ error: 'Provider is required' });
+    }
+
+    const newProvider = visionService.setProvider(provider);
+    res.json({
+      success: true,
+      provider: newProvider,
+      available: visionService.getAvailableProviders()
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 

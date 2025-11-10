@@ -106,7 +106,12 @@ export const inventoryStore = defineStore("inventory", () => {
                     console.log(error)
                 }
             })
-            .then(() => {
+            .then(async () => {
+                // Auto-create default collection if none exists
+                if (collections.value.length === 0) {
+                    await createCollection(user, 'My First Collection', 'Your default collection');
+                }
+
                 if (activeCollection.value == undefined && collections.value.length > 0) {
                     setActiveCollection({ label: collections.value[0].label, value: collections.value[0].value})
                 }
