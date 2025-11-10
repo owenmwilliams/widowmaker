@@ -271,7 +271,6 @@
         >
 
         <template v-slot:top>
-            <q-btn color="secondary" label="Add Item" icon="add" @click="emits('addItem')" />
                 <q-input dense filled debounce="300" style="padding: 3px; width: 25vw;" color="primary" bg-color="transparent" v-model="search">
                     <template v-slot:prepend>
                         <q-icon color="primary" name="search" />

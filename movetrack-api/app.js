@@ -1,3 +1,6 @@
+// Load environment variables from .env file
+require('dotenv').config();
+
 // MoveTrack API Server
 var createError = require('http-errors');
 var express = require('express');
@@ -8,6 +11,7 @@ var cors = require('cors');
 // const { expressjwt: jwt } = require('express-jwt');
 
 var jwtLib = require('./bin/auth')
+const { verifyToken } = require('./bin/jwtMiddleware');
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 var locationsRouter = require('./routes/locations');
@@ -72,7 +76,7 @@ app.use('/users', usersRouter);
 app.use('/locations', locationsRouter);
 app.use('/collections', collectionsRouter);
 app.use('/containers', containersRouter);
-app.use('/items', jwtCheck, itemsRouter);
+app.use('/items', verifyToken, itemsRouter);
 app.use('/public', publicRouter)
 app.use('/file', fileRouter);
 app.use('/lists', listsRouter);

@@ -14,6 +14,9 @@
   import MobileEditSelect from './MobileEditSelect.vue';
   import axios from 'axios';
   import ItemToggleCard from '../ItemToggleCard.vue';
+  import PhotoCapture from '../PhotoCapture.vue';
+  import VisionProviderToggle from '../VisionProviderToggle.vue';
+  import type { InventoryItem } from '../../data/inventoryItems';
 
 //ALL PROPS & EMITS
   enum ObjectEnum {
@@ -54,6 +57,9 @@
   const imageBlob: Ref<Blob | null> = ref(null)
   const showCamera = ref(false)
   const reloadContainers = ref(0)
+  const showPhotoCapture = ref(false)
+  const showVisionSettings = ref(false)
+  const currentVisionProvider = ref<string>('gemini')
 
   const styles = [
     'plain description',
@@ -345,6 +351,19 @@
     router.push('/');
   }
 
+  // Handle photo item added
+  const handlePhotoItemAdded = (item: InventoryItem) => {
+    // Add item to inventory store
+    // Note: You may need to call a store action here to persist the item
+    console.log('Photo item added:', item);
+    showPhotoCapture.value = false;
+  }
+
+  // Handle vision provider changed
+  const handleProviderChanged = (provider: string) => {
+    currentVisionProvider.value = provider;
+  }
+
   console.log('props user is: ' + props.user)
 
 
@@ -551,7 +570,37 @@
     <MobileAdd :user="user" :edit-select="activeEditBool" :object-type="activeObjectType" :id-prop="Number(activeId)" @close="closeAddDialog" />
     <!-- <testSelect  /> -->
   </q-dialog>
-  
+
+  <!-- Vision Settings Dialog -->
+  <q-dialog v-model="showVisionSettings">
+    <q-card style="min-width: 350px;">
+      <q-card-section>
+        <div class="text-h6">Vision AI Settings</div>
+      </q-card-section>
+
+      <q-card-section>
+        <VisionProviderToggle @provider-changed="handleProviderChanged" />
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Close" color="primary" v-close-popup />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
+
+  <!-- Photo Capture Dialog -->
+  <q-dialog v-model="showPhotoCapture" maximized>
+    <q-card>
+      <q-card-section class="q-pa-none">
+        <PhotoCapture
+          :vision-provider="currentVisionProvider"
+          :user="props.user"
+          @item-added="handlePhotoItemAdded"
+          @close="showPhotoCapture = false"
+        />
+      </q-card-section>
+    </q-card>
+  </q-dialog>
 
   <q-layout view="hHh lpR fFf">
 
@@ -585,7 +634,16 @@
 
           <q-item-section >{{ collection.label }}</q-item-section>
         </q-item>
-        
+
+        <q-separator class="q-my-md" />
+
+        <q-item clickable v-ripple @click="showVisionSettings = true">
+          <q-item-section avatar>
+            <q-icon name="camera_enhance" />
+          </q-item-section>
+          <q-item-section>Vision AI Settings</q-item-section>
+        </q-item>
+
         <q-item >
           <q-btn
             style="width: 100%;"
@@ -671,6 +729,21 @@
       <q-btn size="lg" class="addButton" color="primary" icon="add" label="create new" @click="show(true)" />
     </q-footer>
 
+    <!-- Floating Action Button for AI Photo Capture (Centered) -->
+    <q-page-sticky v-if="shouldRevealFooter" position="bottom" :offset="[0, 16]">
+      <q-btn
+        fab
+        icon="photo_camera"
+        color="primary"
+        size="lg"
+        class="fab-button"
+        :disable="store.collections.length == 0"
+        @click="showPhotoCapture = true"
+      >
+        <q-tooltip>Add item with AI</q-tooltip>
+      </q-btn>
+    </q-page-sticky>
+
   </q-layout>  
 </template>
 
@@ -718,6 +791,20 @@
   margin: 0;
   left: 0;
   position: relative;
+}
+
+/* Floating Action Button for AI Photo */
+.fab-button {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s ease;
+}
+
+.fab-button:hover {
+  transform: scale(1.1);
+}
+
+.fab-button:active {
+  transform: scale(0.95);
 }
 
 </style>
