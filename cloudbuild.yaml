@@ -77,9 +77,9 @@ steps:
       - '--add-cloudsql-instances'
       - '$_CLOUD_SQL_CONNECTION'
       - '--set-env-vars'
-      - 'NODE_ENV=production,MT_DATALAYER_HOSTNAME=/cloudsql/$_CLOUD_SQL_CONNECTION,MT_DATALAYER_PORT=5432,MT_DATALAYER_DATABASE=$_DB_NAME,MT_DATALAYER_USERNAME=$_DB_USER,EMAIL_FROM=owen@we3kings.dev,SMTP_HOST=smtp.sendgrid.net,SMTP_PORT=587,SMTP_USER=apikey'
+      - 'NODE_ENV=production,MT_DATALAYER_HOSTNAME=/cloudsql/$_CLOUD_SQL_CONNECTION,MT_DATALAYER_PORT=5432,MT_DATALAYER_DATABASE=$_DB_NAME,MT_DATALAYER_USERNAME=$_DB_USER,EMAIL_FROM=owen@we3kings.dev,SMTP_HOST=smtp.sendgrid.net,SMTP_PORT=587,SMTP_USER=apikey,VISION_PROVIDER=gemini'
       - '--set-secrets'
-      - 'MT_DATALAYER_PASSWORD=movetrack-db-password:latest,JWT_SECRET=movetrack-jwt-secret:latest,SMTP_PASS=sendgrid-api-key:latest'
+      - 'MT_DATALAYER_PASSWORD=movetrack-db-password:latest,JWT_SECRET=movetrack-jwt-secret:latest,SMTP_PASS=sendgrid-api-key:latest,ANTHROPIC_API_KEY=anthropic-key:latest,OPENAI_API_KEY=openai-api-key:latest,GOOGLE_AI_API_KEY=google-ai-key:latest'
     id: 'deploy-api'
     waitFor: ['push-api', 'run-migrations']
 
