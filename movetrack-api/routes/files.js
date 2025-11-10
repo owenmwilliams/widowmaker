@@ -7,7 +7,7 @@ const path = require('path');
 const isLocalEnvironment = process.env.NODE_ENV !== 'production'; // Detect local development environment
 
 const storageOptions = {
-  projectId: 'take-stock-364901',
+  projectId: 'widowmaker-477505',
 };
 
 if (isLocalEnvironment) {

@@ -213,7 +213,7 @@ export const inventoryStore = defineStore("inventory", () => {
                 let url = await axios({
                     method: 'post',
                     data: formData,
-                    url: core_url + '/file/upload/take-stock-item-photos/',
+                    url: core_url + '/file/upload/movetrack-item-photos/',
                     params: {
                         folder: url_suffix + '/' + user,
                         name: id
@@ -427,7 +427,7 @@ export const inventoryStore = defineStore("inventory", () => {
             headers: headers
         })
         .then(() => {
-            const bucketName = 'take-stock-item-photos'
+            const bucketName = 'movetrack-item-photos'
             const encodedFilename = encodeURIComponent(`${url_suffix}/${user}/${id}`);
             const apiUrl = `${core_url}/file/delete/${bucketName}/${encodedFilename}`;
 
