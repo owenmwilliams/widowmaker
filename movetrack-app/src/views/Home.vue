@@ -1,15 +1,12 @@
 <script setup lang="ts">
   import { computed, ref } from 'vue';
-  import router from '../router';
 
   import DesktopSignup from '../components/home_components/DesktopSignup.vue';
   import MobileSignup from '../components/home_components/MobileSignup.vue';
-
-  import DesktopCards from '../components/home_components/DesktopCards.vue';
-  import MobileCards from '../components/home_components/MobileCards.vue';
-
-  import DesktopHighlight from '../components/home_components/DesktopHighlight.vue';
-  import MobileHighlight from '../components/home_components/MobileHighlight.vue';
+  import HeroLedger from '../components/home_components/HeroLedger.vue';
+  import HeroSplit from '../components/home_components/HeroSplit.vue';
+  import PackABoxDemo from '../components/home_components/PackABoxDemo.vue';
+  import InteractiveDemo from '../components/home_components/InteractiveDemo.vue';
 
   import DesktopEmail from '../components/home_components/DesktopEmail.vue';
 
@@ -28,86 +25,52 @@
   const showPrivacyPolicy = ref(false);
   const showTermsOfService = ref(false);
   const showContracts = ref(false);
+  const showAbout = ref(false);
 
-  // Login function - redirect to login page
-  function login() {
-    router.push('/login');
-  }
+  // Toggle to switch between different homepage designs
+  // Interactive Demo with two experiences (inventory + packing)
+  const useInteractiveDemo = ref(true);
+  // HOMEPAGE 3: Pack-a-Box Mini Demo (PROMPT 3)
+  const useHomepage3 = ref(false);
+  // HOMEPAGE 2: Split Hero with Live Inventory Sidebar (PROMPT 2)
+  const useHomepage2 = ref(false);
+  // HOMEPAGE 1: HeroLedger design (FIRST PROMPT)
+  const useNewHero = ref(false);
 
-  const highlights = [
-    {
-      id: 0,
-      image_url: 'https://storage.googleapis.com/take-stock-design-assets/roy_location', 
-      title: 'Locations',
-      description: 'Locations are the basic unit of organization - everything we own should have a place to call home.'
-    },
-    {
-      id: 1,
-      image_url: 'https://storage.googleapis.com/take-stock-design-assets/roy_room', 
-      title: 'Rooms',
-      description: 'How we organize our lives at the highest level - all our items belong to the right room.'
-    },
-    {
-      id: 2,
-      image_url: 'https://storage.googleapis.com/take-stock-design-assets/roy_container', 
-      title: 'Containers',
-      description: 'The basic building block of organization - with containers we can start grouping like items.'
-    },
-    {
-      id: 3,
-      image_url: 'https://storage.googleapis.com/take-stock-design-assets/roy_item', 
-      title: 'Items',
-      description: 'What needs to be organized - these are our things, everything that brings us joy everyday.'
-    },
-    // Add more highlights as needed
-  ]
-
-  const cardsTrack = [
-    {
-      id: 0,
-      icon: 'https://storage.cloud.google.com/take-stock-design-assets/ValueProp/ai_photo.png',
-      title: 'LOG',
-      description: 'Quickly build your collections with AI-powered logging tools. By reading text and leveraging image and object detection, we take the tedium out of cataloging your collection.',
-    },
-    {
-      id: 1,
-      icon: 'https://storage.cloud.google.com/take-stock-design-assets/ValueProp/desktop_mobile.png',
-      title: 'ORGANIZE',
-      description: 'Manage your possesions on the go or see your whole home inventory in one place. Easily add new items or organize the ones you have. Update your descriptions all from one place.',
-    },
-    {
-      id: 2,
-      icon: 'https://storage.cloud.google.com/take-stock-design-assets/ValueProp/search.png',
-      title: 'FIND',
-      description: 'Everything is always in the last place you look. Spend less time looking and more time finding when searching through your inventory.',
-    },
-    // Add more cards as needed
-  ]
-
-  const cardsShare = [
-    {
-      id: 0,
-      icon: 'https://storage.cloud.google.com/take-stock-design-assets/ValueProp/buy.png',
-      title: 'BUY',
-      description: 'Looking for the next piece? We have got you covered. When you make an offer, it is securely withdrawn from your account and held safely until the transaction is complete.',
-    },
-    {
-      id: 1,
-      icon: 'https://storage.cloud.google.com/take-stock-design-assets/ValueProp/share.png',
-      title: 'SHARE',
-      description: 'Listing an item? We transform your product into a unique digital token, ensuring the authenticity of your item. When an item gets sold, this token gets transfered.',
-    },
-    {
-      id: 2,
-      icon: 'https://storage.cloud.google.com/take-stock-design-assets/ValueProp/sell.png',
-      title: 'SELL',
-      description: 'Ready to let go? Feel at ease as each offer on your item is securely held in escrow, guaranteeing a smooth transaction until your buyer is delighted.',
-    },
-    // Add more cards as needed
-  ]
 </script>
 
 <template>
+
+  <q-dialog v-model="showAbout" transition-show="rotate" transition-hide="rotate">
+    <q-card style="max-width: 600px;">
+      <q-card-section>
+        <div class="text-h6">About MoveTrack</div>
+      </q-card-section>
+      <q-card-section class="q-pt-none">
+        <p class="q-mb-md">
+          I've moved on average every 2.5 years throughout my life. Each time, I faced the same frustrations: lost items, damaged belongings, inaccurate moving quotes, and the overwhelming stress of not knowing if everything arrived safely.
+        </p>
+        <p class="q-mb-md">
+          After my last move, I decided there had to be a better way. That's when MoveTrack was born.
+        </p>
+        <p class="q-mb-md">
+          MoveTrack is your trusted partner in managing and organizing your belongings during life's transitions. Whether you're moving to a new home, downsizing, or simply organizing your space, we make it easy to track every item with:
+        </p>
+        <ul class="q-mb-md">
+          <li>Simple cataloging with photos and detailed descriptions</li>
+          <li>Accurate dimensions and weights for precise moving quotes</li>
+          <li>The ability to share your inventory with moving companies</li>
+          <li>Peace of mind knowing exactly what you have and where it's going</li>
+        </ul>
+        <p>
+          I built MoveTrack because I'm passionate about making moving easier for everyone who, like me, has experienced the chaos of relocation. With reliability and trust at our core, MoveTrack is here to make your next move your best move.
+        </p>
+      </q-card-section>
+      <q-card-actions align="right">
+        <q-btn flat label="Close" color="primary" v-close-popup />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 
   <q-dialog v-model="showTermsOfService" transition-show="rotate" transition-hide="rotate">
     <q-card>
@@ -146,39 +109,117 @@
     <q-header bordered class="header">
       <q-toolbar>
         <q-toolbar-title>
-          <q-img
-            class="q-mx-lg"
-            v-if="!isMobile"
-            src="https://storage.googleapis.com/take-stock-design-assets/Logos/skwurlit_core_color_logo.png"
-            spinner-color="white"
-            width="10%"
-          />
-          <q-img
-            v-else
-            src="https://storage.googleapis.com/take-stock-design-assets/Logos/skwurlit_core_color_logo.png"
-            spinner-color="white"
-            width="40%"
-          />
+          <div class="logo-text" :class="{ 'mobile': isMobile }">
+            MoveTrack
+          </div>
         </q-toolbar-title>
-        <q-btn color="dark" dense flat no-caps right class="q-mx-md" label="Login" @click="login" />
       </q-toolbar>
     </q-header>
 
     <q-page-container>
       <q-page class="landing-page">
-        <DesktopSignup v-if="!isMobile" />
+        <!-- Interactive Demo with two experiences (inventory + packing) -->
+        <InteractiveDemo v-if="useInteractiveDemo" />
+
+        <!-- HOMEPAGE 3: Pack-a-Box Mini Demo (PROMPT 3) -->
+        <PackABoxDemo v-else-if="useHomepage3" />
+
+        <!-- HOMEPAGE 2: Split Hero with Live Inventory Sidebar (PROMPT 2) -->
+        <HeroSplit v-else-if="useHomepage2" />
+
+        <!-- HOMEPAGE 1: HeroLedger design (FIRST PROMPT) -->
+        <HeroLedger v-else-if="useNewHero" />
+
+        <!-- Original hero designs -->
+        <template v-else>
+          <DesktopSignup v-if="!isMobile" />
           <MobileSignup v-else />
-        <div class="text-center">
-          <h3 v-if="!isMobile">How it works</h3>
-          <h4 v-else>How it works</h4>
+        </template>
+
+        <!-- How It Works Section -->
+        <div class="how-it-works-section q-py-xl">
+          <div class="text-center q-mb-xl">
+            <h2 class="section-title">How It Works</h2>
+            <p class="section-subtitle">Three simple steps to organize your move</p>
+          </div>
+
+          <div class="row q-col-gutter-xl q-px-xl">
+            <div class="col-12 col-md-4 text-center">
+              <q-icon name="inventory_2" size="64px" color="primary" />
+              <h4>1. Build Your Inventory</h4>
+              <p>Catalog your belongings with photos, descriptions, and dimensions. Our AI helps you log items quickly and accurately.</p>
+            </div>
+            <div class="col-12 col-md-4 text-center">
+              <q-icon name="share" size="64px" color="primary" />
+              <h4>2. Share with Movers</h4>
+              <p>Send your inventory to moving companies for accurate quotes. No more surprises on moving day.</p>
+            </div>
+            <div class="col-12 col-md-4 text-center">
+              <q-icon name="local_shipping" size="64px" color="primary" />
+              <h4>3. Get a Quote</h4>
+              <p>Receive competitive quotes from verified movers, or get a direct quote from us for a seamless experience.</p>
+            </div>
+          </div>
+
+          <!-- Reviews Section -->
+          <div class="reviews-section q-mt-xl q-px-xl">
+            <h3 class="text-center q-mb-lg">What Our Customers Say</h3>
+            <div class="row q-col-gutter-md">
+              <div class="col-12 col-md-4">
+                <q-card class="review-card">
+                  <q-card-section>
+                    <div class="row items-center q-mb-md">
+                      <q-avatar size="48px" color="primary" text-color="white">SJ</q-avatar>
+                      <div class="q-ml-md">
+                        <div class="text-weight-bold">Sarah Johnson</div>
+                        <div class="text-caption text-grey">Seattle, WA</div>
+                      </div>
+                    </div>
+                    <div class="q-mb-sm">
+                      <q-icon name="star" color="amber" size="20px" v-for="n in 5" :key="n" />
+                    </div>
+                    <p class="review-text">"MoveTrack made my cross-country move so much easier. Having everything cataloged meant I could verify all my items arrived safely. Highly recommend!"</p>
+                  </q-card-section>
+                </q-card>
+              </div>
+              <div class="col-12 col-md-4">
+                <q-card class="review-card">
+                  <q-card-section>
+                    <div class="row items-center q-mb-md">
+                      <q-avatar size="48px" color="primary" text-color="white">MC</q-avatar>
+                      <div class="q-ml-md">
+                        <div class="text-weight-bold">Michael Chen</div>
+                        <div class="text-caption text-grey">Austin, TX</div>
+                      </div>
+                    </div>
+                    <div class="q-mb-sm">
+                      <q-icon name="star" color="amber" size="20px" v-for="n in 5" :key="n" />
+                    </div>
+                    <p class="review-text">"As someone who moves frequently for work, this is a game-changer. I can update my inventory between moves and always know exactly what I have."</p>
+                  </q-card-section>
+                </q-card>
+              </div>
+              <div class="col-12 col-md-4">
+                <q-card class="review-card">
+                  <q-card-section>
+                    <div class="row items-center q-mb-md">
+                      <q-avatar size="48px" color="primary" text-color="white">EP</q-avatar>
+                      <div class="q-ml-md">
+                        <div class="text-weight-bold">Emily Parker</div>
+                        <div class="text-caption text-grey">Boston, MA</div>
+                      </div>
+                    </div>
+                    <div class="q-mb-sm">
+                      <q-icon name="star" color="amber" size="20px" v-for="n in 5" :key="n" />
+                    </div>
+                    <p class="review-text">"The ability to get quotes from multiple movers based on my actual inventory saved me hundreds of dollars. No hidden fees or surprises!"</p>
+                  </q-card-section>
+                </q-card>
+              </div>
+            </div>
+          </div>
         </div>
-        <DesktopCards v-if="!isMobile" :cardsTrack="cardsTrack" :cardsShare="cardsShare" />
-        <div v-else>
-          <h6 class="flex flex-center text-weight-light">Build your collection with web2</h6>
-          <MobileCards :cards="cardsTrack" />
-          <h6 class="flex flex-center text-weight-light">Share with others on web3</h6>
-          <MobileCards :cards="cardsShare" />
-        </div>
+
         <div class="text-center">
           <h3 v-if="!isMobile">Get in touch</h3>
           <h4 v-else>Get in touch</h4>
@@ -189,13 +230,12 @@
     </q-page-container>
     <q-footer class="q-pb-xl bg-transparent text-grey flex flex-center">
       <div class="row">
-        
+        <q-btn flat no-caps @click="showAbout = true" label="About" class="q-px-sm text-weight-thin" />
         <q-btn flat no-caps @click="showTermsOfService = true" label="Terms of Service" class="q-px-sm text-weight-thin" />
         <q-btn flat no-caps @click="showPrivacyPolicy = true" label="Privacy Policy" class="q-px-sm text-weight-thin" />
-        <q-btn flat no-caps @click="router.push('learn')" label="Learn more" class="q-px-sm text-weight-thin" />
       </div>
       <div class="row">
-        <q-btn disable flat no-caps label="&copy; 2024 We3Kings d/b/a Sqwurlit" class="q-px-sm text-weight-thin" />
+        <q-btn disable flat no-caps label="&copy; 2025 MoveTrack" class="q-px-sm text-weight-thin" />
       </div>
     </q-footer>
   </q-layout>
@@ -205,6 +245,17 @@
 .header {
   background-color: #f5f9e9;
 }
+  .logo-text {
+    font-size: 2rem;
+    font-weight: 600;
+    color: #2c3e50;
+    letter-spacing: -0.5px;
+    margin-left: 40px;
+  }
+  .logo-text.mobile {
+    font-size: 1.5rem;
+    margin-left: 0;
+  }
   .text-center {
     padding-top: 25px;
     padding-left: 10px;
@@ -230,5 +281,32 @@
   }
   .footer-links {
     padding: 5px;
+  }
+  .how-it-works-section {
+    background-color: #f8f9fa;
+  }
+  .section-title {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #2c3e50;
+    margin: 0;
+  }
+  .section-subtitle {
+    font-size: 1.2rem;
+    color: #6c757d;
+    margin-top: 0.5rem;
+  }
+  .reviews-section {
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .review-card {
+    height: 100%;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  .review-text {
+    font-style: italic;
+    color: #495057;
+    line-height: 1.6;
   }
 </style>

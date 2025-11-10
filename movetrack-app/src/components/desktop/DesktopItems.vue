@@ -7,11 +7,21 @@
   import DesktopAdd from './DesktopAdd.vue';
   import DesktopItemTable from './DesktopItemTable.vue';
   import DesktopLocationCards from './DesktopLocationCards.vue';
+  import DesktopCollections from './DesktopCollections.vue';
+  import DesktopSettings from './DesktopSettings.vue';
+  import DesktopSupport from './DesktopSupport.vue';
+  import PhotoCapture from '../PhotoCapture.vue';
+  import VisionProviderToggle from '../VisionProviderToggle.vue';
+  import VeriMoveLogo from '../VeriMoveLogo.vue';
   import { storeToRefs } from 'pinia';
+  import type { InventoryItem } from '../../data/inventoryItems';
 
 
   const pageItem = ref('itemTable')
   const addItemDialog = ref(false)
+  const showPhotoCapture = ref(false)
+  const showVisionSettings = ref(false)
+  const currentVisionProvider = ref<string>('gemini')
   const search = ref('')
 
 //ALL PROPS & EMITS
@@ -71,6 +81,19 @@
 
 
 
+  // Handle photo item added
+  const handlePhotoItemAdded = (item: InventoryItem) => {
+    // Add item to inventory store
+    // Note: You may need to call a store action here to persist the item
+    console.log('Photo item added:', item);
+    showPhotoCapture.value = false;
+  }
+
+  // Handle vision provider changed
+  const handleProviderChanged = (provider: string) => {
+    currentVisionProvider.value = provider;
+  }
+
   const consoleLog = () => {
     console.log('log here to debug')
     console.log('store.items', store.items)
@@ -99,11 +122,46 @@
                 <q-btn flat no-caps class="text-weight-medium" label="My Items" @click="changePage('itemTable')" />
                 <q-btn flat no-caps class="text-weight-medium" label="My Collections" @click="changePage('locationCards')" />
               </q-btn-group>
+
+              <!-- Add Item with Photo Button -->
+              <q-btn
+                v-if="pageItem === 'itemTable'"
+                unelevated
+                color="primary"
+                icon="photo_camera"
+                label="Add Item"
+                class="q-ml-md"
+                :disable="store.collections.length == 0"
+                @click="showPhotoCapture = true"
+              />
+
               <q-toolbar-title />
               <q-btn flat round dense>
-                <q-img fit="contain" class="q-ma-xs" src="https://storage.googleapis.com/take-stock-design-assets/Logos/skwurlit_squirrel_blue.png" />
+                <VeriMoveLogo class="q-ma-xs" />
                 <q-menu style="z-index: 9999;">
-                  
+
+                  <q-item clickable v-ripple @click="changePage('settings')">
+                    <q-item-section class="text-primary" avatar>
+                      <q-icon name="settings" />
+                    </q-item-section>
+                    <q-item-section class="text-primary">
+                      Settings
+                    </q-item-section>
+                  </q-item>
+
+                  <q-separator />
+
+                  <q-item clickable v-ripple @click="changePage('support')">
+                    <q-item-section class="text-primary" avatar>
+                      <q-icon name="help_outline" />
+                    </q-item-section>
+                    <q-item-section class="text-primary">
+                      Support
+                    </q-item-section>
+                  </q-item>
+
+                  <q-separator />
+
                   <q-item clickable v-ripple @click="logoutFunction">
                     <q-item-section class="text-primary" avatar>
                       <q-icon name="logout" />
@@ -112,7 +170,7 @@
                       Logout
                     </q-item-section>
                   </q-item>
-                  
+
                 </q-menu>
 
               </q-btn>
@@ -135,7 +193,13 @@
             <DesktopItemTable :user="props.user!" @addItem="addItemDialog = true" />
           </div>
           <div v-else-if="pageItem == 'locationCards'">
-            <DesktopLocationCards :user="props.user!" :search="search" />
+            <DesktopCollections :user="props.user!" />
+          </div>
+          <div v-else-if="pageItem == 'settings'">
+            <DesktopSettings :user="props.user!" />
+          </div>
+          <div v-else-if="pageItem == 'support'">
+            <DesktopSupport />
           </div>
 
       </q-page-container>
@@ -144,9 +208,41 @@
           <DesktopAdd :user="props.user!" addType="Item"  />
         </q-dialog>
 
+        <!-- Vision Settings Dialog -->
+        <q-dialog v-model="showVisionSettings">
+          <q-card style="min-width: 400px;">
+            <q-card-section>
+              <div class="text-h6">Vision AI Settings</div>
+            </q-card-section>
+
+            <q-card-section>
+              <VisionProviderToggle @provider-changed="handleProviderChanged" />
+            </q-card-section>
+
+            <q-card-actions align="right">
+              <q-btn flat label="Close" color="primary" v-close-popup />
+            </q-card-actions>
+          </q-card>
+        </q-dialog>
+
+        <!-- Photo Capture Dialog -->
+        <q-dialog v-model="showPhotoCapture" persistent>
+          <q-card style="min-width: 600px; max-width: 800px;">
+            <q-card-section>
+              <PhotoCapture
+                :vision-provider="currentVisionProvider"
+                :user="props.user"
+                @item-added="handlePhotoItemAdded"
+                @close="showPhotoCapture = false"
+              />
+            </q-card-section>
+          </q-card>
+        </q-dialog>
+
+
     </q-layout>
 
-    
+
   </div>
 
     <!-- <q-btn fab round color="primary" label="ConsoleLog" icon="add" class="q-ma-md" @click="consoleLog()" /> -->
@@ -154,6 +250,20 @@
 
 <style scoped>
 .temp_bg {
-  background-color: #f5f9e9;
+  background-color: #F7F8FA;
+}
+
+/* Floating Action Button */
+.fab-button {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s ease;
+}
+
+.fab-button:hover {
+  transform: scale(1.1);
+}
+
+.fab-button:active {
+  transform: scale(0.95);
 }
 </style>

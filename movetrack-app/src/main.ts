@@ -33,6 +33,24 @@ app.use(router);
 
 app.use(Quasar, {
     config: {
+        brand: {
+            primary: '#274690',    // VeriMove Royal Blue
+            secondary: '#1CA1C1',  // Proof Cyan
+            accent: '#1CA1C1',     // Proof Cyan
+            positive: '#2EBD85',   // On-Time Green
+            negative: '#D64545',   // Safety Red
+            info: '#1CA1C1',       // Proof Cyan
+            warning: '#C99A3E'     // Brass
+        },
+        notify: {
+            position: 'top',
+            timeout: 2500,
+            textColor: 'white',
+            classes: 'notify-high-z'
+        },
+        loading: {
+            // Loading has its own z-index
+        }
     },
     plugins: {
         Loading,
