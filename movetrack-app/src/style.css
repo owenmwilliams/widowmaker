@@ -5,20 +5,64 @@
   font-weight: 400;
 
   color-scheme: dark light;
-  background-color: white;
-  color: #191716;
-  /* color: #191716; */
-  /* color-scheme: light dark; */
-  /* color: #FCF9F7; */
-  /* background-color: #021523; */
-
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
 
-  /* --van-primary-color: #99d7e6; */
+  /* VeriMove Color System - Precision Blue */
+
+  /* Primary Colors - Trust Navy & Royal Blue */
+  --primary: #274690;          /* Royal Blue - primary brand */
+  --primary-light: #3A5AA0;    /* Lighter blue for hover states */
+  --primary-dark: #0E1B2A;     /* Trust Navy - emphasis */
+  --primary-subtle: #E8EDF5;   /* Very light blue for backgrounds */
+
+  /* Secondary Colors - Proof Cyan (verification/transparency) */
+  --secondary: #1CA1C1;        /* Proof Cyan - secondary actions */
+  --secondary-light: #3BB5CE;  /* Light cyan for hover */
+  --secondary-dark: #158196;   /* Dark cyan for emphasis */
+  --secondary-subtle: #E3F5F9; /* Very light cyan for backgrounds */
+
+  /* Accent Colors */
+  --accent: #1CA1C1;           /* Proof Cyan - highlights */
+  --accent-warm: #C99A3E;      /* Brass for premium touches */
+  --accent-cool: #2EBD85;      /* On-Time Green */
+
+  /* Neutrals */
+  --bg-primary: #FFFFFF;       /* Main background */
+  --bg-secondary: #F9F9F9;     /* Secondary background */
+  --bg-tertiary: #F5F5F5;      /* Tertiary background */
+
+  --text-primary: #212121;     /* Primary text */
+  --text-secondary: #616161;   /* Secondary text */
+  --text-tertiary: #757575;    /* Tertiary text/disabled */
+  --text-hint: #BDBDBD;        /* Placeholder text */
+
+  --border-light: #E0E0E0;     /* Light borders */
+  --border-medium: #BDBDBD;    /* Medium borders */
+  --border-dark: #9E9E9E;      /* Dark borders */
+
+  /* Status Colors */
+  --success: #4CAF50;          /* Success states */
+  --success-light: #81C784;
+  --warning: #FF9800;          /* Warning states */
+  --warning-light: #FFB74D;
+  --error: #F44336;            /* Error states */
+  --error-light: #E57373;
+  --info: #2196F3;             /* Info states */
+  --info-light: #64B5F6;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.15);
+  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.2);
+
+  /* Apply defaults */
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 h2 {
@@ -63,4 +107,18 @@ button:focus-visible {
 #app {
   width:100%;
   text-align: left;
+}
+
+/* Ensure notifications appear above everything */
+.notify-high-z {
+  z-index: 10000 !important;
+}
+
+/* Ensure Quasar loading overlay is also above header */
+.q-loading-bar {
+  z-index: 10001 !important;
+}
+
+.q-loading {
+  z-index: 10000 !important;
 }

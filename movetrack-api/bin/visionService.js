@@ -1,0 +1,267 @@
+const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+// Initialize clients
+let anthropicClient = null;
+let openaiClient = null;
+let geminiClient = null;
+
+// Only initialize if API keys are provided
+if (process.env.ANTHROPIC_API_KEY) {
+    anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    console.log('Anthropic Claude Vision configured');
+}
+
+if (process.env.OPENAI_API_KEY) {
+    openaiClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    console.log('OpenAI GPT-4 Vision configured');
+}
+
+if (process.env.GOOGLE_AI_API_KEY) {
+    geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+    console.log('Google Gemini Vision configured');
+}
+
+// Default provider (can be changed via admin settings)
+let currentProvider = process.env.VISION_PROVIDER || 'gemini';
+
+/**
+ * Common prompt for all vision APIs
+ */
+const VISION_PROMPT = `Analyze this household item for moving inventory. You must return ONLY valid JSON with this exact structure (no markdown, no additional text):
+
+{
+  "name": "item name",
+  "material": "primary material (e.g., ceramic, metal, glass, wood, plastic, fabric)",
+  "color": "primary color",
+  "estimatedDimensions": {
+    "length": 0,
+    "width": 0,
+    "height": 0
+  },
+  "estimatedWeight": 0,
+  "fragile": true or false,
+  "tags": ["tag1", "tag2"],
+  "confidence": 0.0 to 1.0,
+  "reasoning": "brief explanation of your analysis"
+}
+
+Important:
+- Dimensions should be in inches (approximate based on visual reference)
+- Weight should be in pounds (approximate)
+- Tags should be relevant categories like "Fragile", "Glass", "Metal", "Ceramic", "Antique", "Decorative", "Functional", etc.
+- Confidence should reflect how certain you are about the analysis (0.0 = very uncertain, 1.0 = very certain)
+- For fragile, consider if the item is breakable or requires careful handling
+
+Return ONLY the JSON object, nothing else.`;
+
+/**
+ * Analyze photo using Claude 3.5 Sonnet Vision
+ */
+async function analyzeWithClaude(base64Image, mimeType) {
+    if (!anthropicClient) {
+        throw new Error('Anthropic API key not configured');
+    }
+
+    try {
+        const response = await anthropicClient.messages.create({
+            model: "claude-3-5-sonnet-20241022",
+            max_tokens: 1024,
+            messages: [{
+                role: "user",
+                content: [
+                    {
+                        type: "image",
+                        source: {
+                            type: "base64",
+                            media_type: mimeType,
+                            data: base64Image
+                        }
+                    },
+                    {
+                        type: "text",
+                        text: VISION_PROMPT
+                    }
+                ]
+            }]
+        });
+
+        const textContent = response.content[0].text;
+        // Remove markdown code blocks if present
+        const jsonText = textContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const result = JSON.parse(jsonText);
+
+        return {
+            success: true,
+            data: result,
+            provider: 'claude',
+            model: 'claude-3-5-sonnet-20241022'
+        };
+    } catch (error) {
+        console.error('Claude Vision API error:', error);
+        return {
+            success: false,
+            error: error.message,
+            provider: 'claude'
+        };
+    }
+}
+
+/**
+ * Analyze photo using GPT-4 Vision
+ */
+async function analyzeWithGPT4(base64Image, mimeType) {
+    if (!openaiClient) {
+        throw new Error('OpenAI API key not configured');
+    }
+
+    try {
+        const response = await openaiClient.chat.completions.create({
+            model: "gpt-4o",
+            messages: [{
+                role: "user",
+                content: [
+                    {
+                        type: "text",
+                        text: VISION_PROMPT
+                    },
+                    {
+                        type: "image_url",
+                        image_url: {
+                            url: `data:${mimeType};base64,${base64Image}`
+                        }
+                    }
+                ]
+            }],
+            max_tokens: 500,
+            response_format: { type: "json_object" }
+        });
+
+        const result = JSON.parse(response.choices[0].message.content);
+
+        return {
+            success: true,
+            data: result,
+            provider: 'gpt4',
+            model: 'gpt-4o'
+        };
+    } catch (error) {
+        console.error('GPT-4 Vision API error:', error);
+        return {
+            success: false,
+            error: error.message,
+            provider: 'gpt4'
+        };
+    }
+}
+
+/**
+ * Analyze photo using Google Gemini
+ */
+async function analyzeWithGemini(base64Image, mimeType) {
+    if (!geminiClient) {
+        throw new Error('Google AI API key not configured');
+    }
+
+    try {
+        const model = geminiClient.getGenerativeModel({
+            model: "gemini-2.0-flash-exp",
+            generationConfig: {
+                responseMimeType: "application/json"
+            }
+        });
+
+        const result = await model.generateContent([
+            {
+                inlineData: {
+                    data: base64Image,
+                    mimeType: mimeType
+                }
+            },
+            {
+                text: VISION_PROMPT
+            }
+        ]);
+
+        const jsonText = result.response.text();
+        const data = JSON.parse(jsonText);
+
+        return {
+            success: true,
+            data: data,
+            provider: 'gemini',
+            model: 'gemini-2.0-flash-exp'
+        };
+    } catch (error) {
+        console.error('Gemini Vision API error:', error);
+        return {
+            success: false,
+            error: error.message,
+            provider: 'gemini'
+        };
+    }
+}
+
+/**
+ * Main function to analyze photo with current provider
+ */
+async function analyzeItemPhoto(base64Image, mimeType, provider = null) {
+    const providerToUse = provider || currentProvider;
+
+    console.log(`Analyzing photo with provider: ${providerToUse}`);
+
+    switch (providerToUse.toLowerCase()) {
+        case 'claude':
+            return await analyzeWithClaude(base64Image, mimeType);
+        case 'gpt4':
+        case 'openai':
+            return await analyzeWithGPT4(base64Image, mimeType);
+        case 'gemini':
+        case 'google':
+            return await analyzeWithGemini(base64Image, mimeType);
+        default:
+            return {
+                success: false,
+                error: `Unknown provider: ${providerToUse}. Valid options: claude, gpt4, gemini`
+            };
+    }
+}
+
+/**
+ * Set the default vision provider
+ */
+function setProvider(provider) {
+    const validProviders = ['claude', 'gpt4', 'gemini'];
+    if (!validProviders.includes(provider.toLowerCase())) {
+        throw new Error(`Invalid provider. Valid options: ${validProviders.join(', ')}`);
+    }
+    currentProvider = provider.toLowerCase();
+    console.log(`Vision provider set to: ${currentProvider}`);
+    return currentProvider;
+}
+
+/**
+ * Get current provider
+ */
+function getCurrentProvider() {
+    return currentProvider;
+}
+
+/**
+ * Get available providers (based on configured API keys)
+ */
+function getAvailableProviders() {
+    const available = [];
+    if (anthropicClient) available.push('claude');
+    if (openaiClient) available.push('gpt4');
+    if (geminiClient) available.push('gemini');
+    return available;
+}
+
+module.exports = {
+    analyzeItemPhoto,
+    setProvider,
+    getCurrentProvider,
+    getAvailableProviders
+};
