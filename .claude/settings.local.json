@@ -19,7 +19,21 @@
       "Bash(npx vite:*)",
       "Bash(node:*)",
       "Bash(cat:*)",
-      "Bash(xargs kill:*)"
+      "Bash(xargs kill:*)",
+      "Bash(gcloud logging read:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gcloud run services describe:*)",
+      "Bash(gcloud run revisions describe:*)",
+      "Bash(gcloud run revisions list:*)",
+      "Bash(gcloud builds list:*)",
+      "Bash(gcloud beta builds triggers list:*)",
+      "Bash(gcloud run deploy:*)",
+      "Bash(gcloud run services update-traffic:*)",
+      "Bash(python3:*)",
+      "Bash(gsutil ls:*)",
+      "Bash(gsutil mb:*)"
     ],
     "deny": [],
     "ask": []

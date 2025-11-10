@@ -103,29 +103,33 @@ const handlePhotoCapture = async (event: Event) => {
     if (response.data.success) {
       const aiData = response.data.data;
 
+      // Safely extract dimensions with fallback values
+      const dimensions = aiData.estimatedDimensions || { length: 6, width: 4, height: 4 };
+      const weight = aiData.estimatedWeight || 1.0;
+
       // Map AI response to item format
       newItem.value = {
         name: aiData.name || detectItemName(file.name),
         qty: 1,
-        size: `${aiData.estimatedDimensions.length}"×${aiData.estimatedDimensions.width}"×${aiData.estimatedDimensions.height}"`,
-        weight: `${aiData.estimatedWeight} lbs`,
+        size: `${dimensions.length}"×${dimensions.width}"×${dimensions.height}"`,
+        weight: `${weight} lbs`,
         material: aiData.material || '',
         primaryColor: aiData.color || '',
         description: aiData.reasoning || 'Item detected from photo',
-        tags: aiData.tags || [],
+        tags: Array.isArray(aiData.tags) ? aiData.tags : [],
         image: capturedImage.value || ''
       };
 
       editDimensions.value = {
-        length: aiData.estimatedDimensions.length,
-        width: aiData.estimatedDimensions.width,
-        height: aiData.estimatedDimensions.height
+        length: dimensions.length || 0,
+        width: dimensions.width || 0,
+        height: dimensions.height || 0
       };
-      editWeight.value = aiData.estimatedWeight;
+      editWeight.value = weight;
       editFragile.value = aiData.fragile || false;
 
-      const providerName = response.data.provider;
-      const confidencePercent = Math.round(aiData.confidence * 100);
+      const providerName = response.data.provider || 'AI';
+      const confidencePercent = aiData.confidence ? Math.round(aiData.confidence * 100) : 80;
 
       $q.notify({
         type: 'positive',
