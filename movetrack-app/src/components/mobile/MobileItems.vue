@@ -6,16 +6,13 @@
   import FooterVue from '../Footer.vue';
   import { inventoryStore } from '../../stores/InventoryStore';
   import { storeToRefs } from 'pinia';
-  import { useQuasar } from 'quasar';
   import MobileAdd from './MobileAdd.vue';
-  import PhotoAdd from './PhotoAdd.vue';
-  import BookcaseAdd from './BookcaseAdd.vue';
-  import { Camera, CameraResultType } from '@capacitor/camera';
   import MobileEditSelect from './MobileEditSelect.vue';
   import axios from 'axios';
   import ItemToggleCard from '../ItemToggleCard.vue';
   import PhotoCapture from '../PhotoCapture.vue';
   import VisionProviderToggle from '../VisionProviderToggle.vue';
+  import VeriMoveLogo from '../VeriMoveLogo.vue';
   import type { InventoryItem } from '../../data/inventoryItems';
 
 //ALL PROPS & EMITS
@@ -34,8 +31,6 @@
     (e: 'app:loading', id: boolean): void
   }>()
 
-  const $q = useQuasar()
-
 //ALL CONSTANTS AND VARIABLES
   const isAdd = ref(false)
 
@@ -50,234 +45,27 @@
   const activeObjectType = ref(ObjectEnum.item)
   const activeEditBool = ref(false)
   const tokensDialog = ref(false)
-  const imageAdd = ref(false)
-  const imageAddMultiple = ref('single')
-  const image_url = ref('')
-  const image_base64 = ref('')
-  const imageBlob: Ref<Blob | null> = ref(null)
-  const showCamera = ref(false)
   const reloadContainers = ref(0)
   const showPhotoCapture = ref(false)
   const showVisionSettings = ref(false)
   const currentVisionProvider = ref<string>('gemini')
 
-  const styles = [
-    'plain description',
-    'embellished description',
-    'e-commerce post',
-    'instruction manual',
-    'artwork statement',
-    'book synopsis',
-    'billboard or newspaper advertisement',
-    'breaking news bulletin',
-    'explanation for the blind or visually impaired',
-    'poem, haiku, or limerick',
-  ]
+  const shouldRevealHeader = computed(() => !showPhotoCapture.value);
+  const shouldRevealFooter = computed(() => !showPhotoCapture.value);
 
-  const chosenStyle = ref('plain description')
+  // Compute total items count for sparse inventory detection
+  const totalItemsCount = computed(() => {
+    if (!activeCollection.value) return 0;
+    return store.items.filter(i => i.collection === activeCollection.value?.value).length;
+  });
 
-  const shouldRevealHeader = computed(() => !showCamera.value);
-  const shouldRevealFooter = computed(() => !showCamera.value);
+  // Show enhanced CTA when inventory is sparse (< half screen of content)
+  // Estimate: Each container + items = ~60px per item, screen height ~600-800px
+  // Half screen = ~300-400px = ~5-7 items
+  const showEnhancedCTA = computed(() => totalItemsCount.value < 6);
 
-  const computedAddThings = computed(() => {
-    if (store.collections.length == 0) {
-      return [
-        { label: 'Add Collection', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/collection_icon.png', color: 'primary', id: 'collection' },
-        { label: 'Add Location', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/location_icon.png', color: 'primary', id: 'location' },
-        // { label: 'Edit Inventory', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/edit_icon.png', color: 'primary', id: 'edit' },
-        // {},
-        // { label: 'Bookshelf', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/books_icon.png', color: 'primary', id: 'bookshelf-disabled' },
-      ]
-    } else {
-      return [
-        { label: 'Collection', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/collection_icon.png', color: 'primary', id: 'collection' },
-        { label: 'Item', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/item_icon.png', color: 'primary', id: 'item'},
-        { label: 'Container', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/container_icon.png', color: 'primary', id: 'container'},
-        { label: 'Location', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/location_icon.png', color: 'primary', id: 'location' },
-        {},
-        
-        { label: 'Image Add', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/camera_icon.png', color: 'primary', id: 'image' },
-        { label: 'Bookshelf Add', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/books_icon.png', color: 'primary', id: 'bookshelf' },
-        {},
-        { label: 'Edit Inventory', img: 'https://storage.googleapis.com/take-stock-design-assets/icons/edit_icon.png', color: 'primary', id: 'edit' },
-      ]
-    }
-  })
+  // Removed computedAddThings and show() function - bottom sheet no longer used
 
-  const show = (grid: any) => {
-    $q.bottomSheet({
-        style: 'background-color: #f5f9e9; margin-left: 5vw; margin-right: 5vw;',
-        actions: computedAddThings.value,
-    })
-    .onOk(action => {
-      if (action.id == 'edit') {
-        showEdit.value = true
-      } else if (action.id == 'bookshelf') {
-        imageAddMultiple.value = 'plural'
-        takePicture()
-      } else if (action.id == 'image') {
-        // imageAddMultiple.value = 'plural'
-        addItemPhoto()
-      } else if (action.id == 'bookshelf-disabled') {
-          $q.notify({
-            message: 'Bookshelf add is disabled for this location because there are no containers; navigate to a location with containers to continue.',
-            color: 'negative',
-            position: 'bottom',
-            icon: 'report_problem'
-          })
-      } else if (action.id == 'image-disabled') {
-          $q.notify({
-            message: 'Image add is disabled for this location because there are no containers; navigate to a location with containers to continue.',
-            color: 'negative',
-            position: 'bottom',
-            icon: 'report_problem'
-          })
-      } else if (action.id == 'token-disabled') {
-          $q.notify({
-            message: 'Tokenization is disabled for this location because there are no items to tokenize; navigate to a new location to continue.',
-            color: 'negative',
-            position: 'bottom',
-            icon: 'report_problem'
-          })
-      } else {
-        onSelectThing(action.id)
-      }
-    }).onCancel(() => {
-      console.log('Dismissed')
-    }).onDismiss(() => {
-
-      console.log('I am triggered on both OK and Cancel')
-    })
-  }
-
-  const addItemPhoto = () => {
-    imageAddMultiple.value = 'single'
-    addItem()
-  }
-
-  // Set the style to the desired style in a popup
-  const showSetStyle = ref(false)
-    
-  const takePicture = async () => {
-    showSetStyle.value = false
-    showCamera.value = true
-    const image = await Camera.getPhoto({
-      quality: 100,
-      allowEditing: true,
-      height: 2000,
-      resultType: CameraResultType.Base64,
-    });
-
-    showCamera.value = false
-    
-    const targetSizeInBytes = 90000; // Adjust the target size as needed
-    const compressedBase64 = await compressBase64(image.base64String, targetSizeInBytes);
-
-    image_url.value = generateURL(image);
-    image_base64.value = compressedBase64;
-    imageBlob.value = base64ToBlob(compressedBase64, 'image/jpeg');
-
-    imageAdd.value = true;
-  };
-
-  function base64ToBlob(base64String: string, mimeType: string = ''): Blob {
-    const byteCharacters = atob(base64String);
-    const byteNumbers = new Array(byteCharacters.length);
-
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-
-    const byteArray = new Uint8Array(byteNumbers);
-
-    return new Blob([byteArray], { type: mimeType });
-  }
-
-  async function compressBase64(base64String, targetSizeInBytes) {
-    let quality = 0.9; // Starting quality
-
-    while (true) {
-      const compressedBase64 = await attemptCompression(base64String, quality);
-
-      // Check if the compressed image size is within the target range
-      if ((compressedBase64 as string).length <= targetSizeInBytes) {
-        return compressedBase64;
-      }
-
-      // Adjust the quality for the next iteration
-      quality -= 0.1;
-
-      // Ensure we don't go below 0.1 (minimum quality)
-      if (quality < 0.1) {
-        break;
-      }
-    }
-
-    // If we couldn't meet the target size, return the original base64
-    return base64String;
-  }
-
-  async function attemptCompression(base64String, quality) {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.src = `data:image/jpeg;base64,${base64String}`;
-
-      img.onload = function () {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-
-        const maxWidth = 800; // Adjust the maximum width as needed
-        const maxHeight = 800; // Adjust the maximum height as needed
-
-        let width = img.width;
-        let height = img.height;
-
-        if (width > height) {
-          if (width > maxWidth) {
-            height *= maxWidth / width;
-            width = maxWidth;
-          }
-        } else {
-          if (height > maxHeight) {
-            width *= maxHeight / height;
-            height = maxHeight;
-          }
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-        }
-
-        const compressedBase64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
-        resolve(compressedBase64);
-      };
-
-      img.onerror = function (error) {
-        reject(error);
-      };
-    });
-  }
-
-  const generateURL = (image: any, mimeType = 'image/jpeg') => {
-    //MARK: come back to this to update the atob function
-    const byteCharacters = atob(image.base64String);
-    const byteNumbers = new Array(byteCharacters.length);
-
-    for (let i = 0; i < byteCharacters.length; i++) {
-      byteNumbers[i] = byteCharacters.charCodeAt(i);
-    }
-
-    const byteArray = new Uint8Array(byteNumbers);
-    const blob = new Blob([byteArray], { type: mimeType });
-    return URL.createObjectURL(blob);
-  };
-
-  const addItem = () => {
-    showSetStyle.value = true
-  }
 
   const onSelectThing = (item: string) => {
     // Debugging console logs
@@ -317,13 +105,6 @@
   const onEditContainer = (id: number) => {
     activeId.value = id
     activeObjectType.value = ObjectEnum.container
-    activeEditBool.value = true
-    isAdd.value = !isAdd.value
-  }
-
-  const onEditCollection = (id: number) => {
-    activeId.value = id
-    activeObjectType.value = ObjectEnum.collection
     activeEditBool.value = true
     isAdd.value = !isAdd.value
   }
@@ -478,29 +259,6 @@
 </script>
 
 <template>
-  <q-dialog v-model="showSetStyle">
-    <q-card >
-      <q-card-section>
-        <div class="text-h6">Choose a style</div>
-      </q-card-section>
-      <q-card-section>
-        <q-select
-          
-          filled
-          v-model="chosenStyle"
-          :options="styles"
-          emit-value
-          map-options
-          dense
-        />
-      </q-card-section>
-      <q-card-section>
-        <q-btn label="Take Picture" flat color="positive" @click="takePicture" />
-      </q-card-section>
-    </q-card>
-  </q-dialog>
-
-
   <q-dialog v-model="showTokens">
     <q-card >
       <q-card-section>
@@ -530,18 +288,6 @@
         </div>
       </q-card-section>
     </q-card>
-  </q-dialog>
-
-  <q-dialog class="fullscreen-popover" v-model="imageAdd" self-contained full-width full-height maximized>
-      <div class="imageScreen">
-        <q-img  v-if="(imageAddMultiple == 'single')" fit="cover" class="image" :src="image_url">
-          <PhotoAdd :style="chosenStyle" :user=props.user! :image_base64="image_base64" :image-blob="imageBlob!" @close="imageAdd = false" />  
-        </q-img>
-        <div class="bg-info">
-          <BookcaseAdd v-if="(imageAddMultiple == 'plural')" :user=props.user! :image_base64="image_base64" :image-blob="imageBlob!" @close="imageAdd = false" />
-        </div>
-          
-      </div>
   </q-dialog>
 
   <q-dialog v-model="tokensDialog">
@@ -575,10 +321,7 @@
   <q-dialog v-model="showVisionSettings">
     <q-card style="min-width: 350px;">
       <q-card-section>
-        <div class="text-h6">Vision AI Settings</div>
-      </q-card-section>
-
-      <q-card-section>
+        <div class="text-h6">Vision AI Provider</div>
         <VisionProviderToggle @provider-changed="handleProviderChanged" />
       </q-card-section>
 
@@ -595,6 +338,7 @@
         <PhotoCapture
           :vision-provider="currentVisionProvider"
           :user="props.user"
+          :auto-open="true"
           @item-added="handlePhotoItemAdded"
           @close="showPhotoCapture = false"
         />
@@ -610,75 +354,73 @@
 
         <q-toolbar-title center>
           <q-breadcrumbs active-color="white" style="font-size: 16px">
-            <q-breadcrumbs-el label="skwurlit" img="https://storage.googleapis.com/take-stock-design-assets/icon_small" />
             <q-breadcrumbs-el :label="props.user" />
+            <q-breadcrumbs-el v-if="store.activeCollection" :label="store.activeCollection.label" />
           </q-breadcrumbs>
         </q-toolbar-title>
+
+        <VeriMoveLogo :width="120" :height="32" color="white" check-color="rgba(255,255,255,0.8)" style="margin-left: 8px;" />
       </q-toolbar>
     </q-header>
 
     <q-drawer  v-model="showLeft" style="background-color: #f5f9e9;" side="left" overlay behavior="mobile" elevated>
       <q-list  padding class="rounded-borders text-primary">
+        <!-- Collections Section -->
+        <q-item-label header>Collections</q-item-label>
         <q-item
           v-for="(collection, index) in store.collections"
           clickable
           v-ripple
           :active="(index == collectionIndex)"
-          
           @click="changeCollection(index)"
           active-class="bg-primary text-white"
         >
-          <q-item-section  avatar>
-            <q-icon name="home" />
-          </q-item-section>
-
-          <q-item-section >{{ collection.label }}</q-item-section>
+          <q-item-section>{{ collection.label }}</q-item-section>
         </q-item>
 
         <q-separator class="q-my-md" />
 
+        <!-- Actions Section -->
+        <q-item-label header>Actions</q-item-label>
+
+        <q-item clickable v-ripple @click="onSelectThing('item')">
+          <q-item-section>Add Item (Manual)</q-item-section>
+        </q-item>
+
+        <q-item clickable v-ripple @click="onSelectThing('container')">
+          <q-item-section>Add Container</q-item-section>
+        </q-item>
+
+        <q-item clickable v-ripple @click="onSelectThing('collection')">
+          <q-item-section>Add Collection</q-item-section>
+        </q-item>
+
+        <q-separator class="q-my-md" />
+
+        <!-- Settings Section -->
+        <q-item-label header>Settings</q-item-label>
+
         <q-item clickable v-ripple @click="showVisionSettings = true">
-          <q-item-section avatar>
-            <q-icon name="camera_enhance" />
-          </q-item-section>
           <q-item-section>Vision AI Settings</q-item-section>
         </q-item>
 
-        <q-item >
-          <q-btn
-            style="width: 100%;"
-            class="bg-negative text-white"
-            type="danger"
-            label="LOG OUT"
-            @click="logoutFunction"
-          />
+        <q-item clickable v-ripple @click="router.push('/privacypolicy')">
+          <q-item-section>Privacy Policy</q-item-section>
         </q-item>
-        <q-item >
-          <footer-vue class="footer" />
+
+        <q-item clickable v-ripple @click="router.push('/terms')">
+          <q-item-section>Terms of Service</q-item-section>
+        </q-item>
+
+        <q-item clickable v-ripple @click="logoutFunction">
+          <q-item-section>Logout</q-item-section>
         </q-item>
       </q-list>
     </q-drawer>
 
     <q-page-container>
 
-      <q-card clickable @click="onEditCollection(store.activeCollection!.value)" class="q-ma-sm bg-primary text-white">
-        <q-card-section>
-          <q-item>
-            <q-item-section>
-              <q-item-label class="text-h4">{{ store.activeCollection?.label }}</q-item-label>
-              <q-item-label class="text-subtitle">{{ store.collections.find((i) => i.value == store.activeCollection?.value)?.description ?? '' }}</q-item-label>
-            </q-item-section>
-
-          </q-item>
-        </q-card-section>
-        <q-card-section>
-          <q-img
-            v-if="store.collections.find((i) => i.value == store.activeCollection?.value)?.picture_url != null"
-            :src="store.collections.find((i) => i.value == store.activeCollection?.value)?.picture_url"
-            style="width: 100%; height: 100%;"
-            />
-        </q-card-section>
-      </q-card>
+      <!-- Collection card removed - editing collections only available on desktop -->
       <div class="q-pa-md" >
         <q-list class="text-primary text-weight-medium">
           
@@ -725,15 +467,56 @@
       
     </q-page-container>
 
-    <q-footer v-if="shouldRevealFooter" reveal  bordered style="height: 10vh;" class="bg-primary text-white">
-      <q-btn size="lg" class="addButton" color="primary" icon="add" label="create new" @click="show(true)" />
-    </q-footer>
+    <!-- Enhanced CTA Bottom Sheet (when inventory is sparse) -->
+    <q-page-sticky v-if="shouldRevealFooter && showEnhancedCTA" position="bottom" :offset="[0, 0]">
+      <div class="enhanced-cta-sheet">
+        <div class="cta-gradient-top"></div>
+        <div class="cta-content">
+          <div class="cta-header">
+            <h3 class="cta-title">Start Adding Items</h3>
+            <p class="cta-subtitle">Build your moving inventory with AI-powered photo capture</p>
+          </div>
 
-    <!-- Floating Action Button for AI Photo Capture (Centered) -->
-    <q-page-sticky v-if="shouldRevealFooter" position="bottom" :offset="[0, 16]">
+          <div class="cta-actions">
+            <q-btn
+              unelevated
+              size="lg"
+              color="primary"
+              icon="add_a_photo"
+              label="Take Photo"
+              class="cta-primary-btn"
+              :disable="store.collections.length == 0"
+              @click="showPhotoCapture = true"
+            />
+
+            <div class="cta-secondary-actions">
+              <q-btn
+                flat
+                dense
+                color="primary"
+                label="Add Manually"
+                :disable="store.collections.length == 0"
+                @click="onSelectThing('item')"
+              />
+              <q-btn
+                flat
+                dense
+                color="primary"
+                label="Add Container"
+                :disable="store.collections.length == 0"
+                @click="onSelectThing('container')"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </q-page-sticky>
+
+    <!-- Regular FAB (when inventory is substantial) -->
+    <q-page-sticky v-if="shouldRevealFooter && !showEnhancedCTA" position="bottom" :offset="[0, 16]">
       <q-btn
         fab
-        icon="photo_camera"
+        icon="add_a_photo"
         color="primary"
         size="lg"
         class="fab-button"
@@ -766,24 +549,6 @@
   width: 100vw;
   height: 100vh;
 }
-.addButton {
-  width: 100%;
-  height: 100%;
-}
-/* .logOutButton {
-  position: relative;
-  width: 100%;
-  font-weight: bolder;
-  align-self: center;
-  border: none;
-} */
-/* .logOutButton {
-  position: relative;
-  width: 100%;
-  font-weight: bolder;
-  align-self: center;
-  border: none;
-} */
 
 /* Content scroll */
 
@@ -805,6 +570,131 @@
 
 .fab-button:active {
   transform: scale(0.95);
+}
+
+/* Enhanced CTA Bottom Sheet for Sparse Inventory */
+.enhanced-cta-sheet {
+  width: 100vw;
+  background: linear-gradient(to top, #ffffff 85%, rgba(255, 255, 255, 0.95) 95%, transparent);
+  border-radius: 24px 24px 0 0;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+  animation: slideUpFade 0.6s ease-out;
+  position: relative;
+  overflow: hidden;
+}
+
+@keyframes slideUpFade {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.cta-gradient-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(to right, #274690, #1CA1C1, #274690);
+  background-size: 200% 100%;
+  animation: shimmer 3s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.cta-content {
+  padding: 32px 24px 24px;
+}
+
+.cta-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.cta-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #274690;
+  margin: 0 0 8px 0;
+  animation: fadeInDown 0.6s ease-out 0.2s both;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cta-subtitle {
+  font-size: 0.95rem;
+  color: #616161;
+  margin: 0;
+  line-height: 1.4;
+  animation: fadeInDown 0.6s ease-out 0.3s both;
+}
+
+.cta-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: fadeInUp 0.6s ease-out 0.4s both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cta-primary-btn {
+  width: 100%;
+  padding: 16px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(39, 70, 144, 0.3);
+  transition: all 0.2s ease;
+}
+
+.cta-primary-btn:hover {
+  box-shadow: 0 6px 16px rgba(39, 70, 144, 0.4);
+  transform: translateY(-2px);
+}
+
+.cta-primary-btn:active {
+  transform: translateY(0);
+}
+
+.cta-secondary-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.cta-secondary-actions .q-btn {
+  font-size: 0.9rem;
 }
 
 </style>

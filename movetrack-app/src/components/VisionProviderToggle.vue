@@ -22,10 +22,11 @@ const providerLabels: Record<string, string> = {
   'gpt4': 'OpenAI GPT-4o'
 };
 
-const providerIcons: Record<string, string> = {
-  'gemini': 'auto_awesome',
-  'claude': 'psychology',
-  'gpt4': 'smart_toy'
+// Provider logo URLs
+const providerLogos: Record<string, string> = {
+  'gemini': 'https://storage.googleapis.com/widowmaker-site-images/Google_Gemini_icon_2025.svg.png',
+  'claude': 'https://storage.googleapis.com/widowmaker-site-images/Claude%20symbol%20-%20Clay.png',
+  'gpt4': 'https://storage.googleapis.com/widowmaker-site-images/OpenAI-black-monoblossom.png'
 };
 
 // Get auth headers
@@ -96,58 +97,78 @@ onMounted(() => {
 
 <template>
   <div class="vision-provider-toggle">
-    <div class="toggle-header">
-      <q-icon name="camera_enhance" size="20px" color="primary" />
-      <span class="toggle-label">Vision AI Provider</span>
+    <div class="provider-buttons-row q-mt-md">
+      <q-btn
+        v-for="provider in availableProviders"
+        :key="provider"
+        :class="['provider-btn', { 'provider-btn-active': currentProvider === provider }]"
+        :disable="isLoading"
+        unelevated
+        @click="setProvider(provider)"
+      >
+        <div class="provider-btn-content">
+          <img :src="providerLogos[provider]" :alt="providerLabels[provider]" class="provider-logo" />
+          <span class="provider-label">{{ providerLabels[provider] }}</span>
+        </div>
+      </q-btn>
     </div>
-
-    <q-btn-toggle
-      v-model="currentProvider"
-      :options="availableProviders.map(p => ({
-        label: providerLabels[p] || p,
-        value: p,
-        icon: providerIcons[p] || 'psychology'
-      }))"
-      toggle-color="primary"
-      color="grey-3"
-      text-color="dark"
-      unelevated
-      spread
-      :disable="isLoading"
-      class="provider-toggle-buttons"
-      @update:model-value="setProvider"
-    />
 
     <div v-if="availableProviders.length === 0" class="no-providers-warning">
       <q-icon name="warning" size="20px" color="warning" />
-      <span>No vision providers configured. Add API keys to .env file.</span>
+      <span>No vision providers configured.</span>
     </div>
   </div>
 </template>
 
 <style scoped>
 .vision-provider-toggle {
-  background: white;
-  border-radius: 8px;
-  padding: 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  width: 100%;
 }
 
-.toggle-header {
+.provider-buttons-row {
   display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.provider-btn {
+  flex: 1;
+  min-width: 0;
+  background: #f5f5f5;
+  color: #424242;
+  border: 2px solid transparent;
+  padding: 12px 8px;
+  transition: all 0.2s ease;
+}
+
+.provider-btn:hover {
+  background: #eeeeee;
+}
+
+.provider-btn-active {
+  background: #e3f2fd;
+  border-color: #274690;
+  color: #274690;
+}
+
+.provider-btn-content {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
 }
 
-.toggle-label {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #424242;
+.provider-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
 }
 
-.provider-toggle-buttons {
-  width: 100%;
+.provider-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-align: center;
+  line-height: 1.2;
 }
 
 .no-providers-warning {

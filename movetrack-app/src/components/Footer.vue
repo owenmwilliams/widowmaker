@@ -20,4 +20,13 @@
   width: 100%;
 }
 
+.content a {
+  color: #757575;
+  text-decoration: none;
+}
+
+.content a:hover {
+  color: #9e9e9e;
+}
+
 </style>

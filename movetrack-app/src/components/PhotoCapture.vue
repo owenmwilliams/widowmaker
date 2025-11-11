@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import axios from 'axios';
 import type { InventoryItem } from '../data/inventoryItems';
@@ -20,6 +20,7 @@ const emit = defineEmits<{
 const props = defineProps<{
   visionProvider?: string;
   user?: string;
+  autoOpen?: boolean;
 }>();
 
 // Camera/Photo state
@@ -317,6 +318,13 @@ const cancel = () => {
   resetForm();
   emit('close');
 };
+
+// Auto-open camera if prop is set
+onMounted(() => {
+  if (props.autoOpen) {
+    openCamera();
+  }
+});
 </script>
 
 <template>
