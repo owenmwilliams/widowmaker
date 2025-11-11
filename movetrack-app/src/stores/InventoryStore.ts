@@ -97,9 +97,18 @@ export const inventoryStore = defineStore("inventory", () => {
                         }
                     })
 
+                    const sizePresets: Record<string, { length: number, width: number, height: number }> = {
+                        small: { length: 16, width: 12, height: 12 },
+                        medium: { length: 18, width: 18, height: 16 },
+                        large: { length: 24, width: 18, height: 18 },
+                        wardrobe: { length: 24, width: 24, height: 40 }
+                    }
                     containers.value = response.data.containers.map(i => {
                         const maxWeight = i.max_weight_lbs !== undefined && i.max_weight_lbs !== null ? Number(i.max_weight_lbs) : null
-                        const maxVolume = i.max_volume_cuft !== undefined && i.max_volume_cuft !== null ? Number(i.max_volume_cuft) : null
+                        const explicitVolume = i.max_volume_cuft !== undefined && i.max_volume_cuft !== null ? Number(i.max_volume_cuft) : null
+                        const preset = i.box_size ? sizePresets[i.box_size] : undefined
+                        const derivedVolume = preset ? Number(((preset.length * preset.width * preset.height) / 1728).toFixed(2)) : null
+                        const maxVolume = explicitVolume ?? derivedVolume
                         return {
                             value: Number(i.id),
                             label: i.name,
@@ -122,7 +131,8 @@ export const inventoryStore = defineStore("inventory", () => {
                             capacity_weight: maxWeight,
                             capacity_volume: maxVolume,
                             current_weight: i.current_weight || 0,
-                            current_volume: i.current_volume || 0
+                            current_volume: i.current_volume || 0,
+                            dimensions: preset ? { ...preset } : undefined
                         }
                     })
 
