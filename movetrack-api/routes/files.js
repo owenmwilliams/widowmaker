@@ -42,13 +42,39 @@ const upload = multer({
 // THI IS USED BY THE APPLICATION TO UPLOAD A FILE TO THE BUCKET
 router.post('/upload/:bucket', upload.single('file'), async (req, res) => {
   const { bucket } = req.params;
+
+  // In local development, store images as base64 data URLs instead of uploading to GCS
+  if (isLocalEnvironment) {
+    try {
+      // Read the file buffer and convert to base64 data URL
+      const base64Data = req.file.buffer.toString('base64');
+      const dataUrl = `data:${req.file.mimetype};base64,${base64Data}`;
+
+      console.log(`[LOCAL DEV] Image stored as data URL (${Math.round(base64Data.length / 1024)}KB)`);
+
+      // Return the data URL as if it were a public URL
+      res.status(200).json({ url: dataUrl });
+      return;
+    } catch (error) {
+      console.error('Error processing file in local dev:', error);
+      res.status(500).send('Internal server error.');
+      return;
+    }
+  }
+
+  // Production: Upload to GCS
   const bucketInstance = storage.bucket(bucket);
   const fileName = req.query.folder + '/' + req.query.name;
   const file = bucketInstance.file(fileName);
 
   // file.name = req.folder.concat(req.file.originalname)
   try {
-    const blobStream = file.createWriteStream();
+    const blobStream = file.createWriteStream({
+      metadata: {
+        contentType: req.file.mimetype,
+      },
+      resumable: false
+    });
     blobStream.on('error', (error) => {
       console.error('Error uploading file:', error);
       res.status(500).send('Internal server error.');

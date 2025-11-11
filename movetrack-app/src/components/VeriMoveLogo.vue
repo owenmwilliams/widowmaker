@@ -12,7 +12,7 @@
     <!-- Shield outline (classic heater shape with top ridge, pointed bottom) -->
     <path
       fill="none"
-      stroke="#274690"
+      :stroke="color"
       stroke-width="10"
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -27,7 +27,7 @@
     <!-- Centered check, slightly forward/right -->
     <path
       fill="none"
-      stroke="#1CA1C1"
+      :stroke="checkColor"
       stroke-width="10"
       stroke-linecap="round"
       stroke-linejoin="round"
@@ -40,7 +40,7 @@
       font-family="Manrope, system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, Liberation Sans, sans-serif"
       font-size="48"
       font-weight="700"
-      fill="#274690"
+      :fill="color"
     >
       VERIMOVE
     </text>
@@ -56,6 +56,14 @@ defineProps({
   height: {
     type: [String, Number],
     default: 32
+  },
+  color: {
+    type: String,
+    default: '#274690' // VeriMove blue
+  },
+  checkColor: {
+    type: String,
+    default: '#1CA1C1' // Sky blue for check
   }
 });
 </script>
