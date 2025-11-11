@@ -4,7 +4,6 @@
     import { QTableProps, useQuasar } from 'quasar';
     import ContainerSelect from './ContainerSelect.vue';
     import { storeToRefs } from 'pinia';
-    import axios from 'axios';
 
     const store = inventoryStore();
 
@@ -71,64 +70,6 @@
 
     const getSelectedString = () => {
         return selectedItems.value.length === 0 ? '' : `${selectedItems.value.length} record${selectedItems.value.length > 1 ? 's' : ''} selected of ${items.value.length}`
-    }
-
-    const xyzURL: Ref<Array<any>> = ref([])
-
-    // To adjust url based on whether in prod or not
-    const token_url = import.meta.env.MODE == 'development' ? 'http://localhost:5174/tokens/' : 'https://take-stock.xyz/tokens/'
-    const showTokens = ref(false)
-
-    const tokenList = async () => {
-        $q.loading.show({
-            delay: 400 // ms
-        })
-
-
-
-        for (let i = 0; i < selectedItems.value.length; i++) {
-            const selectedItem = selectedItems.value[i];
-            const item = items.value.find(item => item.value == selectedItem);
-
-            if (item && item.picture_url && item.picture_url.includes('take-stock')) {
-                await pushToToken(selectedItem);
-            }
-        }
-        $q.loading.hide()
-        showTokens.value = true;
-    }
-
-    const pushToToken = async (item: number) => {
-        let urlSlug = item.toString() + '/' + props.user
-        const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
-        
-        let encryptionData = await axios({
-        method: 'post',
-        url: core_url + '/secure/encrypt',
-        params: {
-            url: urlSlug
-        },
-        });
-
-        // // Convert Uint8Array to a string using TextDecoder
-        const encrypted = binaryToBase64(encryptionData.data.encrypted);
-        const encodedIV = binaryToBase64(encryptionData.data.iv);
-
-        xyzURL.value.push({id: item, url: token_url + '?id=' + encodeURIComponent(encrypted) + '&iv=' + encodeURIComponent(encodedIV)})
-    }
-
-    function openXYZ(url: string) {
-        window.open(url)
-    }
-
-    function binaryToBase64(buffer) {
-        // Convert binary data to a string
-        const binaryString = Object.values(buffer).map(byte => String.fromCharCode(byte as number)).join('');
-
-        // Encode the binary string to base64
-        const base64Data = window.btoa(binaryString);
-
-        return base64Data;
     }
 
     const itemRows = computed(() => {
@@ -204,7 +145,7 @@
 
     const columns: QTableProps['columns'] = [
         { name: 'selection', align: 'left', label: '', field: 'selection', sortable: false, required: false },
-        { name: 'name', align: 'left', label: 'Item', field: 'name', sortable: true, required: false, sortOrder: 'ad' },
+        { name: 'name', align: 'left', label: 'Item', field: 'label', sortable: true, required: false, sortOrder: 'ad' },
         { name: 'description', align: 'left', label: 'Description', field: 'description', required: false, style: 'max-width: 250px; word-wrap: break-word; overflow: hidden; white-space: nowrap;', headerStyle: 'max-width: 200px;' },
         { name: 'quantity', align: 'center', label: 'Quantity', field: 'quantity', sortable: true, required: false, sort: (a, b) => parseInt(a, 10) - parseInt(b, 10) },
         { name: 'fragile', align: 'center', label: 'Fragile', field: 'fragile', sortable: true, required: false },
@@ -219,51 +160,25 @@
     const customFilter = (rows, terms) => {
         const lowerSearch = terms ? terms.toLowerCase() : ""
 
+        // If no search term, return all rows (filtering by collection/container/location is already done in itemRows)
+        if (lowerSearch === "") {
+            return rows
+        }
+
         const searchKeys = ['label', 'description', 'location_name', 'collection_name', 'container_name']
-        const filteredRows = rows.filter((row, i) => {
 
-            let ans = false
-            
-            //Gather toggle conditions
-            let c1 = store.locationValues?.includes(row.location)
-            let c2 = store.collectionValues?.includes(row.collection)
-            let c3 = store.containerValues?.includes(row.container)
+        return rows.filter((row) => {
+            // Get the values for all searchable fields
+            const searchableValues = searchKeys.map(key => row[key])
 
-            //Assume true in case there is no search 
-            let s1 = true
-            
-            //If search term exists, convert to lower case and see which rows contain it
-            if(lowerSearch != ""){
-                s1 = false
-                //Get the values
-                let s1_values = searchKeys.map(key => row[key])
+            // Convert to lowercase and filter out undefined/null values
+            const lowerValues = searchableValues
+                .filter((x: any) => x != null && x != undefined)
+                .map((y: any) => y.toString().toLowerCase())
 
-                //Convert to lowercase
-                let s1_lower = s1_values.filter((x: any) => x != undefined).map((y: any) => y.toString()?.toLowerCase())
-                // console.log('s1_values are: ', s1_lower)
-
-                for (let val = 0; val<s1_lower.length; val++){
-                    if (s1_lower[val].includes(lowerSearch)){
-                        s1 = true
-                        // console.log(s1_lower[val], lowerSearch, s1)
-                        break
-                    }
-                    // console.log(s1_lower[val], lowerSearch, s1)
-                }
-            }
-
-            //assume row doesn't match
-            ans = false
-                
-            //check if any of the conditions match  
-            if ( s1 && c3 && c2 && c1 ) {
-                ans = true
-            }
-            
-            return ans
-
+            // Check if any field contains the search term
+            return lowerValues.some(value => value.includes(lowerSearch))
         })
-        return filteredRows
     }
 
     const updateAllSelected = () => {
@@ -281,7 +196,6 @@
     }
 
     const closeDialog = () => {
-        xyzURL.value = []
         selectedItems.value = []
         allSelected.value = false
     }
@@ -313,28 +227,6 @@
 </script>
 
 <template>
-    <q-dialog v-model="showTokens" style="z-index: 9999;" @hide="closeDialog">
-        <q-card style="min-width: 60vw;">
-        <q-card-section class="row flex flex-center">
-            <masonry-wall v-if="xyzURL.length > 0" :items="xyzURL" :max-columns="5" :column-width="50" :gap="16" style="min-width: 50vw;" class="q-mx-xl q-my-md">
-                <template #default="{ item, index }">
-                 <q-card clickable @click="openXYZ(item.url)">
-                    <q-img fit="cover" :src="store.items.find(i => i.value == item.id).picture_url" />
-                    <q-card-section>
-                        <div class="text-body1 text-weight-medium flex flex-center full-width text-primary">{{ store.items.find(i => i.value == item.id).label }}</div>
-                    </q-card-section>
-                 </q-card>
-                </template>
-            </masonry-wall>
-        </q-card-section>
-
-        <q-card-actions align="right">
-            <q-btn flat label="Cancel" color="info" v-close-popup />
-        </q-card-actions>
-        </q-card>
-    </q-dialog>
-
-
     <q-page class="q-pa-md">
         
         
@@ -484,11 +376,27 @@
                     </q-card>
                 </q-dialog>
 
-                <q-btn-dropdown flat color="primary" label="actions">
-                    <q-btn push flat color="primary" :disable="(selectedItems.length == 0)" label="Move" icon="swap_horiz" @click="editItemLocation" />
-                    <q-btn push flat color="primary" :disable="(selectedItems.length == 0)" label="List" icon="sell" @click="tokenList()" />
-                    <q-btn push flat :disable="(selectedItems.length == 0)" label="Delete" color="negative" icon="delete_forever" @click="deleteItemDialog = true" />
-                </q-btn-dropdown>
+                <q-btn
+                    flat
+                    color="primary"
+                    label="Move Selected"
+                    icon="swap_horiz"
+                    :disable="selectedItems.length === 0"
+                    @click.stop="editItemLocation"
+                >
+                    <q-badge v-if="selectedItems.length > 0" color="secondary" floating>{{ selectedItems.length }}</q-badge>
+                </q-btn>
+
+                <q-btn
+                    flat
+                    color="negative"
+                    label="Delete Selected"
+                    icon="delete_forever"
+                    :disable="selectedItems.length === 0"
+                    @click.stop="deleteItemDialog = true"
+                >
+                    <q-badge v-if="selectedItems.length > 0" color="negative" floating>{{ selectedItems.length }}</q-badge>
+                </q-btn>
                 
                 
 
@@ -642,7 +550,23 @@
     z-index: 1; /* Ensure buttons appear above the table */
 }
 .my-sticky-header-column-table {
-  max-height: 90vh;
+  max-height: calc(100vh - 120px);
+}
+
+/* Hide scrollbars while keeping functionality */
+.my-sticky-header-column-table :deep(.q-table__middle) {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.my-sticky-header-column-table :deep(.q-table__middle)::-webkit-scrollbar {
+  width: 0px;
+  height: 0px;
+}
+
+.my-sticky-header-column-table :deep(.q-table__middle) {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
 .my-sticky-header-column-table td:first-child {

@@ -4,6 +4,7 @@ import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
 import { useQuasar } from 'quasar';
 import DesktopEdit from './DesktopEdit.vue';
+import { evaluatePackingFit } from '../../utils/packing';
 
 const props = defineProps({
   user: { type: String, required: true }
@@ -16,7 +17,30 @@ const $q = useQuasar();
 // State
 const selectedCollection = ref<any>(null);
 const draggedItem = ref<any>(null);
-const dragOverContainer = ref<number | null>(null);
+
+const UNASSIGNED_TARGET = 'unassigned' as const;
+type DragTarget = number | typeof UNASSIGNED_TARGET | null;
+const dragOverTarget = ref<DragTarget>(null);
+
+const expandedContainerIds = ref<number[]>([]);
+
+const isContainerExpanded = (containerValue: number) => {
+  return expandedContainerIds.value.includes(containerValue);
+};
+
+const setContainerExpansion = (containerValue: number, expanded: boolean) => {
+  if (expanded) {
+    expandedContainerIds.value = Array.from(
+      new Set([...expandedContainerIds.value, containerValue])
+    );
+  } else {
+    expandedContainerIds.value = expandedContainerIds.value.filter(id => id !== containerValue);
+  }
+};
+
+const toggleContainerExpansion = (containerValue: number) => {
+  setContainerExpansion(containerValue, !isContainerExpanded(containerValue));
+};
 const showCreateDialog = ref(false);
 const newCollectionName = ref('');
 const newCollectionDescription = ref('');
@@ -47,14 +71,106 @@ const getContainerItems = (containerValue: number) => {
   return itemsInCollection.value.filter(i => i.container === containerValue);
 };
 
+const parseItemDimensions = (dimensions?: string | null) => {
+  if (!dimensions) return null;
+  const parts = dimensions.split('x').map((p) => Number(p.trim()));
+  if (parts.length !== 3 || parts.some(isNaN)) return null;
+  return { length: parts[0], width: parts[1], height: parts[2] };
+};
+
+const toNumber = (value: any) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '') return null;
+    const num = Number(trimmed);
+    return Number.isFinite(num) ? num : null;
+  }
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const getContainerCapacity = (containerValue: number) => {
+  const container = store.containers.find(c => c.value === containerValue);
+  if (!container) return null;
+  const items = getContainerItems(containerValue);
+  const totalWeight = items.reduce((sum, item) => {
+    const weight = toNumber(item.weight_lbs);
+    return sum + (weight ?? 0);
+  }, 0);
+  const totalVolumeCubicInches = items.reduce((sum, item) => {
+    const dims = parseItemDimensions(item.dimensions);
+    if (!dims) return sum;
+    return sum + (dims.length * dims.width * dims.height);
+  }, 0);
+  const totalVolumeCubicFeet = totalVolumeCubicInches / 1728;
+
+  return {
+    maxWeight: toNumber(container.max_weight_lbs),
+    maxVolume: toNumber(container.max_volume_cuft),
+    currentWeight: Number(totalWeight.toFixed(2)),
+    currentVolume: Number(totalVolumeCubicFeet.toFixed(2)),
+    dimensions: container.dimensions
+  };
+};
+
+const getPackingStatus = (containerValue: number) => {
+  const capacity = getContainerCapacity(containerValue);
+  if (!capacity) return null;
+  const weightPct = capacity.maxWeight ? Math.min(1, (capacity.currentWeight || 0) / capacity.maxWeight) : null;
+  const volumePct = capacity.maxVolume ? Math.min(1, (capacity.currentVolume || 0) / capacity.maxVolume) : null;
+
+  const items = getContainerItems(containerValue).map((item) => ({
+    id: item.value,
+    weight: toNumber(item.weight_lbs) || 0,
+    dimensions: parseItemDimensions(item.dimensions) || undefined
+  }));
+
+  const fitAssessment = evaluatePackingFit(items, {
+    maxWeight: capacity.maxWeight ?? undefined,
+    maxVolume: capacity.maxVolume ?? undefined,
+    innerDimensions: capacity.dimensions
+  });
+
+  return { weightPct, volumePct, capacity, fitAssessment };
+};
+
+const assessItemPlacement = (item: any, targetContainerValue: number) => {
+  const targetContainer = store.containers.find(c => c.value === targetContainerValue);
+  if (!targetContainer) {
+    return { ok: false, reason: 'Container not found' };
+  }
+  const baseItems = getContainerItems(targetContainerValue).filter(i => i.value !== item.value);
+  const packingItems = [...baseItems, item].map((entry) => ({
+    id: entry.value,
+    weight: toNumber(entry.weight_lbs) || 0,
+    dimensions: parseItemDimensions(entry.dimensions) || undefined
+  }));
+
+  const assessment = evaluatePackingFit(packingItems, {
+    maxWeight: toNumber(targetContainer.max_weight_lbs) ?? undefined,
+    maxVolume: toNumber(targetContainer.max_volume_cuft) ?? undefined,
+    innerDimensions: targetContainer.dimensions
+  });
+
+  const ok = assessment.weightOk && assessment.volumeOk && assessment.maxDimensionOk;
+  return { ok, reason: assessment.blockingReason };
+};
+
 const getItemCount = (collectionValue: number) => {
   return store.items.filter(i => i.collection === collectionValue).length;
+};
+
+const truncateLabel = (label?: string, length = 10) => {
+  if (!label) return '';
+  return label.length > length ? `${label.slice(0, length)}…` : label;
 };
 
 // Methods
 const selectCollection = (collection: any) => {
   selectedCollection.value = collection;
   store.setActiveCollection({ label: collection.label, value: collection.value });
+  expandedContainerIds.value = [];
 };
 
 const createCollection = async () => {
@@ -156,39 +272,62 @@ const createContainer = async () => {
 // Drag and Drop Handlers
 const handleDragStart = (item: any) => {
   draggedItem.value = item;
+  draggedFromContainerId.value = item.container ?? null;
 };
 
 const handleDragEnd = () => {
   draggedItem.value = null;
-  dragOverContainer.value = null;
+  dragOverTarget.value = null;
 };
 
-const handleDragOver = (event: DragEvent, containerValue: number) => {
+const handleDragOver = (event: DragEvent, target: number | typeof UNASSIGNED_TARGET) => {
   event.preventDefault();
-  dragOverContainer.value = containerValue;
+  dragOverTarget.value = target;
 };
 
-const handleDragLeave = () => {
-  dragOverContainer.value = null;
+const handleDragLeave = (target?: number | typeof UNASSIGNED_TARGET) => {
+  if (!target || dragOverTarget.value === target) {
+    dragOverTarget.value = null;
+  }
 };
 
-const handleDrop = async (event: DragEvent, containerValue: number) => {
+const draggedFromContainerId = ref<number | null>(null);
+
+const handleDrop = async (event: DragEvent, containerValue: number | null) => {
   event.preventDefault();
 
   if (!draggedItem.value) return;
+  const droppedItem = draggedItem.value;
 
   try {
     $q.loading.show({ message: 'Moving item...' });
 
-    await store.moveItemToContainer(
-      draggedItem.value.value,
-      containerValue,
-      props.user
-    );
+    if (containerValue !== null) {
+      const fitCheck = assessItemPlacement(droppedItem, containerValue);
+      if (!fitCheck.ok) {
+        $q.notify({
+          type: 'warning',
+          message: fitCheck.reason || 'Item does not fit in this container',
+          position: 'bottom'
+        });
+        return;
+      }
+      await store.moveItemToContainer(
+        droppedItem.value,
+        containerValue,
+        props.user
+      );
+    } else {
+      await store.moveItemToContainer(
+        droppedItem.value,
+        null,
+        props.user
+      );
+    }
 
     $q.notify({
       type: 'positive',
-      message: `Moved ${draggedItem.value.label} to container`,
+      message: containerValue === null ? `Removed ${droppedItem.label || 'Item'} from container` : `Moved ${droppedItem.label || 'Item'} to container`,
       position: 'bottom',
       timeout: 1500
     });
@@ -202,7 +341,8 @@ const handleDrop = async (event: DragEvent, containerValue: number) => {
   } finally {
     $q.loading.hide();
     draggedItem.value = null;
-    dragOverContainer.value = null;
+    dragOverTarget.value = null;
+    draggedFromContainerId.value = null;
   }
 };
 
@@ -307,50 +447,161 @@ onMounted(() => {
               v-for="container in containersInCollection"
               :key="container.value"
               class="container-card"
-              :class="{ 'drag-over': dragOverContainer === container.value }"
+              :class="{
+                'drag-over': dragOverTarget === container.value,
+                expanded: isContainerExpanded(container.value)
+              }"
               @dragover="handleDragOver($event, container.value)"
-              @dragleave="handleDragLeave"
+              @dragleave="handleDragLeave(container.value)"
               @drop="handleDrop($event, container.value)"
             >
               <q-card flat bordered>
-                <q-card-section>
-                  <div class="row items-center q-mb-sm">
+                <q-card-section class="container-card-header">
+                  <div class="row items-center">
                     <q-icon name="inventory_2" size="sm" color="primary" />
                     <span class="text-subtitle1 text-weight-medium q-ml-sm">{{ container.label }}</span>
                     <q-space />
+                    <q-btn
+                      flat
+                      dense
+                      round
+                      size="sm"
+                      color="primary"
+                      :icon="isContainerExpanded(container.value) ? 'expand_less' : 'expand_more'"
+                      @click.stop="toggleContainerExpansion(container.value)"
+                    >
+                      <q-tooltip>{{ isContainerExpanded(container.value) ? 'Collapse' : 'Expand' }}</q-tooltip>
+                    </q-btn>
                     <q-chip dense color="secondary" text-color="white" size="sm">
                       {{ getContainerItems(container.value).length }}
                     </q-chip>
                   </div>
+                </q-card-section>
 
-                  <!-- Item thumbnails -->
-                  <div v-if="getContainerItems(container.value).length > 0" class="item-thumbnails">
-                    <div
-                      v-for="item in getContainerItems(container.value).slice(0, 6)"
-                      :key="item.value"
-                      class="item-thumb clickable"
-                      @click.stop="openItemDetails(item.value)"
-                    >
-                      <q-img
-                        v-if="item.picture_url"
-                        :src="item.picture_url"
-                        fit="cover"
-                        class="thumb-img"
-                      />
-                      <div v-else class="thumb-placeholder">
-                        <q-icon name="category" size="16px" color="grey-6" />
+                <template v-if="!isContainerExpanded(container.value)">
+                  <q-card-section>
+                    <!-- Item thumbnails -->
+                    <div v-if="getContainerItems(container.value).length > 0" class="item-thumbnails">
+                      <div
+                        v-for="(item, index) in getContainerItems(container.value).slice(0, 6)"
+                        :key="getContainerItems(container.value).length > 6 && index === 5 ? `${container.value}-overflow` : item.value"
+                        class="item-thumb"
+                        :class="{ clickable: !(getContainerItems(container.value).length > 6 && index === 5) }"
+                        :draggable="!(getContainerItems(container.value).length > 6 && index === 5)"
+                        @click.stop="!(getContainerItems(container.value).length > 6 && index === 5) && openItemDetails(item.value)"
+                        @dragstart="!(getContainerItems(container.value).length > 6 && index === 5) && handleDragStart(item)"
+                        @dragend="!(getContainerItems(container.value).length > 6 && index === 5) && handleDragEnd"
+                      >
+                        <template v-if="getContainerItems(container.value).length > 6 && index === 5">
+                          <div class="more-items">
+                            +{{ getContainerItems(container.value).length - 5 }}
+                          </div>
+                        </template>
+                        <template v-else>
+                          <q-img
+                            v-if="item.picture_url"
+                            :src="item.picture_url"
+                            fit="cover"
+                            class="thumb-img"
+                          />
+                          <div v-else class="thumb-placeholder">
+                            <q-icon name="category" size="16px" color="grey-6" />
+                            <span class="thumb-text">{{ truncateLabel(item.label, 8) }}</span>
+                          </div>
+                        </template>
                       </div>
                     </div>
-                    <div v-if="getContainerItems(container.value).length > 6" class="more-items">
-                      +{{ getContainerItems(container.value).length - 6 }}
-                    </div>
-                  </div>
 
-                  <div v-else class="empty-container">
-                    <q-icon name="inbox" size="24px" color="grey-5" />
-                    <div class="text-caption text-grey-6">Drop items here</div>
-                  </div>
-                </q-card-section>
+                    <div v-else class="empty-container">
+                      <q-icon name="inbox" size="24px" color="grey-5" />
+                      <div class="text-caption text-grey-6">Drop items here</div>
+                    </div>
+
+                    <div class="capacity-section q-mt-md" v-if="getPackingStatus(container.value)">
+                      <div class="capacity-row" v-if="getPackingStatus(container.value)?.weightPct !== null">
+                        <div class="text-caption text-grey-7">
+                          Weight: {{ getPackingStatus(container.value)?.capacity.currentWeight.toFixed(1) }} /
+                          {{ getPackingStatus(container.value)?.capacity.maxWeight }} lbs
+                        </div>
+                        <q-linear-progress
+                          :value="getPackingStatus(container.value)?.weightPct || 0"
+                          color="primary"
+                          rounded
+                          size="6px"
+                        />
+                      </div>
+                      <div class="capacity-row" v-if="getPackingStatus(container.value)?.volumePct !== null">
+                        <div class="text-caption text-grey-7">
+                          Volume: {{ getPackingStatus(container.value)?.capacity.currentVolume.toFixed(2) }} /
+                          {{ getPackingStatus(container.value)?.capacity.maxVolume }} cu ft
+                        </div>
+                        <q-linear-progress
+                          :value="getPackingStatus(container.value)?.volumePct || 0"
+                          color="secondary"
+                          rounded
+                          size="6px"
+                        />
+                      </div>
+                      <div class="text-caption text-grey-6 q-mt-xs" v-if="container.dimensions">
+                        Inside dimensions: {{ container.dimensions.length }}" x {{ container.dimensions.width }}" x {{ container.dimensions.height }}"
+                      </div>
+                      <div
+                        class="text-caption text-negative q-mt-xs"
+                        v-if="getPackingStatus(container.value)?.fitAssessment.blockingReason"
+                      >
+                        {{ getPackingStatus(container.value)?.fitAssessment.blockingReason }}
+                      </div>
+                    </div>
+                  </q-card-section>
+                </template>
+
+                <q-slide-transition>
+                  <q-card-section
+                    v-if="isContainerExpanded(container.value)"
+                    class="container-list-section"
+                  >
+                    <div class="container-items-list">
+                      <div
+                        v-if="getContainerItems(container.value).length === 0"
+                        class="container-items-empty"
+                      >
+                        <q-icon name="inbox" size="24px" color="grey-5" class="q-mb-sm" />
+                        <div class="text-caption text-grey-6">No items yet. Drag items here to start packing.</div>
+                      </div>
+                      <div v-else class="container-items-scroll">
+                        <div
+                          v-for="item in getContainerItems(container.value)"
+                          :key="item.value"
+                          class="container-item"
+                          draggable="true"
+                          @click.stop="openItemDetails(item.value)"
+                          @dragstart="handleDragStart(item)"
+                          @dragend="handleDragEnd"
+                        >
+                          <div
+                            v-if="item.picture_url"
+                            class="container-item-image"
+                          >
+                            <q-img
+                              :src="item.picture_url"
+                              fit="cover"
+                              class="item-img"
+                            />
+                          </div>
+                          <div class="container-item-details">
+                            <div class="text-body2 text-weight-medium ellipsis">{{ item.label }}</div>
+                            <div class="text-caption text-grey-7 ellipsis">
+                              {{ item.description || 'No description' }}
+                            </div>
+                          </div>
+                          <div class="container-item-meta text-caption text-grey-6">
+                            {{ item.quantity }} pcs
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </q-card-section>
+                </q-slide-transition>
 
                 <q-card-actions align="right">
                   <q-btn flat dense color="primary" icon="visibility" size="sm" @click="openContainerDetails(container)">
@@ -365,7 +616,13 @@ onMounted(() => {
           </div>
 
           <!-- Unpacked Items -->
-          <div v-if="unassignedItems.length > 0" class="unassigned-section">
+          <div
+            class="unassigned-section"
+            :class="{ 'drag-over': dragOverTarget === UNASSIGNED_TARGET }"
+            @dragover.prevent="handleDragOver($event, UNASSIGNED_TARGET)"
+            @dragleave="handleDragLeave(UNASSIGNED_TARGET)"
+            @drop="handleDrop($event, null)"
+          >
             <div class="section-title">
               <q-icon name="category" size="20px" class="q-mr-sm" />
               Unpacked Items
@@ -374,13 +631,18 @@ onMounted(() => {
               </q-chip>
             </div>
 
-            <div class="unassigned-items">
+            <div v-if="unassignedItems.length === 0" class="unassigned-empty">
+              <q-icon name="outbox" size="32px" color="grey-5" class="q-mb-sm" />
+              <div class="text-body2 text-grey-7">Drop items here to remove them from containers.</div>
+            </div>
+
+            <div v-else class="unassigned-items">
               <div
                 v-for="item in unassignedItems"
                 :key="item.value"
                 class="draggable-item"
                 draggable="true"
-                @dblclick.prevent="openItemDetails(item.value)"
+                @click="openItemDetails(item.value)"
                 @dragstart="handleDragStart(item)"
                 @dragend="handleDragEnd"
               >
@@ -685,6 +947,18 @@ onMounted(() => {
   box-shadow: 0 4px 12px rgba(139, 115, 85, 0.2);
 }
 
+.container-card.expanded .q-card {
+  border-color: var(--primary);
+}
+
+.container-card-header {
+  padding-bottom: 0;
+}
+
+.container-list-section {
+  padding-top: 0;
+}
+
 .item-thumbnails {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -697,7 +971,11 @@ onMounted(() => {
   border-radius: 6px;
   overflow: hidden;
   background: var(--bg-tertiary);
-  cursor: pointer;
+  cursor: grab;
+}
+
+.item-thumb:active {
+  cursor: grabbing;
 }
 
 .thumb-img {
@@ -711,9 +989,20 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.thumb-text {
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 0 4px;
 }
 
 .more-items {
+  width: 100%;
+  height: 100%;
   aspect-ratio: 1;
   background: var(--primary);
   color: white;
@@ -734,12 +1023,78 @@ onMounted(() => {
   margin-top: 12px;
 }
 
+.container-items-list {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-light);
+  padding-top: 12px;
+}
+
+.container-items-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 24px 12px;
+  border: 2px dashed var(--border-light);
+  border-radius: 8px;
+}
+
+.container-items-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.container-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  cursor: grab;
+}
+
+.container-item:active {
+  cursor: grabbing;
+}
+
+.container-item-image {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-tertiary);
+  flex-shrink: 0;
+}
+
+.container-item-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.container-item-meta {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
 /* Unassigned Items */
 .unassigned-section {
   background: white;
   border-radius: 12px;
   padding: 16px;
   margin-top: 24px;
+  border: 2px dashed transparent;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.unassigned-section.drag-over {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
 }
 
 .unassigned-items {
@@ -747,6 +1102,19 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 12px;
   margin-top: 16px;
+}
+
+.unassigned-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  border: 2px dashed var(--border-light);
+  border-radius: 8px;
+  margin-top: 16px;
+  color: var(--text-secondary);
 }
 
 .draggable-item {
@@ -809,5 +1177,16 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.capacity-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.capacity-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 </style>

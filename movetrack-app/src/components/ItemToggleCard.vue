@@ -8,7 +8,7 @@ const props = defineProps({
         },
         picture_url: {
             type: String,
-            default: 'https://cdn.quasar.dev/img/parallax2.jpg'
+            default: ''
         },
         label: String,
         description: {
@@ -51,6 +51,11 @@ const getPriorityColor = (priority: string | null) => {
   if (p === 'low') return 'green-7';
   return 'grey-7';
 };
+
+const truncateText = (text?: string, length = 18) => {
+  if (!text) return '';
+  return text.length > length ? `${text.slice(0, length)}…` : text;
+};
 </script>
 
 <template>
@@ -58,55 +63,42 @@ const getPriorityColor = (priority: string | null) => {
         <q-card
             v-if="!isExpanded"
             bordered
-            class="q-ma-sm">
-            <q-card-section class="row" v-if="props.picture_url" horizontal>
-                <div @click="toggleCard" class="col-2 overflow-hidden">
-                    <q-img
+            class="item-card q-ma-sm"
+            @click="toggleCard"
+        >
+            <div class="item-thumb">
+                <q-img
                     v-if="props.picture_url"
                     :src="props.picture_url"
                     fit="cover"
-                    class="q-ma-none"
-                    spinner-color="white"
-                    style="min-height: 100%;">
-                    </q-img>
+                    ratio="1"
+                    class="item-thumb__img"
+                />
+                <div v-else class="item-thumb--placeholder">
+                    <q-icon name="inventory_2" size="24px" color="grey-5" />
+                    <span>{{ truncateText(props.label, 10) }}</span>
                 </div>
-                <div @click="toggleCard" class="col-10 q-pl-md q-py-md">
-                    <div class="text-body1 text-primary">{{ props.label }}</div>
-                    <div class="row q-gutter-xs q-mt-xs">
-                        <q-badge v-if="props.fragile" color="red" text-color="white" class="q-px-sm">
-                            <q-icon name="warning" size="xs" class="q-mr-xs" />
-                            Fragile
-                        </q-badge>
-                        <q-badge v-if="props.priority" :color="getPriorityColor(props.priority)" text-color="white" class="q-px-sm">
-                            {{ props.priority }}
-                        </q-badge>
-                        <q-badge v-if="props.weight_lbs" color="grey-7" text-color="white" class="q-px-sm">
-                            {{ props.weight_lbs }} lbs
-                        </q-badge>
-                    </div>
+            </div>
+            <div class="item-info">
+                <div class="item-title text-primary">{{ props.label }}</div>
+                <div class="item-description text-grey-7" v-if="props.description">
+                    {{ truncateText(props.description, 48) }}
                 </div>
-            </q-card-section>
-
-            <q-card-section v-else horizontal>
-                <div @click="toggleCard" class="col-12 q-pl-sm q-py-sm">
-                    <div class="text-body1 text-primary">{{ props.label }}</div>
-                    <div class="row q-gutter-xs q-mt-xs">
-                        <q-badge v-if="props.fragile" color="red" text-color="white" class="q-px-sm">
-                            <q-icon name="warning" size="xs" class="q-mr-xs" />
-                            Fragile
-                        </q-badge>
-                        <q-badge v-if="props.priority" :color="getPriorityColor(props.priority)" text-color="white" class="q-px-sm">
-                            {{ props.priority }}
-                        </q-badge>
-                        <q-badge v-if="props.weight_lbs" color="grey-7" text-color="white" class="q-px-sm">
-                            {{ props.weight_lbs }} lbs
-                        </q-badge>
-                    </div>
+                <div class="item-badges row q-gutter-xs q-mt-xs">
+                    <q-badge v-if="props.fragile" color="red" text-color="white" class="q-px-sm">
+                        <q-icon name="warning" size="xs" class="q-mr-xs" />
+                        Fragile
+                    </q-badge>
+                    <q-badge v-if="props.priority" :color="getPriorityColor(props.priority)" text-color="white" class="q-px-sm">
+                        {{ props.priority }}
+                    </q-badge>
+                    <q-badge v-if="props.weight_lbs" color="grey-7" text-color="white" class="q-px-sm">
+                        {{ props.weight_lbs }} lbs
+                    </q-badge>
                 </div>
-            </q-card-section>
+            </div>
         </q-card>
 
-  
         <q-card 
             v-else
             flat 
@@ -129,6 +121,9 @@ const getPriorityColor = (priority: string | null) => {
                 <q-img
                     :src="props.picture_url"
                     spinner-color="white"
+                    fit="cover"
+                    ratio="16/9"
+                    class="expanded-image"
                 />
             </q-card-section>  
             <q-card-section v-if="props.picture_url" class="q-space-between">
@@ -158,8 +153,72 @@ const getPriorityColor = (priority: string | null) => {
             <q-btn unelevated color="primary" right dense label="View Details" @click="emits('edit', props.id)" />
             </q-card-actions>
         </q-card>
-    </div>
-  </template>
-  
+  </div>
+ </template>
+ 
+<style scoped>
+.item-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 110px;
+  padding: 12px;
+}
+
+.item-thumb {
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.item-thumb__img {
+  width: 100%;
+  height: 100%;
+}
+
+.item-thumb--placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 0 6px;
+  font-size: 0.75rem;
+}
+
+.item-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.item-title {
+  font-weight: 600;
+}
+
+.item-description {
+  font-size: 0.85rem;
+  line-height: 1.2;
+}
+
+.item-badges q-badge {
+  font-size: 0.65rem;
+}
+
+.expanded-image {
+  border-radius: 12px 12px 0 0;
+}
+</style>
 
   

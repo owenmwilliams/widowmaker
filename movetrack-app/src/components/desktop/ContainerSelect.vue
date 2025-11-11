@@ -87,56 +87,100 @@
 </script>
 
 <template>
-    <q-card style="min-width: 350px">
-        <q-card-section class="row items-center">
-            <q-avatar icon="warning" color="warning" />
-            <span class="q-ml-sm">Moving the following items:</span>
+    <q-card style="min-width: 450px; max-width: 600px;">
+        <q-card-section class="bg-primary text-white">
+            <div class="text-h6 row items-center">
+                <q-icon name="swap_horiz" size="sm" class="q-mr-sm" />
+                Move Items
+            </div>
+            <div class="text-caption">Organize your inventory by moving items to a different location</div>
         </q-card-section>
-        <q-card-section class="row">
-            <q-list dense>
-                <q-item v-for="(item, index) in props.idList.slice(0,6)" :key="index">
-                    <li v-if="index <= 4">{{ store.items.find(i => i.value == item).label }}</li>
-                    <li v-else-if="index == 5">+ {{ props.idList.length - 5 }} more items</li>
 
+        <q-card-section>
+            <div class="text-subtitle2 text-grey-8 q-mb-sm">
+                Moving {{ props.idList.length }} item{{ props.idList.length > 1 ? 's' : '' }}:
+            </div>
+            <q-list dense bordered class="rounded-borders q-mb-md" style="max-height: 150px; overflow-y: auto;">
+                <q-item v-for="(item, index) in props.idList.slice(0,6)" :key="index" dense>
+                    <q-item-section avatar>
+                        <q-icon name="inventory_2" size="xs" color="grey-6" />
+                    </q-item-section>
+                    <q-item-section v-if="index <= 4">
+                        <q-item-label>{{ store.items.find(i => i.value == item)?.label }}</q-item-label>
+                    </q-item-section>
+                    <q-item-section v-else-if="index == 5">
+                        <q-item-label class="text-grey-7">+ {{ props.idList.length - 5 }} more items</q-item-label>
+                    </q-item-section>
                 </q-item>
             </q-list>
-        </q-card-section>
 
-        <q-card-section class="q-pt-none">
+            <div class="text-subtitle2 text-grey-8 q-mb-xs q-mt-md">
+                <q-icon name="info" size="xs" color="info" class="q-mr-xs" />
+                How it works:
+            </div>
+            <div class="text-caption text-grey-7 q-mb-md q-pl-md">
+                1. Choose a <strong>Collection</strong> (e.g., "Living Room", "Bedroom")<br/>
+                2. Optionally select a <strong>Container</strong> (e.g., "Box #1")<br/>
+                3. Set a <strong>Location</strong> if needed (e.g., "Home", "Storage Unit")
+            </div>
+
+            <q-separator class="q-mb-md" />
 
             <q-select
                 v-model="store.activeCollection"
                 :options="store.collections.map(i => {return {label: i.label, value: i.value}})"
                 filled
-                label="Collection"
-            />
+                label="1. Collection (Required)"
+                hint="Which room or area do these items belong to?"
+                color="primary"
+            >
+                <template v-slot:prepend>
+                    <q-icon name="folder" />
+                </template>
+            </q-select>
 
             <q-select
                 v-if="store.containers.filter(i => i.collection == store.activeCollection?.value).length > 0"
                 v-model="store.activeContainer"
                 :options="store.containers.filter(i => i.collection == store.activeCollection?.value).map(i => {return {label: i.label, value: i.value}})"
                 filled
-                label="Container"
+                label="2. Container (Optional)"
+                hint="Which box or container are these items in?"
                 clearable
-            />
+                color="secondary"
+                class="q-mt-md"
+            >
+                <template v-slot:prepend>
+                    <q-icon name="archive" />
+                </template>
+            </q-select>
+
+            <div v-else class="text-caption text-grey-6 q-mt-md q-mb-md q-pa-sm bg-grey-2 rounded-borders">
+                <q-icon name="info" size="xs" /> No containers in this collection yet. Items will be unassigned.
+            </div>
 
             <q-select
                 v-if="locationOptions.length > 0"
                 v-model="location"
                 :options="locationOptions"
                 :disable="(store.activeContainer != undefined && store.containers.find(i => i.value == store.activeContainer?.value)?.location != undefined)"
-                disable-hint="Items in containers will take the location of that container"
                 filled
-                label="Location"
+                label="3. Location (Optional)"
+                :hint="store.activeContainer != undefined && store.containers.find(i => i.value == store.activeContainer?.value)?.location != undefined ? 'Automatically set from container' : 'Where are these items physically located?'"
                 clearable
-            />
+                color="accent"
+                class="q-mt-md"
+            >
+                <template v-slot:prepend>
+                    <q-icon name="place" />
+                </template>
+            </q-select>
 
         </q-card-section>
 
-        <q-card-actions align="right" class="text-primary">
-        <q-btn color="info" flat label="Cancel" v-close-popup />
-        <q-btn color="primary" flat label="Move" @click="submit" v-close-popup />
-        <!-- <q-btn color="secondary" label="Console Log" @click="consoleLog" /> -->
+        <q-card-actions align="right" class="q-pa-md">
+            <q-btn flat label="Cancel" color="grey-7" v-close-popup />
+            <q-btn unelevated label="Move Items" color="primary" icon-right="arrow_forward" @click="submit" v-close-popup />
         </q-card-actions>
     </q-card>
 </template>
