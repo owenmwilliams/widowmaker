@@ -59,10 +59,14 @@
     return store.items.filter(i => i.collection === activeCollection.value?.value).length;
   });
 
-  // Show enhanced CTA when inventory is sparse (< half screen of content)
-  // Estimate: Each container + items = ~60px per item, screen height ~600-800px
-  // Half screen = ~300-400px = ~5-7 items
-  const showEnhancedCTA = computed(() => totalItemsCount.value < 6);
+  // Show enhanced CTA when inventory is sparse (< 4 items)
+  const showEnhancedCTA = computed(() => totalItemsCount.value < 4);
+
+  // Trim username for breadcrumb display
+  const trimmedUsername = computed(() => {
+    const username = props.user || '';
+    return username.length > 15 ? username.substring(0, 15) + '...' : username;
+  });
 
   // Removed computedAddThings and show() function - bottom sheet no longer used
 
@@ -354,7 +358,7 @@
 
         <q-toolbar-title center>
           <q-breadcrumbs active-color="white" style="font-size: 16px">
-            <q-breadcrumbs-el :label="props.user" />
+            <q-breadcrumbs-el :label="trimmedUsername" />
             <q-breadcrumbs-el v-if="store.activeCollection" :label="store.activeCollection.label" />
           </q-breadcrumbs>
         </q-toolbar-title>
