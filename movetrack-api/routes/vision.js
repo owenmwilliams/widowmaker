@@ -108,6 +108,40 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
   }
 });
 
+// POST route to analyze photo for multiple items
+// REQUIRES AUTHENTICATION
+router.post('/analyze-multi-item', verifyToken, upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image file uploaded' });
+    }
+
+    // Get provider from query param or body (optional - defaults to current provider)
+    const provider = req.query.provider || req.body.provider;
+
+    // Convert buffer to base64
+    const base64Image = req.file.buffer.toString('base64');
+    const mimeType = req.file.mimetype;
+
+    console.log(`Analyzing multi-item photo - Size: ${req.file.size} bytes, Type: ${mimeType}, Provider: ${provider || 'default'}`);
+
+    // Call vision service for multi-item detection
+    const result = await visionService.analyzeMultiItemPhoto(base64Image, mimeType, provider);
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    console.error('Error analyzing multi-item photo:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // GET current vision provider
 // REQUIRES AUTHENTICATION
 router.get('/provider', verifyToken, (req, res) => {

@@ -369,7 +369,6 @@
         <PhotoCapture
           :vision-provider="currentVisionProvider"
           :user="props.user"
-          :auto-open="true"
           @item-added="handlePhotoItemAdded"
           @close="showPhotoCapture = false"
         />
