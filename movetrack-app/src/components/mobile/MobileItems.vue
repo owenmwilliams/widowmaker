@@ -11,9 +11,10 @@
   import axios from 'axios';
   import ItemToggleCard from '../ItemToggleCard.vue';
   import PhotoCapture from '../PhotoCapture.vue';
-  import VisionProviderToggle from '../VisionProviderToggle.vue';
   import VeriMoveLogo from '../VeriMoveLogo.vue';
+  import MobileSettings from './MobileSettings.vue';
   import type { InventoryItem } from '../../data/inventoryItems';
+  import draggable from 'vuedraggable';
 
 //ALL PROPS & EMITS
   enum ObjectEnum {
@@ -31,8 +32,23 @@
     (e: 'app:loading', id: boolean): void
   }>()
 
+  type StoreInventoryItem = {
+    value: number
+    label: string
+    description: string | null
+    quantity: number
+    collection: number
+    container?: number | null
+    location?: number | null
+    picture_url?: string | null
+  }
+
 //ALL CONSTANTS AND VARIABLES
   const isAdd = ref(false)
+
+  const core_url = import.meta.env.MODE == 'development'
+    ? 'http://localhost:3050'
+    : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
 
   const store = inventoryStore()
 
@@ -44,11 +60,53 @@
   const activeId: Ref<number | undefined> = ref(undefined)
   const activeObjectType = ref(ObjectEnum.item)
   const activeEditBool = ref(false)
-  const tokensDialog = ref(false)
-  const reloadContainers = ref(0)
   const showPhotoCapture = ref(false)
-  const showVisionSettings = ref(false)
+  const showSettings = ref(false)
   const currentVisionProvider = ref<string>('gemini')
+
+  const containerItemLists = ref<Record<number, StoreInventoryItem[]>>({})
+  const unassignedItems = ref<StoreInventoryItem[]>([])
+  const isPersistingMove = ref(false)
+  // Track which containers are open locally (survives store reloads)
+  const openContainerIds = ref<Set<number>>(new Set())
+
+  const rebuildDragLists = () => {
+    const map: Record<number, StoreInventoryItem[]> = {}
+    const currentCollectionId = activeCollection.value?.value
+
+    if (!currentCollectionId) {
+      containerItemLists.value = map
+      unassignedItems.value = []
+      return
+    }
+
+    store.containers
+      .filter((container) => container.collection === currentCollectionId)
+      .forEach((container) => {
+        map[container.value] = store.items.filter(
+          (item) => item.collection === currentCollectionId && item.container === container.value
+        ) as StoreInventoryItem[]
+      })
+
+    containerItemLists.value = map
+
+    unassignedItems.value = store.items.filter(
+      (item) => item.collection === currentCollectionId && (item.container === null || item.container === undefined)
+    ) as StoreInventoryItem[]
+
+    console.log('🔍 Rebuild drag lists:', {
+      currentCollectionId,
+      totalStoreItems: store.items.length,
+      containerItemLists: containerItemLists.value,
+      unassignedItems: unassignedItems.value.length,
+      containersInCollection: store.containers.filter((c) => c.collection === currentCollectionId).length
+    })
+  }
+
+  // Watch items and collection changes, but NOT container changes (to preserve open/closed state)
+  watch([() => store.items, activeCollection], () => {
+    rebuildDragLists()
+  }, { deep: true, immediate: true })
 
   const shouldRevealHeader = computed(() => !showPhotoCapture.value);
   const shouldRevealFooter = computed(() => !showPhotoCapture.value);
@@ -167,72 +225,6 @@
     store.loadInventory(props.user)
   });
 
-  // To adjust url based on whether in prod or not
-  const token_url = import.meta.env.MODE == 'development' ? 'http://localhost:5174/tokens/' : 'https://take-stock.xyz/tokens/'
-
-  const xyzURL = ref('')
-  const showTokens = ref(false)
-
-
-  function binaryToBase64(buffer) {
-    // Convert binary data to a string
-    const binaryString = Object.values(buffer).map(byte => String.fromCharCode(byte as number)).join('');
-
-    // Encode the binary string to base64
-    const base64Data = window.btoa(binaryString);
-
-    return base64Data;
-  }
-
-  const pushToToken = async (item: number) => {
-    let urlSlug = item.toString() + '/' + props.user
-    const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
-    
-    let encryptionData = await axios({
-      method: 'post',
-      url: core_url + '/secure/encrypt',
-      params: {
-          url: urlSlug
-      },
-    });
-
-    // // Convert Uint8Array to a string using TextDecoder
-    const encrypted = binaryToBase64(encryptionData.data.encrypted);
-    const encodedIV = binaryToBase64(encryptionData.data.iv);
-
-    xyzURL.value = token_url + '?id=' + encodeURIComponent(encrypted) + '&iv=' + encodeURIComponent(encodedIV)
-    showTokens.value = true
-    tokensDialog.value = false
-  }
-
-  const copyURL = (url: string) => {
-    navigator.clipboard.writeText(url)
-  }
-
-  const openInMetamask = (url: string) => {
-    let fullURL = 'https://metamask.app.link/dapp/' + url
-    window.location.href = fullURL;
-  }
-
-  const openInCoinbase = (url: string) => {
-    let fullURL = 'https://go.cb-w.com/dapp?cb_url=' + url
-    window.location.href = fullURL;
-  }
-
-  const tokenList = computed(() => {
-    if (activeContainer.value != undefined) {
-      return store.items.filter(i => 
-        i.value != null &&
-        i.picture_url != null &&
-        i.container == activeContainer.value?.value)
-    } else {
-      return store.items.filter(i => 
-        i.value != null && 
-        i.picture_url != null &&
-        i.collection == activeCollection.value?.value)
-    }
-  })
-
   // const consoleLog = () => {
   //   console.log('log here to debug')
   // }
@@ -257,59 +249,108 @@
     activeId.value = undefined
     isAdd.value = false
     showEdit.value = false
-  
+
+  }
+
+  async function persistItemMove(itemId: number, targetContainerId: number | null) {
+    const storeItem = store.items.find((i) => i.value === itemId)
+    if (!storeItem) {
+      return
+    }
+
+    const normalizedTarget = targetContainerId ?? null
+    const normalizedCurrent = storeItem.container ?? null
+
+    if (normalizedTarget === normalizedCurrent) {
+      return
+    }
+
+    const headers: Record<string, string> = {}
+    const sessionToken = localStorage.getItem('session_token')
+    if (sessionToken) {
+      headers.Authorization = 'Bearer ' + sessionToken
+    }
+
+    try {
+      isPersistingMove.value = true
+
+      await axios({
+        method: 'put',
+        url: core_url + '/items/update',
+        params: {
+          item_id: storeItem.value,
+          user: props.user,
+          name: storeItem.label,
+          description: storeItem.description,
+          quantity: storeItem.quantity,
+          collection: storeItem.collection,
+          container: normalizedTarget,
+          location: storeItem.location,
+          picture_url: storeItem.picture_url
+        },
+        headers
+      })
+
+      storeItem.container = normalizedTarget
+      
+      // Don't reload inventory - just update the item in place
+      // This preserves container open/closed state
+      rebuildDragLists()
+    } catch (error) {
+      console.error('Failed to move item to container', error)
+    } finally {
+      isPersistingMove.value = false
+    }
+  }
+
+  const handleContainerChange = async (containerId: number, evt: any) => {
+    if (evt.added) {
+      const movedItem = evt.added.element as StoreInventoryItem
+      await persistItemMove(movedItem.value, containerId)
+    }
+  }
+
+  const handleUnassignedChange = async (evt: any) => {
+    if (evt.added) {
+      const movedItem = evt.added.element as StoreInventoryItem
+      await persistItemMove(movedItem.value, null)
+    }
+  }
+
+  // Handle drop on collapsed container header
+  const handleCollapsedContainerDrop = async (containerId: number, evt: any) => {
+    if (evt.added) {
+      const movedItem = evt.added.element as StoreInventoryItem
+      
+      // Open the container after drop (add to local state)
+      openContainerIds.value.add(containerId)
+      
+      await persistItemMove(movedItem.value, containerId)
+    }
+  }
+
+  // Helper to check if container is open
+  const isContainerOpen = (containerId: number) => {
+    return openContainerIds.value.has(containerId)
+  }
+
+  // Handle container opened by user click
+  const handleContainerShow = (containerId: number) => {
+    openContainerIds.value.add(containerId)
+    store.activeContainer = store.containers.find(c => c.value === containerId)
+  }
+
+  // Handle container closed by user click
+  const handleContainerHide = (containerId: number) => {
+    openContainerIds.value.delete(containerId)
+    if (store.activeContainer?.value === containerId) {
+      store.activeContainer = undefined
+    }
   }
 
 </script>
 
 <template>
-  <q-dialog v-model="showTokens">
-    <q-card >
-      <q-card-section>
-        <div class="text-h6">Tokenize</div>
-      </q-card-section>
-      <q-card-section>
-        <div class="row">
-          <div class="col-3">
-            <q-btn flat label="Copy" @click="copyURL(xyzURL)" />
-          </div>
-          <div class="col-9">
-            <q-input
-              dense
-              v-model="xyzURL"
-              filled
-              disable
-              />
-          </div>
-        </div>
-      </q-card-section>
-      <q-card-section class="row">
-        <div class="col-6">
-          <q-btn class="q-ma-sm" label="Open in Metamask" style="background: #F5841F;" @click="openInMetamask(xyzURL)" />
-        </div>
-        <div class="col-6">
-          <q-btn class="q-ma-sm" label="Open in Coinbase" style="background: #0053FF; color: white;" @click="openInCoinbase(xyzURL)" />
-        </div>
-      </q-card-section>
-    </q-card>
-  </q-dialog>
-
-  <q-dialog v-model="tokensDialog">
-    <q-card dense >
-      <q-card-section >
-        <q-btn
-          v-for="(item, index) in tokenList"
-          
-          :header-inset-level="1"
-          :label="item.label"
-          clickable
-          
-          @click="pushToToken(item.value)"
-        />
-      </q-card-section>
-    </q-card>
-  </q-dialog>
-
   <q-dialog v-model="showEdit">
     <q-card dense >
       <MobileEditSelect @selected="pushSelected" @close="closeEditDialog" :collection_id="Number(store.activeCollection?.value)" />
@@ -319,20 +360,6 @@
   <q-dialog v-model="isAdd">
     <MobileAdd :user="user" :edit-select="activeEditBool" :object-type="activeObjectType" :id-prop="Number(activeId)" @close="closeAddDialog" />
     <!-- <testSelect  /> -->
-  </q-dialog>
-
-  <!-- Vision Settings Dialog -->
-  <q-dialog v-model="showVisionSettings">
-    <q-card style="min-width: 350px;">
-      <q-card-section>
-        <div class="text-h6">Vision AI Provider</div>
-        <VisionProviderToggle @provider-changed="handleProviderChanged" />
-      </q-card-section>
-
-      <q-card-actions align="right">
-        <q-btn flat label="Close" color="primary" v-close-popup />
-      </q-card-actions>
-    </q-card>
   </q-dialog>
 
   <!-- Photo Capture Dialog -->
@@ -350,6 +377,16 @@
     </q-card>
   </q-dialog>
 
+  <!-- Settings Dialog -->
+  <q-dialog v-model="showSettings" maximized>
+    <MobileSettings 
+      :user="props.user"
+      @close="showSettings = false"
+      @add-collection="onSelectThing('collection'); showSettings = false"
+      @add-location="onSelectThing('location'); showSettings = false"
+    />
+  </q-dialog>
+
   <q-layout view="hHh lpR fFf">
 
     <q-header v-if="shouldRevealHeader" reveal bordered class="bg-primary text-white">
@@ -358,12 +395,11 @@
 
         <q-toolbar-title center>
           <q-breadcrumbs active-color="white" style="font-size: 16px">
-            <q-breadcrumbs-el :label="trimmedUsername" />
             <q-breadcrumbs-el v-if="store.activeCollection" :label="store.activeCollection.label" />
           </q-breadcrumbs>
         </q-toolbar-title>
 
-        <VeriMoveLogo :width="120" :height="32" color="white" check-color="rgba(255,255,255,0.8)" style="margin-left: 8px;" />
+        <VeriMoveLogo :width="160" :height="42" color="white" check-color="rgba(255,255,255,0.8)" style="margin-left: 8px;" />
       </q-toolbar>
     </q-header>
 
@@ -404,8 +440,8 @@
         <!-- Settings Section -->
         <q-item-label header>Settings</q-item-label>
 
-        <q-item clickable v-ripple @click="showVisionSettings = true">
-          <q-item-section>Vision AI Settings</q-item-section>
+        <q-item clickable v-ripple @click="showSettings = true; showLeft = false">
+          <q-item-section>Settings</q-item-section>
         </q-item>
 
         <q-item clickable v-ripple @click="router.push('/privacypolicy')">
@@ -427,45 +463,105 @@
       <!-- Collection card removed - editing collections only available on desktop -->
       <div class="q-pa-md" >
         <q-list class="text-primary text-weight-medium">
-          
-          <!-- Expansion item for each container in the collection -->
-          <q-expansion-item
-            v-for="(container, index) in store.containers.filter((i) => i.collection == store.activeCollection?.value)"            
-            expand-separator
-            group="Containers"
-            v-model="container.active"
-            icon="filter_none"
-            header-class="text-h6 font-weight-medium"
-            :label="container.label"
-            :caption="store.items.filter((i) => i.container == container.value).length + ' items(s)'"
-            @show="store.activeContainer = { label: container.label, value: container.value }"
-            @hide="() => {
-              if (store.activeContainer?.value == container.value) {
-                store.activeContainer = undefined
-              }
-            }"
-            >
-            <ItemToggleCard
-              v-for="(item, index) in store.items.filter((i) => i.container == container.value)"
-              :id="item.value"
-              :picture_url="item.picture_url"
-              :label="item.label"
-              :description="item.description"
-              @edit="onEditItem" 
-              @tokenize="pushToToken(item.value)"
-              />
-          </q-expansion-item>
 
-          <ItemToggleCard
-            v-if="store.items.filter((i) => i.collection == store.activeCollection?.value && i.container == null).length > 0" 
-            v-for="(item, index) in store.items.filter((i) => i.collection == store.activeCollection?.value && i.container == null)"
-              :id="item.value"
-              :picture_url="item.picture_url"
-              :label="item.label"
-              :description="item.description"
-              @edit="onEditItem"
-              @tokenize="pushToToken(item.value)"
-              />
+          <!-- Expansion item for each container in the collection -->
+          <div
+            v-for="container in store.containers.filter((i) => i.collection == store.activeCollection?.value)"
+            :key="container.value"
+            class="container-wrapper"
+          >
+            <!-- Drop zone for collapsed container (allows dropping when closed) -->
+            <draggable
+              v-if="!isContainerOpen(container.value)"
+              :list="[]"
+              :group="{ name: 'items', pull: false, put: true }"
+              item-key="value"
+              class="collapsed-container-drop-zone"
+              :disabled="isPersistingMove"
+              @change="(evt) => handleCollapsedContainerDrop(container.value, evt)"
+            >
+              <template #item="{ element }">
+                <!-- This slot is required but never renders since list is empty -->
+                <div></div>
+              </template>
+              <template #header>
+                <q-expansion-item
+                  expand-separator
+                  :model-value="isContainerOpen(container.value)"
+                  @update:model-value="(val) => val ? handleContainerShow(container.value) : handleContainerHide(container.value)"
+                  icon="filter_none"
+                  header-class="text-h6 font-weight-medium"
+                  :label="container.label"
+                  :caption="(containerItemLists[container.value]?.length ?? 0) + ' item(s)'"
+                >
+                </q-expansion-item>
+              </template>
+            </draggable>
+
+            <!-- Expanded container with draggable items -->
+            <q-expansion-item
+              v-else
+              expand-separator
+              :model-value="isContainerOpen(container.value)"
+              @update:model-value="(val) => val ? handleContainerShow(container.value) : handleContainerHide(container.value)"
+              icon="filter_none"
+              header-class="text-h6 font-weight-medium"
+              :label="container.label"
+              :caption="(containerItemLists[container.value]?.length ?? 0) + ' item(s)'"
+            >
+              <!-- Debug: Show item count -->
+              <div v-if="containerItemLists[container.value]?.length" class="q-pa-sm text-caption text-grey">
+                {{ containerItemLists[container.value].length }} items in this container
+              </div>
+
+              <draggable
+                :list="containerItemLists[container.value] ?? []"
+                :group="{ name: 'items', pull: true, put: true }"
+                item-key="value"
+                class="container-drop-zone"
+                :disabled="isPersistingMove"
+                @change="(evt) => handleContainerChange(container.value, evt)"
+              >
+                <template #item="{ element }">
+                  <ItemToggleCard
+                    :id="element.value"
+                    :picture_url="element.picture_url"
+                    :label="element.label"
+                    :description="element.description"
+                    @edit="onEditItem"
+                  />
+                </template>
+
+                <template #footer>
+                  <div v-if="(containerItemLists[container.value]?.length ?? 0) === 0" class="empty-container-hint">
+                    Drag items here
+                  </div>
+                </template>
+              </draggable>
+            </q-expansion-item>
+          </div>
+
+          <div v-if="unassignedItems.length > 0" class="uncontainerized-section">
+            <div class="uncontainerized-title">Unassigned items ({{ unassignedItems.length }})</div>
+            <draggable
+              :list="unassignedItems"
+              :group="{ name: 'items', pull: true, put: true }"
+              item-key="value"
+              class="uncontainerized-items"
+              :disabled="isPersistingMove"
+              @change="handleUnassignedChange"
+            >
+              <template #item="{ element }">
+                <ItemToggleCard
+                  :id="element.value"
+                  :picture_url="element.picture_url"
+                  :label="element.label"
+                  :description="element.description"
+                  @edit="onEditItem"
+                />
+              </template>
+            </draggable>
+          </div>
         </q-list>
       </div>
       
@@ -699,6 +795,78 @@
 
 .cta-secondary-actions .q-btn {
   font-size: 0.9rem;
+}
+
+/* Drag and drop styles */
+.container-drop-zone {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+  min-height: 56px;
+  transition: background-color 0.2s ease;
+}
+
+.container-drop-zone:hover {
+  background-color: rgba(39, 70, 144, 0.05);
+}
+
+.collapsed-container-drop-zone {
+  width: 100%;
+  min-height: 56px;
+  transition: all 0.2s ease;
+  border-radius: 4px;
+}
+
+.collapsed-container-drop-zone:hover {
+  background-color: rgba(39, 70, 144, 0.05);
+}
+
+/* When dragging over a collapsed container */
+.collapsed-container-drop-zone.sortable-drag-over {
+  background-color: rgba(39, 70, 144, 0.1);
+  border: 2px dashed rgba(39, 70, 144, 0.5);
+  box-shadow: 0 2px 8px rgba(39, 70, 144, 0.2);
+}
+
+.empty-container-hint {
+  width: 100%;
+  padding: 16px;
+  text-align: center;
+  border: 1px dashed rgba(39, 70, 144, 0.3);
+  border-radius: 12px;
+  color: rgba(39, 70, 144, 0.7);
+  background: rgba(39, 70, 144, 0.04);
+  font-size: 0.9rem;
+}
+
+.sortable-ghost {
+  opacity: 0.4;
+  background: #f0f0f0;
+}
+
+.sortable-drag {
+  opacity: 0.8;
+}
+
+.uncontainerized-section {
+  margin-top: 24px;
+}
+
+.uncontainerized-title {
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(39, 70, 144, 0.7);
+  margin-bottom: 8px;
+}
+
+.uncontainerized-items {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 </style>
