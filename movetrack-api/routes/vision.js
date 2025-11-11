@@ -95,6 +95,17 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
     const result = await visionService.analyzeItemPhoto(base64Image, mimeType, provider);
 
     if (result.success) {
+      // Map AI response fields to database schema
+      if (result.data) {
+        // Map 'color' to 'primary_color' for consistency with database schema
+        if (result.data.color && !result.data.primary_color) {
+          result.data.primary_color = result.data.color;
+        }
+        // Ensure material, primary_color, and tags are present
+        result.data.material = result.data.material || null;
+        result.data.primary_color = result.data.primary_color || null;
+        result.data.tags = result.data.tags || [];
+      }
       res.json(result);
     } else {
       res.status(500).json(result);

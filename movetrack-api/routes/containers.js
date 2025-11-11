@@ -79,7 +79,10 @@ router.get('/single', jsonParser, async function(req, res, next) {
         name: 'containers.name',
         description: 'containers.description',
         room_id: 'rooms.id',
-        location_id: 'locations.id'
+        location_id: 'locations.id',
+        max_weight_lbs: 'containers.max_weight_lbs',
+        max_volume_cuft: 'containers.max_volume_cuft',
+        box_size: 'containers.box_size'
       })
       .from('locations')
       .leftJoin('permissions', 'permissions.location_id', 'locations.id')
@@ -246,6 +249,17 @@ router.post('/post', jsonParser, async function(req, res, next) {
       params.color_code = req.query.color_code;
     }
 
+    // Container capacity fields
+    if (req.query.max_weight_lbs) {
+      params.max_weight_lbs = req.query.max_weight_lbs;
+    }
+    if (req.query.max_volume_cuft) {
+      params.max_volume_cuft = req.query.max_volume_cuft;
+    }
+    if (req.query.box_size) {
+      params.box_size = req.query.box_size;
+    }
+
     knex.transaction(async trx => {
       await knex('containers')
       .transacting(trx)
@@ -329,6 +343,17 @@ router.put('/update', jsonParser, async function(req, res, next) {
     }
     if (req.query.color_code !== undefined) {
       containerParams.color_code = req.query.color_code;
+    }
+
+    // Container capacity fields
+    if (req.query.max_weight_lbs !== undefined) {
+      containerParams.max_weight_lbs = req.query.max_weight_lbs;
+    }
+    if (req.query.max_volume_cuft !== undefined) {
+      containerParams.max_volume_cuft = req.query.max_volume_cuft;
+    }
+    if (req.query.box_size !== undefined) {
+      containerParams.box_size = req.query.box_size;
     }
 
     var itemParams = {};

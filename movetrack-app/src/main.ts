@@ -7,7 +7,7 @@ import enUS from 'vant/es/locale/lang/en-US'
 import router from './router'
 import { createPinia } from 'pinia'
 
-import { Quasar, Loading, BottomSheet, Notify, Dialog } from 'quasar';
+import { Quasar, Loading, BottomSheet, Notify, Dialog, setCssVar } from 'quasar';
 
 import MasonryWall from '@yeger/vue-masonry-wall'
 
@@ -32,26 +32,6 @@ app.use(router);
 //     );
 
 app.use(Quasar, {
-    config: {
-        brand: {
-            primary: '#274690',    // VeriMove Royal Blue
-            secondary: '#1CA1C1',  // Proof Cyan
-            accent: '#1CA1C1',     // Proof Cyan
-            positive: '#2EBD85',   // On-Time Green
-            negative: '#D64545',   // Safety Red
-            info: '#1CA1C1',       // Proof Cyan
-            warning: '#C99A3E'     // Brass
-        },
-        notify: {
-            position: 'top',
-            timeout: 2500,
-            textColor: 'white',
-            classes: 'notify-high-z'
-        },
-        loading: {
-            // Loading has its own z-index
-        }
-    },
     plugins: {
         Loading,
         BottomSheet,
@@ -59,6 +39,21 @@ app.use(Quasar, {
         Dialog
     }, // import Quasar plugins and add here
 });
+
+Notify.setDefaults({
+    position: 'bottom',
+    timeout: 2500,
+    textColor: 'white',
+    classes: 'notify-high-z'
+});
+
+setCssVar('primary', '#274690');    // VeriMove Royal Blue
+setCssVar('secondary', '#1CA1C1');  // Proof Cyan
+setCssVar('accent', '#1CA1C1');     // Proof Cyan
+setCssVar('positive', '#2EBD85');   // On-Time Green
+setCssVar('negative', '#D64545');   // Safety Red
+setCssVar('info', '#1CA1C1');       // Proof Cyan
+setCssVar('warning', '#C99A3E');    // Brass
 
 app.use(MasonryWall)
 app.use(VanImage);

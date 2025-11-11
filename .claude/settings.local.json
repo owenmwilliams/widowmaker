@@ -37,7 +37,11 @@
       "Bash(gsutil iam ch:*)",
       "Bash(npm run type-check:*)",
       "Bash(npm run:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(gcloud run services list:*)",
+      "Bash(gcloud builds triggers list:*)",
+      "Bash(kill:*)",
+      "Bash(PGPASSWORD=changeme123 psql:*)"
     ],
     "deny": [],
     "ask": []

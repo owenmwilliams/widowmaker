@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import axios from 'axios';
 import type { InventoryItem } from '../data/inventoryItems';
@@ -21,6 +21,7 @@ const props = defineProps<{
   visionProvider?: string;
   user?: string;
   autoOpen?: boolean;
+  defaultCaptureMode?: 'single' | 'multi';
 }>();
 
 // Camera/Photo state
@@ -31,6 +32,24 @@ const isProcessing = ref(false);
 // Capture mode: 'single' or 'multi'
 const captureMode = ref<'single' | 'multi'>('single');
 const showModeSelection = ref(true);
+
+const applyDefaultCaptureMode = (mode?: 'single' | 'multi') => {
+  if (mode) {
+    captureMode.value = mode;
+    showModeSelection.value = false;
+  } else {
+    captureMode.value = 'single';
+    showModeSelection.value = true;
+  }
+};
+
+watch(
+  () => props.defaultCaptureMode,
+  (mode) => {
+    applyDefaultCaptureMode(mode);
+  },
+  { immediate: true }
+);
 
 // Multi-item state
 interface DetectedItem {
@@ -275,7 +294,7 @@ const handleSingleItemCapture = async (file: File) => {
         type: 'positive',
         message: `Item detected! (${providerName}, ${confidencePercent}% confidence)`,
         caption: 'Review and confirm details below',
-        position: 'top',
+        position: 'bottom',
         timeout: 3000
       });
     } else {
@@ -305,7 +324,7 @@ const handleSingleItemCapture = async (file: File) => {
       type: 'warning',
       message: 'Could not analyze image automatically',
       caption: error.response?.data?.error || error.message || 'Please enter details manually',
-      position: 'top',
+      position: 'bottom',
       timeout: 3000
     });
   } finally {
@@ -353,7 +372,7 @@ const handleMultiItemCapture = async (file: File) => {
         type: 'positive',
         message: `${itemCount} items detected! (${providerName})`,
         caption: 'Click on an item to add it to inventory',
-        position: 'top',
+        position: 'bottom',
         timeout: 3000
       });
     } else {
@@ -366,7 +385,7 @@ const handleMultiItemCapture = async (file: File) => {
       type: 'warning',
       message: 'Could not detect multiple items',
       caption: error.response?.data?.error || error.message || 'Try single-item mode instead',
-      position: 'top',
+      position: 'bottom',
       timeout: 3000
     });
 
@@ -394,7 +413,7 @@ const saveItem = async () => {
     $q.notify({
       type: 'warning',
       message: 'Please enter an item name',
-      position: 'top'
+      position: 'bottom'
     });
     return;
   }
@@ -405,7 +424,7 @@ const saveItem = async () => {
       type: 'warning',
       message: 'Please select a collection first',
       caption: 'Items must be added to a collection',
-      position: 'top'
+      position: 'bottom'
     });
     return;
   }
@@ -415,7 +434,7 @@ const saveItem = async () => {
     $q.notify({
       type: 'negative',
       message: 'User not found. Please log in again.',
-      position: 'top'
+      position: 'bottom'
     });
     return;
   }
@@ -460,7 +479,7 @@ const saveItem = async () => {
     $q.notify({
       type: 'positive',
       message: `${newItem.value.name} added to inventory!`,
-      position: 'top',
+      position: 'bottom',
       timeout: 2000
     });
 
@@ -507,7 +526,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       type: 'warning',
       message: 'Please select a collection first',
       caption: 'Items must be added to a collection',
-      position: 'top'
+      position: 'bottom'
     });
     return;
   }
@@ -517,7 +536,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
     $q.notify({
       type: 'negative',
       message: 'User not found. Please log in again.',
-      position: 'top'
+      position: 'bottom'
     });
     return;
   }
@@ -570,7 +589,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
     $q.notify({
       type: 'positive',
       message: `${item.name} added!`,
-      position: 'top',
+      position: 'bottom',
       timeout: 2000
     });
 
@@ -582,7 +601,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       $q.notify({
         type: 'info',
         message: 'All items added!',
-        position: 'top',
+        position: 'bottom',
         timeout: 2000
       });
       resetForm();
@@ -650,7 +669,7 @@ onMounted(() => {
 
     <!-- Full-screen loading overlay with image and rotating messages -->
     <div v-if="isProcessing && capturedImage" class="loading-overlay">
-      <img :src="capturedImage" alt="Processing" class="loading-overlay-image" />
+      <img :src="capturedImage || undefined" alt="Processing" class="loading-overlay-image" />
       <div class="loading-overlay-content">
         <q-spinner-dots color="white" size="60px" />
         <div class="loading-message">{{ loadingMessage }}</div>
@@ -726,7 +745,7 @@ onMounted(() => {
     <!-- Multi-item detection results - show bounding boxes -->
     <div v-else-if="detectedItems.length > 0" class="multi-item-container">
       <div class="image-preview">
-        <img :src="capturedImage" ref="multiItemImage" alt="Captured items" class="preview-img" />
+        <img :src="capturedImage || undefined" ref="multiItemImage" alt="Captured items" class="preview-img" />
         <q-btn
           round
           flat
@@ -789,7 +808,7 @@ onMounted(() => {
     <div v-else class="photo-preview-container">
       <!-- Image preview -->
       <div class="image-preview">
-        <img :src="capturedImage" alt="Captured item" class="preview-img" />
+        <img :src="capturedImage || undefined" alt="Captured item" class="preview-img" />
         <q-btn
           round
           flat
