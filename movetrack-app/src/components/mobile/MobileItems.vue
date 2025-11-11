@@ -69,6 +69,10 @@
   const isPersistingMove = ref(false)
   // Track which containers are open locally (survives store reloads)
   const openContainerIds = ref<Set<number>>(new Set())
+  
+  // Filter states
+  const filterFragile = ref(false)
+  const filterPriority = ref<string | null>(null)
 
   const rebuildDragLists = () => {
     const map: Record<number, StoreInventoryItem[]> = {}
@@ -80,18 +84,25 @@
       return
     }
 
+    // Filter function for items
+    const shouldIncludeItem = (item: any) => {
+      if (filterFragile.value && !item.fragile) return false
+      if (filterPriority.value && item.priority?.toLowerCase() !== filterPriority.value.toLowerCase()) return false
+      return true
+    }
+
     store.containers
       .filter((container) => container.collection === currentCollectionId)
       .forEach((container) => {
         map[container.value] = store.items.filter(
-          (item) => item.collection === currentCollectionId && item.container === container.value
+          (item) => item.collection === currentCollectionId && item.container === container.value && shouldIncludeItem(item)
         ) as StoreInventoryItem[]
       })
 
     containerItemLists.value = map
 
     unassignedItems.value = store.items.filter(
-      (item) => item.collection === currentCollectionId && (item.container === null || item.container === undefined)
+      (item) => item.collection === currentCollectionId && (item.container === null || item.container === undefined) && shouldIncludeItem(item)
     ) as StoreInventoryItem[]
 
     console.log('🔍 Rebuild drag lists:', {
@@ -104,7 +115,7 @@
   }
 
   // Watch items and collection changes, but NOT container changes (to preserve open/closed state)
-  watch([() => store.items, activeCollection], () => {
+  watch([() => store.items, activeCollection, filterFragile, filterPriority], () => {
     rebuildDragLists()
   }, { deep: true, immediate: true })
 
@@ -151,17 +162,12 @@
     showAdd.value = false;
   }
 
-  const onEditItem = (id: number) => {
-    if (store.items.find(i => i.value == id)?.container != null) {
-      store.setActiveContainer({label: store.containers.find(i => i.value == store.items.find(i => i.value == id)?.container)?.label, value: store.items.find(i => i.value == id)?.container})
-    } else {
-      store.activeContainer = undefined
-    }
+  const openItemDetails = (id: number) => {
+    store.openItemDetailsModal(id, props.user);
+  }
 
-    activeId.value = id
-    activeObjectType.value = ObjectEnum.item
-    activeEditBool.value = true
-    isAdd.value = !isAdd.value
+  const onEditItem = (id: number) => {
+    openItemDetails(id)
   }
 
   const onEditContainer = (id: number) => {
@@ -209,6 +215,46 @@
 
   console.log('props user is: ' + props.user)
 
+  // Calculate container capacity info
+  const getContainerCapacity = (containerId: number) => {
+    const container = store.containers.find(c => c.value === containerId)
+    if (!container) return null
+
+    const items = containerItemLists.value[containerId] || []
+    const totalWeight = items.reduce((sum, item: any) => sum + (item.weight_lbs || 0), 0)
+    
+    return {
+      itemCount: items.length,
+      currentWeight: totalWeight,
+      capacityWeight: container.max_weight_lbs ?? container.capacity_weight,
+      capacityVolume: container.max_volume_cuft ?? container.capacity_volume,
+      currentVolume: container.current_volume
+    }
+  }
+
+  // Format container caption with capacity info
+  const getContainerCaption = (containerId: number) => {
+    const capacity = getContainerCapacity(containerId)
+    if (!capacity) return '0 item(s)'
+    
+    let caption = `${capacity.itemCount} item(s)`
+    
+    if (capacity.capacityWeight && capacity.currentWeight > 0) {
+      const weightPercent = Math.round((capacity.currentWeight / capacity.capacityWeight) * 100)
+      caption += ` • ${capacity.currentWeight}/${capacity.capacityWeight} lbs (${weightPercent}%)`
+    }
+    
+    return caption
+  }
+
+  // Get color for capacity progress bar
+  const getCapacityColor = (current: number | undefined, max: number | undefined) => {
+    if (!current || !max) return 'grey'
+    const percent = (current / max) * 100
+    if (percent >= 90) return 'red'
+    if (percent >= 70) return 'orange'
+    return 'green'
+  }
 
 
   const changeCollection = (index) => {
@@ -459,6 +505,65 @@
 
     <q-page-container>
 
+      <!-- Filter chips -->
+      <div class="q-px-md q-pt-md q-pb-sm">
+        <div class="text-caption text-grey-7 q-mb-xs">Filter Items:</div>
+        <div class="row q-gutter-sm">
+          <q-chip
+            :outline="!filterFragile"
+            :color="filterFragile ? 'red' : 'grey-4'"
+            :text-color="filterFragile ? 'white' : 'grey-8'"
+            clickable
+            @click="filterFragile = !filterFragile"
+          >
+            <q-icon name="warning" size="xs" class="q-mr-xs" />
+            Fragile
+          </q-chip>
+          
+          <q-chip
+            :outline="filterPriority !== 'high'"
+            :color="filterPriority === 'high' ? 'red-7' : 'grey-4'"
+            :text-color="filterPriority === 'high' ? 'white' : 'grey-8'"
+            clickable
+            @click="filterPriority = filterPriority === 'high' ? null : 'high'"
+          >
+            High Priority
+          </q-chip>
+          
+          <q-chip
+            :outline="filterPriority !== 'medium'"
+            :color="filterPriority === 'medium' ? 'orange-7' : 'grey-4'"
+            :text-color="filterPriority === 'medium' ? 'white' : 'grey-8'"
+            clickable
+            @click="filterPriority = filterPriority === 'medium' ? null : 'medium'"
+          >
+            Medium Priority
+          </q-chip>
+          
+          <q-chip
+            :outline="filterPriority !== 'low'"
+            :color="filterPriority === 'low' ? 'green-7' : 'grey-4'"
+            :text-color="filterPriority === 'low' ? 'white' : 'grey-8'"
+            clickable
+            @click="filterPriority = filterPriority === 'low' ? null : 'low'"
+          >
+            Low Priority
+          </q-chip>
+          
+          <q-chip
+            v-if="filterFragile || filterPriority"
+            outline
+            color="grey-6"
+            text-color="grey-8"
+            clickable
+            @click="filterFragile = false; filterPriority = null"
+          >
+            <q-icon name="clear" size="xs" class="q-mr-xs" />
+            Clear All
+          </q-chip>
+        </div>
+      </div>
+
       <!-- Collection card removed - editing collections only available on desktop -->
       <div class="q-pa-md" >
         <q-list class="text-primary text-weight-medium">
@@ -491,7 +596,7 @@
                   icon="filter_none"
                   header-class="text-h6 font-weight-medium"
                   :label="container.label"
-                  :caption="(containerItemLists[container.value]?.length ?? 0) + ' item(s)'"
+                  :caption="getContainerCaption(container.value)"
                 >
                 </q-expansion-item>
               </template>
@@ -506,11 +611,21 @@
               icon="filter_none"
               header-class="text-h6 font-weight-medium"
               :label="container.label"
-              :caption="(containerItemLists[container.value]?.length ?? 0) + ' item(s)'"
+              :caption="getContainerCaption(container.value)"
             >
-              <!-- Debug: Show item count -->
-              <div v-if="containerItemLists[container.value]?.length" class="q-pa-sm text-caption text-grey">
-                {{ containerItemLists[container.value].length }} items in this container
+              <!-- Capacity progress bar -->
+              <div v-if="getContainerCapacity(container.value)?.capacityWeight" class="q-pa-sm">
+                <div class="text-caption text-grey-7 q-mb-xs">Weight Capacity</div>
+                <q-linear-progress
+                  :value="(getContainerCapacity(container.value)?.currentWeight || 0) / (getContainerCapacity(container.value)?.capacityWeight || 1)"
+                  :color="getCapacityColor(getContainerCapacity(container.value)?.currentWeight, getContainerCapacity(container.value)?.capacityWeight)"
+                  size="md"
+                  class="q-mb-xs"
+                />
+                <div class="text-caption text-grey-7">
+                  {{ getContainerCapacity(container.value)?.currentWeight || 0 }} /
+                  {{ getContainerCapacity(container.value)?.capacityWeight }} lbs
+                </div>
               </div>
 
               <draggable
@@ -527,6 +642,10 @@
                     :picture_url="element.picture_url"
                     :label="element.label"
                     :description="element.description"
+                    :fragile="element.fragile"
+                    :priority="element.priority"
+                    :weight_lbs="element.weight_lbs"
+                    :dimensions="element.dimensions"
                     @edit="onEditItem"
                   />
                 </template>
@@ -556,6 +675,10 @@
                   :picture_url="element.picture_url"
                   :label="element.label"
                   :description="element.description"
+                  :fragile="element.fragile"
+                  :priority="element.priority"
+                  :weight_lbs="element.weight_lbs"
+                  :dimensions="element.dimensions"
                   @edit="onEditItem"
                 />
               </template>

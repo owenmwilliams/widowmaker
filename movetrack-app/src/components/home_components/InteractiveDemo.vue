@@ -154,7 +154,7 @@ const saveItemEdits = () => {
     $q.notify({
       type: 'positive',
       message: 'Item updated!',
-      position: 'top',
+      position: 'bottom',
       timeout: 1500
     });
   }
@@ -189,7 +189,7 @@ const handleDrop = (event: DragEvent) => {
     $q.notify({
       type: 'warning',
       message: 'Item already in box!',
-      position: 'top',
+      position: 'bottom',
       timeout: 1500
     });
     draggedItem.value = null;
@@ -205,7 +205,7 @@ const handleDrop = (event: DragEvent) => {
       type: 'negative',
       message: 'Box would be too heavy!',
       caption: `Max weight: ${currentBox.value.maxWeight} lbs`,
-      position: 'top',
+      position: 'bottom',
       timeout: 1500
     });
     draggedItem.value = null;
@@ -223,7 +223,7 @@ const handleDrop = (event: DragEvent) => {
         type: 'negative',
         message: 'Item won\'t fit in box!',
         caption: `Box size: ${currentBox.value.dimensions.width}×${currentBox.value.dimensions.height}×${currentBox.value.dimensions.depth}"`,
-        position: 'top',
+        position: 'bottom',
         timeout: 1500
       });
       draggedItem.value = null;
@@ -237,7 +237,7 @@ const handleDrop = (event: DragEvent) => {
   $q.notify({
     type: 'positive',
     message: `${item.name} added to box!`,
-    position: 'top',
+    position: 'bottom',
     timeout: 1500
   });
 
@@ -250,7 +250,7 @@ const removeItemFromBox = (item: InventoryItem) => {
     currentBox.value.items.splice(index, 1);
     $q.notify({
       message: `${item.name} removed from box`,
-      position: 'top',
+      position: 'bottom',
       timeout: 1500
     });
   }
@@ -262,7 +262,7 @@ const addItemToBox = (item: InventoryItem) => {
     $q.notify({
       type: 'warning',
       message: 'Item already in box!',
-      position: 'top',
+      position: 'bottom',
       timeout: 1500
     });
     return;
@@ -276,7 +276,7 @@ const addItemToBox = (item: InventoryItem) => {
       type: 'negative',
       message: 'Box would be too heavy!',
       caption: `Max weight: ${currentBox.value.maxWeight} lbs`,
-      position: 'top',
+      position: 'bottom',
       timeout: 1500
     });
     return;
@@ -292,7 +292,7 @@ const addItemToBox = (item: InventoryItem) => {
         type: 'negative',
         message: 'Item won\'t fit in box!',
         caption: `Box size: ${currentBox.value.dimensions.width}×${currentBox.value.dimensions.height}×${currentBox.value.dimensions.depth}"`,
-        position: 'top',
+        position: 'bottom',
         timeout: 1500
       });
       return;
@@ -304,7 +304,7 @@ const addItemToBox = (item: InventoryItem) => {
   $q.notify({
     type: 'positive',
     message: `${item.name} added to box!`,
-    position: 'top',
+    position: 'bottom',
     timeout: 1500
   });
 };
@@ -314,7 +314,7 @@ const labelBox = () => {
     $q.notify({
       type: 'warning',
       message: 'Add items to the box first!',
-      position: 'top',
+      position: 'bottom',
       timeout: 1500
     });
     return;

@@ -22,7 +22,7 @@ router.get('/', jsonParser, async function(req, res, next) {
   
   try {
     await knex
-      .select('locations.id', 'locations.name', 'locations.description', 'locations.address', 'locations.address_2', 'locations.city', 'locations.state', 'locations.zip')
+      .select('locations.id', 'locations.name', 'locations.description', 'locations.address', 'locations.address_2', 'locations.city', 'locations.state', 'locations.zip', 'locations.location_type')
       .countDistinct('rooms.id', {as: 'total_rooms'})
       .countDistinct('containers.id', {as: 'total_containers'})
       .countDistinct('items.id', {as: 'total_items'})
@@ -34,7 +34,7 @@ router.get('/', jsonParser, async function(req, res, next) {
       .where(
         knex.raw('permissions.user_name = ?', user_name)
       )
-      .groupBy('locations.id', 'locations.name', 'locations.description', 'locations.address', 'locations.address_2', 'locations.city', 'locations.state', 'locations.zip')
+      .groupBy('locations.id', 'locations.name', 'locations.description', 'locations.address', 'locations.address_2', 'locations.city', 'locations.state', 'locations.zip', 'locations.location_type')
     .then(data => {
       res.send(data)
     })
@@ -62,7 +62,8 @@ router.get('/single', jsonParser, async function(req, res, next) {
         address_2: 'locations.address_2',
         city: 'locations.city',
         state: 'locations.state',
-        zip: 'locations.zip'
+        zip: 'locations.zip',
+        location_type: 'locations.location_type'
       })
       .from('locations')
       .leftJoin('permissions', 'permissions.location_id', 'locations.id')
@@ -84,7 +85,18 @@ router.get('/single', jsonParser, async function(req, res, next) {
 // THE APPLICATION USES THIS TO POST A NEW LOCATION
 router.post('/post', jsonParser, async function(req, res, next) {
   try {
+    const isPrimary = req.query.is_primary === 'true' || req.query.is_primary === true;
+    const locationType = req.query.location_type || (isPrimary ? 'primary_residence' : 'residence');
+
     const id = knex.transaction(async trx => {
+      if (isPrimary) {
+        await knex('locations')
+          .transacting(trx)
+          .update({ location_type: 'residence' })
+          .where('owner', req.query.user)
+          .andWhere('location_type', 'primary_residence');
+      }
+
       await knex('locations')
       .transacting(trx)
       .insert({
@@ -95,7 +107,8 @@ router.post('/post', jsonParser, async function(req, res, next) {
         address_2: req.query.address_2,
         city: req.query.city,
         state: req.query.state,
-        zip: req.query.zip
+        zip: req.query.zip,
+        location_type: locationType
       })
       .returning('id')
       .then(trx.commit)
@@ -151,7 +164,18 @@ router.delete('/delete', jsonParser, async function(req, res, next) {
 // THE APPLICATION USES THIS TO EDIT A LOCATION
 router.put('/update', jsonParser, async function(req, res, next) {
   try {
+    const isPrimary = req.query.is_primary === 'true' || req.query.is_primary === true;
+    const locationType = req.query.location_type || (isPrimary ? 'primary_residence' : 'residence');
+
     knex.transaction(async trx => {
+      if (isPrimary) {
+        await knex('locations')
+          .transacting(trx)
+          .update({ location_type: 'residence' })
+          .where('owner', req.query.user)
+          .andWhere('location_type', 'primary_residence');
+      }
+
       await knex('locations')
       .transacting(trx)
       .update({
@@ -162,7 +186,8 @@ router.put('/update', jsonParser, async function(req, res, next) {
         address_2: req.query.address_2,
         city: req.query.city,
         state: req.query.state,
-        zip: req.query.zip
+        zip: req.query.zip,
+        location_type: locationType
       })
       .where('id', req.query.location_id)
 

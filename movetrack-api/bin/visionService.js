@@ -424,7 +424,8 @@ async function analyzeMultiItemWithGemini(base64Image, mimeType) {
         const model = geminiClient.getGenerativeModel({
             model: "gemini-2.0-flash-exp",
             generationConfig: {
-                responseMimeType: "application/json"
+                responseMimeType: "application/json",
+                maxOutputTokens: 8192  // Increase token limit to prevent truncation
             }
         });
 

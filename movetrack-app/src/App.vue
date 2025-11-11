@@ -3,6 +3,7 @@
   // Check out https://vuejs.org/api/sfc-script-setup.html#script-setup
   import { ref, watch } from 'vue';
   import useEventsBus from './compositions/event-bus';
+  import ItemDetailsModal from './components/ItemDetailsModal.vue';
   import { useQuasar } from 'quasar';
 
   // https://stackoverflow.com/questions/63471824/vue-js-3-event-bus/64019074#64019074
@@ -56,4 +57,5 @@
           <router-view @app:loading="onLoading" />
         </Suspense>
       </div>
+      <ItemDetailsModal />
 </template>

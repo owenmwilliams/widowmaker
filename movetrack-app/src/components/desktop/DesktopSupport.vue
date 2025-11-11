@@ -24,7 +24,7 @@ const onSubmit = async () => {
     $q.notify({
       type: 'positive',
       message: 'Message sent successfully! We\'ll get back to you soon.',
-      position: 'top',
+      position: 'bottom',
       timeout: 3000
     });
     name.value = '';
@@ -35,7 +35,7 @@ const onSubmit = async () => {
     $q.notify({
       type: 'negative',
       message: 'Error sending message. Please try again.',
-      position: 'top'
+      position: 'bottom'
     });
   } finally {
     $q.loading.hide();

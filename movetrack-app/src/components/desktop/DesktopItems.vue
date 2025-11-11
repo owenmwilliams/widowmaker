@@ -4,7 +4,6 @@
   import { ref, onMounted, watch, computed } from 'vue';
   import { useRouter } from 'vue-router';
   import { inventoryStore } from '../../stores/InventoryStore';
-  import DesktopAdd from './DesktopAdd.vue';
   import DesktopItemTable from './DesktopItemTable.vue';
   import DesktopLocationCards from './DesktopLocationCards.vue';
   import DesktopCollections from './DesktopCollections.vue';
@@ -18,11 +17,12 @@
 
 
   const pageItem = ref('itemTable')
-  const addItemDialog = ref(false)
   const showPhotoCapture = ref(false)
   const showVisionSettings = ref(false)
   const currentVisionProvider = ref<string>('gemini')
   const search = ref('')
+  const showAddOptionsDialog = ref(false)
+  const photoCaptureMode = ref<'single' | 'multi' | null>(null)
 
 //ALL PROPS & EMITS
   const props = defineProps({
@@ -94,6 +94,23 @@
     currentVisionProvider.value = provider;
   }
 
+  const openAddOptions = () => {
+    showAddOptionsDialog.value = true
+  }
+
+  const handleScanOption = (mode: 'single' | 'multi') => {
+    photoCaptureMode.value = mode
+    showAddOptionsDialog.value = false
+    showPhotoCapture.value = true
+  }
+
+  const handleManualAdd = () => {
+    showAddOptionsDialog.value = false
+    if (props.user) {
+      store.startNewItem(props.user)
+    }
+  }
+
   const consoleLog = () => {
     console.log('log here to debug')
     console.log('store.items', store.items)
@@ -123,20 +140,8 @@
                 <q-btn flat no-caps class="text-weight-medium" label="My Collections" @click="changePage('locationCards')" />
               </q-btn-group>
 
-              <!-- Add Item with Photo Button -->
-              <q-btn
-                v-if="pageItem === 'itemTable'"
-                unelevated
-                color="primary"
-                icon="photo_camera"
-                label="Add Item"
-                class="q-ml-md"
-                :disable="store.collections.length == 0"
-                @click="showPhotoCapture = true"
-              />
-
               <q-toolbar-title />
-              <q-btn flat round dense>
+              <q-btn flat dense class="verimove-btn">
                 <VeriMoveLogo class="q-ma-xs" />
                 <q-menu style="z-index: 9999;">
 
@@ -177,20 +182,9 @@
         </q-toolbar>
       </q-header>
 
-      <!-- <q-header elevated>
-        <q-toolbar>
-          <q-btn dense flat round icon="menu" @click="leftDrawerOpen = !leftDrawerOpen" />
-
-          <q-toolbar-title>
-            skwurlit
-          </q-toolbar-title>
-          <q-btn color="secondary" :disable="store.collections.length == 0" label="Add Item" icon="add" @click="addItemDialog = true" />
-        </q-toolbar>
-      </q-header> -->
-
       <q-page-container>
           <div v-if="pageItem == 'itemTable'">
-            <DesktopItemTable :user="props.user!" @addItem="addItemDialog = true" />
+            <DesktopItemTable :user="props.user!" @addAction="openAddOptions" />
           </div>
           <div v-else-if="pageItem == 'locationCards'">
             <DesktopCollections :user="props.user!" />
@@ -204,8 +198,41 @@
 
       </q-page-container>
 
-        <q-dialog  v-model="addItemDialog" persistent>
-          <DesktopAdd :user="props.user!" addType="Item"  />
+        <q-dialog v-model="showAddOptionsDialog" persistent>
+          <q-card class="add-options-card">
+            <q-card-section>
+              <div class="text-h6 text-primary">Add Items</div>
+              <div class="text-caption text-grey-7">Choose how you want to capture items.</div>
+            </q-card-section>
+            <q-card-section class="column q-gutter-sm">
+              <q-btn
+                unelevated
+                color="primary"
+                icon="photo_camera"
+                label="Scan Single Item"
+                :disable="store.collections.length === 0"
+                @click="handleScanOption('single')"
+              />
+              <q-btn
+                unelevated
+                color="primary"
+                icon="view_module"
+                label="Scan Multiple Items"
+                :disable="store.collections.length === 0"
+                @click="handleScanOption('multi')"
+              />
+              <q-btn
+                flat
+                color="grey-7"
+                label="Add Manually"
+                :disable="!props.user"
+                @click="handleManualAdd"
+              />
+            </q-card-section>
+            <q-card-actions align="right">
+              <q-btn flat color="grey-7" label="Cancel" v-close-popup />
+            </q-card-actions>
+          </q-card>
         </q-dialog>
 
         <!-- Vision Settings Dialog -->
@@ -226,12 +253,13 @@
         </q-dialog>
 
         <!-- Photo Capture Dialog -->
-        <q-dialog v-model="showPhotoCapture" persistent>
+        <q-dialog v-model="showPhotoCapture" persistent @hide="photoCaptureMode = null">
           <q-card style="min-width: 600px; max-width: 800px;">
             <q-card-section>
               <PhotoCapture
                 :vision-provider="currentVisionProvider"
                 :user="props.user"
+                :default-capture-mode="photoCaptureMode || undefined"
                 @item-added="handlePhotoItemAdded"
                 @close="showPhotoCapture = false"
               />
@@ -265,5 +293,19 @@
 
 .fab-button:active {
   transform: scale(0.95);
+}
+
+.verimove-btn {
+  border-radius: 6px;
+  padding: 0 6px;
+}
+
+.add-options-card {
+  min-width: 320px;
+  max-width: 400px;
+}
+
+.add-options-card .q-btn {
+  width: 100%;
 }
 </style>

@@ -1,11 +1,27 @@
 import axios from 'axios';
 import { defineStore } from 'pinia';
-import { Ref, ref } from 'vue';
+import { Ref, ref, computed } from 'vue';
 import router from '../router';
 
 export const inventoryStore = defineStore("inventory", () => {
     const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
     const url_suffix = import.meta.env.MODE == 'development' ? 'dev' : 'demo'
+
+    type ItemUpdateExtras = {
+        estimatedValue?: number | null,
+        fragile?: boolean,
+        priority?: string | null,
+        weightLbs?: number | null,
+        dimensions?: string | null,
+        notes?: string | null,
+        material?: string | null,
+        primaryColor?: string | null,
+        tags?: string[] | null
+    }
+
+    type ItemUpdateOptions = {
+        skipRedirect?: boolean
+    }
 
     // Helper function to get headers with auth token
     function getHeaders(): Record<string, string> {
@@ -20,6 +36,16 @@ export const inventoryStore = defineStore("inventory", () => {
     var locations: Ref<any[]> = ref([])
     var containers: Ref<any[]> = ref([])
     var items: Ref<any[]> = ref([])
+    const itemDetailsItemId: Ref<number | null> = ref(null)
+    const itemDetailsUser: Ref<string | null> = ref(null)
+    const itemDetailsMode: Ref<'view' | 'create'> = ref('view')
+    const isItemDetailsOpen = ref(false)
+    const activeItemDetails = computed(() => {
+        if (itemDetailsItemId.value === null) {
+            return undefined
+        }
+        return items.value.find(i => i.value === itemDetailsItemId.value)
+    })
     
     // This is for toggles on desktop for location
     var collectionValues: Ref<Array<any>> = ref([])
@@ -58,18 +84,45 @@ export const inventoryStore = defineStore("inventory", () => {
                             location: i.location_id,
                             quantity: i.quantity,
                             description: i.description,
-                            picture_url: i.picture_url
+                            picture_url: i.picture_url,
+                            material: i.material,
+                            primary_color: i.primary_color,
+                            tags: i.tags || [],
+                            fragile: i.fragile || false,
+                            priority: i.priority || null,
+                            weight_lbs: i.weight_lbs || null,
+                            dimensions: i.dimensions || null,
+                            estimated_value: i.estimated_value ?? null,
+                            notes: i.notes || null
                         }
                     })
 
                     containers.value = response.data.containers.map(i => {
+                        const maxWeight = i.max_weight_lbs !== undefined && i.max_weight_lbs !== null ? Number(i.max_weight_lbs) : null
+                        const maxVolume = i.max_volume_cuft !== undefined && i.max_volume_cuft !== null ? Number(i.max_volume_cuft) : null
                         return {
                             value: Number(i.id),
                             label: i.name,
+                            description: i.description,
                             collection: i.collection_id,
                             location: i.location_id,
                             active: false,
-                            disable: !items.value.map(i => i.container).includes(Number(i.id))
+                            disable: !items.value.map(i => i.container).includes(Number(i.id)),
+                            box_number: i.box_number,
+                            box_type: i.box_type,
+                            box_size: i.box_size,
+                            sealed: i.sealed || false,
+                            sealed_at: i.sealed_at,
+                            weight_lbs: i.weight_lbs ? Number(i.weight_lbs) : null,
+                            fragile_contents: i.fragile_contents || false,
+                            color_code: i.color_code || null,
+                            qr_code: i.qr_code || null,
+                            max_weight_lbs: maxWeight,
+                            max_volume_cuft: maxVolume,
+                            capacity_weight: maxWeight,
+                            capacity_volume: maxVolume,
+                            current_weight: i.current_weight || 0,
+                            current_volume: i.current_volume || 0
                         }
                     })
 
@@ -83,6 +136,7 @@ export const inventoryStore = defineStore("inventory", () => {
                     })
 
                     locations.value = response.data.locations.map(i => {
+                        const locationType = i.location_type || 'residence'
                         return {
                             value: Number(i.id),
                             label: i.name,
@@ -92,7 +146,9 @@ export const inventoryStore = defineStore("inventory", () => {
                             city: i.city,
                             state: i.state,
                             zip: i.zip,
-                            disable: !items.value.map(i => i.location).includes(Number(i.id))
+                            disable: !items.value.map(i => i.location).includes(Number(i.id)),
+                            location_type: locationType,
+                            isPrimary: locationType === 'primary_residence'
                         }
                     })
 
@@ -113,13 +169,27 @@ export const inventoryStore = defineStore("inventory", () => {
                 }
 
                 if (activeCollection.value == undefined && collections.value.length > 0) {
-                    setActiveCollection({ label: collections.value[0].label, value: collections.value[0].value})
+                    setActiveCollection({ value: collections.value[0].value})
                 }
             })
     }
 
-    function setActiveCollection(newCollection: {label: string, value: number}) {
-        activeCollection.value = newCollection
+    function resolveCollectionLabel(value: number) {
+        return collections.value.find(i => i.value == value)?.label
+    }
+
+    function resolveContainerLabel(value: number | undefined) {
+        if (value == null) return undefined
+        return containers.value.find(i => i.value == value)?.label
+    }
+
+    function setActiveCollection(newCollection: {label?: string, value: number}) {
+        const label = newCollection.label ?? resolveCollectionLabel(newCollection.value)
+        if (!label) {
+            activeCollection.value = undefined
+            return
+        }
+        activeCollection.value = { label, value: newCollection.value }
 
         // If current active container is not in the new collection, then set it to undefined
         if (containers.value.find(i => i.value == activeContainer.value?.value)?.collection != newCollection.value) {
@@ -127,8 +197,17 @@ export const inventoryStore = defineStore("inventory", () => {
         }
     }
 
-    function setActiveContainer(newContainer: {label: string, value: number} | undefined) {
-        activeContainer.value = newContainer
+    function setActiveContainer(newContainer: {label?: string, value: number} | undefined) {
+        if (!newContainer) {
+            activeContainer.value = undefined
+        } else {
+            const label = newContainer.label ?? resolveContainerLabel(newContainer.value)
+            if (!label) {
+                activeContainer.value = undefined
+            } else {
+                activeContainer.value = { label, value: newContainer.value }
+            }
+        }
 
         containers.value.forEach(i => {
             if (i.value == newContainer?.value) {
@@ -142,11 +221,35 @@ export const inventoryStore = defineStore("inventory", () => {
 
         // If current active container is not in the new collection, then change the active collection
         if (newContainer && containers.value.find(i => i.value == newContainer.value)?.collection != activeCollection.value?.value) {
-            setActiveCollection({label: collections.value.find(i => i.value == containers.value.find(j => j.value == newContainer.value)?.collection)?.label, value: containers.value.find(i => i.value == newContainer.value)?.collection})
+            const parentCollection = containers.value.find(j => j.value == newContainer.value)?.collection
+            if (parentCollection != null) {
+                setActiveCollection({ value: parentCollection })
+            }
         }
     }
 
-    async function createItem (user: string, name: string, description: string, quantity: number, collection: number, container?: number | undefined, location?: number | undefined, image?: Blob, estimatedValue?: number | null, fragile?: boolean, priority?: string, weightLbs?: number | null, dimensions?: string, notes?: string) {
+    function openItemDetailsModal(itemId: number, user: string) {
+        itemDetailsItemId.value = itemId
+        itemDetailsUser.value = user
+        itemDetailsMode.value = 'view'
+        isItemDetailsOpen.value = true
+    }
+
+    function startNewItem(user: string) {
+        itemDetailsItemId.value = null
+        itemDetailsUser.value = user
+        itemDetailsMode.value = 'create'
+        isItemDetailsOpen.value = true
+    }
+
+    function closeItemDetailsModal() {
+        isItemDetailsOpen.value = false
+        itemDetailsItemId.value = null
+        itemDetailsUser.value = null
+        itemDetailsMode.value = 'view'
+    }
+
+    async function createItem (user: string, name: string, description: string, quantity: number, collection: number, container?: number | undefined, location?: number | undefined, image?: Blob, estimatedValue?: number | null, fragile?: boolean, priority?: string, weightLbs?: number | null, dimensions?: string, notes?: string, material?: string, primaryColor?: string, tags?: string[]) {
         // 1. UPLOAD ALL THE TEXTUAL DATA
         // 2. RETURN AN ID
         // 3. UPLOAD IMAGE WITH THAT ID AS A UNIQUE IDENTIFIER
@@ -194,6 +297,17 @@ export const inventoryStore = defineStore("inventory", () => {
         }
         if (notes) {
             params.notes = notes;
+        }
+
+        // Add tag fields if provided
+        if (material) {
+            params.material = material;
+        }
+        if (primaryColor) {
+            params.primary_color = primaryColor;
+        }
+        if (tags && tags.length > 0) {
+            params.tags = JSON.stringify(tags);
         }
 
         const headers = await getHeaders();
@@ -257,9 +371,11 @@ export const inventoryStore = defineStore("inventory", () => {
 
         })
         .then(() => {
-            setActiveCollection({label: collections.value.find(i => i.value == Number(collection)).label, value: collection})
+            setActiveCollection({ value: collection})
             if (container !== undefined) {
-                setActiveContainer({label: containers.value.find(i => i.value == Number(container)).label, value: container})
+                setActiveContainer({ value: container})
+            } else {
+                setActiveContainer(undefined)
             }
         })
         .finally(() => {
@@ -337,14 +453,28 @@ export const inventoryStore = defineStore("inventory", () => {
             delete params.name
             items.value.push(params)
 
-            setActiveCollection({label: collections.value.find(i => i.value == Number(collection)).label, value: collection})
+            setActiveCollection({ value: collection})
             if (container != undefined) {
-                setActiveContainer({label: containers.value.find(i => i.value == Number(container)).label, value: container})
+                setActiveContainer({ value: container})
+            } else {
+                setActiveContainer(undefined)
             }
         })
     }
 
-    async function updateItem (id: number, user: string, name: string, description: string, quantity: number, collection: number, container?: number | undefined, location?: number | undefined, picture_url?: string) {
+    async function updateItem (
+        id: number,
+        user: string,
+        name: string,
+        description: string,
+        quantity: number,
+        collection: number,
+        container?: number | undefined,
+        location?: number | undefined,
+        picture_url?: string,
+        extra?: ItemUpdateExtras,
+        options?: ItemUpdateOptions
+    ) {
         console.log('picture url is: ', picture_url)
         
         let params: any = {
@@ -375,23 +505,48 @@ export const inventoryStore = defineStore("inventory", () => {
         } else {
             params.picture_url = null;
         }
+
+        const extraFields = extra || {}
+        if (extraFields.estimatedValue !== undefined) {
+            params.estimated_value = extraFields.estimatedValue
+        }
+        if (extraFields.fragile !== undefined) {
+            params.fragile = extraFields.fragile
+        }
+        if (extraFields.priority !== undefined) {
+            params.priority = extraFields.priority
+        }
+        if (extraFields.weightLbs !== undefined) {
+            params.weight_lbs = extraFields.weightLbs
+        }
+        if (extraFields.dimensions !== undefined) {
+            params.dimensions = extraFields.dimensions
+        }
+        if (extraFields.notes !== undefined) {
+            params.notes = extraFields.notes
+        }
+        if (extraFields.material !== undefined) {
+            params.material = extraFields.material
+        }
+        if (extraFields.primaryColor !== undefined) {
+            params.primary_color = extraFields.primaryColor
+        }
+        if (extraFields.tags !== undefined) {
+            params.tags = Array.isArray(extraFields.tags) ? JSON.stringify(extraFields.tags) : extraFields.tags
+        }
         
         console.log('params are: ', params)
 
         const headers = await getHeaders();
-        axios({
+        await axios({
             method: 'put',
             url: core_url + '/items/update',
             params: params,
             headers: headers
         })
-        .then(() => {
-            const index = items.value.findIndex((i) => i.value == id)
-
-            console.log('index is: ', index)
-            console.log('items at index is: ', items.value[index])
-
-            
+        
+        const index = items.value.findIndex((i) => i.value == id)
+        if (index !== -1) {
             items.value[index].label = name
             items.value[index].collection = collection
             items.value[index].container = container ?? null
@@ -399,21 +554,46 @@ export const inventoryStore = defineStore("inventory", () => {
             items.value[index].quantity = quantity
             items.value[index].description = description
             items.value[index].picture_url = picture_url ?? null
-
-
-            console.log('items at index after update is: ', items.value[index])
-        })
-        .then(() => {
-            setActiveCollection({label: collections.value.find(i => i.value == collection).label, value: collection})
-            if (container != undefined) {
-
-                console.log('container is: ', container)
-                setActiveContainer({label: containers.value.find(i => i.value == container).label, value: container})
+            if (extraFields.estimatedValue !== undefined) {
+                items.value[index].estimated_value = extraFields.estimatedValue
             }
-        })
-        .finally(() => {
+            if (extraFields.fragile !== undefined) {
+                items.value[index].fragile = extraFields.fragile
+            }
+            if (extraFields.priority !== undefined) {
+                items.value[index].priority = extraFields.priority
+            }
+            if (extraFields.weightLbs !== undefined) {
+                items.value[index].weight_lbs = extraFields.weightLbs
+            }
+            if (extraFields.dimensions !== undefined) {
+                items.value[index].dimensions = extraFields.dimensions
+            }
+            if (extraFields.notes !== undefined) {
+                items.value[index].notes = extraFields.notes
+            }
+            if (extraFields.material !== undefined) {
+                items.value[index].material = extraFields.material
+            }
+            if (extraFields.primaryColor !== undefined) {
+                items.value[index].primary_color = extraFields.primaryColor
+            }
+            if (extraFields.tags !== undefined) {
+                items.value[index].tags = extraFields.tags || []
+            }
+        }
+
+        setActiveCollection({ value: collection })
+        if (container != undefined) {
+            console.log('container is: ', container)
+            setActiveContainer({ value: container })
+        } else {
+            setActiveContainer(undefined)
+        }
+
+        if (!options?.skipRedirect) {
             router.push('items')
-        })
+        }
     }
 
     async function deleteItem (id: number, user: string, tsPhoto?: boolean) {
@@ -447,14 +627,30 @@ export const inventoryStore = defineStore("inventory", () => {
         })
     }
 
-    async function createContainer (user: string, name: string, collection: number, location?: number, boxNumber?: string, boxType?: string, sealed?: boolean, weightLbs?: number | null, fragileContents?: boolean, colorCode?: string) {
-
-
-
+    async function createContainer (
+        user: string,
+        name: string,
+        collection: number,
+        location?: number,
+        boxNumber?: string,
+        boxType?: string,
+        sealed?: boolean,
+        weightLbs?: number | null,
+        fragileContents?: boolean,
+        colorCode?: string,
+        boxSize?: string,
+        maxWeightLbs?: number | null,
+        maxVolumeCuFt?: number | null,
+        description?: string
+    ) {
         const parameters: any = {
             user: user,
             name: name,
             collection: collection,
+        }
+
+        if (description) {
+            parameters.description = description
         }
 
         if (location != undefined) {
@@ -482,6 +678,15 @@ export const inventoryStore = defineStore("inventory", () => {
         if (colorCode) {
             parameters.color_code = colorCode;
         }
+        if (boxSize) {
+            parameters.box_size = boxSize;
+        }
+        if (maxWeightLbs !== null && maxWeightLbs !== undefined) {
+            parameters.max_weight_lbs = maxWeightLbs;
+        }
+        if (maxVolumeCuFt !== null && maxVolumeCuFt !== undefined) {
+            parameters.max_volume_cuft = maxVolumeCuFt;
+        }
 
         const headers = await getHeaders();
         axios({
@@ -501,10 +706,20 @@ export const inventoryStore = defineStore("inventory", () => {
             let params = {
                 value: Number(value.data[0].id),
                 label: name,
+                description: description,
                 collection: collection,
                 location: location ?? null,
                 active: false,
-                disable: false
+                disable: false,
+                box_number: boxNumber || null,
+                box_type: boxType || null,
+                box_size: boxSize || null,
+                sealed: sealed || false,
+                weight_lbs: weightLbs ?? null,
+                fragile_contents: fragileContents ?? false,
+                color_code: colorCode || null,
+                max_weight_lbs: maxWeightLbs ?? null,
+                max_volume_cuft: maxVolumeCuFt ?? null
             }
 
             // Update containers array
@@ -517,7 +732,7 @@ export const inventoryStore = defineStore("inventory", () => {
             
 
             // Set the actives
-            setActiveCollection({label: collections.value.find(i => i.value == collection).label, value: collection})
+            setActiveCollection({ value: collection})
             setActiveContainer({label: name, value: Number(value.data[0].id)})
         })
         // .finally(() => {
@@ -525,8 +740,28 @@ export const inventoryStore = defineStore("inventory", () => {
         // })
     }
 
-    async function updateContainer (id: number, user: string, name: string, collection: number, location?: number) {
+    async function updateContainer (
+        id: number,
+        user: string,
+        name: string,
+        collection: number,
+        location?: number,
+        options?: {
+            boxNumber?: string,
+            boxType?: string,
+            sealed?: boolean,
+            weightLbs?: number | null,
+            fragileContents?: boolean,
+            colorCode?: string,
+            boxSize?: string,
+            maxWeightLbs?: number | null,
+            maxVolumeCuFt?: number | null,
+            description?: string
+        }
+    ) {
         console.log('location in inventory store is: ', location)
+
+        const containerOptions = options || {}
 
         const headers = await getHeaders();
         axios({
@@ -538,6 +773,16 @@ export const inventoryStore = defineStore("inventory", () => {
                 name: name,
                 collection: collection,
                 location: location,
+                description: containerOptions.description,
+                box_number: containerOptions.boxNumber,
+                box_type: containerOptions.boxType,
+                sealed: containerOptions.sealed,
+                weight_lbs: containerOptions.weightLbs,
+                fragile_contents: containerOptions.fragileContents,
+                color_code: containerOptions.colorCode,
+                box_size: containerOptions.boxSize,
+                max_weight_lbs: containerOptions.maxWeightLbs,
+                max_volume_cuft: containerOptions.maxVolumeCuFt
             },
             headers: headers
         })
@@ -548,6 +793,38 @@ export const inventoryStore = defineStore("inventory", () => {
             containers.value[index].label = name
             containers.value[index].collection = collection
             containers.value[index].location = location
+            if (containerOptions.description !== undefined) {
+                containers.value[index].description = containerOptions.description
+            }
+            if (containerOptions.boxNumber !== undefined) {
+                containers.value[index].box_number = containerOptions.boxNumber
+            }
+            if (containerOptions.boxType !== undefined) {
+                containers.value[index].box_type = containerOptions.boxType
+            }
+            if (containerOptions.boxSize !== undefined) {
+                containers.value[index].box_size = containerOptions.boxSize
+            }
+            if (containerOptions.sealed !== undefined) {
+                containers.value[index].sealed = containerOptions.sealed
+            }
+            if (containerOptions.weightLbs !== undefined) {
+                containers.value[index].weight_lbs = containerOptions.weightLbs
+            }
+            if (containerOptions.fragileContents !== undefined) {
+                containers.value[index].fragile_contents = containerOptions.fragileContents
+            }
+            if (containerOptions.colorCode !== undefined) {
+                containers.value[index].color_code = containerOptions.colorCode
+            }
+            if (containerOptions.maxWeightLbs !== undefined) {
+                containers.value[index].max_weight_lbs = containerOptions.maxWeightLbs
+                containers.value[index].capacity_weight = containerOptions.maxWeightLbs
+            }
+            if (containerOptions.maxVolumeCuFt !== undefined) {
+                containers.value[index].max_volume_cuft = containerOptions.maxVolumeCuFt
+                containers.value[index].capacity_volume = containerOptions.maxVolumeCuFt
+            }
 
             // Update items
             const tempItemsFilter = items.value.filter(i => i.container == id).map(j => j.value)
@@ -559,8 +836,8 @@ export const inventoryStore = defineStore("inventory", () => {
             })
         })
         .then(() => {
-            setActiveCollection({label: collections.value.find(i => i.value == Number(collection)).label, value: collection})
-            setActiveContainer({label: containers.value.find(i => i.value == Number(id)).label, value: id})
+            setActiveCollection({ value: collection})
+            setActiveContainer({label: containers.value.find(i => i.value == Number(id))?.label ?? name, value: id})
         })
         .finally(() => {
             router.push('items')
@@ -622,7 +899,7 @@ export const inventoryStore = defineStore("inventory", () => {
             collectionValues.value.push(Number(value.data[0].id))
 
             // Update actives
-            setActiveCollection({label: collections.value.find(i => i.value == value.data[0].id).label, value: value.data[0].id})
+            setActiveCollection({ value: value.data[0].id})
             setActiveContainer(undefined)
         })
     }
@@ -647,7 +924,7 @@ export const inventoryStore = defineStore("inventory", () => {
             collections.value[index].description = description
         })
         .then(() => {
-            setActiveCollection({label: collections.value.find(i => i.value == Number(id)).label, value: Number(id)})
+            setActiveCollection({ value: Number(id)})
             setActiveContainer(undefined)
         })
         .finally(() => {
@@ -699,7 +976,7 @@ export const inventoryStore = defineStore("inventory", () => {
         // })
     }
 
-    async function createLocation (user: string, name: string, description: string, address: string, address_2: string, city: string, state: string, zip: string) {
+    async function createLocation (user: string, name: string, description: string, address: string, address_2: string, city: string, state: string, zip: string, isPrimary = false) {
         let params: any = {
             user: user,
             name: name,
@@ -708,38 +985,53 @@ export const inventoryStore = defineStore("inventory", () => {
             address_2: address_2,
             city: city,
             state: state,
-            zip: zip
+            zip: zip,
+            is_primary: isPrimary
         }
         
         const headers = await getHeaders();
-        axios({
+        const response = await axios({
             method: 'post',
             url: core_url + '/locations/post',
             params: params,
             headers: headers
         })
-        .then(async (value) => {
-            locations.value.push({
-                value: Number(value.data[0].id),
-                label: name,
-                description: description,
-                address: address,
-                address_2: address_2,
-                city: city,
-                state: state,
-                zip: zip,
-                disable: true
+
+        const newId = Number(response.data[0].id)
+
+        if (isPrimary) {
+            locations.value.forEach(loc => {
+                loc.isPrimary = false
+                loc.location_type = 'residence'
             })
+        }
 
-            locationValues.value?.push(Number(value.data[0].id))
-
-            console.log('locations is: ', locations.value)
+        locations.value.push({
+            value: newId,
+            label: name,
+            description: description,
+            address: address,
+            address_2: address_2,
+            city: city,
+            state: state,
+            zip: zip,
+            disable: true,
+            location_type: isPrimary ? 'primary_residence' : 'residence',
+            isPrimary: isPrimary
         })
+
+        if (!locationValues.value?.includes(newId)) {
+            locationValues.value?.push(newId)
+        }
+
+        console.log('locations is: ', locations.value)
     }
 
-    async function updateLocation (id: number, user: string, name: string, description: string, address: string, address_2: string, city: string, state: string, zip: string) {
+    async function updateLocation (id: number, user: string, name: string, description: string, address: string, address_2: string, city: string, state: string, zip: string, isPrimary = false, options?: { skipRedirect?: boolean }) {
         const headers = await getHeaders();
-        axios({
+        const locationType = isPrimary ? 'primary_residence' : (locations.value.find(i => i.value == id)?.location_type || 'residence')
+
+        await axios({
             method: 'put',
             url: core_url + '/locations/update',
             params: {
@@ -751,13 +1043,16 @@ export const inventoryStore = defineStore("inventory", () => {
               address_2: address_2,
               city: city,
               state: state,
-              zip: zip
+              zip: zip,
+              is_primary: isPrimary,
+              location_type: locationType
             },
             headers: headers
         })
-        .then(() => {
-            // Update locations array
-            const index = locations.value.findIndex((i) => i.value == id)
+
+        // Update locations array
+        const index = locations.value.findIndex((i) => i.value == id)
+        if (index !== -1) {
             locations.value[index].label = name
             locations.value[index].description = description
             locations.value[index].address = address
@@ -765,20 +1060,30 @@ export const inventoryStore = defineStore("inventory", () => {
             locations.value[index].city = city
             locations.value[index].state = state
             locations.value[index].zip = zip
+            locations.value[index].location_type = locationType
+            locations.value[index].isPrimary = isPrimary
+        }
 
-            // Update locationValues set
-            if (!locationValues.value?.includes(id)) {
-                locationValues.value?.push(id)
-            }
-        })
-        .finally(() => {
+        if (isPrimary) {
+            locations.value.forEach(loc => {
+                loc.isPrimary = loc.value === id
+                loc.location_type = loc.value === id ? 'primary_residence' : 'residence'
+            })
+        }
+
+        // Update locationValues set
+        if (!locationValues.value?.includes(id)) {
+            locationValues.value?.push(id)
+        }
+
+        if (!options?.skipRedirect) {
             router.push('items')
-        })
+        }
     }
 
-    async function deleteLocation (id: number, user: string) {
+    async function deleteLocation (id: number, user: string, options?: { skipRedirect?: boolean }) {
         const headers = await getHeaders();
-        axios({
+        await axios({
             method: 'delete',
             url: core_url + '/locations/delete',
             params: {
@@ -786,40 +1091,97 @@ export const inventoryStore = defineStore("inventory", () => {
             },
             headers: headers
         })
-        .then(() => {
-            // Remove from locations
-            locations.value.splice(locations.value.findIndex((i) => i.value == id), 1)
 
-            // Remove id from locationValues
-            locationValues.value?.splice(locationValues.value?.findIndex(i => i == id), 1)
+        // Remove from locations
+        locations.value.splice(locations.value.findIndex((i) => i.value == id), 1)
 
-            // Remove from containers
-            containers.value.forEach(i => {
-                if (i.location == id) {
-                    i.location = null
-                }
-            })
+        // Remove id from locationValues
+        locationValues.value?.splice(locationValues.value?.findIndex(i => i == id), 1)
 
-            // Remove from items
-            items.value.forEach(i => {
-                if (i.location == id) {
-                    i.location = null
-                }
-            })
+        // Remove from containers
+        containers.value.forEach(i => {
+            if (i.location == id) {
+                i.location = null
+            }
         })
-        .finally(() => {
+
+        // Remove from items
+        items.value.forEach(i => {
+            if (i.location == id) {
+                i.location = null
+            }
+        })
+
+        if (!options?.skipRedirect) {
             router.push('items')
-        })
+        }
+    }
+
+    async function moveItemToContainer(itemId: number, containerId: number | null, user: string) {
+        const item = items.value.find(i => i.value === itemId);
+        if (!item) {
+            console.warn(`Item with id ${itemId} not found`);
+            return;
+        }
+
+        const targetContainer = containerId !== null ? containers.value.find(i => i.value === containerId) : undefined;
+        const targetCollection = targetContainer?.collection ?? item.collection;
+        const targetLocation = targetContainer?.location ?? item.location ?? null;
+
+        const headers = await getHeaders();
+        await axios({
+            method: 'put',
+            url: core_url + '/items/update',
+            params: {
+                item_id: itemId,
+                user,
+                name: item.label,
+                description: item.description,
+                quantity: item.quantity,
+                collection: targetCollection,
+                container: containerId,
+                location: targetLocation
+            },
+            headers
+        });
+
+        item.collection = targetCollection;
+        item.container = containerId ?? null;
+        item.location = targetLocation;
+    }
+
+    async function markPrimaryLocation (id: number, user: string) {
+        const location = locations.value.find(i => i.value === id)
+        if (!location) {
+            return
+        }
+
+        await updateLocation(
+            id,
+            user,
+            location.label,
+            location.description || '',
+            location.address || '',
+            location.address_2 || '',
+            location.city || '',
+            location.state || '',
+            location.zip || '',
+            true,
+            { skipRedirect: true }
+        )
     }
 
     return { locations, collections, containers, items, 
         activeCollection, activeContainer, 
+        isItemDetailsOpen, activeItemDetails, itemDetailsItemId, itemDetailsUser, itemDetailsMode,
         locationValues, collectionValues, containerValues,
         
         loadInventory, setActiveCollection, setActiveContainer, 
         createItem, updateItem, deleteItem, createItemOutsideUrl,
         createContainer, updateContainer, deleteContainer,
         createCollection, updateCollection, deleteCollection,
-        createLocation, updateLocation, deleteLocation,
+        createLocation, updateLocation, deleteLocation, moveItemToContainer,
+        markPrimaryLocation,
+        openItemDetailsModal, closeItemDetailsModal, startNewItem
     }
 })

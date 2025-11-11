@@ -72,7 +72,12 @@
         console.log('props.idProp is ' + props.idProp)
         console.log('props.objectType is ' + props.objectType)
         if (props.objectType == ObjectEnum.location) {
-          location.value = {label: store.locations.find(i => i.value == props.idProp)?.label, value: props.idProp!} ?? undefined
+          const targetLocation = store.locations.find(i => i.value == props.idProp);
+          if (targetLocation) {
+            location.value = { label: targetLocation.label, value: targetLocation.value };
+          } else {
+            location.value = undefined;
+          }
           name.value = store.locations.find(i => i.value == props.idProp)?.label ?? ''
           description.value = store.locations.find(i => i.value == props.idProp)?.description ?? ''
           address.value = store.locations.find(i => i.value == props.idProp)?.address ?? ''
@@ -90,10 +95,15 @@
           description.value = store.containers.find(i => i.value == props.idProp)?.description ?? ''
 
           // Define the location if it has one
-          location.value = {
-            label: store.locations.find(i => i.value == store.containers.find(i => i.value == props.idProp)?.location)?.label,
-            value: store.containers.find(i => i.value == props.idProp)?.location_id
-          } ?? undefined
+          const container = store.containers.find(i => i.value == props.idProp)
+          if (container && container.location != null) {
+            location.value = {
+              label: store.locations.find(i => i.value == container.location)?.label,
+              value: container.location
+            }
+          } else {
+            location.value = undefined
+          }
 
         } else if (props.objectType == ObjectEnum.item) {
 

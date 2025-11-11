@@ -15,8 +15,8 @@
     
     const $q = useQuasar()
 
-    // Define emits to add Item
-    const emits = defineEmits(['addItem'])
+    // Define emits to trigger add-item dialog
+    const emit = defineEmits(['addAction'])
 
     // const emits = defineEmits<{
     //     (e: 'addItem'): void
@@ -28,6 +28,46 @@
 
     const selectedItems: Ref<number[]> = ref([])
     const allSelected = ref(false)
+
+    // Tag filters
+    const filterFragile = ref(false)
+    const filterPriority = ref<string[]>([])
+    const showFiltersMenu = ref(false)
+
+    const toggleFilterValue = (list: Ref<Array<number>>, value: number) => {
+        const idx = list.value.indexOf(value)
+        if (idx >= 0) {
+            list.value.splice(idx, 1)
+        } else {
+            list.value.push(value)
+        }
+    }
+
+    const isFilterActive = (list: Ref<Array<number>>, value: number) => list.value.includes(value)
+
+    const togglePriorityValue = (value: string) => {
+        const idx = filterPriority.value.indexOf(value)
+        if (idx >= 0) {
+            filterPriority.value.splice(idx, 1)
+        } else {
+            filterPriority.value.push(value)
+        }
+    }
+
+    const toggleCollectionFilter = (value: number) => toggleFilterValue(collectionValues, value)
+    const toggleContainerFilter = (value: number) => toggleFilterValue(containerValues, value)
+    const toggleLocationFilter = (value: number) => toggleFilterValue(locationValues, value)
+    const isCollectionActive = (value: number) => collectionValues.value.includes(value)
+    const isContainerActive = (value: number) => containerValues.value.includes(value)
+    const isLocationActive = (value: number) => locationValues.value.includes(value)
+
+    const clearFilters = () => {
+        collectionValues.value = store.collections.map(i => i.value)
+        containerValues.value = store.containers.map(i => i.value)
+        locationValues.value = store.locations.map(i => i.value)
+        filterFragile.value = false
+        filterPriority.value = []
+    }
 
     const getSelectedString = () => {
         return selectedItems.value.length === 0 ? '' : `${selectedItems.value.length} record${selectedItems.value.length > 1 ? 's' : ''} selected of ${items.value.length}`
@@ -93,12 +133,19 @@
 
     const itemRows = computed(() => {
         return items.value
-            .filter(i => 
-                i.value != null && 
-                store.collectionValues?.includes(i.collection) &&
-                (store.locationValues?.includes(i.location) || i.location == null) &&
-                (store.containerValues?.includes(i.container) || i.container == null)
-            )
+            .filter(i => {
+                // Existing filters
+                if (i.value == null) return false
+                if (!store.collectionValues?.includes(i.collection)) return false
+                if (i.location != null && !store.locationValues?.includes(i.location)) return false
+                if (i.container != null && !store.containerValues?.includes(i.container)) return false
+                
+                // Tag filters
+                if (filterFragile.value && !i.fragile) return false
+                if (filterPriority.value.length > 0 && !filterPriority.value.includes(i.priority?.toLowerCase() || '')) return false
+                
+                return true
+            })
             .map(i => {
                 return {
                     value: i.value,
@@ -114,6 +161,10 @@
                     location: i.location,
                     location_name: store.locations.find(l => l.value == i.location)?.label,
                     picture_url: i.picture_url,
+                    fragile: i.fragile || false,
+                    priority: i.priority || null,
+                    weight_lbs: i.weight_lbs || null,
+                    dimensions: i.dimensions || null,
                     selection: false
                 }
             })
@@ -156,6 +207,10 @@
         { name: 'name', align: 'left', label: 'Item', field: 'name', sortable: true, required: false, sortOrder: 'ad' },
         { name: 'description', align: 'left', label: 'Description', field: 'description', required: false, style: 'max-width: 250px; word-wrap: break-word; overflow: hidden; white-space: nowrap;', headerStyle: 'max-width: 200px;' },
         { name: 'quantity', align: 'center', label: 'Quantity', field: 'quantity', sortable: true, required: false, sort: (a, b) => parseInt(a, 10) - parseInt(b, 10) },
+        { name: 'fragile', align: 'center', label: 'Fragile', field: 'fragile', sortable: true, required: false },
+        { name: 'priority', align: 'center', label: 'Priority', field: 'priority', sortable: true, required: false },
+        { name: 'weight_lbs', align: 'center', label: 'Weight (lbs)', field: 'weight_lbs', sortable: true, required: false },
+        { name: 'dimensions', align: 'center', label: 'Dimensions', field: 'dimensions', sortable: false, required: false },
         { name: 'collection_name', align: 'right', label: 'Collection', field: 'collection_name', sortable: true, required: false },
         { name: 'container_name', align: 'right', label: 'Container', field: 'container_name', sortable: true, required: false },
         { name: 'location_name', align: 'right', label: 'Location', field: 'location_name', sortable: true, required: false }
@@ -231,6 +286,30 @@
         allSelected.value = false
     }
 
+    const getPriorityColor = (priority: string | null) => {
+        if (!priority) return 'grey'
+        const p = priority.toLowerCase()
+        if (p === 'high') return 'red-7'
+        if (p === 'medium') return 'orange-7'
+        if (p === 'low') return 'green-7'
+        return 'grey-7'
+    }
+
+    const openItemDetails = (itemId: number) => {
+        if (!props.user) {
+            return
+        }
+        store.openItemDetailsModal(itemId, props.user)
+    }
+
+    const handleRowClick = (event: MouseEvent, rowId: number) => {
+        const target = event.target as HTMLElement | null
+        if (target?.closest('[data-ignore-row-click]')) {
+            return
+        }
+        openItemDetails(rowId)
+    }
+
 </script>
 
 <template>
@@ -279,40 +358,131 @@
 
                 <q-space />
 
-                <q-btn-dropdown flat color="primary" label="filters">
+                <q-btn
+                    unelevated
+                    color="primary"
+                    class="q-ml-sm"
+                    icon="add"
+                    label="Add Item"
+                    :disable="store.collections.length === 0"
+                    @click.stop="emit('addAction')"
+                />
 
-                    <q-btn-dropdown flat color="primary" label="Collections">
-                        <q-option-group
-                            class="text-primary q-pa-sm"
-                            v-model="collectionValues"
-                            :options="store.collections.filter(i => i.disable == false).map(i => {return {label: i.label, value: i.value, disable: i.disable}})"
-                            option-value="value"
-                            option-label="label"
-                            type="checkbox"
-                        />
-                    </q-btn-dropdown>
-                    <q-btn-dropdown flat color="primary" label="Containers">
-                        <q-option-group
-                            class="text-primary q-pa-sm"
-                            v-model="containerValues"
-                            :options="store.containers.filter(i => collectionValues.includes(i.collection) && i.disable == false).map(i => {return {label: i.label, value: i.value, disable: i.disable}})"
-                            option-value="value"
-                            option-label="label"
-                            type="checkbox"
-                        />
-                    </q-btn-dropdown>
+                <q-btn flat color="primary" label="Filters" icon="filter_list" @click.stop="showFiltersMenu = true" />
+                <q-dialog v-model="showFiltersMenu">
+                    <q-card class="filters-menu">
+                        <q-card-section class="row items-center justify-between q-pb-none">
+                            <div class="text-h6 text-primary">Filters</div>
+                            <q-btn flat dense icon="close" color="grey-7" v-close-popup />
+                        </q-card-section>
+                        <q-card-section>
+                        <div class="filter-section">
+                            <div class="section-label">Collections</div>
+                            <div class="chip-row">
+                                <q-chip
+                                    v-for="collection in store.collections"
+                                    :key="collection.value"
+                                    dense
+                                    clickable
+                                    :outline="!isCollectionActive(collection.value)"
+                                    color="primary"
+                                    text-color="white"
+                                    @click="toggleCollectionFilter(collection.value)"
+                                >
+                                    {{ collection.label }}
+                                </q-chip>
+                            </div>
+                        </div>
 
-                    <q-btn-dropdown flat color="primary" label="Locations">
-                        <q-option-group
-                            class="text-primary q-pa-sm"
-                            v-model="locationValues"
-                            :options="store.locations.filter(i => i.disable == false).map(i => {return {label: i.label, value: i.value, disable: i.disable}})"
-                            option-value="value"
-                            option-label="label"
-                            type="checkbox"
-                        />
-                    </q-btn-dropdown>
-                </q-btn-dropdown>
+                        <div class="filter-section">
+                            <div class="section-label">Containers</div>
+                            <div class="chip-row">
+                                <q-chip
+                                    v-for="container in store.containers"
+                                    :key="container.value"
+                                    dense
+                                    clickable
+                                    :outline="!isContainerActive(container.value)"
+                                    color="secondary"
+                                    text-color="white"
+                                    @click="toggleContainerFilter(container.value)"
+                                >
+                                    {{ container.label }}
+                                </q-chip>
+                            </div>
+                        </div>
+
+                        <div class="filter-section">
+                            <div class="section-label">Locations</div>
+                            <div class="chip-row">
+                                <q-chip
+                                    v-for="location in store.locations"
+                                    :key="location.value"
+                                    dense
+                                    clickable
+                                    :outline="!isLocationActive(location.value)"
+                                    color="accent"
+                                    text-color="white"
+                                    @click="toggleLocationFilter(location.value)"
+                                >
+                                    {{ location.label }}
+                                </q-chip>
+                            </div>
+                        </div>
+
+                        <div class="filter-section">
+                            <div class="section-label">Tags</div>
+                            <div class="chip-row">
+                                <q-chip
+                                    dense
+                                    clickable
+                                    :outline="!filterFragile"
+                                    color="red"
+                                    text-color="white"
+                                    @click="filterFragile = !filterFragile"
+                                >
+                                    Fragile
+                                </q-chip>
+                                <q-chip
+                                    dense
+                                    clickable
+                                    :outline="!filterPriority.includes('high')"
+                                    color="negative"
+                                    text-color="white"
+                                    @click="togglePriorityValue('high')"
+                                >
+                                    High Priority
+                                </q-chip>
+                                <q-chip
+                                    dense
+                                    clickable
+                                    :outline="!filterPriority.includes('medium')"
+                                    color="warning"
+                                    text-color="white"
+                                    @click="togglePriorityValue('medium')"
+                                >
+                                    Medium Priority
+                                </q-chip>
+                                <q-chip
+                                    dense
+                                    clickable
+                                    :outline="!filterPriority.includes('low')"
+                                    color="positive"
+                                    text-color="white"
+                                    @click="togglePriorityValue('low')"
+                                >
+                                    Low Priority
+                                </q-chip>
+                            </div>
+                        </div>
+
+                        <div class="text-right q-mt-md">
+                            <q-btn flat color="grey-7" label="Reset" @click="clearFilters" />
+                            <q-btn flat color="primary" label="Done" v-close-popup />
+                        </div>
+                        </q-card-section>
+                    </q-card>
+                </q-dialog>
 
                 <q-btn-dropdown flat color="primary" label="actions">
                     <q-btn push flat color="primary" :disable="(selectedItems.length == 0)" label="Move" icon="swap_horiz" @click="editItemLocation" />
@@ -332,7 +502,13 @@
 
         <template v-slot:header="props">
             <q-th key="selection" :props="props">
-                <q-checkbox v-model="allSelected" @update:model-value="updateAllSelected" />
+                <q-checkbox
+                    v-model="allSelected"
+                    @update:model-value="updateAllSelected"
+                    data-ignore-row-click
+                    @click.stop
+                    @keydown.stop
+                />
             </q-th>
             <q-th key="name" :props="props">
                 Name
@@ -342,6 +518,18 @@
             </q-th>
             <q-th key="quantity" :props="props">
                 Quantity
+            </q-th>
+            <q-th key="fragile" :props="props">
+                Fragile
+            </q-th>
+            <q-th key="priority" :props="props">
+                Priority
+            </q-th>
+            <q-th key="weight_lbs" :props="props">
+                Weight (lbs)
+            </q-th>
+            <q-th key="dimensions" :props="props">
+                Dimensions
             </q-th>
             <q-th key="collection_name" :props="props">
                 Collection
@@ -355,88 +543,57 @@
         </template>
 
         <template v-slot:body="props">
-            <q-tr :props="props">
+            <q-tr :props="props" class="item-row" @click="handleRowClick($event, props.row.value)">
 
             <q-td key="selection" :props="props">
-                <q-checkbox v-model="selectedItems" :val="props.row.value" />
+                <q-checkbox
+                    v-model="selectedItems"
+                    :val="props.row.value"
+                    data-ignore-row-click
+                    @click.stop
+                    @keydown.stop
+                />
             </q-td>
 
             <q-td key="name" :props="props">
-                <div class="text-pre-wrap">
-                <!-- <q-btn primary flat tiny icon='delete_forever' padding="none" @click="deleteItem(props.row.value)" /> -->
-                {{ props.row.label }}
+                <div class="text-pre-wrap text-weight-medium">
+                    {{ props.row.label }}
                 </div>
-                <q-popup-edit :disable="deleteItemDialog" buttons v-model="props.row.label" v-slot="scope">
-
-                    <!-- (
-                        id: number, 
-                        user: string, 
-                        name: string, 
-                        description: string, 
-                        quantity: number, 
-                        collection: number, 
-                        container?: number | undefined, 
-                        location?: number | undefined, 
-                        picture_url?: string) -->
-
-                <q-input  v-model="scope.value"  dense autofocus @keyup.enter="async () => { await store.updateItem(
-                    props.row.value, 
-                    user!, 
-                    scope.value,
-                    props.row.description,
-                    props.row.quantity,
-                    props.row.collection,
-                    props.row.container ?? undefined,
-                    props.row.location ?? undefined,
-                    props.row.picture_url ?? undefined)
-                    .then(() => {
-                        scope.set()
-                    })
-                    }
-                "/>
-                </q-popup-edit>
             </q-td>
 
             <q-td key="description" :props="props">
                 <div class="text-pre-wrap">{{ props.row.description }}</div>
-                <q-popup-edit v-model="props.row.description"  v-slot="scope">
-                <q-input type="textarea" v-model="scope.value"  dense autofocus @keyup.enter="async () => { await store.updateItem(
-                    props.row.value, 
-                    user!, 
-                    props.row.label,
-                    scope.value,
-                    props.row.quantity,
-                    props.row.collection,
-                    props.row.container ?? undefined,
-                    props.row.location ?? undefined,
-                    props.row.picture_url ?? undefined)
-                    .then(() => {
-                        scope.set()
-                    })
-                    }
-                "/>
-                </q-popup-edit>
             </q-td>
 
             <q-td key="quantity" :props="props">
                 {{ props.row.quantity }}
-                <q-popup-edit v-model="props.row.quantity"  v-slot="scope">
-                <q-input type="number" v-model.number="scope.value"  dense autofocus counter @keyup.enter="async () => { await store.updateItem(
-                    props.row.value, 
-                    user!, 
-                    props.row.label, 
-                    props.row.description,
-                    scope.value,
-                    props.row.collection,
-                    props.row.container ?? undefined,
-                    props.row.location ?? undefined,
-                    props.row.picture_url ?? undefined)
-                    .then(() => {
-                        scope.set()
-                    })
-                    }
-                "  />
-                </q-popup-edit>
+            </q-td>
+
+            <q-td key="fragile" :props="props">
+                <q-badge v-if="props.row.fragile" color="red" text-color="white">
+                    <q-icon name="warning" size="xs" class="q-mr-xs" />
+                    Fragile
+                </q-badge>
+                <span v-else class="text-grey-5">—</span>
+            </q-td>
+
+            <q-td key="priority" :props="props">
+                <q-badge 
+                    v-if="props.row.priority" 
+                    :color="getPriorityColor(props.row.priority)" 
+                    text-color="white"
+                >
+                    {{ props.row.priority }}
+                </q-badge>
+                <span v-else class="text-grey-5">—</span>
+            </q-td>
+
+            <q-td key="weight_lbs" :props="props">
+                {{ props.row.weight_lbs ? props.row.weight_lbs + ' lbs' : '—' }}
+            </q-td>
+
+            <q-td key="dimensions" :props="props">
+                {{ props.row.dimensions || '—' }}
             </q-td>
 
             <q-td key="collection_name" :props="props">{{ props.row.collection_name }}</q-td>
@@ -529,5 +686,37 @@
 
 .my-sticky-header-column-table tbody {
   scroll-margin-top: 48px;
+}
+
+.item-row {
+  cursor: pointer;
+}
+
+.item-row:hover {
+  background-color: rgba(70, 117, 153, 0.08);
+}
+
+.filters-menu {
+  min-width: 320px;
+  max-width: 420px;
+  padding: 16px;
+}
+
+.filter-section + .filter-section {
+  margin-top: 12px;
+}
+
+.section-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 </style>

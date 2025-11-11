@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
 import { useQuasar } from 'quasar';
+import DesktopEdit from './DesktopEdit.vue';
 
 const props = defineProps({
   user: { type: String, required: true }
@@ -22,6 +23,10 @@ const newCollectionDescription = ref('');
 const showCreateContainerDialog = ref(false);
 const newContainerName = ref('');
 const newContainerDescription = ref('');
+const showContainerDetailsDialog = ref(false);
+const detailsContainer = ref<any | null>(null);
+const showContainerEditDialog = ref(false);
+const containerToEdit = ref<number | null>(null);
 
 // Computed
 const containersInCollection = computed(() => {
@@ -57,7 +62,7 @@ const createCollection = async () => {
     $q.notify({
       type: 'warning',
       message: 'Please enter a collection name',
-      position: 'top'
+      position: 'bottom'
     });
     return;
   }
@@ -69,7 +74,7 @@ const createCollection = async () => {
     $q.notify({
       type: 'positive',
       message: `Collection "${newCollectionName.value}" created!`,
-      position: 'top',
+      position: 'bottom',
       timeout: 2000
     });
 
@@ -88,7 +93,7 @@ const createCollection = async () => {
     $q.notify({
       type: 'negative',
       message: 'Failed to create collection',
-      position: 'top'
+      position: 'bottom'
     });
   } finally {
     $q.loading.hide();
@@ -100,7 +105,7 @@ const createContainer = async () => {
     $q.notify({
       type: 'warning',
       message: 'Please enter a container name',
-      position: 'top'
+      position: 'bottom'
     });
     return;
   }
@@ -109,7 +114,7 @@ const createContainer = async () => {
     $q.notify({
       type: 'warning',
       message: 'Please select a collection first',
-      position: 'top'
+      position: 'bottom'
     });
     return;
   }
@@ -125,7 +130,7 @@ const createContainer = async () => {
     $q.notify({
       type: 'positive',
       message: `Container "${newContainerName.value}" created!`,
-      position: 'top',
+      position: 'bottom',
       timeout: 2000
     });
 
@@ -141,7 +146,7 @@ const createContainer = async () => {
     $q.notify({
       type: 'negative',
       message: 'Failed to create container',
-      position: 'top'
+      position: 'bottom'
     });
   } finally {
     $q.loading.hide();
@@ -175,40 +180,44 @@ const handleDrop = async (event: DragEvent, containerValue: number) => {
   try {
     $q.loading.show({ message: 'Moving item...' });
 
-    // Call API to update item's container
-    // For now, we'll update locally and reload
-    const response = await fetch(`${import.meta.env.MODE === 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'}/items/${draggedItem.value.value}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('session_token')}`
-      },
-      body: JSON.stringify({
-        container: containerValue
-      })
-    });
+    await store.moveItemToContainer(
+      draggedItem.value.value,
+      containerValue,
+      props.user
+    );
 
-    if (response.ok) {
-      await store.loadInventory(props.user);
-      $q.notify({
-        type: 'positive',
-        message: `Moved ${draggedItem.value.label} to container`,
-        position: 'top',
-        timeout: 1500
-      });
-    }
+    $q.notify({
+      type: 'positive',
+      message: `Moved ${draggedItem.value.label} to container`,
+      position: 'bottom',
+      timeout: 1500
+    });
   } catch (error) {
     console.error('Error moving item:', error);
     $q.notify({
       type: 'negative',
       message: 'Failed to move item',
-      position: 'top'
+      position: 'bottom'
     });
   } finally {
     $q.loading.hide();
     draggedItem.value = null;
     dragOverContainer.value = null;
   }
+};
+
+const openContainerDetails = (container: any) => {
+  detailsContainer.value = container;
+  showContainerDetailsDialog.value = true;
+};
+
+const openContainerEdit = (container: any) => {
+  containerToEdit.value = container.value;
+  showContainerEditDialog.value = true;
+};
+
+const openItemDetails = (itemId: number) => {
+  store.openItemDetailsModal(itemId, props.user);
 };
 
 // Initialize
@@ -319,7 +328,8 @@ onMounted(() => {
                     <div
                       v-for="item in getContainerItems(container.value).slice(0, 6)"
                       :key="item.value"
-                      class="item-thumb"
+                      class="item-thumb clickable"
+                      @click.stop="openItemDetails(item.value)"
                     >
                       <q-img
                         v-if="item.picture_url"
@@ -343,10 +353,10 @@ onMounted(() => {
                 </q-card-section>
 
                 <q-card-actions align="right">
-                  <q-btn flat dense color="primary" icon="visibility" size="sm">
+                  <q-btn flat dense color="primary" icon="visibility" size="sm" @click="openContainerDetails(container)">
                     <q-tooltip>View Details</q-tooltip>
                   </q-btn>
-                  <q-btn flat dense color="primary" icon="edit" size="sm">
+                  <q-btn flat dense color="primary" icon="edit" size="sm" @click="openContainerEdit(container)">
                     <q-tooltip>Edit</q-tooltip>
                   </q-btn>
                 </q-card-actions>
@@ -370,6 +380,7 @@ onMounted(() => {
                 :key="item.value"
                 class="draggable-item"
                 draggable="true"
+                @dblclick.prevent="openItemDetails(item.value)"
                 @dragstart="handleDragStart(item)"
                 @dragend="handleDragEnd"
               >
@@ -462,6 +473,62 @@ onMounted(() => {
           <q-btn unelevated label="Create" color="primary" @click="createContainer" />
         </q-card-actions>
       </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="showContainerDetailsDialog">
+      <q-card style="min-width: 420px; max-width: 600px;">
+        <q-card-section>
+          <div class="text-h6">{{ detailsContainer?.label }}</div>
+          <div class="text-caption text-grey-7">
+            {{ store.locations.find(loc => loc.value === detailsContainer?.location)?.label || 'No location specified' }}
+          </div>
+        </q-card-section>
+        <q-separator />
+        <q-card-section class="q-pt-none">
+          <div v-if="detailsContainer" class="row q-col-gutter-md q-mb-md">
+            <div class="col-12 col-sm-6">
+              <div class="text-caption text-grey-7">Standard Size</div>
+              <div class="text-subtitle2">
+                {{ detailsContainer.box_size ? detailsContainer.box_size : 'Custom' }}
+              </div>
+            </div>
+            <div class="col-12 col-sm-6" v-if="detailsContainer.max_weight_lbs">
+              <div class="text-caption text-grey-7">Max Weight</div>
+              <div class="text-subtitle2">{{ detailsContainer.max_weight_lbs }} lbs</div>
+            </div>
+            <div class="col-12 col-sm-6" v-if="detailsContainer.max_volume_cuft">
+              <div class="text-caption text-grey-7">Max Volume</div>
+              <div class="text-subtitle2">{{ detailsContainer.max_volume_cuft }} cu ft</div>
+            </div>
+            <div class="col-12 col-sm-6" v-if="detailsContainer.weight_lbs">
+              <div class="text-caption text-grey-7">Current Weight</div>
+              <div class="text-subtitle2">{{ detailsContainer.weight_lbs }} lbs</div>
+            </div>
+          </div>
+          <div class="text-subtitle2 q-mb-sm">Items in container</div>
+          <div v-if="detailsContainer && getContainerItems(detailsContainer.value).length === 0" class="text-caption text-grey-6">
+            No items assigned yet.
+          </div>
+          <q-list v-else dense bordered separator class="rounded-borders">
+            <q-item v-for="item in detailsContainer ? getContainerItems(detailsContainer.value) : []" :key="item.value">
+              <q-item-section>
+                <q-item-label>{{ item.label }}</q-item-label>
+                <q-item-label caption>{{ item.description }}</q-item-label>
+              </q-item-section>
+              <q-item-section side top>
+                Qty {{ item.quantity }}
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Close" color="primary" v-close-popup />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="showContainerEditDialog" persistent>
+      <DesktopEdit v-if="containerToEdit !== null" :user="props.user" addType="Container" :id="containerToEdit" />
     </q-dialog>
   </div>
 </template>
@@ -630,6 +697,7 @@ onMounted(() => {
   border-radius: 6px;
   overflow: hidden;
   background: var(--bg-tertiary);
+  cursor: pointer;
 }
 
 .thumb-img {

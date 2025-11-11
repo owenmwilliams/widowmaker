@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
-import axios from 'axios';
+import axios, { type AxiosRequestHeaders } from 'axios';
 
 const $q = useQuasar();
 
@@ -30,9 +30,9 @@ const providerLogos: Record<string, string> = {
 };
 
 // Get auth headers
-const getAuthHeaders = () => {
+const getAuthHeaders = (): AxiosRequestHeaders | undefined => {
   const sessionToken = localStorage.getItem('session_token');
-  return sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
+  return sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined;
 };
 
 // Fetch current provider and available providers
@@ -48,7 +48,7 @@ const fetchProviderInfo = async () => {
     $q.notify({
       type: 'negative',
       message: 'Could not fetch vision provider info',
-      position: 'top'
+      position: 'bottom'
     });
   }
 };
@@ -73,7 +73,7 @@ const setProvider = async (provider: string) => {
       $q.notify({
         type: 'positive',
         message: `Vision provider changed to ${providerLabels[provider]}`,
-        position: 'top',
+        position: 'bottom',
         timeout: 2000
       });
     }
@@ -83,7 +83,7 @@ const setProvider = async (provider: string) => {
       type: 'negative',
       message: 'Failed to change provider',
       caption: error.response?.data?.error || error.message,
-      position: 'top'
+      position: 'bottom'
     });
   } finally {
     isLoading.value = false;

@@ -85,7 +85,10 @@ router.get('/single', jsonParser, async function(req, res, next) {
         priority: 'items.priority',
         weight_lbs: 'items.weight_lbs',
         dimensions: 'items.dimensions',
-        notes: 'items.notes'
+        notes: 'items.notes',
+        material: 'items.material',
+        primary_color: 'items.primary_color',
+        tags: 'items.tags'
       })
       .from('items')
       .leftJoin('permissions', 'permissions.id', 'items.id')
@@ -207,6 +210,26 @@ router.post('/post', jsonParser, async function(req, res, next) {
       params.notes = req.query.notes
     }
 
+    // Tag fields
+    if(req.query.material) {
+      params.material = req.query.material
+    }
+    if(req.query.primary_color) {
+      params.primary_color = req.query.primary_color
+    }
+    if(req.query.tags) {
+      // Handle tags array - can be JSON string or array
+      if(typeof req.query.tags === 'string') {
+        try {
+          params.tags = JSON.parse(req.query.tags)
+        } catch(e) {
+          params.tags = [req.query.tags]
+        }
+      } else if(Array.isArray(req.query.tags)) {
+        params.tags = req.query.tags
+      }
+    }
+
     knex.transaction(async trx => {
       await knex('items')
       .transacting(trx)
@@ -307,6 +330,26 @@ router.put('/update', jsonParser, async function(req, res, next) {
     }
     if(req.query.notes !== undefined) {
       params.notes = req.query.notes
+    }
+
+    // Tag fields
+    if(req.query.material !== undefined) {
+      params.material = req.query.material
+    }
+    if(req.query.primary_color !== undefined) {
+      params.primary_color = req.query.primary_color
+    }
+    if(req.query.tags !== undefined) {
+      // Handle tags array - can be JSON string or array
+      if(typeof req.query.tags === 'string') {
+        try {
+          params.tags = JSON.parse(req.query.tags)
+        } catch(e) {
+          params.tags = [req.query.tags]
+        }
+      } else if(Array.isArray(req.query.tags)) {
+        params.tags = req.query.tags
+      }
     }
     
     knex.transaction(async trx => {
