@@ -33,7 +33,11 @@
       "Bash(gcloud run services update-traffic:*)",
       "Bash(python3:*)",
       "Bash(gsutil ls:*)",
-      "Bash(gsutil mb:*)"
+      "Bash(gsutil mb:*)",
+      "Bash(gsutil iam ch:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(npm run:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []

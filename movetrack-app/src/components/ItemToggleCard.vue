@@ -19,7 +19,6 @@ const props = defineProps({
 
 const emits = defineEmits<{
   (e: 'edit', id: number): void;
-  (e: 'tokenize'): void;
 }>();
 
 const isExpanded = ref(false);
@@ -46,14 +45,7 @@ const toggleCard = () => {
                     style="min-height: 100%;">
                     </q-img>
                 </div>
-                <div  @click="toggleCard" class="text-body1 text-primary col-8 q-pl-md q-py-md">{{ props.label }}</div>
-                <div v-if="props.picture_url.includes('take-stock')" class="col-2 flex flex-center">
-                    <q-btn @click="() => emits('tokenize')" flat dense>
-                        <q-avatar >
-                            <q-img class="q-ma-sm" src="https://storage.googleapis.com/take-stock-design-assets/icons/lock_icon.png" />
-                        </q-avatar>
-                    </q-btn>
-                </div>
+                <div  @click="toggleCard" class="text-body1 text-primary col-10 q-pl-md q-py-md">{{ props.label }}</div>
             </q-card-section>
 
             <q-card-section v-else horizontal>
@@ -74,17 +66,9 @@ const toggleCard = () => {
                     flat
                     icon="close_fullscreen"
                 />
-                <q-card-section v-if="!props.picture_url.includes('take-stock')" class="col-11 q-pa-none q-pl-sm q-ma-sm">
+                <q-card-section class="col-11 q-pa-none q-pl-sm q-ma-sm">
                     <div class="text-body1 vertical-middle text-primary">{{ props.label }}</div>
                 </q-card-section>
-                
-                <div v-else class="q-ma-sm">
-                    <q-btn @click="() => emits('tokenize')" flat dense>
-                        <q-avatar >
-                            <q-img class="q-ma-sm" src="https://storage.googleapis.com/take-stock-design-assets/icons/lock_icon.png" />
-                        </q-avatar>
-                    </q-btn>
-                </div>
             </q-card-section>
 
 
