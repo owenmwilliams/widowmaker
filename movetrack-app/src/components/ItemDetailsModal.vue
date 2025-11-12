@@ -20,6 +20,9 @@ const form = reactive({
   priority: '' as string | null,
   weightLbs: null as number | null,
   dimensions: '' as string | null,
+  lengthIn: null as number | null,
+  widthIn: null as number | null,
+  heightIn: null as number | null,
   material: '' as string | null,
   primaryColor: '' as string | null,
   tags: '' as string,
@@ -84,6 +87,9 @@ const resetForm = () => {
   form.priority = null;
   form.weightLbs = null;
   form.dimensions = '';
+  form.lengthIn = null;
+  form.widthIn = null;
+  form.heightIn = null;
   form.material = '';
   form.primaryColor = '';
   form.tags = '';
@@ -112,6 +118,9 @@ const populateFormFromItem = () => {
       ? selectedItem.value.weight_lbs
       : null;
   form.dimensions = selectedItem.value.dimensions || '';
+  form.lengthIn = selectedItem.value.length_in ?? null;
+  form.widthIn = selectedItem.value.width_in ?? null;
+  form.heightIn = selectedItem.value.height_in ?? null;
   form.material = selectedItem.value.material || '';
   form.primaryColor = selectedItem.value.primary_color || '';
   form.tags = (selectedItem.value.tags || []).join(', ');
@@ -212,7 +221,10 @@ const createManualItem = async () => {
       form.notes || undefined,
       form.material || undefined,
       form.primaryColor || undefined,
-      tagsAsArray.value
+      tagsAsArray.value,
+      form.lengthIn,
+      form.widthIn,
+      form.heightIn
     );
 
     $q.notify({
@@ -261,6 +273,9 @@ const saveItem = async () => {
         priority: form.priority,
         weightLbs: form.weightLbs,
         dimensions: form.dimensions,
+        lengthIn: form.lengthIn,
+        widthIn: form.widthIn,
+        heightIn: form.heightIn,
         notes: form.notes,
         material: form.material,
         primaryColor: form.primaryColor,
@@ -414,7 +429,11 @@ const handleClose = () => {
             <div class="detail-card">
               <div class="detail-label">Dimensions</div>
               <div class="detail-value">
-                {{ form.dimensions || 'Not set' }}
+                <span v-if="form.lengthIn && form.widthIn && form.heightIn">
+                  {{ form.lengthIn }}" × {{ form.widthIn }}" × {{ form.heightIn }}"
+                  <span class="text-caption text-grey-7">({{ ((form.lengthIn * form.widthIn * form.heightIn) / 1728).toFixed(2) }} cu ft)</span>
+                </span>
+                <span v-else>Not set</span>
               </div>
             </div>
             <div class="detail-card">
@@ -556,12 +575,43 @@ const handleClose = () => {
                   color="red"
                 />
               </div>
-              <div class="col-12 col-md-6">
+              <div class="col-12">
+                <div class="text-caption text-grey-7 q-mb-xs">Dimensions (inches)</div>
+              </div>
+              <div class="col-4 col-md-2">
                 <q-input
                   dense
-                  v-model="form.dimensions"
-                  label="Dimensions (L x W x H)"
+                  v-model.number="form.lengthIn"
+                  label="Length"
+                  type="number"
                   outlined
+                  min="0"
+                  step="0.1"
+                  suffix="in"
+                />
+              </div>
+              <div class="col-4 col-md-2">
+                <q-input
+                  dense
+                  v-model.number="form.widthIn"
+                  label="Width"
+                  type="number"
+                  outlined
+                  min="0"
+                  step="0.1"
+                  suffix="in"
+                />
+              </div>
+              <div class="col-4 col-md-2">
+                <q-input
+                  dense
+                  v-model.number="form.heightIn"
+                  label="Height"
+                  type="number"
+                  outlined
+                  min="0"
+                  step="0.1"
+                  suffix="in"
                 />
               </div>
               <div class="col-12 col-md-3">
