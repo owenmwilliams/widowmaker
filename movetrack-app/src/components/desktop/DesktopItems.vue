@@ -7,6 +7,7 @@
   import DesktopItemTable from './DesktopItemTable.vue';
   import DesktopLocationCards from './DesktopLocationCards.vue';
   import DesktopCollections from './DesktopCollections.vue';
+  import DesktopDashboard from './DesktopDashboard.vue';
   import DesktopSettings from './DesktopSettings.vue';
   import DesktopSupport from './DesktopSupport.vue';
   import PhotoCapture from '../PhotoCapture.vue';
@@ -16,7 +17,7 @@
   import type { InventoryItem } from '../../data/inventoryItems';
 
 
-  const pageItem = ref('itemTable')
+  const pageItem = ref('dashboard')
   const showPhotoCapture = ref(false)
   const showVisionSettings = ref(false)
   const currentVisionProvider = ref<string>('gemini')
@@ -136,8 +137,9 @@
           <!-- <q-toolbar-title center> -->
             <!-- <q-item-section> -->
               <q-btn-group flat class="q-ma-sm">
-                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="My Items" @click="changePage('itemTable')" />
-                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="My Collections" @click="changePage('locationCards')" />
+                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="Dashboard" @click="changePage('dashboard')" />
+                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="Collections" @click="changePage('locationCards')" />
+                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="Items" @click="changePage('itemTable')" />
               </q-btn-group>
 
               <q-toolbar-title />
@@ -183,7 +185,10 @@
       </q-header>
 
       <q-page-container>
-          <div v-if="pageItem == 'itemTable'">
+          <div v-if="pageItem == 'dashboard'">
+            <DesktopDashboard :user="props.user!" />
+          </div>
+          <div v-else-if="pageItem == 'itemTable'">
             <DesktopItemTable :user="props.user!" @addAction="openAddOptions" />
           </div>
           <div v-else-if="pageItem == 'locationCards'">

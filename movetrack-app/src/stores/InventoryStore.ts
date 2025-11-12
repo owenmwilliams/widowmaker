@@ -99,7 +99,8 @@ export const inventoryStore = defineStore("inventory", () => {
                             width_in: i.width_in ?? null,
                             height_in: i.height_in ?? null,
                             estimated_value: i.estimated_value ?? null,
-                            notes: i.notes || null
+                            notes: i.notes || null,
+                            created_at: i.created_at || i.createdAt || null
                         }
                     })
 
