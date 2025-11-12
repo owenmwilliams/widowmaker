@@ -210,6 +210,17 @@ router.post('/post', jsonParser, async function(req, res, next) {
       params.notes = req.query.notes
     }
 
+    // Dimension fields (individual measurements)
+    if(req.query.length_in !== undefined) {
+      params.length_in = req.query.length_in
+    }
+    if(req.query.width_in !== undefined) {
+      params.width_in = req.query.width_in
+    }
+    if(req.query.height_in !== undefined) {
+      params.height_in = req.query.height_in
+    }
+
     // Tag fields
     if(req.query.material) {
       params.material = req.query.material
@@ -289,26 +300,47 @@ router.delete('/delete', jsonParser, async function(req, res, next) {
 // THIS IS USED BY THE APPLICATION TO EDIT AN ITEM
 router.put('/update', jsonParser, async function(req, res, next) {
   try {
-    var params = {
-      owner: req.query.user,
-      name: req.query.name,
-      description: req.query.description,
-      quantity: req.query.quantity,
-      collection_id: req.query.collection,
-      container_id: null,
-      location_id: null,
-      picture_url: null
+    // Validate that item_id is provided - prevent accidental mass updates
+    if (!req.query.item_id) {
+      return res.status(400).json({
+        error: 'item_id is required for updates',
+        message: 'Cannot update without specifying which item to update'
+      });
     }
 
-    if (req.query.container) {
+    // CRITICAL FIX: Only update fields that are explicitly provided
+    // Do NOT set fields to null unless explicitly requested
+    var params = {}
+
+    // Required fields for identification
+    if (req.query.user !== undefined) {
+      params.owner = req.query.user
+    }
+
+    // Only update these fields if they are provided
+    if (req.query.name !== undefined) {
+      params.name = req.query.name
+    }
+    if (req.query.description !== undefined) {
+      params.description = req.query.description
+    }
+    if (req.query.quantity !== undefined) {
+      params.quantity = req.query.quantity
+    }
+    if (req.query.collection !== undefined) {
+      params.collection_id = req.query.collection
+    }
+
+    // Only update these if explicitly provided (don't force null)
+    if (req.query.container !== undefined) {
       params.container_id = req.query.container
     }
 
-    if (req.query.location) {
+    if (req.query.location !== undefined) {
       params.location_id = req.query.location
     }
 
-    if(req.query.picture_url) {
+    if(req.query.picture_url !== undefined) {
       params.picture_url = req.query.picture_url
     }
 
@@ -332,6 +364,17 @@ router.put('/update', jsonParser, async function(req, res, next) {
       params.notes = req.query.notes
     }
 
+    // Dimension fields (individual measurements)
+    if(req.query.length_in !== undefined) {
+      params.length_in = req.query.length_in
+    }
+    if(req.query.width_in !== undefined) {
+      params.width_in = req.query.width_in
+    }
+    if(req.query.height_in !== undefined) {
+      params.height_in = req.query.height_in
+    }
+
     // Tag fields
     if(req.query.material !== undefined) {
       params.material = req.query.material
@@ -351,7 +394,10 @@ router.put('/update', jsonParser, async function(req, res, next) {
         params.tags = req.query.tags
       }
     }
-    
+
+    // Log the update for debugging/audit purposes
+    console.log(`[ITEMS UPDATE] User: ${req.query.user}, Item ID: ${req.query.item_id}, Fields: ${Object.keys(params).join(', ')}`);
+
     knex.transaction(async trx => {
       await knex('items')
       .transacting(trx)
