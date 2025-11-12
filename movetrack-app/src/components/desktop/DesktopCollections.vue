@@ -629,11 +629,11 @@ onMounted(() => {
                           class="capacity-bar"
                         />
                       </div>
-                      <div class="capacity-row" v-else-if="getPackingStatus(container.value)?.capacity.currentVolume > 0">
+                      <div class="capacity-row" v-else-if="(getPackingStatus(container.value)?.capacity?.currentVolume || 0) > 0">
                         <div class="capacity-label">
                           <q-icon name="view_in_ar" size="xs" class="q-mr-xs" />
                           <span class="text-caption text-weight-medium">
-                            {{ getPackingStatus(container.value)?.capacity.currentVolume.toFixed(2) }} cu ft
+                            {{ getPackingStatus(container.value)?.capacity?.currentVolume.toFixed(2) }} cu ft
                           </span>
                           <span class="text-caption text-grey-6 q-ml-xs">(no limit set)</span>
                         </div>
@@ -650,7 +650,7 @@ onMounted(() => {
 
                       <!-- Info message for missing item dimensions -->
                       <div
-                        v-else-if="getContainerItems(container.value).length > 0 && getPackingStatus(container.value)?.capacity.currentVolume === 0 && getPackingStatus(container.value)?.capacity.maxVolume"
+                        v-else-if="getContainerItems(container.value).length > 0 && getPackingStatus(container.value)?.capacity?.currentVolume === 0 && getPackingStatus(container.value)?.capacity?.maxVolume"
                         class="constraint-info q-mt-sm"
                       >
                         <q-icon name="info_outline" size="sm" class="q-mr-xs" />
