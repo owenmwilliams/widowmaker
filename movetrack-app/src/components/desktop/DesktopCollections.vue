@@ -71,11 +71,26 @@ const getContainerItems = (containerValue: number) => {
   return itemsInCollection.value.filter(i => i.container === containerValue);
 };
 
-const parseItemDimensions = (dimensions?: string | null) => {
-  if (!dimensions) return null;
-  const parts = dimensions.split('x').map((p) => Number(p.trim()));
-  if (parts.length !== 3 || parts.some(isNaN)) return null;
-  return { length: parts[0], width: parts[1], height: parts[2] };
+const parseItemDimensions = (item: any) => {
+  // Prefer new separate fields
+  if (item.length_in != null && item.width_in != null && item.height_in != null) {
+    const length = toNumber(item.length_in);
+    const width = toNumber(item.width_in);
+    const height = toNumber(item.height_in);
+    if (length && width && height) {
+      return { length, width, height };
+    }
+  }
+
+  // Fallback to old dimensions string format for backwards compatibility
+  if (item.dimensions) {
+    const parts = item.dimensions.split('x').map((p: string) => Number(p.trim()));
+    if (parts.length === 3 && !parts.some(isNaN)) {
+      return { length: parts[0], width: parts[1], height: parts[2] };
+    }
+  }
+
+  return null;
 };
 
 const toNumber = (value: any) => {
@@ -99,7 +114,7 @@ const getContainerCapacity = (containerValue: number) => {
     return sum + (weight ?? 0);
   }, 0);
   const totalVolumeCubicInches = items.reduce((sum, item) => {
-    const dims = parseItemDimensions(item.dimensions);
+    const dims = parseItemDimensions(item);
     if (!dims) return sum;
     return sum + (dims.length * dims.width * dims.height);
   }, 0);
@@ -123,7 +138,7 @@ const getPackingStatus = (containerValue: number) => {
   const items = getContainerItems(containerValue).map((item) => ({
     id: item.value,
     weight: toNumber(item.weight_lbs) || 0,
-    dimensions: parseItemDimensions(item.dimensions) || undefined
+    dimensions: parseItemDimensions(item) || undefined
   }));
 
   const fitAssessment = evaluatePackingFit(items, {
@@ -135,6 +150,26 @@ const getPackingStatus = (containerValue: number) => {
   return { weightPct, volumePct, capacity, fitAssessment };
 };
 
+const getCapacityColor = (pct: number | null) => {
+  if (pct === null) return 'grey';
+  if (pct >= 0.95) return 'negative';
+  if (pct >= 0.80) return 'warning';
+  if (pct >= 0.60) return 'orange';
+  return 'positive';
+};
+
+const getCapacityStatus = (containerValue: number) => {
+  const status = getPackingStatus(containerValue);
+  if (!status) return 'ok';
+  if (!status.fitAssessment.weightOk || !status.fitAssessment.volumeOk || !status.fitAssessment.maxDimensionOk) {
+    return 'critical';
+  }
+  const maxPct = Math.max(status.weightPct || 0, status.volumePct || 0);
+  if (maxPct >= 0.95) return 'critical';
+  if (maxPct >= 0.80) return 'warning';
+  return 'ok';
+};
+
 const assessItemPlacement = (item: any, targetContainerValue: number) => {
   const targetContainer = store.containers.find(c => c.value === targetContainerValue);
   if (!targetContainer) {
@@ -144,7 +179,7 @@ const assessItemPlacement = (item: any, targetContainerValue: number) => {
   const packingItems = [...baseItems, item].map((entry) => ({
     id: entry.value,
     weight: toNumber(entry.weight_lbs) || 0,
-    dimensions: parseItemDimensions(entry.dimensions) || undefined
+    dimensions: parseItemDimensions(entry) || undefined
   }));
 
   const assessment = evaluatePackingFit(packingItems, {
@@ -461,6 +496,24 @@ onMounted(() => {
                     <q-icon name="inventory_2" size="sm" color="primary" />
                     <span class="text-subtitle1 text-weight-medium q-ml-sm">{{ container.label }}</span>
                     <q-space />
+                    <q-icon
+                      v-if="getCapacityStatus(container.value) === 'critical'"
+                      name="error"
+                      color="negative"
+                      size="sm"
+                      class="q-mr-xs"
+                    >
+                      <q-tooltip>Container limit exceeded!</q-tooltip>
+                    </q-icon>
+                    <q-icon
+                      v-else-if="getCapacityStatus(container.value) === 'warning'"
+                      name="warning"
+                      color="warning"
+                      size="sm"
+                      class="q-mr-xs"
+                    >
+                      <q-tooltip>Container nearly full</q-tooltip>
+                    </q-icon>
                     <q-btn
                       flat
                       dense
@@ -472,7 +525,12 @@ onMounted(() => {
                     >
                       <q-tooltip>{{ isContainerExpanded(container.value) ? 'Collapse' : 'Expand' }}</q-tooltip>
                     </q-btn>
-                    <q-chip dense color="secondary" text-color="white" size="sm">
+                    <q-chip
+                      dense
+                      :color="getCapacityStatus(container.value) === 'critical' ? 'negative' : getCapacityStatus(container.value) === 'warning' ? 'warning' : 'secondary'"
+                      text-color="white"
+                      size="sm"
+                    >
                       {{ getContainerItems(container.value).length }}
                     </q-chip>
                   </div>
@@ -517,39 +575,86 @@ onMounted(() => {
                       <div class="text-caption text-grey-6">Drop items here</div>
                     </div>
 
-                    <div class="capacity-section q-mt-md" v-if="getPackingStatus(container.value)">
+                    <div class="capacity-section q-mt-md" v-if="getPackingStatus(container.value) || container.dimensions || container.max_weight_lbs || container.max_volume_cuft">
+                      <!-- Dimensions Badge -->
+                      <div v-if="container.dimensions" class="dimension-badge q-mb-sm">
+                        <q-icon name="straighten" size="xs" class="q-mr-xs" />
+                        <span class="text-caption">{{ container.dimensions.length }}" × {{ container.dimensions.width }}" × {{ container.dimensions.height }}"</span>
+                      </div>
+                      <div v-else-if="container.box_size" class="dimension-badge q-mb-sm">
+                        <q-icon name="inventory_2" size="xs" class="q-mr-xs" />
+                        <span class="text-caption">{{ container.box_size }} box</span>
+                      </div>
+                      <div v-else class="dimension-badge q-mb-sm">
+                        <q-icon name="help_outline" size="xs" class="q-mr-xs" />
+                        <span class="text-caption">No dimensions set</span>
+                      </div>
+
+                      <!-- Weight Capacity -->
                       <div class="capacity-row" v-if="getPackingStatus(container.value)?.weightPct !== null">
-                        <div class="text-caption text-grey-7">
-                          Weight: {{ getPackingStatus(container.value)?.capacity.currentWeight.toFixed(1) }} /
-                          {{ getPackingStatus(container.value)?.capacity.maxWeight }} lbs
+                        <div class="capacity-label">
+                          <q-icon name="scale" size="xs" class="q-mr-xs" />
+                          <span class="text-caption text-weight-medium">
+                            {{ getPackingStatus(container.value)?.capacity.currentWeight.toFixed(1) }} / {{ getPackingStatus(container.value)?.capacity.maxWeight }} lbs
+                          </span>
+                          <span class="text-caption text-grey-6 q-ml-xs">
+                            ({{ Math.round((getPackingStatus(container.value)?.weightPct || 0) * 100) }}%)
+                          </span>
                         </div>
                         <q-linear-progress
                           :value="getPackingStatus(container.value)?.weightPct || 0"
-                          color="primary"
+                          :color="getCapacityColor(getPackingStatus(container.value)?.weightPct || 0)"
                           rounded
-                          size="6px"
+                          size="8px"
+                          class="capacity-bar"
                         />
                       </div>
-                      <div class="capacity-row" v-if="getPackingStatus(container.value)?.volumePct !== null">
-                        <div class="text-caption text-grey-7">
-                          Volume: {{ getPackingStatus(container.value)?.capacity.currentVolume.toFixed(2) }} /
-                          {{ getPackingStatus(container.value)?.capacity.maxVolume }} cu ft
+
+                      <!-- Volume Capacity -->
+                      <div class="capacity-row" v-if="getPackingStatus(container.value)?.capacity.maxVolume">
+                        <div class="capacity-label">
+                          <q-icon name="view_in_ar" size="xs" class="q-mr-xs" />
+                          <span class="text-caption text-weight-medium">
+                            {{ getPackingStatus(container.value)?.capacity.currentVolume.toFixed(2) }} / {{ getPackingStatus(container.value)?.capacity.maxVolume }} cu ft
+                          </span>
+                          <span class="text-caption text-grey-6 q-ml-xs">
+                            ({{ Math.round((getPackingStatus(container.value)?.volumePct || 0) * 100) }}%)
+                          </span>
                         </div>
                         <q-linear-progress
                           :value="getPackingStatus(container.value)?.volumePct || 0"
-                          color="secondary"
+                          :color="getCapacityColor(getPackingStatus(container.value)?.volumePct || 0)"
                           rounded
-                          size="6px"
+                          size="8px"
+                          class="capacity-bar"
                         />
                       </div>
-                      <div class="text-caption text-grey-6 q-mt-xs" v-if="container.dimensions">
-                        Inside dimensions: {{ container.dimensions.length }}" x {{ container.dimensions.width }}" x {{ container.dimensions.height }}"
+                      <div class="capacity-row" v-else-if="getPackingStatus(container.value)?.capacity.currentVolume > 0">
+                        <div class="capacity-label">
+                          <q-icon name="view_in_ar" size="xs" class="q-mr-xs" />
+                          <span class="text-caption text-weight-medium">
+                            {{ getPackingStatus(container.value)?.capacity.currentVolume.toFixed(2) }} cu ft
+                          </span>
+                          <span class="text-caption text-grey-6 q-ml-xs">(no limit set)</span>
+                        </div>
                       </div>
+
+                      <!-- Error/Warning Messages -->
                       <div
-                        class="text-caption text-negative q-mt-xs"
                         v-if="getPackingStatus(container.value)?.fitAssessment.blockingReason"
+                        class="constraint-warning q-mt-sm"
                       >
-                        {{ getPackingStatus(container.value)?.fitAssessment.blockingReason }}
+                        <q-icon name="error_outline" size="sm" class="q-mr-xs" />
+                        <span class="text-caption">{{ getPackingStatus(container.value)?.fitAssessment.blockingReason }}</span>
+                      </div>
+
+                      <!-- Info message for missing item dimensions -->
+                      <div
+                        v-else-if="getContainerItems(container.value).length > 0 && getPackingStatus(container.value)?.capacity.currentVolume === 0 && getPackingStatus(container.value)?.capacity.maxVolume"
+                        class="constraint-info q-mt-sm"
+                      >
+                        <q-icon name="info_outline" size="sm" class="q-mr-xs" />
+                        <span class="text-caption">Add item dimensions to track volume</span>
                       </div>
                     </div>
                   </q-card-section>
@@ -1181,12 +1286,59 @@ onMounted(() => {
 .capacity-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
 }
 
 .capacity-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+}
+
+.capacity-label {
+  display: flex;
+  align-items: center;
+  color: var(--text-primary);
+}
+
+.capacity-bar {
+  transition: all 0.3s ease;
+}
+
+.dimension-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: white;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  width: fit-content;
+}
+
+.constraint-warning {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  background: rgba(244, 67, 54, 0.1);
+  border-left: 3px solid var(--negative);
+  border-radius: 4px;
+  color: var(--negative);
+  font-weight: 500;
+}
+
+.constraint-info {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  background: rgba(33, 150, 243, 0.1);
+  border-left: 3px solid #2196f3;
+  border-radius: 4px;
+  color: #1976d2;
+  font-weight: 400;
 }
 </style>

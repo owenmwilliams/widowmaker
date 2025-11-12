@@ -250,17 +250,16 @@
 
                 <q-space />
 
+                <q-btn flat color="primary" label="Filters" icon="filter_list" @click.stop="showFiltersMenu = true" />
+
                 <q-btn
                     unelevated
                     color="primary"
-                    class="q-ml-sm"
                     icon="add"
                     label="Add Item"
                     :disable="store.collections.length === 0"
                     @click.stop="emit('addAction')"
                 />
-
-                <q-btn flat color="primary" label="Filters" icon="filter_list" @click.stop="showFiltersMenu = true" />
                 <q-dialog v-model="showFiltersMenu">
                     <q-card class="filters-menu">
                         <q-card-section class="row items-center justify-between q-pb-none">
@@ -376,36 +375,56 @@
                     </q-card>
                 </q-dialog>
 
-                <q-btn
-                    flat
-                    color="primary"
-                    label="Move Selected"
-                    icon="swap_horiz"
-                    :disable="selectedItems.length === 0"
-                    @click.stop="editItemLocation"
-                >
-                    <q-badge v-if="selectedItems.length > 0" color="secondary" floating>{{ selectedItems.length }}</q-badge>
-                </q-btn>
-
-                <q-btn
-                    flat
-                    color="negative"
-                    label="Delete Selected"
-                    icon="delete_forever"
-                    :disable="selectedItems.length === 0"
-                    @click.stop="deleteItemDialog = true"
-                >
-                    <q-badge v-if="selectedItems.length > 0" color="negative" floating>{{ selectedItems.length }}</q-badge>
-                </q-btn>
-                
-                
-
-                <!-- q-btn dropdown that allows for filtering based on the collection -->
-                
-                
-
-
             <q-separator />
+        </template>
+
+        <template v-slot:bottom="props">
+            <div class="full-width row items-center justify-between q-pa-sm">
+                <div class="row items-center q-gutter-sm">
+                    <q-btn
+                        flat
+                        color="primary"
+                        label="Move"
+                        icon="swap_horiz"
+                        :disable="selectedItems.length === 0"
+                        @click.stop="editItemLocation"
+                    >
+                        <q-badge v-if="selectedItems.length > 0" color="secondary" floating>{{ selectedItems.length }}</q-badge>
+                    </q-btn>
+
+                    <q-btn
+                        flat
+                        color="negative"
+                        label="Delete"
+                        icon="delete_forever"
+                        :disable="selectedItems.length === 0"
+                        @click.stop="deleteItemDialog = true"
+                    >
+                        <q-badge v-if="selectedItems.length > 0" color="negative" floating>{{ selectedItems.length }}</q-badge>
+                    </q-btn>
+                </div>
+
+                <q-pagination
+                    v-model="props.pagination.page"
+                    :max="props.pagesNumber"
+                    :max-pages="6"
+                    boundary-numbers
+                    direction-links
+                    @update:model-value="(val) => props.pagination.page = val"
+                />
+
+                <div class="row items-center">
+                    <span class="text-caption q-mr-sm">Records per page:</span>
+                    <q-select
+                        v-model="props.pagination.rowsPerPage"
+                        :options="[25, 50, 100]"
+                        dense
+                        outlined
+                        style="width: 70px"
+                        @update:model-value="(val) => props.pagination.rowsPerPage = val"
+                    />
+                </div>
+            </div>
         </template>
 
         <template v-slot:header="props">

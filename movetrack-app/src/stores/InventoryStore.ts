@@ -13,6 +13,9 @@ export const inventoryStore = defineStore("inventory", () => {
         priority?: string | null,
         weightLbs?: number | null,
         dimensions?: string | null,
+        lengthIn?: number | null,
+        widthIn?: number | null,
+        heightIn?: number | null,
         notes?: string | null,
         material?: string | null,
         primaryColor?: string | null,
@@ -92,6 +95,9 @@ export const inventoryStore = defineStore("inventory", () => {
                             priority: i.priority || null,
                             weight_lbs: i.weight_lbs || null,
                             dimensions: i.dimensions || null,
+                            length_in: i.length_in ?? null,
+                            width_in: i.width_in ?? null,
+                            height_in: i.height_in ?? null,
                             estimated_value: i.estimated_value ?? null,
                             notes: i.notes || null
                         }
@@ -259,7 +265,7 @@ export const inventoryStore = defineStore("inventory", () => {
         itemDetailsMode.value = 'view'
     }
 
-    async function createItem (user: string, name: string, description: string, quantity: number, collection: number, container?: number | undefined, location?: number | undefined, image?: Blob, estimatedValue?: number | null, fragile?: boolean, priority?: string, weightLbs?: number | null, dimensions?: string, notes?: string, material?: string, primaryColor?: string, tags?: string[]) {
+    async function createItem (user: string, name: string, description: string, quantity: number, collection: number, container?: number | undefined, location?: number | undefined, image?: Blob, estimatedValue?: number | null, fragile?: boolean, priority?: string, weightLbs?: number | null, dimensions?: string, notes?: string, material?: string, primaryColor?: string, tags?: string[], lengthIn?: number | null, widthIn?: number | null, heightIn?: number | null) {
         // 1. UPLOAD ALL THE TEXTUAL DATA
         // 2. RETURN AN ID
         // 3. UPLOAD IMAGE WITH THAT ID AS A UNIQUE IDENTIFIER
@@ -304,6 +310,15 @@ export const inventoryStore = defineStore("inventory", () => {
         }
         if (dimensions) {
             params.dimensions = dimensions;
+        }
+        if (lengthIn !== null && lengthIn !== undefined) {
+            params.length_in = lengthIn;
+        }
+        if (widthIn !== null && widthIn !== undefined) {
+            params.width_in = widthIn;
+        }
+        if (heightIn !== null && heightIn !== undefined) {
+            params.height_in = heightIn;
         }
         if (notes) {
             params.notes = notes;
@@ -532,6 +547,15 @@ export const inventoryStore = defineStore("inventory", () => {
         if (extraFields.dimensions !== undefined) {
             params.dimensions = extraFields.dimensions
         }
+        if (extraFields.lengthIn !== undefined) {
+            params.length_in = extraFields.lengthIn
+        }
+        if (extraFields.widthIn !== undefined) {
+            params.width_in = extraFields.widthIn
+        }
+        if (extraFields.heightIn !== undefined) {
+            params.height_in = extraFields.heightIn
+        }
         if (extraFields.notes !== undefined) {
             params.notes = extraFields.notes
         }
@@ -578,6 +602,15 @@ export const inventoryStore = defineStore("inventory", () => {
             }
             if (extraFields.dimensions !== undefined) {
                 items.value[index].dimensions = extraFields.dimensions
+            }
+            if (extraFields.lengthIn !== undefined) {
+                items.value[index].length_in = extraFields.lengthIn
+            }
+            if (extraFields.widthIn !== undefined) {
+                items.value[index].width_in = extraFields.widthIn
+            }
+            if (extraFields.heightIn !== undefined) {
+                items.value[index].height_in = extraFields.heightIn
             }
             if (extraFields.notes !== undefined) {
                 items.value[index].notes = extraFields.notes
