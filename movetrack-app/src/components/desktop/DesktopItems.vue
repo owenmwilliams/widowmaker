@@ -136,13 +136,13 @@
           <!-- <q-toolbar-title center> -->
             <!-- <q-item-section> -->
               <q-btn-group flat class="q-ma-sm">
-                <q-btn flat no-caps class="text-weight-medium" label="My Items" @click="changePage('itemTable')" />
-                <q-btn flat no-caps class="text-weight-medium" label="My Collections" @click="changePage('locationCards')" />
+                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="My Items" @click="changePage('itemTable')" />
+                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="My Collections" @click="changePage('locationCards')" />
               </q-btn-group>
 
               <q-toolbar-title />
-              <q-btn flat dense class="verimove-btn">
-                <VeriMoveLogo class="q-ma-xs" />
+              <q-btn flat class="verimove-btn">
+                <VeriMoveLogo :width="113" :height="32" class="verimove-logo-img" />
                 <q-menu style="z-index: 9999;">
 
                   <q-item clickable v-ripple @click="changePage('settings')">
@@ -296,8 +296,19 @@
 }
 
 .verimove-btn {
-  border-radius: 6px;
-  padding: 0 6px;
+  border-radius: 8px;
+  padding: 0 !important;
+  min-height: unset !important;
+  min-width: unset !important;
+  height: fit-content !important;
+  display: inline-grid !important;
+  place-items: center;
+}
+
+.verimove-btn :deep(.q-btn__content) {
+  padding: 0;
+  margin: 0;
+  display: contents;
 }
 
 .add-options-card {

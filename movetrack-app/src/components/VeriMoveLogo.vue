@@ -1,69 +1,43 @@
 <template>
-  <svg
+  <img
+    class="verimove-logo"
+    :src="logoSrc"
+    :alt="alt"
     :width="width"
     :height="height"
-    viewBox="0 0 420 220"
-    xmlns="http://www.w3.org/2000/svg"
-    role="img"
-    aria-label="VeriMove shield logo"
-  >
-    <title>VeriMove — Shield with Check</title>
-
-    <!-- Shield outline (classic heater shape with top ridge, pointed bottom) -->
-    <path
-      fill="none"
-      :stroke="color"
-      stroke-width="10"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      d="M110 20
-         C144 20, 168 32, 184 40
-         L184 98
-         C184 142, 154 170, 110 192
-         C66 170, 36 142, 36 98
-         L36 40
-         C52 32, 76 20, 110 20 Z" />
-
-    <!-- Centered check, slightly forward/right -->
-    <path
-      fill="none"
-      :stroke="checkColor"
-      stroke-width="10"
-      stroke-linecap="round"
-      stroke-linejoin="round"
-      d="M70 112 L96 138 L148 86" />
-
-    <!-- VERIMOVE Text -->
-    <text
-      x="240"
-      y="120"
-      font-family="Manrope, system-ui, -apple-system, Segoe UI, Roboto, Helvetica Neue, Arial, Noto Sans, Liberation Sans, sans-serif"
-      font-size="48"
-      font-weight="700"
-      :fill="color"
-    >
-      VERIMOVE
-    </text>
-  </svg>
+    loading="lazy"
+    decoding="async"
+  />
 </template>
 
 <script setup lang="ts">
 defineProps({
   width: {
     type: [String, Number],
-    default: 120
+    default: 160
   },
   height: {
     type: [String, Number],
-    default: 32
+    default: 40
   },
-  color: {
+  alt: {
     type: String,
-    default: '#274690' // VeriMove blue
+    default: 'VeriMove logo'
   },
-  checkColor: {
+  logoSrc: {
     type: String,
-    default: '#1CA1C1' // Sky blue for check
+    default: 'https://storage.googleapis.com/widowmaker-site-images/verimove_logo.png?v=2'
   }
 });
 </script>
+
+<style scoped>
+.verimove-logo {
+  display: inline-block;
+  max-width: 100%;
+  border: 0;
+  object-fit: contain;
+  padding: 0;
+  margin: 0;
+}
+</style>
