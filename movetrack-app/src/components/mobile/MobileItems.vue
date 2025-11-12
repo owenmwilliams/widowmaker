@@ -444,7 +444,7 @@
           </q-breadcrumbs>
         </q-toolbar-title>
 
-        <VeriMoveLogo :width="160" :height="42" color="white" check-color="rgba(255,255,255,0.8)" style="margin-left: 8px;" />
+        <VeriMoveLogo :width="30" :height="8" logo-src="https://storage.googleapis.com/widowmaker-site-images/verimove_app_logo_white.png" style="margin-left: 8px;" />
       </q-toolbar>
     </q-header>
 
