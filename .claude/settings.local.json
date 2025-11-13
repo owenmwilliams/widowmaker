@@ -41,7 +41,13 @@
       "Bash(gcloud run services list:*)",
       "Bash(gcloud builds triggers list:*)",
       "Bash(kill:*)",
-      "Bash(PGPASSWORD=changeme123 psql:*)"
+      "Bash(PGPASSWORD=changeme123 psql:*)",
+      "Bash(gcloud sql instances list:*)",
+      "Bash(gcloud sql backups:*)",
+      "Bash(gcloud sql instances describe:*)",
+      "Bash(gcloud sql operations list:*)",
+      "Bash(echo:*)",
+      "Bash(gcloud sql instances patch:*)"
     ],
     "deny": [],
     "ask": []

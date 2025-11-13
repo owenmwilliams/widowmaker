@@ -40,6 +40,7 @@ const showModal = computed({
 
 const selectedItem = computed(() => store.activeItemDetails);
 const isCreateMode = computed(() => store.itemDetailsMode === 'create');
+const isDirectEditMode = computed(() => store.itemDetailsMode === 'edit');
 
 const tagList = computed(() => selectedItem.value?.tags ?? []);
 
@@ -96,6 +97,53 @@ const resetForm = () => {
   form.notes = '';
 };
 
+const photoInput = ref<HTMLInputElement | null>(null);
+const newPhotoBlob = ref<Blob | null>(null);
+const newPhotoPreview = ref<string | null>(null);
+const removePhoto = ref(false);
+
+const currentPhotoSrc = computed(() => {
+  if (newPhotoPreview.value) {
+    return newPhotoPreview.value;
+  }
+  return selectedItem.value?.picture_url || null;
+});
+
+const resetPhotoState = () => {
+  newPhotoBlob.value = null;
+  newPhotoPreview.value = null;
+  removePhoto.value = false;
+  if (photoInput.value) {
+    photoInput.value.value = '';
+  }
+};
+
+const triggerPhotoUpload = () => {
+  photoInput.value?.click();
+};
+
+const handlePhotoUpload = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+  newPhotoBlob.value = file;
+  const reader = new FileReader();
+  reader.onload = () => {
+    newPhotoPreview.value = reader.result as string;
+  };
+  reader.readAsDataURL(file);
+  removePhoto.value = false;
+};
+
+const markRemovePhoto = () => {
+  newPhotoBlob.value = null;
+  newPhotoPreview.value = null;
+  removePhoto.value = true;
+  if (photoInput.value) {
+    photoInput.value.value = '';
+  }
+};
+
 const populateFormFromItem = () => {
   if (!selectedItem.value) {
     return;
@@ -128,17 +176,25 @@ const populateFormFromItem = () => {
 };
 
 watch(
-  () => [showModal.value, selectedItem.value, isCreateMode.value],
+  () => [showModal.value, selectedItem.value, isCreateMode.value, isDirectEditMode.value],
   () => {
     if (!showModal.value) {
       return;
     }
     if (isCreateMode.value) {
       resetForm();
+      resetPhotoState();
       editMode.value = false;
     } else if (selectedItem.value) {
       populateFormFromItem();
-      editMode.value = false;
+      if (isDirectEditMode.value) {
+        editMode.value = true;
+      } else {
+        editMode.value = false;
+      }
+      if (!isDirectEditMode.value) {
+        resetPhotoState();
+      }
     }
   },
   { immediate: true }
@@ -167,11 +223,14 @@ const tagsAsArray = computed(() =>
 
 const startEdit = () => {
   editMode.value = true;
+  store.itemDetailsMode = 'edit';
 };
 
 const cancelEdit = () => {
   editMode.value = false;
+  store.itemDetailsMode = 'view';
   populateFormFromItem();
+  resetPhotoState();
 };
 
 const createManualItem = async () => {
@@ -212,7 +271,7 @@ const createManualItem = async () => {
       targetCollection,
       form.container,
       form.location,
-      undefined,
+      newPhotoBlob.value ?? undefined,
       form.estimatedValue,
       form.fragile,
       form.priority || undefined,
@@ -232,6 +291,7 @@ const createManualItem = async () => {
       message: 'Item added to your inventory',
       position: 'bottom'
     });
+    resetPhotoState();
     handleClose();
   } catch (error) {
     console.error('Failed to create item', error);
@@ -257,6 +317,9 @@ const saveItem = async () => {
 
   try {
     $q.loading.show({ message: 'Saving item...' });
+    const pictureParam = removePhoto.value
+      ? undefined
+      : selectedItem.value.picture_url ?? undefined;
     await store.updateItem(
       selectedItem.value.value,
       store.itemDetailsUser,
@@ -266,7 +329,7 @@ const saveItem = async () => {
       form.collection ?? selectedItem.value.collection,
       form.container,
       form.location,
-      selectedItem.value.picture_url ?? undefined,
+      pictureParam,
       {
         estimatedValue: form.estimatedValue,
         fragile: form.fragile,
@@ -281,7 +344,7 @@ const saveItem = async () => {
         primaryColor: form.primaryColor,
         tags: tagsAsArray.value
       },
-      { skipRedirect: true }
+      { skipRedirect: true, newImage: newPhotoBlob.value, removeImage: removePhoto.value }
     );
 
     $q.notify({
@@ -290,6 +353,8 @@ const saveItem = async () => {
       position: 'bottom'
     });
     editMode.value = false;
+    store.itemDetailsMode = 'view';
+    resetPhotoState();
     populateFormFromItem();
   } catch (error) {
     console.error('Failed to update item', error);
@@ -305,6 +370,7 @@ const saveItem = async () => {
 
 const handleClose = () => {
   editMode.value = false;
+  resetPhotoState();
   store.closeItemDetailsModal();
 };
 </script>
@@ -315,14 +381,52 @@ const handleClose = () => {
       <q-card-section class="row items-start q-col-gutter-md">
         <div class="col-12 col-md-4">
           <q-img
-            v-if="selectedItem?.picture_url"
-            :src="selectedItem?.picture_url"
+            v-if="currentPhotoSrc"
+            :src="currentPhotoSrc"
             ratio="1"
             class="item-image"
           />
           <div v-else class="item-image placeholder flex flex-center column">
             <q-icon name="inventory_2" color="grey-5" size="64px" />
             <div class="text-grey-6 q-mt-sm">No photo</div>
+          </div>
+          <div
+            v-if="isCreateMode || editMode"
+            class="photo-actions q-mt-md column q-gutter-sm"
+          >
+            <input
+              type="file"
+              ref="photoInput"
+              accept="image/*"
+              class="hidden-input"
+              @change="handlePhotoUpload"
+            />
+            <q-btn
+              outline
+              color="primary"
+              icon="upload"
+              label="Upload Photo"
+              dense
+              @click="triggerPhotoUpload"
+            />
+            <q-btn
+              v-if="currentPhotoSrc"
+              outline
+              color="negative"
+              icon="delete"
+              label="Remove Photo"
+              dense
+              @click="markRemovePhoto"
+            />
+            <q-btn
+              v-if="newPhotoPreview || removePhoto"
+              flat
+              color="grey-7"
+              icon="undo"
+              label="Reset"
+              dense
+              @click="resetPhotoState"
+            />
           </div>
         </div>
         <div class="col-12 col-md-8">
@@ -692,6 +796,14 @@ const handleClose = () => {
 
 .item-image.placeholder {
   border: 1px dashed #d0d0d0;
+}
+
+.photo-actions .q-btn {
+  width: 100%;
+}
+
+.hidden-input {
+  display: none;
 }
 
 .scroll-area {

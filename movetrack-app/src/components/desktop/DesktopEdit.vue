@@ -46,10 +46,34 @@
     ];
 
     const boxSizeOptions = [
-        { label: 'Small (16" x 12" x 12")', value: 'small', weight: 30, dimensions: { length: 16, width: 12, height: 12 } },
-        { label: 'Medium (18" x 18" x 16")', value: 'medium', weight: 40, dimensions: { length: 18, width: 18, height: 16 } },
-        { label: 'Large (24" x 18" x 18")', value: 'large', weight: 65, dimensions: { length: 24, width: 18, height: 18 } },
-        { label: 'Wardrobe (24" x 24" x 40")', value: 'wardrobe', weight: 80, dimensions: { length: 24, width: 24, height: 40 } },
+        {
+            label: 'Small (16" x 12.5" x 12.5") - Max 30 lbs',
+            value: 'small',
+            weight: 30,
+            dimensions: { length: 16, width: 12.5, height: 12.5 },
+            description: 'Heavy items like books, tools, canned goods'
+        },
+        {
+            label: 'Medium (18" x 18" x 16") - Max 40 lbs',
+            value: 'medium',
+            weight: 40,
+            dimensions: { length: 18, width: 18, height: 16 },
+            description: 'General items, kitchen items, small appliances'
+        },
+        {
+            label: 'Large (18" x 18" x 24") - Max 50 lbs',
+            value: 'large',
+            weight: 50,
+            dimensions: { length: 18, width: 18, height: 24 },
+            description: 'Light/bulky items, linens, pillows, lampshades'
+        },
+        {
+            label: 'Wardrobe (24" x 24" x 40") - Max 80 lbs',
+            value: 'wardrobe',
+            weight: 80,
+            dimensions: { length: 24, width: 24, height: 40 },
+            description: 'Hanging clothes, coats'
+        },
         { label: 'Custom', value: 'custom' }
     ];
 
@@ -79,6 +103,68 @@
     watch(selectedBoxPreset, (preset) => {
         if (preset && preset.value !== 'custom') {
             updateVolumeFromDimensions();
+        }
+    });
+
+    // Weight validation and density calculation
+    const weightStatus = computed(() => {
+        if (!weightLbs.value || !maxWeightCapacity.value) return null;
+
+        const percentage = (weightLbs.value / maxWeightCapacity.value) * 100;
+
+        if (percentage > 100) {
+            return {
+                status: 'over',
+                color: 'negative',
+                icon: 'error',
+                message: `Overweight! ${(weightLbs.value - maxWeightCapacity.value).toFixed(1)} lbs over capacity`
+            };
+        } else if (percentage > 90) {
+            return {
+                status: 'near',
+                color: 'warning',
+                icon: 'warning',
+                message: `Near capacity (${percentage.toFixed(0)}% full)`
+            };
+        } else {
+            return {
+                status: 'ok',
+                color: 'positive',
+                icon: 'check_circle',
+                message: `${(maxWeightCapacity.value - weightLbs.value).toFixed(1)} lbs remaining`
+            };
+        }
+    });
+
+    // Calculate density and recommend box size for custom containers
+    const densityRecommendation = computed(() => {
+        if (boxSize.value !== 'custom' || !maxVolumeCapacity.value || !maxWeightCapacity.value) {
+            return null;
+        }
+
+        const density = maxWeightCapacity.value / maxVolumeCapacity.value;
+
+        // Density thresholds based on standard box specs
+        // Small: 20 lbs/cu ft, Medium: 13.33 lbs/cu ft, Large: 11.11 lbs/cu ft
+
+        if (density >= 20) {
+            return {
+                recommended: 'small',
+                message: 'High density - Consider using small boxes instead',
+                icon: 'lightbulb'
+            };
+        } else if (density >= 13.33) {
+            return {
+                recommended: 'medium',
+                message: 'Medium density - Standard medium boxes work well',
+                icon: 'info'
+            };
+        } else {
+            return {
+                recommended: 'large',
+                message: 'Low density - Perfect for large boxes',
+                icon: 'check_circle'
+            };
         }
     });
     const locationOptions = computed(() => {
@@ -310,6 +396,34 @@
                 <div class="text-caption text-grey-7">
                     Volume: {{ maxVolumeCapacity ? `${maxVolumeCapacity} cu ft` : 'Enter dimensions to calculate volume' }}
                 </div>
+
+                <!-- Weight Status Warning -->
+                <q-banner v-if="weightStatus" rounded dense class="q-mt-sm" :class="`bg-${weightStatus.color} text-white`">
+                    <template v-slot:avatar>
+                        <q-icon :name="weightStatus.icon" />
+                    </template>
+                    {{ weightStatus.message }}
+                </q-banner>
+
+                <!-- Density Recommendation for Custom Boxes -->
+                <q-banner v-if="densityRecommendation" rounded dense class="q-mt-sm bg-info text-white">
+                    <template v-slot:avatar>
+                        <q-icon :name="densityRecommendation.icon" />
+                    </template>
+                    {{ densityRecommendation.message }}
+                    <template v-slot:action>
+                        <q-btn flat dense label="Use Preset" @click="boxSize = densityRecommendation.recommended" />
+                    </template>
+                </q-banner>
+
+                <!-- Box Type Description -->
+                <q-banner v-if="selectedBoxPreset && selectedBoxPreset.description" rounded dense class="q-mt-sm bg-grey-3 text-grey-8">
+                    <template v-slot:avatar>
+                        <q-icon name="info" color="primary" />
+                    </template>
+                    <div class="text-body2">{{ selectedBoxPreset.description }}</div>
+                </q-banner>
+
                 <q-input dense v-model="description" label="Container Description" color="teal" autogrow />
             </template>
             

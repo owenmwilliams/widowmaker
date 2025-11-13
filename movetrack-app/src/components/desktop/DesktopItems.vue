@@ -5,9 +5,10 @@
   import { useRouter } from 'vue-router';
   import { inventoryStore } from '../../stores/InventoryStore';
   import DesktopItemTable from './DesktopItemTable.vue';
-  import DesktopLocationCards from './DesktopLocationCards.vue';
   import DesktopCollections from './DesktopCollections.vue';
   import DesktopDashboard from './DesktopDashboard.vue';
+  import DesktopReviewQueue from './DesktopReviewQueue.vue';
+  import DesktopMovePlanning from './DesktopMovePlanning.vue';
   import DesktopSettings from './DesktopSettings.vue';
   import DesktopSupport from './DesktopSupport.vue';
   import PhotoCapture from '../PhotoCapture.vue';
@@ -17,7 +18,9 @@
   import type { InventoryItem } from '../../data/inventoryItems';
 
 
-  const pageItem = ref('dashboard')
+  const pageItem = ref<'dashboard' | 'inventory' | 'move' | 'settings' | 'support'>('dashboard')
+  const dashboardTab = ref<'overview' | 'review'>('overview')
+  const inventoryTab = ref<'items' | 'collections'>('collections')
   const showPhotoCapture = ref(false)
   const showVisionSettings = ref(false)
   const currentVisionProvider = ref<string>('gemini')
@@ -76,7 +79,7 @@
 
   const leftDrawerOpen = ref(false)
 
-  const changePage = (newPage: string) => {
+  const changePage = (newPage: typeof pageItem.value) => {
     pageItem.value = newPage
   }
 
@@ -134,66 +137,135 @@
 
       <q-header bordered class="temp_bg text-primary" style="z-index: 9998;">
         <q-toolbar>
-          <!-- <q-toolbar-title center> -->
-            <!-- <q-item-section> -->
-              <q-btn-group flat class="q-ma-sm">
-                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="Dashboard" @click="changePage('dashboard')" />
-                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="Collections" @click="changePage('locationCards')" />
-                <q-btn flat dense padding="xs md" no-caps class="text-weight-medium" label="Items" @click="changePage('itemTable')" />
-              </q-btn-group>
+          <div class="toolbar-left">
+            <VeriMoveLogo :width="120" :height="32" class="brand-logo" />
+            <q-btn-group flat class="primary-nav">
+              <q-btn
+                flat
+                dense
+                padding="xs md"
+                no-caps
+                class="text-weight-medium"
+                :color="pageItem === 'dashboard' ? 'primary' : 'grey-7'"
+                label="Dashboard"
+                @click="changePage('dashboard')"
+              />
+              <q-btn
+                flat
+                dense
+                padding="xs md"
+                no-caps
+                class="text-weight-medium"
+                :color="pageItem === 'inventory' ? 'primary' : 'grey-7'"
+                label="Inventory"
+                @click="changePage('inventory')"
+              />
+              <q-btn
+                flat
+                dense
+                padding="xs md"
+                no-caps
+                class="text-weight-medium"
+                :color="pageItem === 'move' ? 'primary' : 'grey-7'"
+                label="Move"
+                @click="changePage('move')"
+              />
+            </q-btn-group>
+          </div>
 
-              <q-toolbar-title />
-              <q-btn flat class="verimove-btn">
-                <VeriMoveLogo :width="113" :height="32" class="verimove-logo-img" />
-                <q-menu style="z-index: 9999;">
+          <q-toolbar-title />
 
+          <div class="toolbar-actions">
+            <q-btn unelevated color="primary" icon="add" label="Add Item" class="q-mr-sm" @click="openAddOptions" />
+            <q-btn flat round dense icon="menu" class="admin-btn">
+              <q-menu style="z-index: 9999;">
+                <q-list style="min-width: 200px;">
+                  <q-item clickable v-ripple @click="showVisionSettings = true">
+                    <q-item-section avatar><q-icon name="memory" /></q-item-section>
+                    <q-item-section>Vision Provider</q-item-section>
+                  </q-item>
                   <q-item clickable v-ripple @click="changePage('settings')">
-                    <q-item-section class="text-primary" avatar>
-                      <q-icon name="settings" />
-                    </q-item-section>
-                    <q-item-section class="text-primary">
-                      Settings
-                    </q-item-section>
+                    <q-item-section avatar><q-icon name="settings" /></q-item-section>
+                    <q-item-section>Settings</q-item-section>
                   </q-item>
-
-                  <q-separator />
-
                   <q-item clickable v-ripple @click="changePage('support')">
-                    <q-item-section class="text-primary" avatar>
-                      <q-icon name="help_outline" />
-                    </q-item-section>
-                    <q-item-section class="text-primary">
-                      Support
-                    </q-item-section>
+                    <q-item-section avatar><q-icon name="help_outline" /></q-item-section>
+                    <q-item-section>Support</q-item-section>
                   </q-item>
-
                   <q-separator />
-
                   <q-item clickable v-ripple @click="logoutFunction">
-                    <q-item-section class="text-primary" avatar>
-                      <q-icon name="logout" />
-                    </q-item-section>
-                    <q-item-section class="text-primary">
-                      Logout
-                    </q-item-section>
+                    <q-item-section avatar><q-icon name="logout" /></q-item-section>
+                    <q-item-section>Logout</q-item-section>
                   </q-item>
-
-                </q-menu>
-
-              </q-btn>
+                </q-list>
+              </q-menu>
+            </q-btn>
+          </div>
         </q-toolbar>
       </q-header>
 
       <q-page-container>
-          <div v-if="pageItem == 'dashboard'">
-            <DesktopDashboard :user="props.user!" />
+          <div v-if="pageItem === 'dashboard'">
+            <div class="subnav">
+              <q-btn-group flat>
+                <q-btn
+                  flat
+                  dense
+                  no-caps
+                  :color="dashboardTab === 'overview' ? 'primary' : 'grey-7'"
+                  label="Overview"
+                  @click="dashboardTab = 'overview'"
+                />
+                <q-btn
+                  flat
+                  dense
+                  no-caps
+                  :color="dashboardTab === 'review' ? 'primary' : 'grey-7'"
+                  label="Review Queue"
+                  @click="dashboardTab = 'review'"
+                />
+              </q-btn-group>
+            </div>
+            <DesktopDashboard v-if="dashboardTab === 'overview'" :user="props.user!" />
+            <DesktopReviewQueue v-else :user="props.user!" />
           </div>
-          <div v-else-if="pageItem == 'itemTable'">
-            <DesktopItemTable :user="props.user!" @addAction="openAddOptions" />
+
+          <div v-else-if="pageItem === 'inventory'">
+            <div class="subnav">
+              <q-btn-group flat>
+                <q-btn
+                  flat
+                  dense
+                  no-caps
+                  :color="inventoryTab === 'collections' ? 'primary' : 'grey-7'"
+                  label="Collections"
+                  @click="inventoryTab = 'collections'"
+                />
+                <q-btn
+                  flat
+                  dense
+                  no-caps
+                  :color="inventoryTab === 'items' ? 'primary' : 'grey-7'"
+                  label="Items"
+                  @click="inventoryTab = 'items'"
+                />
+              </q-btn-group>
+            </div>
+            <DesktopCollections
+              v-if="inventoryTab === 'collections'"
+              :user="props.user!"
+            />
+            <DesktopItemTable
+              v-else
+              :user="props.user!"
+              @addAction="openAddOptions"
+            />
           </div>
-          <div v-else-if="pageItem == 'locationCards'">
-            <DesktopCollections :user="props.user!" />
+
+          <div v-else-if="pageItem === 'move'">
+            <DesktopMovePlanning :user="props.user!" />
           </div>
+
           <div v-else-if="pageItem == 'settings'">
             <DesktopSettings :user="props.user!" />
           </div>
@@ -300,20 +372,33 @@
   transform: scale(0.95);
 }
 
-.verimove-btn {
-  border-radius: 8px;
-  padding: 0 !important;
-  min-height: unset !important;
-  min-width: unset !important;
-  height: fit-content !important;
-  display: inline-grid !important;
-  place-items: center;
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.verimove-btn :deep(.q-btn__content) {
-  padding: 0;
-  margin: 0;
-  display: contents;
+.brand-logo {
+  display: block;
+}
+
+.primary-nav {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 2px;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+}
+
+.admin-btn {
+  border-radius: 999px;
+}
+
+.subnav {
+  padding: 12px 24px 0;
 }
 
 .add-options-card {

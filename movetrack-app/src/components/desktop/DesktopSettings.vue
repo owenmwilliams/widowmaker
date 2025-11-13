@@ -191,8 +191,9 @@ const markPrimary = async (id: number | null) => {
 
 <template>
   <div class="settings-container">
-    <div class="settings-header">
-      <h2 class="text-h4 text-primary">Settings</h2>
+    <div class="settings-header q-pa-md">
+      <h5 class="text-h5 text-primary q-my-none">Settings</h5>
+      <p class="text-caption text-grey-7 q-mt-xs">Manage your preferences and account settings</p>
     </div>
 
     <div class="settings-content">
@@ -276,7 +277,7 @@ const markPrimary = async (id: number | null) => {
             {{ editingLocationId === null ? 'Add Location' : 'Edit Location' }}
           </div>
         </q-card-section>
-        <q-card-section class="q-pt-none column q-gutter-md">
+        <q-card-section class="location-form q-pt-none">
           <q-input v-model="locationForm.name" label="Location Name" outlined dense autofocus />
           <q-input v-model="locationForm.description" label="Description" outlined dense />
           <q-input v-model="locationForm.address" label="Address" outlined dense />
@@ -292,7 +293,7 @@ const markPrimary = async (id: number | null) => {
               <q-input v-model="locationForm.zip" label="Zip" outlined dense />
             </div>
           </div>
-          <q-toggle v-model="locationForm.isPrimary" label="Set as primary residence" color="primary" />
+          <q-toggle class="primary-toggle" v-model="locationForm.isPrimary" label="Set as primary residence" color="primary" />
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Cancel" color="grey-7" v-close-popup />
@@ -345,5 +346,24 @@ const markPrimary = async (id: number | null) => {
 
 .location-row {
   align-items: center;
+}
+
+.location-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.location-form .q-input {
+  width: 100%;
+}
+
+.location-form .row {
+  margin: 0;
+}
+
+.primary-toggle {
+  align-self: flex-start;
+  margin-top: 4px;
 }
 </style>

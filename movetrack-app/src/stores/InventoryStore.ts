@@ -23,7 +23,9 @@ export const inventoryStore = defineStore("inventory", () => {
     }
 
     type ItemUpdateOptions = {
-        skipRedirect?: boolean
+        skipRedirect?: boolean,
+        newImage?: Blob | null,
+        removeImage?: boolean
     }
 
     // Helper function to get headers with auth token
@@ -41,7 +43,7 @@ export const inventoryStore = defineStore("inventory", () => {
     var items: Ref<any[]> = ref([])
     const itemDetailsItemId: Ref<number | null> = ref(null)
     const itemDetailsUser: Ref<string | null> = ref(null)
-    const itemDetailsMode: Ref<'view' | 'create'> = ref('view')
+    const itemDetailsMode: Ref<'view' | 'create' | 'edit'> = ref('view')
     const isItemDetailsOpen = ref(false)
     const activeItemDetails = computed(() => {
         if (itemDetailsItemId.value === null) {
@@ -245,10 +247,10 @@ export const inventoryStore = defineStore("inventory", () => {
         }
     }
 
-    function openItemDetailsModal(itemId: number, user: string) {
+    function openItemDetailsModal(itemId: number, user: string, mode: 'view' | 'edit' = 'view') {
         itemDetailsItemId.value = itemId
         itemDetailsUser.value = user
-        itemDetailsMode.value = 'view'
+        itemDetailsMode.value = mode
         isItemDetailsOpen.value = true
     }
 
@@ -410,13 +412,6 @@ export const inventoryStore = defineStore("inventory", () => {
     }
 
     async function createItemOutsideUrl (user: string, name: string, description: string, quantity: number, collection: number, container?: number | undefined, location?: number | undefined, picture_url?: string) {
-        // 1. UPLOAD ALL THE TEXTUAL DATA
-        // 2. RETURN AN ID
-        // 3. UPLOAD IMAGE WITH THAT ID AS A UNIQUE IDENTIFIER
-        // 4. UPDATE ITEMS TABLE WITH URL
-        // 5. GET ITEMS LIST
-        // 6. BUILD LISTS
-        
         let params: any = {
             user: user,
             name: name,
@@ -471,11 +466,8 @@ export const inventoryStore = defineStore("inventory", () => {
             headers: headers
         })
         .finally(() => {
-            // Add the value to params
             params.value = id
             params.label = name
-
-            // Remove the name parameter from params
             delete params.name
             items.value.push(params)
 
@@ -526,10 +518,30 @@ export const inventoryStore = defineStore("inventory", () => {
             params.location = null;
         }
 
-        if (picture_url !== undefined) {
-            params.picture_url = picture_url;
-        } else {
+        let uploadedUrl: string | undefined;
+        const headers = await getHeaders();
+
+        if (options?.removeImage) {
             params.picture_url = null;
+        } else if (options?.newImage) {
+            const formData = new FormData();
+            formData.append('file', options.newImage);
+            uploadedUrl = await axios({
+                method: 'post',
+                data: formData,
+                url: core_url + '/file/upload/movetrack-item-photos/',
+                params: {
+                    folder: url_suffix + '/' + user,
+                    name: id
+                },
+                headers: {
+                    ...headers,
+                    'Content-Type': 'multipart/form-data',
+                }
+            }).then(value => value.data.url);
+            params.picture_url = uploadedUrl;
+        } else if (picture_url !== undefined) {
+            params.picture_url = picture_url;
         }
 
         const extraFields = extra || {}
@@ -569,10 +581,8 @@ export const inventoryStore = defineStore("inventory", () => {
         if (extraFields.tags !== undefined) {
             params.tags = Array.isArray(extraFields.tags) ? JSON.stringify(extraFields.tags) : extraFields.tags
         }
-        
         console.log('params are: ', params)
 
-        const headers = await getHeaders();
         await axios({
             method: 'put',
             url: core_url + '/items/update',
@@ -582,13 +592,16 @@ export const inventoryStore = defineStore("inventory", () => {
         
         const index = items.value.findIndex((i) => i.value == id)
         if (index !== -1) {
+            const finalPicture = options?.removeImage
+                ? null
+                : uploadedUrl ?? picture_url ?? items.value[index].picture_url ?? null;
             items.value[index].label = name
             items.value[index].collection = collection
             items.value[index].container = container ?? null
             items.value[index].location = location ?? null
             items.value[index].quantity = quantity
             items.value[index].description = description
-            items.value[index].picture_url = picture_url ?? null
+            items.value[index].picture_url = finalPicture
             if (extraFields.estimatedValue !== undefined) {
                 items.value[index].estimated_value = extraFields.estimatedValue
             }

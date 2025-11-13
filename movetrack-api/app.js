@@ -29,6 +29,7 @@ var encryptRouter = require('./routes/encrypt');
 var googleRouter = require('./routes/google');
 var emailRouter = require('./routes/email');
 var authRouter = require('./routes/auth');
+var distanceRouter = require('./routes/distance');
 
 var app = express();
 
@@ -88,6 +89,7 @@ app.use('/secure', encryptRouter);
 app.use('/google', googleRouter)
 app.use('/email', emailRouter)
 app.use('/auth', authRouter)
+app.use('/api', distanceRouter)
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

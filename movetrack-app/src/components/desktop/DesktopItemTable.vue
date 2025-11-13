@@ -227,10 +227,14 @@
 </script>
 
 <template>
-    <q-page class="q-pa-md">
-        
-        
-        <q-table
+    <div class="items-container">
+        <div class="items-header q-pa-md">
+            <h5 class="text-h5 text-primary q-my-none">Items</h5>
+            <p class="text-caption text-grey-7 q-mt-xs">View and manage all items in your inventory</p>
+        </div>
+
+        <q-page class="q-pa-md">
+            <q-table
         class="my-sticky-header-column-table"
         :rows-per-page-options="[25, 50, 100]"
         :rows="itemRows"
@@ -559,9 +563,15 @@
     <q-dialog  v-model="moveItemDialog" @hide="closeDialog">
         <ContainerSelect :user="user!" :idList="selectedItems" @submitted="selectedItems = []" />
     </q-dialog>
+    </div>
 </template>
 
 <style scoped>
+.items-container {
+  max-width: 100%;
+  background: #F7F8FA;
+}
+
 .button-container {
     position: sticky;
     top: 0;

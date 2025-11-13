@@ -45,10 +45,10 @@ const onSubmit = async () => {
 
 <template>
   <div class="support-container">
-    <div class="support-header">
-      <h2 class="text-h4 text-primary">Support</h2>
-      <p class="text-body1 text-grey-7 q-mt-sm">
-        Have a question or need help? Send us a message and we'll get back to you as soon as possible.
+    <div class="support-header q-pa-md">
+      <h5 class="text-h5 text-primary q-my-none">Support</h5>
+      <p class="text-caption text-grey-7 q-mt-xs">
+        Have a question or need help? Send us a message and we'll get back to you as soon as possible
       </p>
     </div>
 

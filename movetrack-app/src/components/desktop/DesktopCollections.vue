@@ -51,6 +51,7 @@ const showContainerDetailsDialog = ref(false);
 const detailsContainer = ref<any | null>(null);
 const showContainerEditDialog = ref(false);
 const containerToEdit = ref<number | null>(null);
+const showBoxGenerationDialog = ref(false);
 
 // Computed
 const containersInCollection = computed(() => {
@@ -65,6 +66,240 @@ const itemsInCollection = computed(() => {
 
 const unassignedItems = computed(() => {
   return itemsInCollection.value.filter(i => !i.container || i.container === null);
+});
+
+// Box generation for current collection
+const collectionBoxEstimates = computed(() => {
+  // Only analyze loose (uncontained) items in current collection
+  const looseItems = unassignedItems.value;
+
+  // Box specifications with volume and weight limits
+  const boxSpecs = {
+    small: {
+      volumeCuFt: 1.5,       // 16x12.5x12.5 inches
+      maxWeightLbs: 30,
+      targetDensity: 20       // lbs per cu ft (30 lbs / 1.5 cu ft)
+    },
+    medium: {
+      volumeCuFt: 3.0,       // 18x18x16 inches
+      maxWeightLbs: 40,
+      targetDensity: 13.33    // lbs per cu ft (40 lbs / 3 cu ft)
+    },
+    large: {
+      volumeCuFt: 4.5,       // 18x18x24 inches
+      maxWeightLbs: 50,
+      targetDensity: 11.11    // lbs per cu ft (50 lbs / 4.5 cu ft)
+    }
+  };
+
+  let smallBoxes = 0;
+  let mediumBoxes = 0;
+  let largeBoxes = 0;
+
+  // Track remaining capacity in current boxes
+  let currentSmallVolume = 0;
+  let currentSmallWeight = 0;
+  let currentMediumVolume = 0;
+  let currentMediumWeight = 0;
+  let currentLargeVolume = 0;
+  let currentLargeWeight = 0;
+
+  // Helper function to check if an item needs a box
+  const isBoxable = (item: any): boolean => {
+    const itemName = (item.label || '').toLowerCase().trim();
+    const dims = parseItemDimensions(item);
+    const weight = Number(item.weight_lbs) || 0;
+
+    // Multi-word phrases that indicate furniture (check these first for precision)
+    const furniturePhrases = [
+      'dining table', 'coffee table', 'end table', 'side table', 'kitchen table', 'console table',
+      'bed frame', 'box spring', 'file cabinet', 'filing cabinet', 'floor lamp', 'standing lamp',
+      'entertainment center', 'tv stand', 'media console', 'shelving unit',
+      'keyboard piano', 'digital piano', 'exercise bike', 'weight bench'
+    ];
+
+    if (furniturePhrases.some(phrase => itemName.includes(phrase))) {
+      return false;
+    }
+
+    // Single-word furniture keywords
+    const furnitureKeywords = [
+      'sofa', 'couch', 'armchair', 'recliner', 'loveseat', 'sectional',
+      'dresser', 'mattress', 'headboard', 'footboard',
+      'bookshelf', 'bookcase', 'wardrobe', 'armoire',
+      'nightstand', 'bureau', 'credenza', 'hutch',
+      'bench', 'stool', 'ottoman', 'futon',
+      'bike', 'bicycle', 'treadmill', 'elliptical', 'piano'
+    ];
+
+    // Use word boundaries to avoid false matches (e.g., "desktop" shouldn't match "desk")
+    const hasFurnitureKeyword = furnitureKeywords.some(keyword => {
+      const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+      return regex.test(itemName);
+    });
+
+    if (hasFurnitureKeyword) return false;
+
+    // Size-based rules
+    if (dims) {
+      const maxDim = Math.max(dims.length, dims.width, dims.height);
+      const volume = (dims.length * dims.width * dims.height) / 1728; // cu ft
+
+      // Very large items (>36 inches in any dimension)
+      if (maxDim > 36) return false;
+
+      // Items 30-36 inches might be boxable if they're not too heavy
+      if (maxDim >= 30) {
+        const density = volume > 0 ? weight / volume : 0;
+        // If it's large but very light (density < 3), probably furniture/bulky
+        if (density < 3) return false;
+      }
+    }
+
+    // If we got here, it's boxable
+    return true;
+  };
+
+  // Filter to boxable items
+  const boxableItems = looseItems.filter(isBoxable);
+
+  // Track non-boxable items for display
+  const nonBoxableItems = looseItems.filter(item => !isBoxable(item));
+
+  // Group items with their calculated properties
+  const processedItems = boxableItems.map(item => {
+    const dims = parseItemDimensions(item);
+    const weight = Number(item.weight_lbs) || 0;
+    const quantity = Number(item.quantity) || 1;
+
+    let volumeCuFt = 0;
+    let density = 0;
+
+    if (dims) {
+      volumeCuFt = (dims.length * dims.width * dims.height) / 1728;
+      density = volumeCuFt > 0 ? weight / volumeCuFt : 0;
+    } else {
+      // Estimate: medium density items without dimensions
+      volumeCuFt = 0.5; // Assume 0.5 cu ft per item
+      density = weight / volumeCuFt;
+    }
+
+    return {
+      label: item.label,
+      volumeCuFt,
+      weight,
+      density,
+      quantity
+    };
+  });
+
+  // Sort by density (high to low) - pack heavy items first
+  processedItems.sort((a, b) => b.density - a.density);
+
+  // Pack items based on density
+  processedItems.forEach(item => {
+    for (let i = 0; i < item.quantity; i++) {
+      let packed = false;
+
+      // Determine box type based on density
+      // High density (>20 lbs/cu ft) -> small box
+      // Medium density (13-20 lbs/cu ft) -> medium box
+      // Low density (<13 lbs/cu ft) -> large box
+
+      if (item.density >= boxSpecs.small.targetDensity) {
+        // High density - try small box
+        if (
+          currentSmallVolume + item.volumeCuFt <= boxSpecs.small.volumeCuFt &&
+          currentSmallWeight + item.weight <= boxSpecs.small.maxWeightLbs
+        ) {
+          currentSmallVolume += item.volumeCuFt;
+          currentSmallWeight += item.weight;
+          packed = true;
+        } else {
+          // Start new small box
+          smallBoxes++;
+          currentSmallVolume = item.volumeCuFt;
+          currentSmallWeight = item.weight;
+          packed = true;
+        }
+      } else if (item.density >= boxSpecs.medium.targetDensity) {
+        // Medium density - try medium box
+        if (
+          currentMediumVolume + item.volumeCuFt <= boxSpecs.medium.volumeCuFt &&
+          currentMediumWeight + item.weight <= boxSpecs.medium.maxWeightLbs
+        ) {
+          currentMediumVolume += item.volumeCuFt;
+          currentMediumWeight += item.weight;
+          packed = true;
+        } else {
+          // Start new medium box
+          mediumBoxes++;
+          currentMediumVolume = item.volumeCuFt;
+          currentMediumWeight = item.weight;
+          packed = true;
+        }
+      } else {
+        // Low density - try large box
+        if (
+          currentLargeVolume + item.volumeCuFt <= boxSpecs.large.volumeCuFt &&
+          currentLargeWeight + item.weight <= boxSpecs.large.maxWeightLbs
+        ) {
+          currentLargeVolume += item.volumeCuFt;
+          currentLargeWeight += item.weight;
+          packed = true;
+        } else {
+          // Start new large box
+          largeBoxes++;
+          currentLargeVolume = item.volumeCuFt;
+          currentLargeWeight = item.weight;
+          packed = true;
+        }
+      }
+
+      // If item couldn't be packed (too large), try to fit in best available box
+      if (!packed) {
+        // Try to fit in largest box that can handle it
+        if (item.volumeCuFt <= boxSpecs.large.volumeCuFt && item.weight <= boxSpecs.large.maxWeightLbs) {
+          largeBoxes++;
+          currentLargeVolume = item.volumeCuFt;
+          currentLargeWeight = item.weight;
+        } else if (item.volumeCuFt <= boxSpecs.medium.volumeCuFt && item.weight <= boxSpecs.medium.maxWeightLbs) {
+          mediumBoxes++;
+          currentMediumVolume = item.volumeCuFt;
+          currentMediumWeight = item.weight;
+        } else {
+          smallBoxes++;
+          currentSmallVolume = item.volumeCuFt;
+          currentSmallWeight = item.weight;
+        }
+      }
+    }
+  });
+
+  // Account for partially filled boxes
+  if (currentSmallVolume > 0) smallBoxes++;
+  if (currentMediumVolume > 0) mediumBoxes++;
+  if (currentLargeVolume > 0) largeBoxes++;
+
+  return {
+    small: smallBoxes,
+    medium: mediumBoxes,
+    large: largeBoxes,
+    total: smallBoxes + mediumBoxes + largeBoxes,
+    nonBoxableCount: nonBoxableItems.length,
+    nonBoxableItems: nonBoxableItems,
+    details: {
+      smallCapacity: boxSpecs.small.volumeCuFt,
+      smallMaxWeight: boxSpecs.small.maxWeightLbs,
+      smallDensity: boxSpecs.small.targetDensity,
+      mediumCapacity: boxSpecs.medium.volumeCuFt,
+      mediumMaxWeight: boxSpecs.medium.maxWeightLbs,
+      mediumDensity: boxSpecs.medium.targetDensity,
+      largeCapacity: boxSpecs.large.volumeCuFt,
+      largeMaxWeight: boxSpecs.large.maxWeightLbs,
+      largeDensity: boxSpecs.large.targetDensity
+    }
+  };
 });
 
 const getContainerItems = (containerValue: number) => {
@@ -395,6 +630,260 @@ const openItemDetails = (itemId: number) => {
   store.openItemDetailsModal(itemId, props.user);
 };
 
+const generateBoxesForCollection = async () => {
+  if (!selectedCollection.value) return;
+
+  const estimates = collectionBoxEstimates.value;
+
+  if (estimates.total === 0) {
+    $q.notify({
+      type: 'info',
+      message: 'No boxes needed - all items are already in containers',
+      position: 'bottom'
+    });
+    return;
+  }
+
+  try {
+    $q.loading.show({ message: 'Smart packing in progress...' });
+
+    // Get loose items that need to be packed
+    const looseItems = unassignedItems.value;
+
+    // Box specifications
+    const boxSpecs = {
+      small: { volumeCuFt: 1.5, maxWeightLbs: 30, targetDensity: 20, size: 'small' },
+      medium: { volumeCuFt: 3.0, maxWeightLbs: 40, targetDensity: 13.33, size: 'medium' },
+      large: { volumeCuFt: 4.5, maxWeightLbs: 50, targetDensity: 11.11, size: 'large' }
+    };
+
+    // Helper function to check if an item needs a box (same logic as estimation)
+    const isBoxable = (item: any): boolean => {
+      const itemName = (item.label || '').toLowerCase().trim();
+      const dims = parseItemDimensions(item);
+      const weight = Number(item.weight_lbs) || 0;
+
+      // Multi-word phrases that indicate furniture (check these first for precision)
+      const furniturePhrases = [
+        'dining table', 'coffee table', 'end table', 'side table', 'kitchen table', 'console table',
+        'bed frame', 'box spring', 'file cabinet', 'filing cabinet', 'floor lamp', 'standing lamp',
+        'entertainment center', 'tv stand', 'media console', 'shelving unit',
+        'keyboard piano', 'digital piano', 'exercise bike', 'weight bench'
+      ];
+
+      if (furniturePhrases.some(phrase => itemName.includes(phrase))) {
+        return false;
+      }
+
+      // Single-word furniture keywords
+      const furnitureKeywords = [
+        'sofa', 'couch', 'armchair', 'recliner', 'loveseat', 'sectional',
+        'dresser', 'mattress', 'headboard', 'footboard',
+        'bookshelf', 'bookcase', 'wardrobe', 'armoire',
+        'nightstand', 'bureau', 'credenza', 'hutch',
+        'bench', 'stool', 'ottoman', 'futon',
+        'bike', 'bicycle', 'treadmill', 'elliptical', 'piano'
+      ];
+
+      // Use word boundaries to avoid false matches (e.g., "desktop" shouldn't match "desk")
+      const hasFurnitureKeyword = furnitureKeywords.some(keyword => {
+        const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+        return regex.test(itemName);
+      });
+
+      if (hasFurnitureKeyword) return false;
+
+      // Size-based rules
+      if (dims) {
+        const maxDim = Math.max(dims.length, dims.width, dims.height);
+        const volume = (dims.length * dims.width * dims.height) / 1728; // cu ft
+
+        // Very large items (>36 inches in any dimension)
+        if (maxDim > 36) return false;
+
+        // Items 30-36 inches might be boxable if they're not too heavy
+        if (maxDim >= 30) {
+          const density = volume > 0 ? weight / volume : 0;
+          // If it's large but very light (density < 3), probably furniture/bulky
+          if (density < 3) return false;
+        }
+      }
+
+      // If we got here, it's boxable
+      return true;
+    };
+
+    // Filter to boxable items only
+    const boxableItems = looseItems.filter(isBoxable);
+
+    // Process and sort items by density
+    const processedItems = boxableItems.map(item => {
+      const dims = parseItemDimensions(item);
+      const weight = Number(item.weight_lbs) || 0;
+      const quantity = Number(item.quantity) || 1;
+      let volumeCuFt = 0;
+      let density = 0;
+
+      if (dims) {
+        volumeCuFt = (dims.length * dims.width * dims.height) / 1728;
+        density = volumeCuFt > 0 ? weight / volumeCuFt : 0;
+      } else {
+        volumeCuFt = 0.5;
+        density = weight / volumeCuFt;
+      }
+
+      return { item, volumeCuFt, weight, density, quantity };
+    });
+
+    processedItems.sort((a, b) => b.density - a.density);
+
+    // Get existing boxes in the collection
+    const existingBoxes = containersInCollection.value
+      .filter(c => c.box_size) // Only containers that are boxes
+      .map(c => {
+        const capacity = getContainerCapacity(c.value);
+        const spec = boxSpecs[c.box_size as 'small' | 'medium' | 'large'];
+        return {
+          container: c,
+          size: c.box_size,
+          volumeUsed: capacity?.currentVolume || 0,
+          weightUsed: capacity?.currentWeight || 0,
+          maxVolume: spec?.volumeCuFt || (capacity?.maxVolume || 0),
+          maxWeight: spec?.maxWeightLbs || (capacity?.maxWeight || 0)
+        };
+      });
+
+    // Track items to be packed and their target boxes (existing or new)
+    const itemAssignments: Array<{ item: any; containerValue: number | null }> = [];
+    const newBoxesToCreate: Array<{ size: string; items: Array<{ item: any }> }> = [];
+
+    // Try to pack items into existing boxes first, then plan new boxes
+    for (const processedItem of processedItems) {
+      for (let q = 0; q < processedItem.quantity; q++) {
+        // Determine target box size by density
+        let targetSize: 'small' | 'medium' | 'large';
+        if (processedItem.density >= boxSpecs.small.targetDensity) {
+          targetSize = 'small';
+        } else if (processedItem.density >= boxSpecs.medium.targetDensity) {
+          targetSize = 'medium';
+        } else {
+          targetSize = 'large';
+        }
+
+        const spec = boxSpecs[targetSize];
+        let packed = false;
+
+        // Try to fit in existing boxes of the same size
+        const availableBoxes = existingBoxes.filter(b => b.size === targetSize);
+        for (const box of availableBoxes) {
+          if (box.volumeUsed + processedItem.volumeCuFt <= box.maxVolume &&
+              box.weightUsed + processedItem.weight <= box.maxWeight) {
+            // Can fit in this existing box
+            itemAssignments.push({ item: processedItem.item, containerValue: box.container.value });
+            box.volumeUsed += processedItem.volumeCuFt;
+            box.weightUsed += processedItem.weight;
+            packed = true;
+            break;
+          }
+        }
+
+        // If not packed, plan a new box
+        if (!packed) {
+          // Check if we have a new box being planned for this size
+          let targetNewBox = newBoxesToCreate.find(b =>
+            b.size === targetSize &&
+            b.items.reduce((sum, i) => {
+              const iWeight = Number(i.item.weight_lbs) || 0;
+              const iDims = parseItemDimensions(i.item);
+              const iVolume = iDims ? (iDims.length * iDims.width * iDims.height) / 1728 : 0.5;
+              return sum + iVolume;
+            }, processedItem.volumeCuFt) <= spec.volumeCuFt &&
+            b.items.reduce((sum, i) => sum + (Number(i.item.weight_lbs) || 0), processedItem.weight) <= spec.maxWeightLbs
+          );
+
+          if (!targetNewBox) {
+            targetNewBox = { size: targetSize, items: [] };
+            newBoxesToCreate.push(targetNewBox);
+          }
+
+          targetNewBox.items.push({ item: processedItem.item });
+        }
+      }
+    }
+
+    // First, assign items to existing boxes
+    let itemsPackedInExisting = 0;
+    for (const assignment of itemAssignments) {
+      await store.moveItemToContainer(assignment.item.value, assignment.containerValue, props.user);
+      await new Promise(resolve => setTimeout(resolve, 50));
+      itemsPackedInExisting++;
+    }
+
+    // Then create new boxes and assign items
+    let boxNumber = containersInCollection.value.filter(c => c.box_size).length + 1;
+    for (const newBox of newBoxesToCreate) {
+      const spec = boxSpecs[newBox.size as 'small' | 'medium' | 'large'];
+
+      // Create the container
+      await store.createContainer(
+        props.user,
+        `${newBox.size.charAt(0).toUpperCase() + newBox.size.slice(1)} Box ${boxNumber}`,
+        selectedCollection.value.value,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        newBox.size,
+        spec.maxWeightLbs,
+        spec.volumeCuFt
+      );
+
+      // Wait for container creation
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Reload to get the new container
+      await store.loadInventory(props.user);
+
+      // Find the newly created container
+      const newContainer = store.containers.find(c =>
+        c.label === `${newBox.size.charAt(0).toUpperCase() + newBox.size.slice(1)} Box ${boxNumber}` &&
+        c.collection === selectedCollection.value.value
+      );
+
+      if (newContainer) {
+        // Move items into the box
+        for (const boxItem of newBox.items) {
+          await store.moveItemToContainer(boxItem.item.value, newContainer.value, props.user);
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
+      boxNumber++;
+    }
+
+    await store.loadInventory(props.user);
+
+    const message = itemsPackedInExisting > 0
+      ? `Smart pack complete! Packed ${itemsPackedInExisting} items into existing boxes and created ${newBoxesToCreate.length} new boxes`
+      : `Smart pack complete! Created ${newBoxesToCreate.length} boxes and packed ${boxableItems.length} items`;
+
+    $q.notify({
+      type: 'positive',
+      message,
+      position: 'bottom',
+      timeout: 3000
+    });
+
+    showBoxGenerationDialog.value = false;
+  } catch (error) {
+    console.error('Error during smart pack:', error);
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to complete smart pack',
+      position: 'bottom'
+    });
+  } finally {
+    $q.loading.hide();
+  }
+};
+
 // Initialize
 onMounted(() => {
   if (store.collections.length > 0 && !selectedCollection.value) {
@@ -405,6 +894,11 @@ onMounted(() => {
 
 <template>
   <div class="collections-container">
+    <div class="collections-header q-pa-md">
+      <h5 class="text-h5 text-primary q-my-none">Collections</h5>
+      <p class="text-caption text-grey-7 q-mt-xs">Organize and pack your items by room or category</p>
+    </div>
+
     <!-- Empty state -->
     <div v-if="collections.length === 0" class="empty-state">
       <q-icon name="inventory_2" size="80px" color="grey-5" />
@@ -459,7 +953,17 @@ onMounted(() => {
               <div class="text-h5 text-primary">{{ selectedCollection.label }}</div>
               <div class="text-body2 text-grey-7">{{ selectedCollection.description }}</div>
             </div>
-            <q-btn unelevated color="primary" icon="add" label="Add Container" @click="showCreateContainerDialog = true" />
+            <div class="q-gutter-sm">
+              <q-btn
+                v-if="unassignedItems.length > 0"
+                outline
+                color="secondary"
+                icon="auto_awesome"
+                label="Smart Pack"
+                @click="showBoxGenerationDialog = true"
+              />
+              <q-btn unelevated color="primary" icon="add" label="Add Container" @click="showCreateContainerDialog = true" />
+            </div>
           </div>
 
           <!-- Containers Grid -->
@@ -896,6 +1400,126 @@ onMounted(() => {
 
     <q-dialog v-model="showContainerEditDialog" persistent>
       <DesktopEdit v-if="containerToEdit !== null" :user="props.user" addType="Container" :id="containerToEdit" />
+    </q-dialog>
+
+    <!-- Box Generation Dialog -->
+    <q-dialog v-model="showBoxGenerationDialog" persistent>
+      <q-card style="min-width: 500px;">
+        <q-card-section>
+          <div class="text-h6">Smart Pack for {{ selectedCollection?.label }}</div>
+          <div class="text-body2 text-grey-7 q-mt-sm">
+            Analyzing {{ unassignedItems.length }} unpacked item(s)
+            <span v-if="collectionBoxEstimates.nonBoxableCount > 0">
+              ({{ collectionBoxEstimates.nonBoxableCount }} furniture/large items excluded)
+            </span>
+          </div>
+        </q-card-section>
+
+        <q-card-section class="q-pt-none">
+          <div v-if="collectionBoxEstimates.total > 0" class="box-estimates">
+            <q-banner class="bg-blue-1 text-primary q-mb-md">
+              <template v-slot:avatar>
+                <q-icon name="lightbulb" color="primary" />
+              </template>
+              <div class="text-subtitle2">Density-Based Packing Algorithm</div>
+              <div class="text-caption">
+                Heavy items (>{{ collectionBoxEstimates.details.smallDensity }} lbs/cu ft) → Small boxes<br>
+                Medium items ({{ collectionBoxEstimates.details.mediumDensity.toFixed(1) }}-{{ collectionBoxEstimates.details.smallDensity }} lbs/cu ft) → Medium boxes<br>
+                Light items (&lt;{{ collectionBoxEstimates.details.mediumDensity.toFixed(1) }} lbs/cu ft) → Large boxes
+              </div>
+            </q-banner>
+
+            <div class="box-summary">
+              <div v-if="collectionBoxEstimates.small > 0" class="box-row">
+                <q-icon name="inventory_2" size="sm" color="primary" />
+                <div class="box-info">
+                  <span class="text-weight-medium">{{ collectionBoxEstimates.small }} Small Boxes</span>
+                  <span class="text-caption text-grey-7">
+                    ({{ collectionBoxEstimates.details.smallCapacity }} cu ft, max {{ collectionBoxEstimates.details.smallMaxWeight }} lbs)
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="collectionBoxEstimates.medium > 0" class="box-row">
+                <q-icon name="inventory_2" size="sm" color="secondary" />
+                <div class="box-info">
+                  <span class="text-weight-medium">{{ collectionBoxEstimates.medium }} Medium Boxes</span>
+                  <span class="text-caption text-grey-7">
+                    ({{ collectionBoxEstimates.details.mediumCapacity }} cu ft, max {{ collectionBoxEstimates.details.mediumMaxWeight }} lbs)
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="collectionBoxEstimates.large > 0" class="box-row">
+                <q-icon name="inventory_2" size="sm" color="accent" />
+                <div class="box-info">
+                  <span class="text-weight-medium">{{ collectionBoxEstimates.large }} Large Boxes</span>
+                  <span class="text-caption text-grey-7">
+                    ({{ collectionBoxEstimates.details.largeCapacity }} cu ft, max {{ collectionBoxEstimates.details.largeMaxWeight }} lbs)
+                  </span>
+                </div>
+              </div>
+
+              <q-separator class="q-my-md" />
+
+              <div class="box-total">
+                <q-icon name="inventory" size="md" color="primary" />
+                <span class="text-h6 text-primary">Total: {{ collectionBoxEstimates.total }} boxes</span>
+              </div>
+            </div>
+
+            <!-- Non-boxable items section -->
+            <div v-if="collectionBoxEstimates.nonBoxableCount > 0" class="q-mt-md">
+              <q-expansion-item
+                dense
+                expand-separator
+                icon="weekend"
+                :label="`${collectionBoxEstimates.nonBoxableCount} Furniture/Large Items (no boxes needed)`"
+                caption="These items will be moved as-is"
+                header-class="bg-grey-2"
+              >
+                <q-card>
+                  <q-card-section class="q-pa-sm">
+                    <q-list dense>
+                      <q-item v-for="item in collectionBoxEstimates.nonBoxableItems" :key="item.value" dense>
+                        <q-item-section avatar>
+                          <q-icon name="check_circle" color="positive" size="xs" />
+                        </q-item-section>
+                        <q-item-section>
+                          <q-item-label class="text-body2">{{ item.label }}</q-item-label>
+                          <q-item-label caption v-if="item.quantity > 1">Qty: {{ item.quantity }}</q-item-label>
+                        </q-item-section>
+                      </q-item>
+                    </q-list>
+                  </q-card-section>
+                </q-card>
+              </q-expansion-item>
+            </div>
+          </div>
+          <div v-else class="text-center text-grey-6 q-py-md">
+            <q-icon name="check_circle" size="lg" color="positive" />
+            <div class="text-body1 q-mt-sm">
+              <span v-if="collectionBoxEstimates.nonBoxableCount > 0">
+                All boxable items are packed!<br>
+                <span class="text-caption">{{ collectionBoxEstimates.nonBoxableCount }} furniture/large items don't need boxes</span>
+              </span>
+              <span v-else>All items are already packed!</span>
+            </div>
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="grey-7" v-close-popup />
+          <q-btn
+            v-if="collectionBoxEstimates.total > 0"
+            unelevated
+            label="Smart Pack"
+            color="primary"
+            icon="auto_awesome"
+            @click="generateBoxesForCollection"
+          />
+        </q-card-actions>
+      </q-card>
     </q-dialog>
   </div>
 </template>
@@ -1340,5 +1964,43 @@ onMounted(() => {
   border-radius: 4px;
   color: #1976d2;
   font-weight: 400;
+}
+
+/* Box Generation Dialog */
+.box-estimates {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.box-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.box-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.box-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.box-total {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  padding: 16px;
+  background: var(--primary-subtle);
+  border-radius: 8px;
 }
 </style>
