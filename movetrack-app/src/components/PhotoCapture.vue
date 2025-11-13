@@ -106,6 +106,92 @@ const newItem = ref<Partial<InventoryItem>>({
 const editDimensions = ref({ length: 0, width: 0, height: 0 });
 const editWeight = ref(0);
 const editFragile = ref(false);
+const duplicateThreshold = 0.4;
+const activeCollectionId = computed<number | null>(() => {
+  const refValue = store.activeCollection?.value as { value: number } | undefined;
+  return refValue?.value ?? null;
+});
+const analyzeItemBlob = async (blob: Blob) => {
+  const sessionToken = localStorage.getItem('session_token');
+  if (!sessionToken) {
+    throw new Error('Please log in to analyze items');
+  }
+
+  const formData = new FormData();
+  formData.append('image', blob, 'item.jpg');
+  const providerParam = props.visionProvider ? `?provider=${props.visionProvider}` : '';
+
+  const response = await axios.post(`${core_url}/vision/analyze-item${providerParam}`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+      Authorization: `Bearer ${sessionToken}`
+    }
+  });
+
+  if (response.data?.success) {
+    return response.data.data;
+  }
+
+  throw new Error(response.data?.error || 'Vision analysis failed');
+};
+
+const tokenize = (value?: string | null) => {
+  if (!value) return [];
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+};
+
+const similarityScore = (aTokens: string[], bTokens: string[]) => {
+  if (!aTokens.length || !bTokens.length) return 0;
+  const setA = new Set(aTokens);
+  const setB = new Set(bTokens);
+  const intersection = [...setA].filter(token => setB.has(token));
+  return intersection.length / Math.min(setA.size, setB.size);
+};
+
+const potentialMatches = computed(() => {
+  const targetTokens = tokenize(newItem.value.name);
+  if (!targetTokens.length) return [];
+
+  return store.items
+    .map(item => {
+      const tokens = tokenize(item.label);
+      const score = similarityScore(targetTokens, tokens);
+      const isExact = newItem.value?.name?.trim().toLowerCase() === item.label?.trim().toLowerCase();
+      const sameCollection = !!activeCollectionId.value && item.collection === activeCollectionId.value;
+      return {
+        id: item.value,
+        name: item.label,
+        collection: store.collections.find(c => c.value === item.collection)?.label || 'Unassigned',
+        container: store.containers.find(c => c.value === item.container)?.label || 'No container',
+        score: isExact ? 1 : score,
+        sameCollection
+      };
+    })
+    .filter(match => match.score >= duplicateThreshold || match.sameCollection)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+});
+
+const handleUseExistingItem = (itemId: number) => {
+  if (!props.user) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please log in again to edit existing items.'
+    });
+    return;
+  }
+  store.openItemDetailsModal(itemId, props.user);
+  emit('close');
+  $q.notify({
+    type: 'info',
+    message: 'Opening existing item for review',
+    position: 'bottom'
+  });
+};
 
 // File input ref
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -544,7 +630,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
   try {
     // Show loading
     $q.loading.show({
-      message: `Adding ${item.name} to inventory...`
+      message: `Analyzing ${item.name}...`
     });
 
     // Crop the image based on bounding box
@@ -564,23 +650,52 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       }
     }
 
+    let aiDetails: any = null;
+    if (imageBlob) {
+      try {
+        aiDetails = await analyzeItemBlob(imageBlob);
+      } catch (analysisError) {
+        console.warn('Unable to fetch AI details for multi-item capture', analysisError);
+      }
+    }
+
+    const dimensions = aiDetails?.estimatedDimensions;
+    const weightEstimate = aiDetails?.estimatedWeight;
+    const description = aiDetails?.reasoning || 'Detected from multi-item photo';
+    const tags = Array.isArray(aiDetails?.tags) ? aiDetails.tags : [];
+    const material = aiDetails?.material ?? '';
+    const color = aiDetails?.color ?? '';
+
+    const dimensionString = dimensions
+      ? `${dimensions.length}"×${dimensions.width}"×${dimensions.height}"`
+      : '';
+
+    const lengthIn = dimensions?.length ?? null;
+    const widthIn = dimensions?.width ?? null;
+    const heightIn = dimensions?.height ?? null;
+
     // Call the inventory store's createItem function with minimal details
-    // Multi-item mode doesn't get detailed analysis, just the name
     await store.createItem(
       props.user,
       item.name,
-      `Detected from multi-item photo`, // description
+      description,
       1, // quantity
       store.activeCollection.value,
       store.activeContainer?.value,
       undefined, // location
       imageBlob,
       null, // estimatedValue
-      false, // fragile
+      aiDetails?.fragile ?? false,
       undefined, // priority
-      0, // weight (unknown)
-      '', // size (unknown)
-      '' // notes
+      weightEstimate ?? null,
+      dimensionString,
+      `Material: ${material || 'N/A'}, Color: ${color || 'N/A'}`,
+      material,
+      color,
+      tags,
+      lengthIn,
+      widthIn,
+      heightIn
     );
 
     // Reload inventory to show new item
@@ -588,7 +703,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
 
     $q.notify({
       type: 'positive',
-      message: `${item.name} added!`,
+      message: aiDetails ? `${item.name} added with AI details!` : `${item.name} added!`,
       position: 'bottom',
       timeout: 2000
     });
@@ -921,6 +1036,39 @@ onMounted(() => {
           </q-expansion-item>
         </div>
 
+        <div v-if="potentialMatches.length" class="duplicate-alert">
+          <q-banner dense rounded class="bg-warning text-dark duplicate-banner">
+            Possible duplicate{{ potentialMatches.length > 1 ? 's' : '' }} detected. Review before saving to avoid double entries.
+          </q-banner>
+          <q-list dense class="duplicate-list">
+            <q-item
+              v-for="match in potentialMatches"
+              :key="match.id"
+              class="duplicate-item"
+            >
+              <q-item-section>
+                <q-item-label class="text-weight-medium">{{ match.name }}</q-item-label>
+                <q-item-label caption>
+                  {{ match.collection }} • {{ match.container }}
+                </q-item-label>
+              </q-item-section>
+              <q-item-section side class="duplicate-actions">
+                <q-chip dense :color="match.score === 1 ? 'primary' : 'secondary'" text-color="white">
+                  {{ match.score === 1 ? 'Exact' : `${Math.round(match.score * 100)}%` }}
+                </q-chip>
+                <q-btn
+                  dense
+                  flat
+                  color="primary"
+                  icon="visibility"
+                  label="Review"
+                  @click="handleUseExistingItem(match.id)"
+                />
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </div>
+
         <!-- Action buttons -->
         <div class="action-buttons">
           <q-btn
@@ -1118,6 +1266,34 @@ onMounted(() => {
   padding: 14px;
   font-weight: 600;
   font-size: 1.05rem;
+}
+
+.duplicate-alert {
+  margin-top: 24px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #f4e0a1;
+  background: #fff9e6;
+}
+
+.duplicate-banner {
+  margin-bottom: 12px;
+}
+
+.duplicate-list {
+  border-radius: 10px;
+  background: white;
+  border: 1px solid #f0f0f0;
+}
+
+.duplicate-item + .duplicate-item {
+  border-top: 1px solid #f5f5f5;
+}
+
+.duplicate-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 /* Mode selection */

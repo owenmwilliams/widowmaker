@@ -122,3 +122,19 @@ button:focus-visible {
 .q-loading {
   z-index: 10000 !important;
 }
+
+.q-dialog__backdrop,
+.q-dialog__inner {
+  z-index: 10010 !important;
+}
+
+.q-dialog__inner {
+  align-items: flex-start;
+  padding-top: 80px;
+}
+
+@media (max-width: 600px) {
+  .q-dialog__inner {
+    padding-top: 60px;
+  }
+}

@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
+import { useDataQuality, weightIsTracked } from '../../composables/useDataQuality';
 
 const props = defineProps({
   user: String
@@ -9,6 +10,7 @@ const props = defineProps({
 
 const store = inventoryStore();
 const { locationValues, collectionValues, containerValues } = storeToRefs(store);
+const { missingAttributeSummary } = useDataQuality(store);
 
 const normalizeDate = (value: any) => {
   if (!value) return null;
@@ -83,10 +85,7 @@ const itemsWithDimensions = computed(() => {
 });
 
 const itemsWithWeight = computed(() => {
-  return store.items.filter(item => {
-    const weight = Number(item.weight_lbs);
-    return Number.isFinite(weight) && weight > 0;
-  }).length;
+  return store.items.filter(item => weightIsTracked(item.weight_lbs)).length;
 });
 
 type TrendDay = { label: string; count: number; dateKey: string };
@@ -115,69 +114,6 @@ const itemsAddedTrend = computed(() => {
   return { days, maxCount, totalWeek };
 });
 
-type MissingAttribute = {
-  key: string;
-  label: string;
-  description: string;
-  predicate: (item: any) => boolean;
-  color: string;
-};
-
-const missingAttributeSummary = computed(() => {
-  const definitions = [
-    {
-      key: 'picture',
-      label: 'Missing Photos',
-      description: 'Items without any pictures',
-      color: 'secondary',
-      predicate: (item: any) => !item.picture_url
-    },
-    {
-      key: 'weight',
-      label: 'Missing Weight',
-      description: 'Items without recorded weight',
-      color: 'info',
-      predicate: (item: any) => {
-        const weight = Number(item.weight_lbs);
-        return !(Number.isFinite(weight) && weight > 0);
-      }
-    },
-    {
-      key: 'dimensions',
-      label: 'Missing Dimensions',
-      description: 'Items without dimensions or L/W/H',
-      color: 'accent',
-      predicate: (item: any) => {
-        if (item.dimensions) return false;
-        return !(item.length_in && item.width_in && item.height_in);
-      }
-    },
-    {
-      key: 'location',
-      label: 'Missing Location',
-      description: 'Items not assigned to a location',
-      color: 'warning',
-      predicate: (item: any) => !item.location
-    },
-    {
-      key: 'container',
-      label: 'Unpacked Items',
-      description: 'Items not assigned to a container',
-      color: 'primary',
-      predicate: (item: any) => !item.container
-    }
-  ];
-
-  return definitions.map((def: MissingAttribute) => {
-    const missing = store.items.filter(def.predicate).length;
-    return {
-      ...def,
-      missing,
-      total: totalItems.value,
-      pct: totalItems.value > 0 ? (missing / totalItems.value) * 100 : 0
-    };
-  }).sort((a, b) => b.missing - a.missing);
-});
 
 // Collection breakdown
 const collectionBreakdown = computed(() => {
@@ -582,6 +518,7 @@ const getUtilizationColor = (pct: number) => {
       </q-card>
     </div>
   </div>
+
 </template>
 
 <style scoped>
@@ -709,6 +646,17 @@ const getUtilizationColor = (pct: number) => {
 
 .content-card.full-width {
   grid-column: 1 / -1;
+}
+
+.issue-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.issue-chip {
+  font-size: 0.7rem;
 }
 
 .collection-item {
