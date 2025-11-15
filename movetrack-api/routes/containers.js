@@ -215,6 +215,11 @@ router.get('/all/grouped', jsonParser, async function(req, res, next) {
 // THIS IS USED BY THE APPLICATION TO ADD A CONTAINER TO A COLLECTION
 router.post('/post', jsonParser, async function(req, res, next) {
   try {
+    // Validate that collection is provided (required)
+    if (!req.query.collection) {
+      return res.status(400).json({ error: 'collection is required for containers' });
+    }
+
     var params = {
       owner: req.query.user,
       name: req.query.name,
@@ -222,9 +227,7 @@ router.post('/post', jsonParser, async function(req, res, next) {
       collection_id: req.query.collection
     };
 
-    if (req.query.location_id) {
-      params.location_id = req.query.location_id;
-    }
+    // Note: location is now inherited from collection, so we don't accept location_id parameter
 
     // New MoveTrack fields
     if (req.query.box_number) {
@@ -362,10 +365,8 @@ router.put('/update', jsonParser, async function(req, res, next) {
       itemParams.collection_id = req.query.collection;
     }
 
-    if (req.query.location) {
-      containerParams.location_id = req.query.location
-      itemParams.location_id = req.query.location
-    }
+    // Note: location is now inherited from collection for both containers and items,
+    // so we don't accept location_id parameter
 
     // Remove undefined values from containerParams
     Object.keys(containerParams).forEach(key => {

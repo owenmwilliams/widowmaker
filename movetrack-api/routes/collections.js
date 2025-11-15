@@ -165,13 +165,19 @@ router.get('/all/grouped', jsonParser, async function(req, res, next) {
 // THIS IS USED BY THE APPLICATION TO ADD A COLLECTION
 router.post('/post', jsonParser, async function(req, res, next) {
   try {
+    // Validate that location is provided
+    if (!req.query.location) {
+      return res.status(400).json({ error: 'location is required for collections' });
+    }
+
     knex.transaction(async trx => {
       await knex('collections')
       .transacting(trx)
       .insert({
         owner: req.query.user,
         name: req.query.name,
-        description: req.query.description
+        description: req.query.description,
+        location_id: req.query.location
       })
       .returning('id')
       .then(async result => {
@@ -239,19 +245,27 @@ router.delete('/delete', jsonParser, async function(req, res, next) {
 // THIS IS USED BY THE APPLICATION TO EDIT A COLLECTION
 router.put('/update', jsonParser, async function(req, res, next) {
   try {
+    // Build update object dynamically
+    const updateData = {
+      owner: req.query.user,
+      name: req.query.name,
+      description: req.query.description
+    };
+
+    // Add location_id if provided
+    if (req.query.location !== undefined) {
+      updateData.location_id = req.query.location;
+    }
+
     knex.transaction(async trx => {
       await knex('collections')
       .transacting(trx)
-      .update({
-        owner: req.query.user,
-        name: req.query.name,
-        description: req.query.description
-      })
+      .update(updateData)
       .where('id', req.query.collection_id)
 
       .then(trx.commit)
       .catch(trx.rollback);
-    })    
+    })
     .then(() => {
       res.send('OK')
     })

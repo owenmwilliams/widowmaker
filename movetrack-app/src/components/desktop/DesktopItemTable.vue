@@ -30,7 +30,6 @@
 
     // Tag filters
     const filterFragile = ref(false)
-    const filterPriority = ref<string[]>([])
     const showFiltersMenu = ref(false)
 
     const toggleFilterValue = (list: Ref<Array<number>>, value: number) => {
@@ -44,15 +43,6 @@
 
     const isFilterActive = (list: Ref<Array<number>>, value: number) => list.value.includes(value)
 
-    const togglePriorityValue = (value: string) => {
-        const idx = filterPriority.value.indexOf(value)
-        if (idx >= 0) {
-            filterPriority.value.splice(idx, 1)
-        } else {
-            filterPriority.value.push(value)
-        }
-    }
-
     const toggleCollectionFilter = (value: number) => toggleFilterValue(collectionValues, value)
     const toggleContainerFilter = (value: number) => toggleFilterValue(containerValues, value)
     const toggleLocationFilter = (value: number) => toggleFilterValue(locationValues, value)
@@ -65,7 +55,6 @@
         containerValues.value = store.containers.map(i => i.value)
         locationValues.value = store.locations.map(i => i.value)
         filterFragile.value = false
-        filterPriority.value = []
     }
 
     const getSelectedString = () => {
@@ -80,11 +69,10 @@
                 if (!store.collectionValues?.includes(i.collection)) return false
                 if (i.location != null && !store.locationValues?.includes(i.location)) return false
                 if (i.container != null && !store.containerValues?.includes(i.container)) return false
-                
+
                 // Tag filters
                 if (filterFragile.value && !i.fragile) return false
-                if (filterPriority.value.length > 0 && !filterPriority.value.includes(i.priority?.toLowerCase() || '')) return false
-                
+
                 return true
             })
             .map(i => {
@@ -149,7 +137,6 @@
         { name: 'description', align: 'left', label: 'Description', field: 'description', required: false, style: 'max-width: 250px; word-wrap: break-word; overflow: hidden; white-space: nowrap;', headerStyle: 'max-width: 200px;' },
         { name: 'quantity', align: 'center', label: 'Quantity', field: 'quantity', sortable: true, required: false, sort: (a, b) => parseInt(a, 10) - parseInt(b, 10) },
         { name: 'fragile', align: 'center', label: 'Fragile', field: 'fragile', sortable: true, required: false },
-        { name: 'priority', align: 'center', label: 'Priority', field: 'priority', sortable: true, required: false },
         { name: 'weight_lbs', align: 'center', label: 'Weight (lbs)', field: 'weight_lbs', sortable: true, required: false },
         { name: 'dimensions', align: 'center', label: 'Dimensions', field: 'dimensions', sortable: false, required: false },
         { name: 'collection_name', align: 'right', label: 'Collection', field: 'collection_name', sortable: true, required: false },
@@ -200,15 +187,6 @@
         allSelected.value = false
     }
 
-    const getPriorityColor = (priority: string | null) => {
-        if (!priority) return 'grey'
-        const p = priority.toLowerCase()
-        if (p === 'high') return 'red-7'
-        if (p === 'medium') return 'orange-7'
-        if (p === 'low') return 'green-7'
-        return 'grey-7'
-    }
-
     const openItemDetails = (itemId: number) => {
         if (!props.user) {
             return
@@ -233,16 +211,20 @@
             <p class="text-caption text-grey-7 q-mt-xs">View and manage all items in your inventory</p>
         </div>
 
-        <q-page class="q-pa-md">
+    <div class="q-pa-md items-table-page">
+        <div class="table-wrapper">
             <q-table
-        class="my-sticky-header-column-table"
-        :rows-per-page-options="[25, 50, 100]"
+        class="my-sticky-header-column-table full-height-table"
+        :rows-per-page-options="[0]"
         :rows="itemRows"
         :columns="columns"
         separator="horizontal"
         row-key="value"
         :filter-method="customFilter"
         :filter="search"
+        virtual-scroll
+        :virtual-scroll-item-size="48"
+        :virtual-scroll-sticky-size-start="48"
         >
 
         <template v-slot:top>
@@ -256,14 +238,6 @@
 
                 <q-btn flat color="primary" label="Filters" icon="filter_list" @click.stop="showFiltersMenu = true" />
 
-                <q-btn
-                    unelevated
-                    color="primary"
-                    icon="add"
-                    label="Add Item"
-                    :disable="store.collections.length === 0"
-                    @click.stop="emit('addAction')"
-                />
                 <q-dialog v-model="showFiltersMenu">
                     <q-card class="filters-menu">
                         <q-card-section class="row items-center justify-between q-pb-none">
@@ -337,36 +311,6 @@
                                     @click="filterFragile = !filterFragile"
                                 >
                                     Fragile
-                                </q-chip>
-                                <q-chip
-                                    dense
-                                    clickable
-                                    :outline="!filterPriority.includes('high')"
-                                    color="negative"
-                                    text-color="white"
-                                    @click="togglePriorityValue('high')"
-                                >
-                                    High Priority
-                                </q-chip>
-                                <q-chip
-                                    dense
-                                    clickable
-                                    :outline="!filterPriority.includes('medium')"
-                                    color="warning"
-                                    text-color="white"
-                                    @click="togglePriorityValue('medium')"
-                                >
-                                    Medium Priority
-                                </q-chip>
-                                <q-chip
-                                    dense
-                                    clickable
-                                    :outline="!filterPriority.includes('low')"
-                                    color="positive"
-                                    text-color="white"
-                                    @click="togglePriorityValue('low')"
-                                >
-                                    Low Priority
                                 </q-chip>
                             </div>
                         </div>
@@ -508,17 +452,6 @@
                 <span v-else class="text-grey-5">—</span>
             </q-td>
 
-            <q-td key="priority" :props="props">
-                <q-badge 
-                    v-if="props.row.priority" 
-                    :color="getPriorityColor(props.row.priority)" 
-                    text-color="white"
-                >
-                    {{ props.row.priority }}
-                </q-badge>
-                <span v-else class="text-grey-5">—</span>
-            </q-td>
-
             <q-td key="weight_lbs" :props="props">
                 {{ props.row.weight_lbs ? props.row.weight_lbs + ' lbs' : '—' }}
             </q-td>
@@ -537,7 +470,8 @@
             </q-tr>
         </template>
         </q-table>
-    </q-page>
+        </div>
+    </div>
 
     <q-dialog  v-model="deleteItemDialog" @hide="closeDialog">
         <q-card style="max-height: 80vh; min-width: 30vw;">
@@ -570,6 +504,42 @@
 .items-container {
   max-width: 100%;
   background: #F7F8FA;
+  height: calc(100vh - 50px - 48px); /* 50px for header, 48px for subnav */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.items-header {
+  flex-shrink: 0;
+  background: white;
+  border-bottom: 1px solid #E0E0E0;
+}
+
+.items-table-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.table-wrapper {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border: 1px solid #E0E0E0;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.table-wrapper :deep(.q-table__container) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .button-container {
@@ -578,12 +548,33 @@
     background-color: white; /* Adjust the background color as needed */
     z-index: 1; /* Ensure buttons appear above the table */
 }
-.my-sticky-header-column-table {
-  max-height: calc(100vh - 120px);
+
+.full-height-table {
+  flex: 1;
+  min-height: 0;
 }
 
-/* Hide scrollbars while keeping functionality */
+.my-sticky-header-column-table {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.my-sticky-header-column-table :deep(.q-table__container) {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.my-sticky-header-column-table :deep(.q-table__top) {
+  flex-shrink: 0;
+}
+
 .my-sticky-header-column-table :deep(.q-table__middle) {
+  flex: 1;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
 }

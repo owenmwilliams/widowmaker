@@ -14,10 +14,8 @@ const form = reactive({
   quantity: 1,
   collection: undefined as number | undefined,
   container: undefined as number | undefined,
-  location: undefined as number | undefined,
   estimatedValue: null as number | null,
   fragile: false,
-  priority: '' as string | null,
   weightLbs: null as number | null,
   dimensions: '' as string | null,
   lengthIn: null as number | null,
@@ -63,29 +61,14 @@ const containerOptions = computed(() => {
     }));
 });
 
-const locationOptions = computed(() =>
-  store.locations.map((location) => ({
-    label: location.label,
-    value: location.value
-  }))
-);
-
-const priorityOptions = [
-  { label: 'High', value: 'high' },
-  { label: 'Normal', value: 'normal' },
-  { label: 'Low', value: 'low' }
-];
-
 const resetForm = () => {
   form.name = '';
   form.description = '';
   form.quantity = 1;
   form.collection = store.activeCollection?.value ?? store.collections[0]?.value;
   form.container = undefined;
-  form.location = undefined;
   form.estimatedValue = null;
   form.fragile = false;
-  form.priority = null;
   form.weightLbs = null;
   form.dimensions = '';
   form.lengthIn = null;
@@ -154,13 +137,11 @@ const populateFormFromItem = () => {
   form.quantity = selectedItem.value.quantity || 1;
   form.collection = selectedItem.value.collection;
   form.container = selectedItem.value.container ?? undefined;
-  form.location = selectedItem.value.location ?? undefined;
   form.estimatedValue =
     selectedItem.value.estimated_value !== undefined
       ? selectedItem.value.estimated_value
       : null;
   form.fragile = Boolean(selectedItem.value.fragile);
-  form.priority = selectedItem.value.priority || null;
   form.weightLbs =
     selectedItem.value.weight_lbs !== undefined
       ? selectedItem.value.weight_lbs
@@ -270,20 +251,19 @@ const createManualItem = async () => {
       form.quantity,
       targetCollection,
       form.container,
-      form.location,
       newPhotoBlob.value ?? undefined,
       form.estimatedValue,
       form.fragile,
-      form.priority || undefined,
+      undefined, // priority (no longer used)
       form.weightLbs,
       form.dimensions || undefined,
+      form.lengthIn,
+      form.widthIn,
+      form.heightIn,
       form.notes || undefined,
       form.material || undefined,
       form.primaryColor || undefined,
-      tagsAsArray.value,
-      form.lengthIn,
-      form.widthIn,
-      form.heightIn
+      tagsAsArray.value
     );
 
     $q.notify({
@@ -328,12 +308,10 @@ const saveItem = async () => {
       form.quantity,
       form.collection ?? selectedItem.value.collection,
       form.container,
-      form.location,
       pictureParam,
       {
         estimatedValue: form.estimatedValue,
         fragile: form.fragile,
-        priority: form.priority,
         weightLbs: form.weightLbs,
         dimensions: form.dimensions,
         lengthIn: form.lengthIn,
@@ -444,15 +422,6 @@ const handleClose = () => {
 
           <div v-if="!isCreateMode" class="q-mt-sm row q-gutter-sm">
             <q-chip
-              v-if="form.priority"
-              color="primary"
-              text-color="white"
-              square
-              dense
-            >
-              Priority: {{ form.priority }}
-            </q-chip>
-            <q-chip
               v-if="form.fragile"
               color="red"
               text-color="white"
@@ -510,9 +479,10 @@ const handleClose = () => {
               <div class="detail-label">Location</div>
               <div class="detail-value">
                 {{
-                  store.locations.find((l) => l.value === form.location)?.label ||
+                  store.locations.find((l) => l.value === store.collections.find((c) => c.value === form.collection)?.location)?.label ||
                   'Unassigned'
                 }}
+                <span class="text-caption text-grey-7" v-if="form.collection"> (inherited from collection)</span>
               </div>
             </div>
             <div class="detail-card">
@@ -538,12 +508,6 @@ const handleClose = () => {
                   <span class="text-caption text-grey-7">({{ ((form.lengthIn * form.widthIn * form.heightIn) / 1728).toFixed(2) }} cu ft)</span>
                 </span>
                 <span v-else>Not set</span>
-              </div>
-            </div>
-            <div class="detail-card">
-              <div class="detail-label">Priority</div>
-              <div class="detail-value">
-                {{ form.priority || 'Not set' }}
               </div>
             </div>
             <div class="detail-card">
@@ -633,34 +597,13 @@ const handleClose = () => {
                   clearable
                 />
               </div>
-              <div class="col-12 col-md-4">
-                <q-select
-                  dense
-                  v-model="form.location"
-                  :options="locationOptions"
-                  label="Location"
-                  outlined
-                  clearable
-                />
-              </div>
             </div>
+            <!-- Location is now inherited from collection, so no location selector needed -->
           </div>
 
           <div class="form-section">
             <div class="section-title">Characteristics</div>
             <div class="row q-col-gutter-md">
-              <div class="col-12 col-md-4">
-                <q-select
-                  dense
-                  v-model="form.priority"
-                  :options="priorityOptions"
-                  label="Priority"
-                  outlined
-                  emit-value
-                  map-options
-                  clearable
-                />
-              </div>
               <div class="col-12 col-md-4">
                 <q-input
                   dense
@@ -669,14 +612,6 @@ const handleClose = () => {
                   label="Weight (lbs)"
                   outlined
                   suffix="lbs"
-                />
-              </div>
-              <div class="col-12 col-md-4 flex flex-center">
-                <q-checkbox
-                  dense
-                  v-model="form.fragile"
-                  label="Fragile"
-                  color="red"
                 />
               </div>
               <div class="col-12">
@@ -716,6 +651,14 @@ const handleClose = () => {
                   min="0"
                   step="0.1"
                   suffix="in"
+                />
+              </div>
+              <div class="col-4 col-md-2 flex flex-center">
+                <q-checkbox
+                  dense
+                  v-model="form.fragile"
+                  label="Fragile"
+                  color="red"
                 />
               </div>
               <div class="col-12 col-md-3">

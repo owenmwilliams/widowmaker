@@ -19,7 +19,7 @@
 
 
   const pageItem = ref<'dashboard' | 'inventory' | 'move' | 'settings' | 'support'>('dashboard')
-  const dashboardTab = ref<'overview' | 'review'>('overview')
+  const dashboardTab = ref<'overview' | 'attributes' | 'duplicates'>('overview')
   const inventoryTab = ref<'items' | 'collections'>('collections')
   const showPhotoCapture = ref(false)
   const showVisionSettings = ref(false)
@@ -207,12 +207,13 @@
       <q-page-container>
           <div v-if="pageItem === 'dashboard'">
             <div class="subnav">
-              <q-btn-group flat>
+              <q-btn-group flat class="pill-tabs">
                 <q-btn
                   flat
                   dense
                   no-caps
-                  :color="dashboardTab === 'overview' ? 'primary' : 'grey-7'"
+                  :class="{ 'pill-tab-active': dashboardTab === 'overview' }"
+                  class="pill-tab"
                   label="Overview"
                   @click="dashboardTab = 'overview'"
                 />
@@ -220,32 +221,53 @@
                   flat
                   dense
                   no-caps
-                  :color="dashboardTab === 'review' ? 'primary' : 'grey-7'"
-                  label="Review Queue"
-                  @click="dashboardTab = 'review'"
+                  :class="{ 'pill-tab-active': dashboardTab === 'attributes' }"
+                  class="pill-tab"
+                  label="Review Attributes"
+                  @click="dashboardTab = 'attributes'"
                 />
-              </q-btn-group>
-            </div>
-            <DesktopDashboard v-if="dashboardTab === 'overview'" :user="props.user!" />
-            <DesktopReviewQueue v-else :user="props.user!" />
-          </div>
-
-          <div v-else-if="pageItem === 'inventory'">
-            <div class="subnav">
-              <q-btn-group flat>
                 <q-btn
                   flat
                   dense
                   no-caps
-                  :color="inventoryTab === 'collections' ? 'primary' : 'grey-7'"
-                  label="Collections"
+                  :class="{ 'pill-tab-active': dashboardTab === 'duplicates' }"
+                  class="pill-tab"
+                  label="Review Duplicates"
+                  @click="dashboardTab = 'duplicates'"
+                />
+              </q-btn-group>
+            </div>
+            <DesktopDashboard v-if="dashboardTab === 'overview'" :user="props.user!" />
+            <DesktopReviewQueue
+              v-else-if="dashboardTab === 'attributes'"
+              :user="props.user!"
+              view="attributes"
+            />
+            <DesktopReviewQueue
+              v-else
+              :user="props.user!"
+              view="duplicates"
+            />
+          </div>
+
+          <div v-else-if="pageItem === 'inventory'">
+            <div class="subnav">
+              <q-btn-group flat class="pill-tabs">
+                <q-btn
+                  flat
+                  dense
+                  no-caps
+                  :class="{ 'pill-tab-active': inventoryTab === 'collections' }"
+                  class="pill-tab"
+                  label="Packing"
                   @click="inventoryTab = 'collections'"
                 />
                 <q-btn
                   flat
                   dense
                   no-caps
-                  :color="inventoryTab === 'items' ? 'primary' : 'grey-7'"
+                  :class="{ 'pill-tab-active': inventoryTab === 'items' }"
+                  class="pill-tab"
                   label="Items"
                   @click="inventoryTab = 'items'"
                 />
@@ -399,6 +421,32 @@
 
 .subnav {
   padding: 12px 24px 0;
+}
+
+.pill-tabs {
+  background: #F0F2F5;
+  border-radius: 8px;
+  padding: 4px;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.pill-tab {
+  border-radius: 6px;
+  padding: 6px 16px;
+  transition: all 0.2s;
+  color: #5F6368;
+  font-weight: 500;
+}
+
+.pill-tab:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.pill-tab-active {
+  background: white !important;
+  color: #1976D2 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 .add-options-card {

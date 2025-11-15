@@ -167,16 +167,6 @@
             };
         }
     });
-    const locationOptions = computed(() => {
-        if (store.activeContainer == undefined || props.addType == 'Item') {
-        return store.locations.map(i => {return {label: i.label, value: i.value}})
-        } else if (store.containers.find(i => i.value == store.activeContainer?.value)?.location == undefined) {
-        console.log('location is undefined and this container doesnt have a location')
-        return store.locations.map(i => {return {label: i.label, value: i.value}})
-        } else {
-        return store.locations.filter(i => i.value == store.containers.find(i => i.value == store.activeContainer?.value)?.location).map(i => {return {label: i.label, value: i.value}})
-        }
-    })
 
     onMounted(() => {
         if (props.addType == 'Location') {
@@ -226,8 +216,17 @@
                 }
             }
         } else if (props.addType == 'Collection') {
-            name.value = store.collections.filter(i => i.value == props.id)[0]?.label
-            description.value = store.collections.filter(i => i.value == props.id)[0]?.description
+            const collection = store.collections.filter(i => i.value == props.id)[0];
+            name.value = collection?.label
+            description.value = collection?.description
+
+            // Load location for collection
+            if (collection && collection.location != null) {
+                location.value = {
+                    label: store.locations.find(i => i.value == collection.location)?.label ?? '',
+                    value: collection.location
+                };
+            }
         }
     })
 
@@ -237,17 +236,16 @@
         if (props.addType == 'Collection') {
             store.updateCollection(
                 props.id,
-                props.user, 
-                name.value, 
+                props.user,
+                name.value,
                 description.value
             )
         } else if (props.addType == 'Container') {
             store.updateContainer(
                 props.id,
-                props.user, 
-                name.value, 
+                props.user,
+                name.value,
                 store.activeCollection!.value,
-                location.value?.value,
                 {
                     boxNumber: boxNumber.value,
                     boxType: boxType.value,
@@ -317,12 +315,12 @@
                 behavior="dialog"
             />
 
-            <!-- OPTIONAL FOR ITEM, CONTAINER -->
+            <!-- REQUIRED FOR COLLECTION -->
             <q-select
-                v-if="(props.addType == 'Item') || (props.addType == 'Container')"
+                v-if="props.addType == 'Collection'"
                 dense
                 v-model="location"
-                :options="locationOptions"
+                :options="store.locations.map(i => {return {label: i.label, value: i.value}})"
                 label="Location"
                 filled
             />
@@ -435,7 +433,7 @@
         </q-card-section>
 
         <q-card-actions align="right" class="text-primary">
-        <q-btn flat color="info" label="Cancel" v-close-popup />
+        <q-btn flat color="grey-7" label="Cancel" v-close-popup />
         <q-btn flat color="primary" label="Save" @click="submit" v-close-popup />
         <!-- <q-btn color="secondary" label="Console Log" @click="consoleLog" /> -->
         </q-card-actions>

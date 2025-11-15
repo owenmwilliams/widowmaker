@@ -31,13 +31,6 @@ export const dataQualityDefinitions = [
     }
   },
   {
-    key: 'location',
-    label: 'Missing Location',
-    description: 'Items not assigned to a location',
-    color: 'warning',
-    predicate: (item: any) => !item.location
-  },
-  {
     key: 'container',
     label: 'Unpacked Items',
     description: 'Items not assigned to a container',
@@ -77,11 +70,24 @@ export const useDataQuality = (store: {
     return dataQualityDefinitions
       .map(def => {
         const missing = store.items.filter(def.predicate).length;
+        const pct = totalItems.value > 0 ? (missing / totalItems.value) * 100 : 0;
+
+        // Color logic: >85% red, 50-85% yellow, <50% green
+        let color: string;
+        if (pct > 85) {
+          color = 'negative';
+        } else if (pct >= 50) {
+          color = 'warning';
+        } else {
+          color = 'positive';
+        }
+
         return {
           ...def,
           missing,
           total: totalItems.value,
-          pct: totalItems.value > 0 ? (missing / totalItems.value) * 100 : 0
+          pct,
+          color // Override the default color with dynamic color
         };
       })
       .sort((a, b) => b.missing - a.missing);

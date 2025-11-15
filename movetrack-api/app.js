@@ -32,6 +32,7 @@ var authRouter = require('./routes/auth');
 var distanceRouter = require('./routes/distance');
 
 var app = express();
+app.set('trust proxy', 1);
 
 // view engine setup
 app.set('views', path.join(__dirname, 'views'));

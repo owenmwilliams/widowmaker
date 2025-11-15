@@ -170,6 +170,11 @@ router.get('/all', jsonParser, async function(req, res, next) {
 // THIS IS USED BY THE APPLICATION TO ADD AN ITEM TO A COLLECTION
 router.post('/post', jsonParser, async function(req, res, next) {
   try {
+    // Validate that collection is provided (required)
+    if (!req.query.collection) {
+      return res.status(400).json({ error: 'collection is required for items' });
+    }
+
     var params = {
       owner: req.query.user,
       name: req.query.name,
@@ -182,9 +187,7 @@ router.post('/post', jsonParser, async function(req, res, next) {
       params.container_id = req.query.container
     }
 
-    if (req.query.location) {
-      params.location_id = req.query.location
-    }
+    // Note: location is now inherited from collection, so we don't accept location_id parameter
 
     if(req.query.picture_url) {
       params.picture_url = req.query.picture_url
@@ -336,9 +339,7 @@ router.put('/update', jsonParser, async function(req, res, next) {
       params.container_id = req.query.container
     }
 
-    if (req.query.location !== undefined) {
-      params.location_id = req.query.location
-    }
+    // Note: location is now inherited from collection, so we don't accept location_id parameter
 
     if(req.query.picture_url !== undefined) {
       params.picture_url = req.query.picture_url

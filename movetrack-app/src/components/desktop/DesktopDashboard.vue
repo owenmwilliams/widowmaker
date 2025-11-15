@@ -56,10 +56,6 @@ const fragileItemsCount = computed(() => {
   return store.items.filter(item => item.fragile).length;
 });
 
-const highPriorityItemsCount = computed(() => {
-  return store.items.filter(item => item.priority === 'high').length;
-});
-
 // Weight and volume stats
 const totalWeight = computed(() => {
   return store.items.reduce((sum, item) => {
@@ -172,23 +168,6 @@ const containerUtilization = computed(() => {
   }).sort((a, b) => b.utilizationPct - a.utilizationPct).slice(0, 5);
 });
 
-// Recent items (last 10)
-const recentItems = computed(() => {
-  return [...store.items]
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 10)
-    .map(item => {
-      const collection = store.collections.find(c => c.value === item.collection);
-      const container = store.containers.find(c => c.value === item.container);
-      return {
-        name: item.label,
-        collection: collection?.label || 'N/A',
-        container: container?.label || 'Unassigned',
-        value: Number(item.estimated_value) || 0
-      };
-    });
-});
-
 // Most valuable items
 const mostValuableItems = computed(() => {
   return [...store.items]
@@ -229,37 +208,37 @@ const getUtilizationColor = (pct: number) => {
             <q-icon name="inventory_2" size="md" color="primary" />
             <span class="text-h6 text-primary q-ml-sm">{{ totalItems }}</span>
           </div>
-          <div class="text-subtitle2 text-grey-8">Total Items</div>
-          <div class="text-caption text-grey-6">Across all collections</div>
+          <div class="text-subtitle2 text-grey-8">Items</div>
+          <div class="text-caption text-grey-6">Total inventory items</div>
         </q-card-section>
       </q-card>
 
       <q-card flat bordered class="stat-card">
         <q-card-section>
           <div class="row items-center q-mb-sm">
-            <q-icon name="folder" size="md" color="secondary" />
+            <q-icon name="inventory" size="md" color="secondary" />
+            <span class="text-h6 text-primary q-ml-sm">{{ totalContainers }}</span>
+          </div>
+          <div class="text-subtitle2 text-grey-8">Containers</div>
+          <div class="text-caption text-grey-6">Boxes and containers</div>
+        </q-card-section>
+      </q-card>
+
+      <q-card flat bordered class="stat-card">
+        <q-card-section>
+          <div class="row items-center q-mb-sm">
+            <q-icon name="folder" size="md" color="accent" />
             <span class="text-h6 text-primary q-ml-sm">{{ totalCollections }}</span>
           </div>
           <div class="text-subtitle2 text-grey-8">Collections</div>
-          <div class="text-caption text-grey-6">{{ totalContainers }} containers</div>
+          <div class="text-caption text-grey-6">Organizational groups</div>
         </q-card-section>
       </q-card>
 
       <q-card flat bordered class="stat-card">
         <q-card-section>
           <div class="row items-center q-mb-sm">
-            <q-icon name="savings" size="md" color="positive" />
-            <span class="text-h6 text-primary q-ml-sm">${{ totalEstimatedValue.toLocaleString() }}</span>
-          </div>
-          <div class="text-subtitle2 text-grey-8">Total Value</div>
-          <div class="text-caption text-grey-6">Estimated inventory value</div>
-        </q-card-section>
-      </q-card>
-
-      <q-card flat bordered class="stat-card">
-        <q-card-section>
-          <div class="row items-center q-mb-sm">
-            <q-icon name="place" size="md" color="accent" />
+            <q-icon name="place" size="md" color="positive" />
             <span class="text-h6 text-primary q-ml-sm">{{ totalLocations }}</span>
           </div>
           <div class="text-subtitle2 text-grey-8">Locations</div>
@@ -268,9 +247,59 @@ const getUtilizationColor = (pct: number) => {
       </q-card>
     </div>
 
+    <!-- Secondary Stats -->
+    <div class="secondary-stats q-pa-md">
+      <q-card flat bordered>
+        <q-card-section>
+          <div class="row q-col-gutter-md">
+            <div class="col-12 col-md-3">
+              <div class="secondary-stat">
+                <q-icon name="savings" size="sm" color="grey-7" />
+                <div class="q-ml-sm">
+                  <div class="text-body1 text-weight-medium">${{ totalEstimatedValue.toLocaleString() }}</div>
+                  <div class="text-caption text-grey-6">Total Value</div>
+                  <div class="text-caption text-grey-5">Estimated inventory value</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-md-3">
+              <div class="secondary-stat">
+                <q-icon name="scale" size="sm" color="grey-7" />
+                <div class="q-ml-sm">
+                  <div class="text-body1 text-weight-medium">{{ totalWeight.toFixed(1) }} lbs</div>
+                  <div class="text-caption text-grey-6">Total Weight</div>
+                  <div class="text-caption text-grey-5">{{ itemsWithWeight }}/{{ totalItems }} items tracked</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-md-3">
+              <div class="secondary-stat">
+                <q-icon name="view_in_ar" size="sm" color="grey-7" />
+                <div class="q-ml-sm">
+                  <div class="text-body1 text-weight-medium">{{ totalVolume.toFixed(2) }} cu ft</div>
+                  <div class="text-caption text-grey-6">Total Volume</div>
+                  <div class="text-caption text-grey-5">{{ itemsWithDimensions }}/{{ totalItems }} items tracked</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-md-3">
+              <div class="secondary-stat">
+                <q-icon name="warning" size="sm" color="grey-7" />
+                <div class="q-ml-sm">
+                  <div class="text-body1 text-weight-medium">{{ fragileItemsCount }}</div>
+                  <div class="text-caption text-grey-6">Fragile Items</div>
+                  <div class="text-caption text-grey-5">Handle with care</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </q-card-section>
+      </q-card>
+    </div>
+
     <!-- Engagement Row -->
     <div class="engagement-grid q-pa-md">
-      <q-card flat bordered class="content-card">
+      <q-card flat bordered class="engagement-card packing-card">
         <q-card-section>
           <div class="row items-center justify-between q-mb-sm">
             <div>
@@ -302,7 +331,7 @@ const getUtilizationColor = (pct: number) => {
         </q-card-section>
       </q-card>
 
-      <q-card flat bordered class="content-card">
+      <q-card flat bordered class="engagement-card data-quality-card">
         <q-card-section>
           <div class="text-h6 text-primary q-mb-sm">Data Quality Watchlist</div>
           <q-markup-table dense flat class="missing-attr-table">
@@ -336,62 +365,14 @@ const getUtilizationColor = (pct: number) => {
       </q-card>
     </div>
 
-    <!-- Secondary Stats -->
-    <div class="secondary-stats q-pa-md">
-      <q-card flat bordered>
-        <q-card-section>
-          <div class="row q-col-gutter-md">
-            <div class="col-12 col-md-3">
-              <div class="secondary-stat">
-                <q-icon name="scale" size="sm" color="grey-7" />
-                <div class="q-ml-sm">
-                  <div class="text-body1 text-weight-medium">{{ totalWeight.toFixed(1) }} lbs</div>
-                  <div class="text-caption text-grey-6">Total Weight</div>
-                  <div class="text-caption text-grey-5">{{ itemsWithWeight }}/{{ totalItems }} items tracked</div>
-                </div>
-              </div>
-            </div>
-            <div class="col-12 col-md-3">
-              <div class="secondary-stat">
-                <q-icon name="view_in_ar" size="sm" color="grey-7" />
-                <div class="q-ml-sm">
-                  <div class="text-body1 text-weight-medium">{{ totalVolume.toFixed(2) }} cu ft</div>
-                  <div class="text-caption text-grey-6">Total Volume</div>
-                  <div class="text-caption text-grey-5">{{ itemsWithDimensions }}/{{ totalItems }} items tracked</div>
-                </div>
-              </div>
-            </div>
-            <div class="col-12 col-md-3">
-              <div class="secondary-stat">
-                <q-icon name="warning" size="sm" color="orange" />
-                <div class="q-ml-sm">
-                  <div class="text-body1 text-weight-medium">{{ fragileItemsCount }}</div>
-                  <div class="text-caption text-grey-6">Fragile Items</div>
-                  <div class="text-caption text-grey-5">Handle with care</div>
-                </div>
-              </div>
-            </div>
-            <div class="col-12 col-md-3">
-              <div class="secondary-stat">
-                <q-icon name="priority_high" size="sm" color="negative" />
-                <div class="q-ml-sm">
-                  <div class="text-body1 text-weight-medium">{{ highPriorityItemsCount }}</div>
-                  <div class="text-caption text-grey-6">High Priority</div>
-                  <div class="text-caption text-grey-5">Important items</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </q-card-section>
-      </q-card>
-    </div>
-
     <!-- Main Content Grid -->
     <div class="content-grid q-pa-md">
       <!-- Collection Breakdown -->
       <q-card flat bordered class="content-card">
-        <q-card-section>
+        <q-card-section class="content-card-header">
           <div class="text-h6 text-primary q-mb-md">Collection Breakdown</div>
+        </q-card-section>
+        <q-card-section class="content-card-body">
           <div v-if="collectionBreakdown.length > 0">
             <div v-for="collection in collectionBreakdown" :key="collection.name" class="collection-item q-mb-md">
               <div class="row items-center justify-between q-mb-xs">
@@ -420,8 +401,10 @@ const getUtilizationColor = (pct: number) => {
 
       <!-- Container Utilization -->
       <q-card flat bordered class="content-card">
-        <q-card-section>
+        <q-card-section class="content-card-header">
           <div class="text-h6 text-primary q-mb-md">Container Utilization</div>
+        </q-card-section>
+        <q-card-section class="content-card-body">
           <div v-if="containerUtilization.length > 0">
             <div v-for="container in containerUtilization" :key="container.name" class="container-util-item q-mb-md">
               <div class="row items-center justify-between q-mb-xs">
@@ -463,8 +446,10 @@ const getUtilizationColor = (pct: number) => {
 
       <!-- Most Valuable Items -->
       <q-card flat bordered class="content-card">
-        <q-card-section>
+        <q-card-section class="content-card-header">
           <div class="text-h6 text-primary q-mb-md">Most Valuable Items</div>
+        </q-card-section>
+        <q-card-section class="content-card-body">
           <div v-if="mostValuableItems.length > 0">
             <q-list dense>
               <q-item v-for="(item, index) in mostValuableItems" :key="index" class="q-px-none">
@@ -486,33 +471,6 @@ const getUtilizationColor = (pct: number) => {
           <div v-else class="text-center text-grey-5 q-py-md">
             <q-icon name="attach_money" size="lg" />
             <div class="q-mt-sm">No items with values</div>
-          </div>
-        </q-card-section>
-      </q-card>
-
-      <!-- Recent Items -->
-      <q-card flat bordered class="content-card full-width">
-        <q-card-section>
-          <div class="text-h6 text-primary q-mb-md">Recently Added Items</div>
-          <div v-if="recentItems.length > 0">
-            <q-list dense bordered class="rounded-borders">
-              <q-item v-for="(item, index) in recentItems" :key="index">
-                <q-item-section avatar>
-                  <q-icon name="inventory_2" color="primary" size="xs" />
-                </q-item-section>
-                <q-item-section>
-                  <q-item-label class="text-weight-medium">{{ item.name }}</q-item-label>
-                  <q-item-label caption>{{ item.collection }} • {{ item.container }}</q-item-label>
-                </q-item-section>
-                <q-item-section side v-if="item.value > 0">
-                  <q-item-label class="text-grey-7">${{ item.value.toLocaleString() }}</q-item-label>
-                </q-item-section>
-              </q-item>
-            </q-list>
-          </div>
-          <div v-else class="text-center text-grey-5 q-py-md">
-            <q-icon name="inbox" size="lg" />
-            <div class="q-mt-sm">No items yet</div>
           </div>
         </q-card-section>
       </q-card>
@@ -563,10 +521,34 @@ const getUtilizationColor = (pct: number) => {
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px;
   align-items: stretch;
+  grid-auto-rows: 1fr;
 }
 
-.engagement-grid .content-card {
+.engagement-card {
+  background: white;
   height: 100%;
+}
+
+.packing-card,
+.data-quality-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.packing-card .q-card-section,
+.data-quality-card .q-card-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.packing-card .trend-chart {
+  flex: 1;
+  margin-top: 8px;
+}
+
+.data-quality-card .missing-attr-table {
+  flex: 1;
 }
 
 .trend-chart {
@@ -634,18 +616,27 @@ const getUtilizationColor = (pct: number) => {
 
 .content-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-top: -8px;
 }
 
 .content-card {
   background: white;
-  height: fit-content;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(33vh);
 }
 
-.content-card.full-width {
-  grid-column: 1 / -1;
+.content-card-header {
+  flex-shrink: 0;
+  padding-bottom: 0 !important;
+}
+
+.content-card-body {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: 0 !important;
 }
 
 .issue-chip-row {
@@ -674,6 +665,10 @@ const getUtilizationColor = (pct: number) => {
 @media (max-width: 1024px) {
   .content-grid {
     grid-template-columns: 1fr;
+  }
+
+  .content-card {
+    max-height: 400px;
   }
 
   .stats-grid {

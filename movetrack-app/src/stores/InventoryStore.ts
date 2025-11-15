@@ -150,6 +150,7 @@ export const inventoryStore = defineStore("inventory", () => {
                             value: Number(i.id),
                             label: i.name,
                             description: i.description,
+                            location: i.location_id,
                             disable: !items.value.map(i => i.collection).includes(Number(i.id))
                         }
                     })
@@ -183,8 +184,10 @@ export const inventoryStore = defineStore("inventory", () => {
             })
             .then(async () => {
                 // Auto-create default collection if none exists
-                if (collections.value.length === 0) {
-                    await createCollection(user, 'My First Collection', 'Your default collection');
+                if (collections.value.length === 0 && locations.value.length > 0) {
+                    // Use the first available location (preferably primary residence)
+                    const defaultLocation = locations.value.find(l => l.isPrimary) || locations.value[0];
+                    await createCollection(user, 'My First Collection', 'Your default collection', defaultLocation.value);
                 }
 
                 if (activeCollection.value == undefined && collections.value.length > 0) {
@@ -268,7 +271,27 @@ export const inventoryStore = defineStore("inventory", () => {
         itemDetailsMode.value = 'view'
     }
 
-    async function createItem (user: string, name: string, description: string, quantity: number, collection: number, container?: number | undefined, location?: number | undefined, image?: Blob, estimatedValue?: number | null, fragile?: boolean, priority?: string, weightLbs?: number | null, dimensions?: string, notes?: string, material?: string, primaryColor?: string, tags?: string[], lengthIn?: number | null, widthIn?: number | null, heightIn?: number | null) {
+    async function createItem (
+        user: string,
+        name: string,
+        description: string,
+        quantity: number,
+        collection: number,
+        container?: number | undefined,
+        image?: Blob,
+        estimatedValue?: number | null,
+        fragile?: boolean,
+        priority?: string,
+        weightLbs?: number | null,
+        dimensions?: string,
+        lengthIn?: number | null,
+        widthIn?: number | null,
+        heightIn?: number | null,
+        notes?: string,
+        material?: string,
+        primaryColor?: string,
+        tags?: string[]
+    ) {
         // 1. UPLOAD ALL THE TEXTUAL DATA
         // 2. RETURN AN ID
         // 3. UPLOAD IMAGE WITH THAT ID AS A UNIQUE IDENTIFIER
@@ -290,12 +313,6 @@ export const inventoryStore = defineStore("inventory", () => {
             params.container = container;
         } else {
             params.container = null;
-        }
-
-        if (location !== undefined) {
-            params.location = location;
-        } else {
-            params.location = null;
         }
 
         // Add new MoveTrack fields if provided
@@ -488,13 +505,12 @@ export const inventoryStore = defineStore("inventory", () => {
         quantity: number,
         collection: number,
         container?: number | undefined,
-        location?: number | undefined,
         picture_url?: string,
         extra?: ItemUpdateExtras,
         options?: ItemUpdateOptions
     ) {
         console.log('picture url is: ', picture_url)
-        
+
         let params: any = {
             item_id: id,
             user: user,
@@ -504,19 +520,15 @@ export const inventoryStore = defineStore("inventory", () => {
             collection: collection,
         };
 
-        
-        
+
+
         if (container !== undefined) {
             params.container = container;
         } else {
             params.container = null;
         }
-        
-        if (location !== undefined) {
-            params.location = location;
-        } else {
-            params.location = null;
-        }
+
+        // Note: location is now inherited from collection, so we don't pass it
 
         let uploadedUrl: string | undefined;
         const headers = await getHeaders();
@@ -688,7 +700,6 @@ export const inventoryStore = defineStore("inventory", () => {
         user: string,
         name: string,
         collection: number,
-        location?: number,
         boxNumber?: string,
         boxType?: string,
         sealed?: boolean,
@@ -710,11 +721,7 @@ export const inventoryStore = defineStore("inventory", () => {
             parameters.description = description
         }
 
-        if (location != undefined) {
-            parameters.location_id = location
-        } else {
-            parameters.location_id = null
-        }
+        // Note: location is now inherited from collection, so we don't pass it
 
         // Add new MoveTrack fields if provided
         if (boxNumber) {
@@ -802,7 +809,6 @@ export const inventoryStore = defineStore("inventory", () => {
         user: string,
         name: string,
         collection: number,
-        location?: number,
         options?: {
             boxNumber?: string,
             boxType?: string,
@@ -816,8 +822,6 @@ export const inventoryStore = defineStore("inventory", () => {
             description?: string
         }
     ) {
-        console.log('location in inventory store is: ', location)
-
         const containerOptions = options || {}
 
         const headers = await getHeaders();
@@ -829,7 +833,7 @@ export const inventoryStore = defineStore("inventory", () => {
                 user: user,
                 name: name,
                 collection: collection,
-                location: location,
+                // Note: location is now inherited from collection
                 description: containerOptions.description,
                 box_number: containerOptions.boxNumber,
                 box_type: containerOptions.boxType,
@@ -849,7 +853,7 @@ export const inventoryStore = defineStore("inventory", () => {
 
             containers.value[index].label = name
             containers.value[index].collection = collection
-            containers.value[index].location = location
+            // Note: location is now inherited from collection and populated from API
             if (containerOptions.description !== undefined) {
                 containers.value[index].description = containerOptions.description
             }
@@ -930,7 +934,7 @@ export const inventoryStore = defineStore("inventory", () => {
         })
     }
 
-    async function createCollection (user: string, name: string, description: string) {
+    async function createCollection (user: string, name: string, description: string, location: number) {
         const headers = await getHeaders();
         axios({
             method: 'post',
@@ -938,7 +942,8 @@ export const inventoryStore = defineStore("inventory", () => {
             params: {
                 user: user,
                 name: name,
-                description: description
+                description: description,
+                location: location
             },
             headers: headers
         })
@@ -947,7 +952,8 @@ export const inventoryStore = defineStore("inventory", () => {
                 value: Number(value.data[0].id),
                 label: name,
                 description: description,
-                disable: true
+                disable: true,
+                location: location
             }
 
             // Update collections array

@@ -51,8 +51,7 @@
                         store.items.filter(i => i.value == props.idList[0])[0]?.description,
                         store.items.filter(i => i.value == props.idList[0])[0]?.quantity,
                         store.activeCollection!.value,
-                        store.activeContainer?.value,
-                        location.value?.value
+                        store.activeContainer?.value
                     )
                 })
                 emits('submitted')

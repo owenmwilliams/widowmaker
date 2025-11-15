@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
 import { useQuasar } from 'quasar';
@@ -17,6 +17,7 @@ const $q = useQuasar();
 // State
 const selectedCollection = ref<any>(null);
 const draggedItem = ref<any>(null);
+const collectionsCollapsed = ref(false);
 
 const UNASSIGNED_TARGET = 'unassigned' as const;
 type DragTarget = number | typeof UNASSIGNED_TARGET | null;
@@ -44,9 +45,34 @@ const toggleContainerExpansion = (containerValue: number) => {
 const showCreateDialog = ref(false);
 const newCollectionName = ref('');
 const newCollectionDescription = ref('');
+const newCollectionLocation = ref<any>(null);
 const showCreateContainerDialog = ref(false);
 const newContainerName = ref('');
 const newContainerDescription = ref('');
+const newContainerBoxSize = ref<string | null>(null);
+const newContainerMaxWeight = ref<number | null>(null);
+const newContainerMaxVolume = ref<number | null>(null);
+
+// Watch box size to auto-populate weight and volume limits
+watch(newContainerBoxSize, (newSize) => {
+  if (newSize === 'Small') {
+    newContainerMaxWeight.value = 30;
+    newContainerMaxVolume.value = 1.5;
+  } else if (newSize === 'Medium') {
+    newContainerMaxWeight.value = 40;
+    newContainerMaxVolume.value = 3.0;
+  } else if (newSize === 'Large') {
+    newContainerMaxWeight.value = 50;
+    newContainerMaxVolume.value = 4.5;
+  } else if (newSize === 'Custom') {
+    newContainerMaxWeight.value = null;
+    newContainerMaxVolume.value = null;
+  } else {
+    newContainerMaxWeight.value = null;
+    newContainerMaxVolume.value = null;
+  }
+});
+
 const showContainerDetailsDialog = ref(false);
 const detailsContainer = ref<any | null>(null);
 const showContainerEditDialog = ref(false);
@@ -54,6 +80,27 @@ const containerToEdit = ref<number | null>(null);
 const showBoxGenerationDialog = ref(false);
 
 // Computed
+// Group collections by location
+const collectionsByLocation = computed(() => {
+  const grouped = new Map<number, { location: any; collections: any[] }>();
+
+  store.collections.forEach(collection => {
+    const locationValue = collection.location;
+    if (!grouped.has(locationValue)) {
+      const location = store.locations.find(loc => loc.value === locationValue);
+      grouped.set(locationValue, {
+        location: location || { value: locationValue, label: 'Unknown Location' },
+        collections: []
+      });
+    }
+    grouped.get(locationValue)!.collections.push(collection);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) =>
+    a.location.label.localeCompare(b.location.label)
+  );
+});
+
 const containersInCollection = computed(() => {
   if (!selectedCollection.value) return [];
   return store.containers.filter(c => c.collection === selectedCollection.value.value);
@@ -453,9 +500,18 @@ const createCollection = async () => {
     return;
   }
 
+  if (!newCollectionLocation.value?.value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please select a location for this collection',
+      position: 'bottom'
+    });
+    return;
+  }
+
   try {
     $q.loading.show({ message: 'Creating collection...' });
-    await store.createCollection(props.user, newCollectionName.value, newCollectionDescription.value || '');
+    await store.createCollection(props.user, newCollectionName.value, newCollectionDescription.value || '', newCollectionLocation.value.value);
 
     $q.notify({
       type: 'positive',
@@ -467,6 +523,7 @@ const createCollection = async () => {
     // Reset form and close dialog
     newCollectionName.value = '';
     newCollectionDescription.value = '';
+    newCollectionLocation.value = null;
     showCreateDialog.value = false;
 
     // Select the newly created collection
@@ -510,7 +567,17 @@ const createContainer = async () => {
     await store.createContainer(
       props.user,
       newContainerName.value,
-      selectedCollection.value.value
+      selectedCollection.value.value,
+      undefined, // boxNumber
+      undefined, // boxType
+      undefined, // sealed
+      undefined, // weightLbs
+      undefined, // fragileContents
+      undefined, // colorCode
+      newContainerBoxSize.value || undefined, // boxSize
+      newContainerMaxWeight.value || undefined, // maxWeightLbs
+      newContainerMaxVolume.value || undefined, // maxVolumeCuFt
+      newContainerDescription.value || undefined // description
     );
 
     $q.notify({
@@ -523,6 +590,9 @@ const createContainer = async () => {
     // Reset form and close dialog
     newContainerName.value = '';
     newContainerDescription.value = '';
+    newContainerBoxSize.value = null;
+    newContainerMaxWeight.value = null;
+    newContainerMaxVolume.value = null;
     showCreateContainerDialog.value = false;
 
     // Reload inventory to show new container
@@ -829,7 +899,12 @@ const generateBoxesForCollection = async () => {
         props.user,
         `${newBox.size.charAt(0).toUpperCase() + newBox.size.slice(1)} Box ${boxNumber}`,
         selectedCollection.value.value,
-        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, // box number
+        undefined, // box type
+        undefined, // sealed
+        undefined, // weight
+        undefined, // fragile contents
+        undefined, // color code
         newBox.size,
         spec.maxWeightLbs,
         spec.volumeCuFt
@@ -895,7 +970,7 @@ onMounted(() => {
 <template>
   <div class="collections-container">
     <div class="collections-header q-pa-md">
-      <h5 class="text-h5 text-primary q-my-none">Collections</h5>
+      <h5 class="text-h5 text-primary q-my-none">Packing</h5>
       <p class="text-caption text-grey-7 q-mt-xs">Organize and pack your items by room or category</p>
     </div>
 
@@ -910,33 +985,49 @@ onMounted(() => {
     <!-- Main layout with collections -->
     <div v-else class="main-layout">
       <!-- Left Sidebar - Collections List -->
-      <div class="collections-sidebar">
+      <div class="collections-sidebar" :class="{ 'collapsed': collectionsCollapsed }">
         <div class="sidebar-header">
-          <div class="text-h6 text-primary">Collections</div>
-          <q-btn flat dense round icon="add" color="primary" size="sm" @click="showCreateDialog = true">
+          <q-btn
+            flat
+            dense
+            round
+            :icon="collectionsCollapsed ? 'chevron_right' : 'chevron_left'"
+            color="grey-7"
+            size="sm"
+            @click="collectionsCollapsed = !collectionsCollapsed"
+          >
+            <q-tooltip>{{ collectionsCollapsed ? 'Expand' : 'Collapse' }} Collections</q-tooltip>
+          </q-btn>
+          <div v-if="!collectionsCollapsed" class="text-h6 text-primary">Collections</div>
+          <q-btn v-if="!collectionsCollapsed" flat dense round icon="add" color="primary" size="sm" @click="showCreateDialog = true">
             <q-tooltip>Add Collection</q-tooltip>
           </q-btn>
         </div>
 
-        <q-separator class="q-my-sm" />
+        <template v-if="!collectionsCollapsed">
+          <q-separator class="q-my-sm" />
 
-        <div class="collections-list">
-          <div
-            v-for="collection in collections"
-            :key="collection.value"
-            class="collection-item"
-            :class="{ 'active': selectedCollection?.value === collection.value }"
-            @click="selectCollection(collection)"
-          >
-            <div class="collection-icon">
-              <q-icon name="inventory_2" size="24px" />
-            </div>
-            <div class="collection-info">
-              <div class="collection-name">{{ collection.label }}</div>
-              <div class="collection-count">{{ getItemCount(collection.value) }} items</div>
+          <div class="collections-list">
+            <div v-for="locationGroup in collectionsByLocation" :key="locationGroup.location.value" class="location-group">
+              <div class="location-header">
+                <q-icon name="place" size="xs" class="q-mr-xs" />
+                {{ locationGroup.location.label }}
+              </div>
+              <div
+                v-for="collection in locationGroup.collections"
+                :key="collection.value"
+                class="collection-item"
+                :class="{ 'active': selectedCollection?.value === collection.value }"
+                @click="selectCollection(collection)"
+              >
+                <div class="collection-info">
+                  <div class="collection-name">{{ collection.label }}</div>
+                  <div class="collection-count">{{ getItemCount(collection.value) }} items</div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        </template>
       </div>
 
       <!-- Right Content - Containers and Items -->
@@ -962,17 +1053,58 @@ onMounted(() => {
                 label="Smart Pack"
                 @click="showBoxGenerationDialog = true"
               />
-              <q-btn unelevated color="primary" icon="add" label="Add Container" @click="showCreateContainerDialog = true" />
+            </div>
+          </div>
+
+          <!-- Unpacked Items Pills -->
+          <div
+            v-if="unassignedItems.length > 0"
+            class="unpacked-pills-section"
+            :class="{ 'drag-over': dragOverTarget === UNASSIGNED_TARGET }"
+            @dragover.prevent="handleDragOver($event, UNASSIGNED_TARGET)"
+            @dragleave="handleDragLeave(UNASSIGNED_TARGET)"
+            @drop="handleDrop($event, null)"
+          >
+            <div class="pills-header">
+              <span class="text-subtitle2 text-weight-medium">
+                <q-icon name="category" size="18px" class="q-mr-xs" />
+                Unpacked Items
+              </span>
+              <q-chip dense size="sm" color="warning" text-color="white">
+                {{ unassignedItems.length }}
+              </q-chip>
+            </div>
+
+            <div class="pills-container">
+              <q-chip
+                v-for="item in unassignedItems"
+                :key="item.value"
+                clickable
+                draggable="true"
+                size="md"
+                color="grey-3"
+                text-color="grey-9"
+                icon="drag_indicator"
+                class="item-pill"
+                @click="openItemDetails(item.value)"
+                @dragstart="handleDragStart(item)"
+                @dragend="handleDragEnd"
+              >
+                {{ item.label }}
+                <q-tooltip>Click to edit • Drag to pack</q-tooltip>
+              </q-chip>
             </div>
           </div>
 
           <!-- Containers Grid -->
           <div class="section-title">
-            <q-icon name="inventory_2" size="20px" class="q-mr-sm" />
             Containers
             <q-chip dense size="sm" color="primary" text-color="white" class="q-ml-sm">
               {{ containersInCollection.length }}
             </q-chip>
+            <q-btn flat dense round icon="add" color="primary" size="sm" @click="showCreateContainerDialog = true" class="q-ml-sm">
+              <q-tooltip>Add Container</q-tooltip>
+            </q-btn>
           </div>
 
           <div v-if="containersInCollection.length === 0" class="no-containers">
@@ -997,8 +1129,7 @@ onMounted(() => {
               <q-card flat bordered>
                 <q-card-section class="container-card-header">
                   <div class="row items-center">
-                    <q-icon name="inventory_2" size="sm" color="primary" />
-                    <span class="text-subtitle1 text-weight-medium q-ml-sm">{{ container.label }}</span>
+                    <span class="text-subtitle1 text-weight-medium">{{ container.label }}</span>
                     <q-space />
                     <q-icon
                       v-if="getCapacityStatus(container.value) === 'critical'"
@@ -1079,87 +1210,91 @@ onMounted(() => {
                       <div class="text-caption text-grey-6">Drop items here</div>
                     </div>
 
-                    <div class="capacity-section q-mt-md" v-if="getPackingStatus(container.value) || container.dimensions || container.max_weight_lbs || container.max_volume_cuft">
-                      <!-- Dimensions Badge -->
-                      <div v-if="container.dimensions" class="dimension-badge q-mb-sm">
-                        <q-icon name="straighten" size="xs" class="q-mr-xs" />
-                        <span class="text-caption">{{ container.dimensions.length }}" × {{ container.dimensions.width }}" × {{ container.dimensions.height }}"</span>
-                      </div>
-                      <div v-else-if="container.box_size" class="dimension-badge q-mb-sm">
-                        <q-icon name="inventory_2" size="xs" class="q-mr-xs" />
-                        <span class="text-caption">{{ container.box_size }} box</span>
-                      </div>
-                      <div v-else class="dimension-badge q-mb-sm">
-                        <q-icon name="help_outline" size="xs" class="q-mr-xs" />
-                        <span class="text-caption">No dimensions set</span>
-                      </div>
-
-                      <!-- Weight Capacity -->
-                      <div class="capacity-row" v-if="getPackingStatus(container.value)?.weightPct !== null">
-                        <div class="capacity-label">
-                          <q-icon name="scale" size="xs" class="q-mr-xs" />
-                          <span class="text-caption text-weight-medium">
-                            {{ getPackingStatus(container.value)?.capacity.currentWeight.toFixed(1) }} / {{ getPackingStatus(container.value)?.capacity.maxWeight }} lbs
-                          </span>
-                          <span class="text-caption text-grey-6 q-ml-xs">
-                            ({{ Math.round((getPackingStatus(container.value)?.weightPct || 0) * 100) }}%)
-                          </span>
-                        </div>
-                        <q-linear-progress
-                          :value="getPackingStatus(container.value)?.weightPct || 0"
-                          :color="getCapacityColor(getPackingStatus(container.value)?.weightPct || 0)"
-                          rounded
-                          size="8px"
-                          class="capacity-bar"
+                    <!-- Container Action Icons Row -->
+                    <div class="container-actions-row q-mt-md">
+                      <!-- Weight Capacity Circle -->
+                      <div class="capacity-circle circle-wrapper">
+                        <q-icon
+                          name="scale"
+                          size="18px"
+                          class="circle-icon"
+                          color="grey-7"
                         />
+                        <q-circular-progress
+                          :value="(getPackingStatus(container.value)?.weightPct || 0) * 100"
+                          :color="getPackingStatus(container.value)?.weightPct != null ? getCapacityColor(getPackingStatus(container.value)?.weightPct || 0) : 'grey-4'"
+                          track-color="grey-3"
+                          center-color="transparent"
+                          size="42px"
+                          :thickness="0.15"
+                        >
+                        </q-circular-progress>
+                        <q-tooltip v-if="getPackingStatus(container.value)?.weightPct !== null && getPackingStatus(container.value)?.weightPct !== undefined">
+                          Weight: {{ getPackingStatus(container.value)?.capacity?.currentWeight?.toFixed(1) }} / {{ getPackingStatus(container.value)?.capacity?.maxWeight }} lbs
+                          ({{ Math.round((getPackingStatus(container.value)?.weightPct || 0) * 100) }}%)
+                        </q-tooltip>
+                        <q-tooltip v-else>
+                          Weight capacity not set
+                        </q-tooltip>
                       </div>
 
-                      <!-- Volume Capacity -->
-                      <div class="capacity-row" v-if="getPackingStatus(container.value)?.capacity.maxVolume">
-                        <div class="capacity-label">
-                          <q-icon name="view_in_ar" size="xs" class="q-mr-xs" />
-                          <span class="text-caption text-weight-medium">
-                            {{ getPackingStatus(container.value)?.capacity.currentVolume.toFixed(2) }} / {{ getPackingStatus(container.value)?.capacity.maxVolume }} cu ft
-                          </span>
-                          <span class="text-caption text-grey-6 q-ml-xs">
-                            ({{ Math.round((getPackingStatus(container.value)?.volumePct || 0) * 100) }}%)
-                          </span>
-                        </div>
-                        <q-linear-progress
-                          :value="getPackingStatus(container.value)?.volumePct || 0"
-                          :color="getCapacityColor(getPackingStatus(container.value)?.volumePct || 0)"
-                          rounded
-                          size="8px"
-                          class="capacity-bar"
+                      <!-- Volume Capacity Circle -->
+                      <div class="capacity-circle circle-wrapper">
+                        <q-icon
+                          name="view_in_ar"
+                          size="18px"
+                          class="circle-icon"
+                          color="grey-7"
                         />
-                      </div>
-                      <div class="capacity-row" v-else-if="(getPackingStatus(container.value)?.capacity?.currentVolume || 0) > 0">
-                        <div class="capacity-label">
-                          <q-icon name="view_in_ar" size="xs" class="q-mr-xs" />
-                          <span class="text-caption text-weight-medium">
-                            {{ getPackingStatus(container.value)?.capacity?.currentVolume.toFixed(2) }} cu ft
-                          </span>
-                          <span class="text-caption text-grey-6 q-ml-xs">(no limit set)</span>
-                        </div>
-                      </div>
-
-                      <!-- Error/Warning Messages -->
-                      <div
-                        v-if="getPackingStatus(container.value)?.fitAssessment.blockingReason"
-                        class="constraint-warning q-mt-sm"
-                      >
-                        <q-icon name="error_outline" size="sm" class="q-mr-xs" />
-                        <span class="text-caption">{{ getPackingStatus(container.value)?.fitAssessment.blockingReason }}</span>
+                        <q-circular-progress
+                          :value="(getPackingStatus(container.value)?.volumePct || 0) * 100"
+                          :color="getPackingStatus(container.value)?.volumePct != null ? getCapacityColor(getPackingStatus(container.value)?.volumePct || 0) : 'grey-4'"
+                          track-color="grey-3"
+                          center-color="transparent"
+                          size="42px"
+                          :thickness="0.15"
+                        >
+                        </q-circular-progress>
+                        <q-tooltip v-if="getPackingStatus(container.value)?.capacity?.maxVolume">
+                          Volume: {{ getPackingStatus(container.value)?.capacity?.currentVolume?.toFixed(2) }} / {{ getPackingStatus(container.value)?.capacity?.maxVolume }} cu ft
+                          ({{ Math.round((getPackingStatus(container.value)?.volumePct || 0) * 100) }}%)
+                        </q-tooltip>
+                        <q-tooltip v-else>
+                          Volume capacity not set
+                        </q-tooltip>
                       </div>
 
-                      <!-- Info message for missing item dimensions -->
-                      <div
-                        v-else-if="getContainerItems(container.value).length > 0 && getPackingStatus(container.value)?.capacity?.currentVolume === 0 && getPackingStatus(container.value)?.capacity?.maxVolume"
-                        class="constraint-info q-mt-sm"
-                      >
-                        <q-icon name="info_outline" size="sm" class="q-mr-xs" />
-                        <span class="text-caption">Add item dimensions to track volume</span>
+                      <!-- View Details Icon -->
+                      <div class="view-details-circle">
+                        <q-btn
+                          flat
+                          round
+                          color="primary"
+                          icon="visibility"
+                          size="sm"
+                          @click="openContainerDetails(container)"
+                        >
+                          <q-tooltip>View Details</q-tooltip>
+                        </q-btn>
                       </div>
+                    </div>
+
+                    <!-- Error/Warning Messages -->
+                    <div
+                      v-if="getPackingStatus(container.value)?.fitAssessment.blockingReason"
+                      class="constraint-warning q-mt-sm"
+                    >
+                      <q-icon name="error_outline" size="sm" class="q-mr-xs" />
+                      <span class="text-caption">{{ getPackingStatus(container.value)?.fitAssessment.blockingReason }}</span>
+                    </div>
+
+                    <!-- Info message for missing item dimensions -->
+                    <div
+                      v-else-if="getContainerItems(container.value).length > 0 && getPackingStatus(container.value)?.capacity?.currentVolume === 0 && getPackingStatus(container.value)?.capacity?.maxVolume"
+                      class="constraint-info q-mt-sm"
+                    >
+                      <q-icon name="info_outline" size="sm" class="q-mr-xs" />
+                      <span class="text-caption">Add item dimensions to track volume</span>
                     </div>
                   </q-card-section>
                 </template>
@@ -1211,67 +1346,7 @@ onMounted(() => {
                     </div>
                   </q-card-section>
                 </q-slide-transition>
-
-                <q-card-actions align="right">
-                  <q-btn flat dense color="primary" icon="visibility" size="sm" @click="openContainerDetails(container)">
-                    <q-tooltip>View Details</q-tooltip>
-                  </q-btn>
-                  <q-btn flat dense color="primary" icon="edit" size="sm" @click="openContainerEdit(container)">
-                    <q-tooltip>Edit</q-tooltip>
-                  </q-btn>
-                </q-card-actions>
               </q-card>
-            </div>
-          </div>
-
-          <!-- Unpacked Items -->
-          <div
-            class="unassigned-section"
-            :class="{ 'drag-over': dragOverTarget === UNASSIGNED_TARGET }"
-            @dragover.prevent="handleDragOver($event, UNASSIGNED_TARGET)"
-            @dragleave="handleDragLeave(UNASSIGNED_TARGET)"
-            @drop="handleDrop($event, null)"
-          >
-            <div class="section-title">
-              <q-icon name="category" size="20px" class="q-mr-sm" />
-              Unpacked Items
-              <q-chip dense size="sm" color="warning" text-color="white" class="q-ml-sm">
-                {{ unassignedItems.length }}
-              </q-chip>
-            </div>
-
-            <div v-if="unassignedItems.length === 0" class="unassigned-empty">
-              <q-icon name="outbox" size="32px" color="grey-5" class="q-mb-sm" />
-              <div class="text-body2 text-grey-7">Drop items here to remove them from containers.</div>
-            </div>
-
-            <div v-else class="unassigned-items">
-              <div
-                v-for="item in unassignedItems"
-                :key="item.value"
-                class="draggable-item"
-                draggable="true"
-                @click="openItemDetails(item.value)"
-                @dragstart="handleDragStart(item)"
-                @dragend="handleDragEnd"
-              >
-                <q-icon name="drag_indicator" class="drag-handle" />
-                <div class="item-image">
-                  <q-img
-                    v-if="item.picture_url"
-                    :src="item.picture_url"
-                    fit="cover"
-                    class="item-img"
-                  />
-                  <div v-else class="item-placeholder">
-                    <q-icon name="category" size="24px" color="grey-6" />
-                  </div>
-                </div>
-                <div class="item-details">
-                  <div class="text-weight-medium">{{ item.label }}</div>
-                  <div class="text-caption text-grey-7">{{ item.description }}</div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
@@ -1296,6 +1371,15 @@ onMounted(() => {
             @keyup.enter="createCollection"
           />
 
+          <q-select
+            v-model="newCollectionLocation"
+            :options="store.locations.map(l => ({label: l.label, value: l.value}))"
+            label="Location *"
+            outlined
+            class="q-mb-md"
+            :rules="[val => !!val || 'Location is required']"
+          />
+
           <q-input
             v-model="newCollectionDescription"
             label="Description (optional)"
@@ -1306,7 +1390,7 @@ onMounted(() => {
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="grey-7" v-close-popup @click="newCollectionName = ''; newCollectionDescription = ''" />
+          <q-btn flat label="Cancel" color="grey-7" v-close-popup @click="newCollectionName = ''; newCollectionDescription = ''; newCollectionLocation = null" />
           <q-btn unelevated label="Create" color="primary" @click="createCollection" />
         </q-card-actions>
       </q-card>
@@ -1314,7 +1398,7 @@ onMounted(() => {
 
     <!-- Create Container Dialog -->
     <q-dialog v-model="showCreateContainerDialog" persistent>
-      <q-card style="min-width: 450px;">
+      <q-card style="min-width: 500px;">
         <q-card-section>
           <div class="text-h6">Create Container</div>
         </q-card-section>
@@ -1330,6 +1414,51 @@ onMounted(() => {
             @keyup.enter="createContainer"
           />
 
+          <div class="text-caption text-grey-7 q-mb-xs">Location</div>
+          <div class="text-body2 q-mb-md q-pa-sm" style="background: #F5F5F5; border-radius: 4px;">
+            {{ selectedCollection ? store.locations.find(loc => loc.value === selectedCollection.location)?.label : 'No collection selected' }}
+          </div>
+
+          <q-select
+            v-model="newContainerBoxSize"
+            label="Container Size"
+            outlined
+            class="q-mb-md"
+            :options="[
+              { label: 'Small Box (16×12.5×12.5 in)', value: 'Small' },
+              { label: 'Medium Box (18×18×16 in)', value: 'Medium' },
+              { label: 'Large Box (18×18×24 in)', value: 'Large' },
+              { label: 'Custom', value: 'Custom' }
+            ]"
+            emit-value
+            map-options
+            clearable
+          />
+
+          <div v-if="newContainerBoxSize === 'Custom'" class="row q-col-gutter-md q-mb-md">
+            <div class="col-6">
+              <q-input
+                v-model.number="newContainerMaxWeight"
+                label="Max Weight (lbs)"
+                type="number"
+                outlined
+                dense
+                :min="0"
+              />
+            </div>
+            <div class="col-6">
+              <q-input
+                v-model.number="newContainerMaxVolume"
+                label="Max Volume (cu ft)"
+                type="number"
+                outlined
+                dense
+                :min="0"
+                step="0.1"
+              />
+            </div>
+          </div>
+
           <q-input
             v-model="newContainerDescription"
             label="Description (optional)"
@@ -1340,7 +1469,13 @@ onMounted(() => {
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="grey-7" v-close-popup @click="newContainerName = ''; newContainerDescription = ''" />
+          <q-btn
+            flat
+            label="Cancel"
+            color="grey-7"
+            v-close-popup
+            @click="newContainerName = ''; newContainerDescription = ''; newContainerBoxSize = null; newContainerMaxWeight = null; newContainerMaxVolume = null;"
+          />
           <q-btn unelevated label="Create" color="primary" @click="createContainer" />
         </q-card-actions>
       </q-card>
@@ -1393,7 +1528,8 @@ onMounted(() => {
           </q-list>
         </q-card-section>
         <q-card-actions align="right">
-          <q-btn flat label="Close" color="primary" v-close-popup />
+          <q-btn flat label="Close" color="grey-7" v-close-popup />
+          <q-btn unelevated label="Edit Container" color="primary" @click="openContainerEdit(detailsContainer); showContainerDetailsDialog = false" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1526,9 +1662,17 @@ onMounted(() => {
 
 <style scoped>
 .collections-container {
-  height: calc(100vh - 50px);
+  height: calc(100vh - 50px - 48px); /* 50px for header, 48px for subnav */
   background: var(--bg-secondary);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.collections-header {
+  flex-shrink: 0;
+  background: white;
+  border-bottom: 1px solid #E0E0E0;
 }
 
 .empty-state {
@@ -1536,13 +1680,14 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
+  flex: 1;
 }
 
 .main-layout {
   display: flex;
-  height: 100%;
+  flex: 1;
   gap: 0;
+  min-height: 0;
 }
 
 /* Collections Sidebar */
@@ -1553,6 +1698,11 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 0.3s ease;
+}
+
+.collections-sidebar.collapsed {
+  width: 56px;
 }
 
 .sidebar-header {
@@ -1566,6 +1716,24 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
+}
+
+.location-group {
+  margin-bottom: 16px;
+}
+
+.location-header {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  background: #F5F5F5;
+  border-radius: 6px;
+  margin-bottom: 4px;
 }
 
 .collection-item {
@@ -1641,7 +1809,9 @@ onMounted(() => {
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
-  margin: 24px 0 16px 0;
+  margin: 40px 0 24px 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--border-light);
 }
 
 /* Containers Grid */
@@ -1657,13 +1827,21 @@ onMounted(() => {
 
 .containers-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
-  margin-bottom: 32px;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
 }
 
 .container-card {
-  transition: all 0.3s;
+  transition: all 0.2s;
+}
+
+.container-card .q-card {
+  max-height: 300px;
+}
+
+.container-card .q-card-section {
+  padding: 12px;
 }
 
 .container-card.drag-over {
@@ -1811,39 +1989,45 @@ onMounted(() => {
   flex-shrink: 0;
 }
 
-/* Unassigned Items */
-.unassigned-section {
+/* Unpacked Items Pills */
+.unpacked-pills-section {
   background: white;
-  border-radius: 12px;
-  padding: 16px;
-  margin-top: 24px;
-  border: 2px dashed transparent;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  border: 2px dashed #E0E0E0;
   transition: border-color 0.2s, background 0.2s;
 }
 
-.unassigned-section.drag-over {
+.unpacked-pills-section.drag-over {
   border-color: var(--primary);
   background: var(--primary-subtle);
 }
 
-.unassigned-items {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
-  margin-top: 16px;
+.pills-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
-.unassigned-empty {
+.pills-container {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 32px;
-  border: 2px dashed var(--border-light);
-  border-radius: 8px;
-  margin-top: 16px;
-  color: var(--text-secondary);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.item-pill {
+  cursor: grab !important;
+  transition: transform 0.1s ease;
+}
+
+.item-pill:hover {
+  transform: translateY(-1px);
+}
+
+.item-pill:active {
+  cursor: grabbing !important;
 }
 
 .draggable-item {
@@ -1907,13 +2091,65 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.container-actions-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 8px;
+  background: #F5F5F5;
+  border-radius: 6px;
+}
+
 .capacity-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   padding: 8px;
   background: var(--bg-secondary);
   border-radius: 6px;
+}
+
+.capacity-circles {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.capacity-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
+}
+
+.circle-wrapper {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.circle-icon {
+  position: absolute;
+  z-index: 1;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.circle-wrapper .q-circular-progress {
+  position: relative;
+  z-index: 2;
+}
+
+.view-details-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .capacity-row {

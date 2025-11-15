@@ -31,6 +31,8 @@
     "esbuild": "^0.20.0",
     "install": "^0.13.0",
     "jose": "^4.10.0",
+    "jspdf": "^3.0.3",
+    "jspdf-autotable": "^5.0.2",
     "lodash.clonedeep": "^4.5.0",
     "mobile-detect": "^1.4.5",
     "pinia": "^2.1.3",
