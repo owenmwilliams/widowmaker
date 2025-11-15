@@ -113,6 +113,14 @@
             MoveTrack
           </div>
         </q-toolbar-title>
+        <q-btn
+          flat
+          label="Login"
+          color="primary"
+          to="/login"
+          class="q-mr-md"
+          :size="isMobile ? 'sm' : 'md'"
+        />
       </q-toolbar>
     </q-header>
 

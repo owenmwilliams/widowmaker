@@ -113,15 +113,19 @@ router.get('/', jsonParser, async function(req, res, next) {
         return data
       })
 
+    // Containers now inherit location from their collection
     let containers = await knex('containers')
-      .distinct('*')
+      .select('containers.*', 'collections.location_id')
+      .leftJoin('collections', 'containers.collection_id', 'collections.id')
       .where(knex.raw('containers.owner = ?', user_name))
       .then((data) => {
         return data
       })
 
+    // Items now inherit location from their collection
     let items = await knex('items')
-      .distinct('*')
+      .select('items.*', 'collections.location_id')
+      .leftJoin('collections', 'items.collection_id', 'collections.id')
       .where(knex.raw('items.owner = ?', user_name))
       .then((data) => {
         return data

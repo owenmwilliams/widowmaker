@@ -50,17 +50,7 @@
     
   // These are constants that populate the drop-down select menu to allow choosing a location and room
   const location: Ref<{label: string, value: number} | undefined> = ref();
-  const locationOptions = computed(() => {
-    if (store.activeContainer == undefined || props.objectType == ObjectEnum.item) {
-      return store.locations.map(i => {return {label: i.label, value: i.value}})
-    } else if (store.containers.find(i => i.value == store.activeContainer?.value)?.location == undefined) {
-      console.log('location is undefined and this container doesnt have a location')
-      return store.locations.map(i => {return {label: i.label, value: i.value}})
-    } else {
-      return store.locations.filter(i => i.value == store.containers.find(i => i.value == store.activeContainer?.value)?.location).map(i => {return {label: i.label, value: i.value}})
-    }
-  })
-  
+
   const image_url = ref('');
 
 //ALL FUNCTIONS
@@ -87,39 +77,31 @@
           zip.value = store.locations.find(i => i.value == props.idProp)?.zip ?? ''
 
         } else if (props.objectType == ObjectEnum.collection) {
-          name.value = store.collections.find(i => i.value == props.idProp)?.label ?? ''
-          description.value = store.collections.find(i => i.value == props.idProp)?.description ?? ''
+          const collection = store.collections.find(i => i.value == props.idProp);
+          name.value = collection?.label ?? ''
+          description.value = collection?.description ?? ''
+
+          // Load location for collection
+          if (collection && collection.location != null) {
+            location.value = {
+              label: store.locations.find(i => i.value == collection.location)?.label ?? '',
+              value: collection.location
+            };
+          }
 
         } else if (props.objectType == ObjectEnum.container) {
           name.value = store.containers.find(i => i.value == props.idProp)?.label ?? ''
           description.value = store.containers.find(i => i.value == props.idProp)?.description ?? ''
-
-          // Define the location if it has one
-          const container = store.containers.find(i => i.value == props.idProp)
-          if (container && container.location != null) {
-            location.value = {
-              label: store.locations.find(i => i.value == container.location)?.label,
-              value: container.location
-            }
-          } else {
-            location.value = undefined
-          }
+          // Note: location is now inherited from collection, so we don't load it here
 
         } else if (props.objectType == ObjectEnum.item) {
-
           name.value = store.items.find(i => i.value == props.idProp)?.label ?? ''
           description.value = store.items.find(i => i.value == props.idProp)?.description ?? ''
           quantity.value = store.items.find(i => i.value == props.idProp)?.quantity ?? 1
           image_url.value = store.items.find(i => i.value == props.idProp)?.picture_url ?? undefined
-          
-          console.log('location.value before is: ', location.value)
+          // Note: location is now inherited from collection, so we don't load it here
 
-          if (props.editSelect) {
-            location.value = { 
-              label: store.locations.find(i => i.value == store.items.find(i => i.value == props.idProp)?.location)?.label, 
-              value: store.items.find(i => i.value == props.idProp)?.location
-            }
-          } else {
+          if (!props.editSelect) {
             location.value = undefined
           }
 
@@ -147,19 +129,27 @@
         store.updateCollection(props.idProp!, user.value, name.value, description.value)
       } else {
         console.log('user value in mobile add is: ', user.value)
-        store.createCollection(user.value, name.value, description.value)
+        if (!location.value?.value) {
+          $q.notify({
+            type: 'warning',
+            message: 'Please select a location for this collection',
+            position: 'bottom'
+          });
+          return;
+        }
+        store.createCollection(user.value, name.value, description.value, location.value.value)
       }
     } else if (props.objectType == ObjectEnum.container) {
       if (props.editSelect) {
-        store.updateContainer(props.idProp!, user.value, name.value, store.activeCollection!.value, location.value?.value)
+        store.updateContainer(props.idProp!, user.value, name.value, store.activeCollection!.value)
       } else {
-        store.createContainer(user.value, name.value, store.activeCollection!.value, location.value?.value)
+        store.createContainer(user.value, name.value, store.activeCollection!.value)
       }
     } else if (props.objectType == ObjectEnum.item) {
       if (props.editSelect) {
-        store.updateItem(props.idProp!, user.value, name.value, description.value, quantity.value ?? 1, store.activeCollection!.value, store.activeContainer?.value, location.value?.value, image_url.value)
+        store.updateItem(props.idProp!, user.value, name.value, description.value, quantity.value ?? 1, store.activeCollection!.value, store.activeContainer?.value, image_url.value)
       } else {
-        store.createItem(user.value, name.value, description.value, quantity.value ?? 1, store.activeCollection!.value, store.activeContainer?.value, location.value?.value)
+        store.createItem(user.value, name.value, description.value, quantity.value ?? 1, store.activeCollection!.value, store.activeContainer?.value)
       }
     }
 
@@ -336,21 +326,14 @@
           clearable
         />
 
-        <!-- COME BACK HERE TO ADD FOR ITEMS ONCE FUNCTIONALITY OF FILTERING WITH CONTAINERS IS FIGUTRED OUT; ANOTHER WATCH? -->
+        <!-- Location selector: Required for Collections, not shown for Items/Containers (they inherit from collection) -->
         <q-select
-          v-if="(props.objectType == ObjectEnum.container || props.objectType == ObjectEnum.item) && locationOptions.length > 0"
+          v-if="props.objectType == ObjectEnum.collection && store.locations.length > 0"
           v-model="location"
-          :disable="(props.objectType == ObjectEnum.item && store.activeContainer != undefined && store.containers.find(i => i.value == store.activeContainer?.value)?.location != undefined)"
-          :options="locationOptions"
-          label="Location"
+          :options="store.locations.map(i => {return {label: i.label, value: i.value}})"
+          label="Location *"
           filled
-          bottom-slots
-        >
-          <template v-if="(props.objectType == ObjectEnum.item && store.activeContainer != undefined)" v-slot:hint>
-            <p class="bg-info q-pa-sm" q-ma-none>Item takes location of container if selected.</p>
-          </template>
-      
-        </q-select>
+        />
         
       </q-card-section>
       

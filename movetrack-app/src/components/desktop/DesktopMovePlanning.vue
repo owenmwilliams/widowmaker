@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
 import { Notify } from 'quasar';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const props = defineProps({
   user: String
@@ -16,6 +18,15 @@ const originLocation = ref<string | null>(null);
 const destinationLocation = ref<string | null>(null);
 const moveDate = ref<string | null>(null);
 const numHelpers = ref(2);
+
+// Additional move details for PDF
+const packingServicesRequired = ref(false);
+const hasStairs = ref(false);
+const numberOfFlights = ref<number | null>(null);
+const hasElevator = ref(false);
+const parkingSituation = ref('');
+const accessNotes = ref('');
+const specialRequirements = ref('');
 
 // Tab state
 const movePlanningTab = ref<'planning' | 'costs'>('planning');
@@ -44,9 +55,22 @@ const parseItemDimensions = (item: any) => {
   return null;
 };
 
-// Calculate total volume
+// Helper to get items in origin location (via their collection)
+const itemsInOriginLocation = computed(() => {
+  if (!originLocation.value) return store.items; // All items if no origin selected
+
+  // Get collections in origin location
+  const collectionsInOrigin = store.collections
+    .filter(c => c.location === originLocation.value)
+    .map(c => c.value);
+
+  // Return items in those collections
+  return store.items.filter(item => collectionsInOrigin.includes(item.collection));
+});
+
+// Calculate total volume (only for items in origin location)
 const totalVolumeCuFt = computed(() => {
-  return store.items.reduce((sum, item) => {
+  return itemsInOriginLocation.value.reduce((sum, item) => {
     const dims = parseItemDimensions(item);
     if (!dims) return sum;
     const volumeCubicInches = dims.length * dims.width * dims.height;
@@ -56,30 +80,38 @@ const totalVolumeCuFt = computed(() => {
   }, 0);
 });
 
-// Calculate total weight
+// Calculate total weight (only for items in origin location)
 const totalWeightLbs = computed(() => {
-  return store.items.reduce((sum, item) => {
+  return itemsInOriginLocation.value.reduce((sum, item) => {
     const weight = Number(item.weight_lbs) || 0;
     const quantity = Number(item.quantity) || 1;
     return sum + (weight * quantity);
   }, 0);
 });
 
-// Total item count
+// Total item count (only for items in origin location)
 const totalItems = computed(() => {
-  return store.items.reduce((sum, item) => {
+  return itemsInOriginLocation.value.reduce((sum, item) => {
     return sum + (Number(item.quantity) || 1);
   }, 0);
 });
 
-// Count current boxes (containers that are box_size)
+// Count current boxes (containers that are box_size) in origin location
 const currentBoxCount = computed(() => {
-  return store.containers.filter(c => c.box_size).length;
+  if (!originLocation.value) return store.containers.filter(c => c.box_size).length;
+
+  const collectionsInOrigin = store.collections
+    .filter(c => c.location === originLocation.value)
+    .map(c => c.value);
+
+  return store.containers.filter(c =>
+    c.box_size && collectionsInOrigin.includes(c.collection)
+  ).length;
 });
 
-// Count loose items (not in any container)
+// Count loose items (not in any container) in origin location
 const looseItemsCount = computed(() => {
-  return store.items.filter(i => !i.container || i.container === null).length;
+  return itemsInOriginLocation.value.filter(i => !i.container || i.container === null).length;
 });
 
 // Truck size recommendation
@@ -124,10 +156,10 @@ const truckRecommendation = computed(() => {
   }
 });
 
-// Density-based box estimates for LOOSE items only
+// Density-based box estimates for LOOSE items only (in origin location)
 const boxEstimates = computed(() => {
-  // Only analyze loose (uncontained) items
-  const looseItems = store.items.filter(i => !i.container || i.container === null);
+  // Only analyze loose (uncontained) items in origin location
+  const looseItems = itemsInOriginLocation.value.filter(i => !i.container || i.container === null);
 
   // Box specifications with volume and weight limits
   const boxSpecs = {
@@ -316,10 +348,11 @@ const boxEstimates = computed(() => {
   };
 });
 
-// Packing materials estimate
+// Packing materials estimate (for items in origin location)
 const packingMaterials = computed(() => {
   const totalBoxes = boxEstimates.value.total;
-  const fragileItems = store.items.filter(item => item.fragile).length;
+  const fragileItems = itemsInOriginLocation.value.filter(item => item.fragile).length;
+  const furnitureItems = Math.ceil(itemsInOriginLocation.value.length * 0.3); // Estimate 30% are furniture
 
   return {
     tape: {
@@ -351,27 +384,58 @@ const packingMaterials = computed(() => {
       quantity: 2,
       unit: 'rolls',
       icon: 'wrap_text'
+    },
+    furniturePads: {
+      name: 'Furniture Pads',
+      quantity: furnitureItems,
+      unit: 'pads',
+      icon: 'weekend'
+    },
+    labels: {
+      name: 'Box Labels',
+      quantity: totalBoxes,
+      unit: 'labels',
+      icon: 'label'
+    },
+    dolly: {
+      name: 'Hand Truck/Dolly',
+      quantity: 1,
+      unit: 'dolly',
+      icon: 'local_shipping'
     }
   };
 });
 
-// Special handling items
+// Special handling items (in origin location)
 const specialItems = computed(() => {
   return {
-    fragile: store.items.filter(item => item.fragile).length,
-    heavy: store.items.filter(item => {
+    fragile: itemsInOriginLocation.value.filter(item => item.fragile).length,
+    heavy: itemsInOriginLocation.value.filter(item => {
       const weight = Number(item.weight_lbs) || 0;
       return weight > 50;
     }).length,
-    oversized: store.items.filter(item => {
+    oversized: itemsInOriginLocation.value.filter(item => {
       const dims = parseItemDimensions(item);
       if (!dims) return false;
       const maxDim = Math.max(dims.length, dims.width, dims.height);
       return maxDim > 48; // Over 4 feet
     }).length,
-    highValue: store.items.filter(item => {
+    highValue: itemsInOriginLocation.value.filter(item => {
       const value = Number(item.estimated_value) || 0;
       return value > 500;
+    }).length,
+    disassemblyRequired: itemsInOriginLocation.value.filter(item => {
+      // Items that likely need disassembly (furniture keywords)
+      const name = (item.label || '').toLowerCase();
+      return name.includes('bed') || name.includes('desk') || name.includes('table') ||
+             name.includes('shelf') || name.includes('bookcase') || name.includes('dresser');
+    }).length,
+    climateSensitive: itemsInOriginLocation.value.filter(item => {
+      // Items sensitive to temperature/humidity
+      const name = (item.label || '').toLowerCase();
+      return name.includes('electronics') || name.includes('art') || name.includes('painting') ||
+             name.includes('instrument') || name.includes('wine') || name.includes('records') ||
+             name.includes('vinyl') || name.includes('photo');
     }).length
   };
 });
@@ -390,42 +454,70 @@ const timeEstimates = computed(() => {
   const heavyItems = specialItems.value.heavy;
   const heavyItemMinutes = heavyItems * 15; // 15 extra minutes per heavy item
 
-  const totalMinutesPerPerson = packingMinutes + loadingMinutes + heavyItemMinutes;
-  const totalMinutes = totalMinutesPerPerson / Math.max(helpers, 1);
+  // Calculate each component with helpers factored in
+  const packingHours = Math.ceil(packingMinutes / 60 / Math.max(helpers, 1));
+  const loadingHours = Math.ceil((loadingMinutes + heavyItemMinutes) / 60 / Math.max(helpers, 1));
+  const unloadingHours = Math.ceil((loadingMinutes + heavyItemMinutes) * 0.8 / 60 / Math.max(helpers, 1)); // Unloading slightly faster
 
   return {
-    packing: Math.ceil(packingMinutes / 60 / Math.max(helpers, 1)),
-    loading: Math.ceil((loadingMinutes + heavyItemMinutes) / 60 / Math.max(helpers, 1)),
-    unloading: Math.ceil((loadingMinutes + heavyItemMinutes) * 0.8 / 60 / Math.max(helpers, 1)), // Unloading slightly faster
-    total: Math.ceil(totalMinutes / 60)
+    packing: packingHours,
+    loading: loadingHours,
+    unloading: unloadingHours,
+    total: packingHours + loadingHours + unloadingHours
   };
 });
 
 // Collection breakdown for move planning
+// Only show collections in the origin/starting location
 const collectionBreakdown = computed(() => {
-  return store.collections.map(collection => {
-    const items = store.items.filter(item => item.collection === collection.value);
-    const volume = items.reduce((sum, item) => {
-      const dims = parseItemDimensions(item);
-      if (!dims) return sum;
-      return sum + (dims.length * dims.width * dims.height / 1728);
-    }, 0);
+  return store.collections
+    .filter(collection => {
+      // Only include collections in the origin location
+      if (!originLocation.value) return true; // Show all if no origin selected
+      return collection.location === originLocation.value;
+    })
+    .map(collection => {
+      const items = store.items.filter(item => item.collection === collection.value);
+      const volume = items.reduce((sum, item) => {
+        const dims = parseItemDimensions(item);
+        if (!dims) return sum;
+        const quantity = Number(item.quantity) || 1;
+        return sum + (dims.length * dims.width * dims.height / 1728 * quantity);
+      }, 0);
 
-    return {
-      name: collection.label,
-      itemCount: items.length,
-      volume: volume,
-      percentage: totalVolumeCuFt.value > 0 ? (volume / totalVolumeCuFt.value) * 100 : 0
-    };
-  }).filter(c => c.itemCount > 0).sort((a, b) => b.volume - a.volume);
+      const weight = items.reduce((sum, item) => {
+        const itemWeight = Number(item.weight_lbs) || 0;
+        const quantity = Number(item.quantity) || 1;
+        return sum + (itemWeight * quantity);
+      }, 0);
+
+      return {
+        name: collection.label,
+        itemCount: items.length,
+        volume: volume,
+        weight: weight,
+        percentage: totalVolumeCuFt.value > 0 ? (volume / totalVolumeCuFt.value) * 100 : 0,
+        weightPercentage: totalWeightLbs.value > 0 ? (weight / totalWeightLbs.value) * 100 : 0
+      };
+    }).filter(c => c.itemCount > 0).sort((a, b) => b.volume - a.volume);
 });
 
 // Get locations with address details
 const locationsWithDetails = computed(() => {
-  return store.locations.map(loc => ({
-    value: loc.value,
-    label: loc.label
-  }));
+  return store.locations.map(loc => {
+    // Count items in this location (via collections), summing quantities
+    const collectionsInLocation = store.collections
+      .filter(c => c.location === loc.value)
+      .map(c => c.value);
+    const itemCount = store.items
+      .filter(item => collectionsInLocation.includes(item.collection))
+      .reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
+
+    return {
+      value: loc.value,
+      label: `${loc.label} (${itemCount} items)`
+    };
+  });
 });
 
 const getUtilizationColor = (pct: number) => {
@@ -491,7 +583,7 @@ const colAdjustment = computed(() => {
 const formatAddress = (location: any): string | null => {
   if (!location) return null;
 
-  const parts = [];
+  const parts: string[] = [];
   if (location.address) parts.push(location.address);
   if (location.city) parts.push(location.city);
   if (location.state) parts.push(location.state);
@@ -586,46 +678,110 @@ const costEstimates = computed(() => {
   const distance = estimatedDistance.value || 0;
   const helpers = numHelpers.value;
   const totalHours = timeEstimates.value.total;
+  const totalBoxes = boxEstimates.value.total;
+
+  // Packing materials cost (including boxes)
+  const smallBoxCost = boxEstimates.value.small * 2.50;
+  const mediumBoxCost = boxEstimates.value.medium * 3.50;
+  const largeBoxCost = boxEstimates.value.large * 4.50;
+  const boxCost = smallBoxCost + mediumBoxCost + largeBoxCost;
+
+  const tapeCost = Math.ceil(totalBoxes / 8) * 6; // 1 roll per 8 boxes, $6/roll
+  const bubbleWrapCost = (specialItems.value.fragile * 8); // $8 per fragile item
+  const paperCost = totalBoxes * 2; // $2 worth of packing paper per box
+  const markersCost = 5; // Sharpies
+
+  // Furniture protection materials
+  const furniturePadsCount = Math.ceil(itemsInOriginLocation.value.length * 0.3); // ~30% of items are furniture
+  const furniturePadsCost = furniturePadsCount * 3; // $3 per furniture pad
+  const shrinkWrapCost = Math.ceil(furniturePadsCount / 2) * 15; // $15 per roll, 1 roll per 2 furniture items
+  const cornerProtectorsCost = furniturePadsCount * 2; // $2 per corner protector set
+
+  const packingMaterialsCost = boxCost + tapeCost + bubbleWrapCost + paperCost + markersCost +
+                                furniturePadsCost + shrinkWrapCost + cornerProtectorsCost;
 
   // DIY Move Costs
-  const truckRentalPerDay = distance > 100 ? 150 : 100; // Long distance vs local
-  const daysNeeded = distance > 100 ? Math.ceil(distance / 500) + 1 : 1; // 500 miles/day for long distance
+  const truckRentalPerDay = distance > 100 ? 200 : 120; // Long distance vs local
+  const daysNeeded = distance > 100 ? Math.ceil(distance / 450) + 1 : 1; // 450 miles/day realistic for long distance
   const truckRental = truckRentalPerDay * daysNeeded;
 
   const fuelCostPerGallon = 4.50; // Average diesel
   const mpg = 8; // Typical moving truck MPG
   const fuel = (distance / mpg) * fuelCostPerGallon * 2; // Round trip
 
-  const packingMaterialsCost = boxEstimates.value.total * 2.50; // $2.50 per box average
-  const equipmentRental = 50; // Dolly, blankets, straps
+  const equipmentRental = 75; // Dolly, blankets, straps, hand truck
 
   const diyTotal = truckRental + fuel + packingMaterialsCost + equipmentRental;
 
-  // Professional Move Costs (industry averages, adjusted for cost of living)
-  let professionalLow, professionalHigh;
+  // Calculate packing time based on box sizes and furniture
+  // Time benchmarks: 10 min/small, 20 min/medium, 30 min/large box
+  const smallBoxTime = boxEstimates.value.small * (10 / 60); // hours
+  const mediumBoxTime = boxEstimates.value.medium * (20 / 60); // hours
+  const largeBoxTime = boxEstimates.value.large * (30 / 60); // hours
+
+  // Furniture breakdown and protection time: ~15 min per furniture item
+  const furnitureBreakdownTime = furniturePadsCount * (15 / 60); // hours
+
+  const totalPackingHours = smallBoxTime + mediumBoxTime + largeBoxTime + furnitureBreakdownTime;
+
+  // Professional Move Costs (more realistic for 2024)
+  let professionalLow, professionalHigh, packingCostLow, packingCostHigh;
   const colMultiplier = colAdjustment.value;
+
+  // Professional movers upcharge 110% on materials
+  const professionalMaterialsCost = packingMaterialsCost * 1.10;
 
   if (distance < 100) {
     // Local move: hourly rate
-    const hourlyRate = 120; // $120/hour for 2-person crew
+    const hourlyRate = 150; // $150/hour for 2-person crew (2024 rates)
     professionalLow = hourlyRate * totalHours * 0.9 * colMultiplier;
-    professionalHigh = hourlyRate * totalHours * 1.3 * colMultiplier;
+    professionalHigh = hourlyRate * totalHours * 1.4 * colMultiplier;
+
+    // Packing service: $50-75/hour per packer + materials (with 110% upcharge)
+    packingCostLow = (totalPackingHours * 50) + professionalMaterialsCost;
+    packingCostHigh = (totalPackingHours * 75) + professionalMaterialsCost;
   } else {
-    // Long distance: weight/volume based
-    const costPerPound = 0.50; // Industry average
-    const costPerCubicFoot = 7; // Industry average
-    const weightBased = weight * costPerPound;
-    const volumeBased = volume * costPerCubicFoot;
+    // Long distance: More realistic formula based on distance + weight/volume
+    // Base rate: $2-3 per pound for cross-country
+    const baseCostPerPound = distance > 2000 ? 2.5 : (distance > 1000 ? 1.5 : 1.0);
+
+    // Volume-based alternative (whichever is higher)
+    const volumeCostMultiplier = distance > 2000 ? 12 : (distance > 1000 ? 10 : 8);
+
+    const weightBased = weight * baseCostPerPound;
+    const volumeBased = volume * volumeCostMultiplier;
     const baseCost = Math.max(weightBased, volumeBased);
 
-    professionalLow = baseCost * 0.8 * colMultiplier;
-    professionalHigh = baseCost * 1.5 * colMultiplier;
+    // Add distance-based surcharge for very long moves
+    const distanceSurcharge = distance > 2000 ? 1500 : (distance > 1000 ? 800 : 0);
+
+    professionalLow = (baseCost + distanceSurcharge) * 0.85 * colMultiplier;
+    professionalHigh = (baseCost + distanceSurcharge) * 1.25 * colMultiplier;
+
+    // Packing for long distance: labor + materials (with 110% upcharge)
+    // $60-85/hour per packer for long distance (higher skilled)
+    packingCostLow = (totalPackingHours * 60) + professionalMaterialsCost;
+    packingCostHigh = (totalPackingHours * 85) + professionalMaterialsCost;
   }
 
-  // VeriMove estimate: 80-90% of market range
-  const marketAverage = (professionalLow + professionalHigh) / 2;
-  const veriMoveLow = marketAverage * 0.80;
-  const veriMoveHigh = marketAverage * 0.90;
+  // Market average (moving + packing)
+  const marketMovingAverage = (professionalLow + professionalHigh) / 2;
+  const marketPackingAverage = (packingCostLow + packingCostHigh) / 2;
+  const marketTotalAverage = marketMovingAverage + marketPackingAverage;
+
+  // VeriMove estimate: Range from 80%-95% based on CoL adjustment
+  // Lower CoL (colMultiplier < 1) = better savings (closer to 80%)
+  // Higher CoL (colMultiplier > 1) = less savings (closer to 95%)
+  const veriMoveDiscountLow = 0.80 + (colMultiplier - 1) * 0.10; // 80% in low CoL, 95% in high CoL
+  const veriMoveDiscountHigh = 0.85 + (colMultiplier - 1) * 0.10; // 85% in low CoL, 100% in high CoL
+
+  // Clamp to reasonable bounds
+  const effectiveDiscountLow = Math.max(0.80, Math.min(0.95, veriMoveDiscountLow));
+  const effectiveDiscountHigh = Math.max(0.85, Math.min(1.00, veriMoveDiscountHigh));
+
+  const veriMoveLow = marketTotalAverage * effectiveDiscountLow;
+  const veriMoveHigh = marketTotalAverage * effectiveDiscountHigh;
+  const veriMoveAverage = (veriMoveLow + veriMoveHigh) / 2;
 
   return {
     diy: {
@@ -635,22 +791,47 @@ const costEstimates = computed(() => {
         fuel,
         materials: packingMaterialsCost,
         equipment: equipmentRental,
-        days: daysNeeded
+        days: daysNeeded,
+        boxes: boxCost,
+        tape: tapeCost,
+        bubbleWrap: bubbleWrapCost,
+        paper: paperCost
       }
     },
     professional: {
-      low: professionalLow,
-      high: professionalHigh,
-      average: marketAverage
+      movingOnly: {
+        low: professionalLow,
+        high: professionalHigh,
+        average: marketMovingAverage
+      },
+      packing: {
+        low: packingCostLow,
+        high: packingCostHigh,
+        average: marketPackingAverage,
+        hours: totalPackingHours,
+        breakdown: {
+          labor: (packingCostLow + packingCostHigh) / 2 - professionalMaterialsCost,
+          materials: professionalMaterialsCost,
+          boxes: boxCost * 1.10,
+          furnitureProtection: (furniturePadsCost + shrinkWrapCost + cornerProtectorsCost) * 1.10,
+          supplies: (tapeCost + bubbleWrapCost + paperCost + markersCost) * 1.10
+        }
+      },
+      total: {
+        low: professionalLow + packingCostLow,
+        high: professionalHigh + packingCostHigh,
+        average: marketTotalAverage
+      }
     },
     veriMove: {
       low: veriMoveLow,
       high: veriMoveHigh,
-      savings: marketAverage - ((veriMoveLow + veriMoveHigh) / 2)
+      average: veriMoveAverage,
+      savings: marketTotalAverage - veriMoveHigh // Savings based on high end (conservative)
     },
     comparison: {
-      diyVsProfessional: ((marketAverage - diyTotal) / marketAverage) * 100,
-      veriMoveVsProfessional: (((marketAverage - ((veriMoveLow + veriMoveHigh) / 2)) / marketAverage) * 100)
+      diyVsProfessional: ((marketTotalAverage - diyTotal) / marketTotalAverage) * 100,
+      veriMoveVsProfessional: ((marketTotalAverage - veriMoveAverage) / marketTotalAverage) * 100
     }
   };
 });
@@ -703,32 +884,324 @@ const addLocation = async () => {
   }
 };
 
-const requestOtherQuotes = () => {
-  // Placeholder for future implementation
-  // This would integrate with a moving quote aggregation service
-  Notify.create({
-    type: 'info',
-    message: 'Quote request feature coming soon! This will connect you with multiple moving companies.',
-    timeout: 3000
-  });
+const downloadPdfEstimate = async () => {
+  if (!estimatedDistance.value) {
+    Notify.create({
+      type: 'warning',
+      message: 'Please select origin and destination locations first',
+      timeout: 3000
+    });
+    return;
+  }
+
+  try {
+    // Get all required data
+    const origin = locationsWithDetails.value.find(l => l.value === originLocation.value);
+    const destination = locationsWithDetails.value.find(l => l.value === destinationLocation.value);
+    const costs = costEstimates.value;
+    const distance = estimatedDistance.value;
+
+    // Validate all required data is present
+    if (!costs || !distance) {
+      throw new Error('Cost estimates not ready');
+    }
+
+    // Create PDF
+    const doc = new jsPDF();
+    let yPos = 20;
+
+    // Helper function to add section header
+    const addSectionHeader = (text: string) => {
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(25, 118, 210); // Primary blue
+      doc.text(text, 15, yPos);
+      yPos += 2;
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(25, 118, 210);
+      doc.line(15, yPos, 195, yPos);
+      yPos += 8;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+    };
+
+    // Title
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(25, 118, 210);
+    doc.text('VeriMove Moving Quote', 15, yPos);
+    yPos += 8;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 15, yPos);
+    yPos += 12;
+
+    // SECTION 1: MOVE DETAILS
+    addSectionHeader('Move Details');
+
+    const moveDetails = [
+      ['From', origin?.label.replace(/\s*\(\d+\s*items\)/, '') || 'N/A'],
+      ['To', destination?.label.replace(/\s*\(\d+\s*items\)/, '') || 'N/A'],
+      ['Distance', `${distance.toLocaleString()} miles`],
+      ['Move Date', moveDate.value || 'Not set'],
+      ['Packing Services Required', packingServicesRequired.value ? 'Yes' : 'No'],
+      ['Stairs', hasStairs.value ? `Yes (${numberOfFlights.value || 0} flights)` : 'No'],
+      ['Elevator Available', hasElevator.value ? 'Yes' : 'No'],
+      ['Parking Situation', parkingSituation.value || 'Not specified'],
+    ];
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [],
+      body: moveDetails,
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 2 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 60 },
+        1: { cellWidth: 120 }
+      }
+    });
+
+    yPos = (doc as any).lastAutoTable.finalY + 10;
+
+    // Add Access Notes if provided
+    if (accessNotes.value) {
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Access Notes:', 15, yPos);
+      yPos += 5;
+      doc.setFont('helvetica', 'normal');
+      const splitNotes = doc.splitTextToSize(accessNotes.value, 180);
+      doc.text(splitNotes, 15, yPos);
+      yPos += splitNotes.length * 5 + 5;
+    }
+
+    // SECTION 2: FULL INVENTORY with images
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    addSectionHeader('Complete Inventory');
+
+    const inventoryItems = itemsInOriginLocation.value.map(item => {
+      const dims = parseItemDimensions(item);
+      const size = dims ? `${dims.length}"x${dims.width}"x${dims.height}"` : 'N/A';
+      const weight = item.weight_lbs ? `${item.weight_lbs} lbs` : 'N/A';
+      const qty = item.quantity || 1;
+
+      return [
+        item.label || 'Unnamed',
+        qty.toString(),
+        size,
+        weight,
+        item.fragile ? 'Yes' : 'No',
+        item.collection_name || 'Unassigned'
+      ];
+    });
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Item', 'Qty', 'Dimensions', 'Weight', 'Fragile', 'Location']],
+      body: inventoryItems,
+      theme: 'striped',
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [25, 118, 210], textColor: 255 },
+      columnStyles: {
+        0: { cellWidth: 50 },
+        1: { cellWidth: 15, halign: 'center' },
+        2: { cellWidth: 35 },
+        3: { cellWidth: 25 },
+        4: { cellWidth: 20, halign: 'center' },
+        5: { cellWidth: 40 }
+      }
+    });
+
+    yPos = (doc as any).lastAutoTable.finalY + 10;
+
+    // Add images for large furniture items
+    const largeItems = itemsInOriginLocation.value.filter(item => {
+      const dims = parseItemDimensions(item);
+      if (!dims) return false;
+      const volumeCuFt = (dims.length * dims.width * dims.height) / 1728;
+      return volumeCuFt >= 10 && item.picture_url; // Items 10+ cu ft with images
+    });
+
+    if (largeItems.length > 0) {
+      if (yPos > 240) {
+        doc.addPage();
+        yPos = 20;
+      }
+
+      addSectionHeader('Large Furniture Items');
+
+      // Helper function to load image as base64
+      const loadImageAsBase64 = async (url: string): Promise<string | null> => {
+        try {
+          const response = await fetch(url);
+          const blob = await response.blob();
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(blob);
+          });
+        } catch (error) {
+          console.warn('Failed to load image:', url, error);
+          return null;
+        }
+      };
+
+      // Display images in a grid (2 per row)
+      let itemIndex = 0;
+      for (const item of largeItems) {
+        if (!item.picture_url) continue;
+
+        const imageData = await loadImageAsBase64(item.picture_url);
+        if (!imageData) continue;
+
+        // Position in grid (2 columns)
+        const col = itemIndex % 2;
+        const xPos = 15 + (col * 90);
+
+        // Check if we need a new page
+        if (yPos > 220) {
+          doc.addPage();
+          yPos = 20;
+        }
+
+        // Add image (max 80x60)
+        try {
+          doc.addImage(imageData, 'PNG', xPos, yPos, 80, 60);
+
+          // Add item name below image
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          const itemName = (item.label || 'Unnamed').substring(0, 30);
+          doc.text(itemName, xPos + 40, yPos + 65, { align: 'center' });
+          doc.setFont('helvetica', 'normal');
+        } catch (imgError) {
+          console.warn('Failed to add image to PDF:', imgError);
+        }
+
+        // Move to next row after 2 items
+        if (col === 1) {
+          yPos += 75;
+        }
+
+        itemIndex++;
+      }
+
+      // Adjust yPos if we ended on first column
+      if (itemIndex % 2 === 1) {
+        yPos += 75;
+      }
+
+      yPos += 10;
+    }
+
+    // SECTION 3: COST ESTIMATES
+    if (yPos > 220) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    addSectionHeader('Cost Estimates');
+
+    // VeriMove Quote (highlighted)
+    doc.setFillColor(227, 242, 253); // Light blue
+    doc.rect(15, yPos, 180, 25, 'F');
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(25, 118, 210);
+    doc.text('VeriMove All-In Quote', 20, yPos + 8);
+    doc.setFontSize(16);
+    doc.text(`$${(costs.veriMove?.high || 0).toLocaleString()}`, 20, yPos + 18);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text('Binding not-to-exceed • Includes moving + packing', 20, yPos + 23);
+    yPos += 32;
+
+    // Cost comparison table
+    const costData = [
+      ['DIY Move', `$${(costs.diy?.total || 0).toLocaleString()}`],
+      ['Professional Movers (avg)', `$${(costs.professional?.total?.average || 0).toLocaleString()}`],
+      ['VeriMove Savings', `$${(costs.veriMove?.savings || 0).toLocaleString()}`]
+    ];
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [],
+      body: costData,
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 90 },
+        1: { cellWidth: 90, halign: 'right' }
+      }
+    });
+
+    yPos = (doc as any).lastAutoTable.finalY + 10;
+
+    // SECTION 4: SPECIAL REQUIREMENTS / NOTES
+    if (specialRequirements.value) {
+      if (yPos > 250) {
+        doc.addPage();
+        yPos = 20;
+      }
+
+      addSectionHeader('Special Requirements');
+
+      doc.setFontSize(10);
+      const splitReq = doc.splitTextToSize(specialRequirements.value, 180);
+      doc.text(splitReq, 15, yPos);
+      yPos += splitReq.length * 5 + 10;
+    }
+
+    // Footer
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Page ${i} of ${pageCount}`, 105, 285, { align: 'center' });
+      doc.text('VeriMove • For questions or to book: contact@verimove.com', 105, 290, { align: 'center' });
+    }
+
+    // Save PDF
+    doc.save(`VeriMove-Quote-${new Date().toISOString().split('T')[0]}.pdf`);
+
+    Notify.create({
+      type: 'positive',
+      message: 'Estimate downloaded successfully',
+      caption: 'Share this detailed estimate with moving companies',
+      timeout: 3000
+    });
+  } catch (error) {
+    console.error('Error generating PDF estimate:', error);
+    Notify.create({
+      type: 'negative',
+      message: 'Failed to generate estimate',
+      caption: 'Please make sure you have items in your origin location',
+      timeout: 3000
+    });
+  }
 };
 </script>
 
 <template>
   <div class="move-planning-container">
-    <div class="move-planning-header q-pa-md">
-      <h5 class="text-h5 text-primary q-my-none">Move Planning</h5>
-      <p class="text-caption text-grey-7 q-mt-xs">Estimate materials, truck size, and timeline for your move</p>
-    </div>
-
     <!-- Tab Navigation -->
     <div class="subnav">
-      <q-btn-group flat>
+      <q-btn-group flat class="pill-tabs">
         <q-btn
           flat
           dense
           no-caps
-          :color="movePlanningTab === 'planning' ? 'primary' : 'grey-7'"
+          :class="{ 'pill-tab-active': movePlanningTab === 'planning' }"
+          class="pill-tab"
           label="Planning"
           @click="movePlanningTab = 'planning'"
         />
@@ -736,16 +1209,22 @@ const requestOtherQuotes = () => {
           flat
           dense
           no-caps
-          :color="movePlanningTab === 'costs' ? 'primary' : 'grey-7'"
+          :class="{ 'pill-tab-active': movePlanningTab === 'costs' }"
+          class="pill-tab"
           label="Costs & Route"
           @click="movePlanningTab = 'costs'"
         />
       </q-btn-group>
     </div>
 
+    <div class="move-planning-header q-pa-md">
+      <h5 class="text-h5 text-primary q-my-none">Move Planning</h5>
+      <p class="text-caption text-grey-7 q-mt-xs">Estimate materials, truck size, and timeline for your move</p>
+    </div>
+
     <!-- Planning Tab -->
     <div v-if="movePlanningTab === 'planning'">
-    <!-- Move Configuration -->
+    <!-- Row 1: Move Configuration -->
     <div class="q-pa-md">
       <q-card flat bordered>
         <q-card-section>
@@ -762,6 +1241,7 @@ const requestOtherQuotes = () => {
                 label="Origin Location"
                 outlined
                 dense
+                :loading="isCalculatingDistance"
               >
                 <template v-slot:prepend>
                   <q-icon name="location_on" />
@@ -791,6 +1271,7 @@ const requestOtherQuotes = () => {
                 label="Destination Location"
                 outlined
                 dense
+                :loading="isCalculatingDistance"
               >
                 <template v-slot:prepend>
                   <q-icon name="place" />
@@ -838,59 +1319,119 @@ const requestOtherQuotes = () => {
               </q-input>
             </div>
           </div>
+
+          <!-- Additional Move Details -->
+          <div class="row q-col-gutter-md q-mt-sm">
+            <div class="col-12">
+              <div class="text-subtitle2 text-grey-8 q-mb-sm">Move Details</div>
+            </div>
+
+            <div class="col-12 col-md-4">
+              <q-checkbox
+                v-model="packingServicesRequired"
+                label="Packing services required"
+                dense
+              />
+            </div>
+
+            <div class="col-12 col-md-4">
+              <q-checkbox
+                v-model="hasStairs"
+                label="Stairs present"
+                dense
+              />
+            </div>
+
+            <div class="col-12 col-md-4" v-if="hasStairs">
+              <q-input
+                v-model.number="numberOfFlights"
+                type="number"
+                label="Number of flights"
+                outlined
+                dense
+                :min="1"
+                :max="20"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="stairs" />
+                </template>
+              </q-input>
+            </div>
+
+            <div class="col-12 col-md-4">
+              <q-checkbox
+                v-model="hasElevator"
+                label="Elevator available"
+                dense
+              />
+            </div>
+
+            <div class="col-12 col-md-8">
+              <q-input
+                v-model="parkingSituation"
+                label="Parking situation"
+                outlined
+                dense
+                placeholder="e.g., Street parking, Loading dock, Driveway"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="local_parking" />
+                </template>
+              </q-input>
+            </div>
+
+            <div class="col-12">
+              <q-input
+                v-model="accessNotes"
+                label="Access notes"
+                outlined
+                dense
+                type="textarea"
+                rows="2"
+                placeholder="Any access restrictions, narrow hallways, tight corners, etc."
+              >
+                <template v-slot:prepend>
+                  <q-icon name="location_on" />
+                </template>
+              </q-input>
+            </div>
+
+            <div class="col-12">
+              <q-input
+                v-model="specialRequirements"
+                label="Special requirements"
+                outlined
+                dense
+                type="textarea"
+                rows="2"
+                placeholder="Piano moving, antique furniture, storage needed, etc."
+              >
+                <template v-slot:prepend>
+                  <q-icon name="info" />
+                </template>
+              </q-input>
+            </div>
+          </div>
         </q-card-section>
       </q-card>
     </div>
 
-    <!-- Key Stats -->
-    <div class="stats-grid q-pa-md">
-      <q-card flat bordered class="stat-card">
-        <q-card-section>
-          <div class="row items-center q-mb-sm">
-            <q-icon name="inventory_2" size="md" color="primary" />
-            <span class="text-h6 text-primary q-ml-sm">{{ totalItems }}</span>
-          </div>
-          <div class="text-subtitle2 text-grey-8">Total Items</div>
-          <div class="text-caption text-grey-6">To pack and move</div>
-        </q-card-section>
-      </q-card>
-
-      <q-card flat bordered class="stat-card">
-        <q-card-section>
-          <div class="row items-center q-mb-sm">
-            <q-icon name="view_in_ar" size="md" color="secondary" />
-            <span class="text-h6 text-primary q-ml-sm">{{ totalVolumeCuFt.toFixed(1) }}</span>
-          </div>
-          <div class="text-subtitle2 text-grey-8">Cubic Feet</div>
-          <div class="text-caption text-grey-6">Total volume</div>
-        </q-card-section>
-      </q-card>
-
-      <q-card flat bordered class="stat-card">
-        <q-card-section>
-          <div class="row items-center q-mb-sm">
-            <q-icon name="scale" size="md" color="accent" />
-            <span class="text-h6 text-primary q-ml-sm">{{ totalWeightLbs.toFixed(0) }}</span>
-          </div>
-          <div class="text-subtitle2 text-grey-8">Pounds</div>
-          <div class="text-caption text-grey-6">Total weight</div>
-        </q-card-section>
-      </q-card>
-
-      <q-card flat bordered class="stat-card">
-        <q-card-section>
-          <div class="row items-center q-mb-sm">
-            <q-icon name="local_shipping" size="md" color="positive" />
-            <span class="text-h6 text-primary q-ml-sm">{{ truckRecommendation.size }}</span>
-          </div>
-          <div class="text-subtitle2 text-grey-8">Truck Size</div>
-          <div class="text-caption text-grey-6">Recommended</div>
-        </q-card-section>
-      </q-card>
+    <!-- Prompt to select origin location -->
+    <div v-if="!originLocation" class="q-pa-md">
+      <q-banner rounded class="bg-blue-1 text-primary">
+        <template v-slot:avatar>
+          <q-icon name="info" color="primary" size="lg" />
+        </template>
+        <div class="text-body1 text-weight-medium q-mb-xs">Get started with your move planning</div>
+        <div class="text-body2">Select an origin location above to see truck recommendations, time estimates, and packing requirements for your move.</div>
+      </q-banner>
     </div>
 
-    <!-- Main Content Grid -->
-    <div class="content-grid q-pa-md">
+    <!-- Show dashboard only when origin location is selected -->
+    <div v-if="originLocation">
+
+    <!-- Row 2: Truck Recommendation & Time Estimates -->
+    <div class="truck-time-grid q-pa-md">
       <!-- Truck Sizing -->
       <q-card flat bordered class="content-card">
         <q-card-section>
@@ -940,48 +1481,43 @@ const requestOtherQuotes = () => {
           <div class="text-h6 text-primary q-mb-md">Time Estimates</div>
           <div class="text-caption text-grey-6 q-mb-md">Based on {{ numHelpers }} helper{{ numHelpers > 1 ? 's' : '' }}</div>
 
-          <div class="time-breakdown">
-            <div class="time-item">
-              <div class="row items-center q-mb-xs">
-                <q-icon name="inventory" size="sm" color="primary" class="q-mr-sm" />
-                <span class="text-body1 text-weight-medium">{{ timeEstimates.packing }} hours</span>
-              </div>
-              <div class="text-caption text-grey-7">Packing Time</div>
+          <div class="time-breakdown-horizontal">
+            <div class="time-item-horizontal">
+              <q-icon name="inventory" size="sm" color="primary" class="q-mb-xs" />
+              <div class="text-body1 text-weight-medium">{{ timeEstimates.packing }} hrs</div>
+              <div class="text-caption text-grey-7">Packing</div>
             </div>
 
-            <q-separator class="q-my-md" />
+            <q-separator vertical class="time-separator" />
 
-            <div class="time-item">
-              <div class="row items-center q-mb-xs">
-                <q-icon name="publish" size="sm" color="secondary" class="q-mr-sm" />
-                <span class="text-body1 text-weight-medium">{{ timeEstimates.loading }} hours</span>
-              </div>
-              <div class="text-caption text-grey-7">Loading Time</div>
+            <div class="time-item-horizontal">
+              <q-icon name="publish" size="sm" color="secondary" class="q-mb-xs" />
+              <div class="text-body1 text-weight-medium">{{ timeEstimates.loading }} hrs</div>
+              <div class="text-caption text-grey-7">Loading</div>
             </div>
 
-            <q-separator class="q-my-md" />
+            <q-separator vertical class="time-separator" />
 
-            <div class="time-item">
-              <div class="row items-center q-mb-xs">
-                <q-icon name="get_app" size="sm" color="accent" class="q-mr-sm" />
-                <span class="text-body1 text-weight-medium">{{ timeEstimates.unloading }} hours</span>
-              </div>
-              <div class="text-caption text-grey-7">Unloading Time</div>
+            <div class="time-item-horizontal">
+              <q-icon name="get_app" size="sm" color="accent" class="q-mb-xs" />
+              <div class="text-body1 text-weight-medium">{{ timeEstimates.unloading }} hrs</div>
+              <div class="text-caption text-grey-7">Unloading</div>
             </div>
 
-            <q-separator class="q-my-md" />
+            <q-separator vertical class="time-separator" />
 
-            <div class="time-item total-time">
-              <div class="row items-center q-mb-xs">
-                <q-icon name="schedule" size="sm" color="positive" class="q-mr-sm" />
-                <span class="text-h6 text-positive">{{ timeEstimates.total }} hours</span>
-              </div>
-              <div class="text-caption text-grey-7">Estimated Total</div>
+            <div class="time-item-horizontal total-time-horizontal">
+              <q-icon name="schedule" size="sm" color="positive" class="q-mb-xs" />
+              <div class="text-h6 text-positive">{{ timeEstimates.total }} hrs</div>
+              <div class="text-caption text-grey-7">Total</div>
             </div>
           </div>
         </q-card-section>
       </q-card>
+    </div>
 
+    <!-- Row 3: Packing Status | Packing Materials | Special Handling -->
+    <div class="packing-grid q-pa-md">
       <!-- Box Requirements Summary -->
       <q-card flat bordered class="content-card">
         <q-card-section>
@@ -1044,8 +1580,8 @@ const requestOtherQuotes = () => {
       </q-card>
 
       <!-- Packing Materials -->
-      <q-card flat bordered class="content-card">
-        <q-card-section>
+      <q-card flat bordered class="content-card packing-materials-card">
+        <q-card-section class="packing-materials-section">
           <div class="text-h6 text-primary q-mb-md">Packing Materials</div>
 
           <q-list dense>
@@ -1066,7 +1602,7 @@ const requestOtherQuotes = () => {
       </q-card>
 
       <!-- Special Handling -->
-      <q-card flat bordered class="content-card">
+      <q-card flat bordered class="content-card special-handling-card">
         <q-card-section>
           <div class="text-h6 text-primary q-mb-md">Special Handling</div>
 
@@ -1094,39 +1630,81 @@ const requestOtherQuotes = () => {
               <div class="text-h6 q-mt-sm">{{ specialItems.highValue }}</div>
               <div class="text-caption text-grey-7">High Value ($500+)</div>
             </div>
-          </div>
-        </q-card-section>
-      </q-card>
 
-      <!-- Collection Breakdown -->
-      <q-card flat bordered class="content-card">
-        <q-card-section>
-          <div class="text-h6 text-primary q-mb-md">Space by Collection</div>
+            <div class="special-item">
+              <q-icon name="build" size="lg" color="info" />
+              <div class="text-h6 q-mt-sm">{{ specialItems.disassemblyRequired }}</div>
+              <div class="text-caption text-grey-7">Disassembly Required</div>
+            </div>
 
-          <div v-if="collectionBreakdown.length > 0">
-            <div v-for="collection in collectionBreakdown" :key="collection.name" class="collection-item q-mb-md">
-              <div class="row items-center justify-between q-mb-xs">
-                <div class="text-subtitle2 text-weight-medium">{{ collection.name }}</div>
-                <div class="text-caption text-grey-7">{{ collection.volume.toFixed(1) }} cu ft</div>
-              </div>
-              <q-linear-progress
-                :value="collection.percentage / 100"
-                color="primary"
-                size="12px"
-                rounded
-                class="q-mb-xs"
-              />
-              <div class="text-caption text-grey-6">{{ collection.itemCount }} items</div>
+            <div class="special-item">
+              <q-icon name="thermostat" size="lg" color="accent" />
+              <div class="text-h6 q-mt-sm">{{ specialItems.climateSensitive }}</div>
+              <div class="text-caption text-grey-7">Climate Sensitive</div>
             </div>
           </div>
-          <div v-else class="text-center text-grey-5 q-py-md">
-            <q-icon name="folder_off" size="lg" />
-            <div class="q-mt-sm">No collections with dimensions</div>
-          </div>
         </q-card-section>
       </q-card>
     </div>
+
+    <!-- Row 4: Space & Weight by Collection -->
+    <div class="q-pa-md">
+      <div class="collection-breakdown-section">
+        <div class="text-h6 text-primary q-mb-md q-px-md">Space & Weight by Collection</div>
+
+        <div v-if="collectionBreakdown.length > 0" class="collection-cards-container">
+          <q-card v-for="collection in collectionBreakdown" :key="collection.name" flat bordered class="collection-card">
+            <q-card-section>
+              <div class="row items-center justify-between q-mb-sm">
+                <div class="text-subtitle1 text-weight-medium">{{ collection.name }}</div>
+                <div class="text-caption text-grey-7">{{ collection.itemCount }} items</div>
+              </div>
+
+              <!-- Volume bar -->
+              <div class="q-mb-sm">
+                <div class="row items-center justify-between q-mb-xs">
+                  <div class="text-caption text-grey-6">
+                    <q-icon name="view_in_ar" size="xs" class="q-mr-xs" />
+                    Volume
+                  </div>
+                  <div class="text-caption text-weight-medium">{{ collection.volume.toFixed(1) }} cu ft</div>
+                </div>
+                <q-linear-progress
+                  :value="collection.percentage / 100"
+                  color="primary"
+                  size="8px"
+                  rounded
+                />
+              </div>
+
+              <!-- Weight bar -->
+              <div>
+                <div class="row items-center justify-between q-mb-xs">
+                  <div class="text-caption text-grey-6">
+                    <q-icon name="scale" size="xs" class="q-mr-xs" />
+                    Weight
+                  </div>
+                  <div class="text-caption text-weight-medium">{{ collection.weight.toFixed(0) }} lbs</div>
+                </div>
+                <q-linear-progress
+                  :value="collection.weightPercentage / 100"
+                  color="secondary"
+                  size="8px"
+                  rounded
+                />
+              </div>
+            </q-card-section>
+          </q-card>
+        </div>
+        <div v-else class="text-center text-grey-5 q-py-md">
+          <q-icon name="folder_off" size="lg" />
+          <div class="q-mt-sm">No collections with dimensions</div>
+        </div>
+      </div>
     </div>
+
+    </div><!-- Close v-if="originLocation" -->
+    </div><!-- Close Planning Tab -->
 
     <!-- Costs & Route Tab -->
     <div v-else-if="movePlanningTab === 'costs'">
@@ -1147,6 +1725,7 @@ const requestOtherQuotes = () => {
                   label="Origin Location"
                   outlined
                   dense
+                  :loading="isCalculatingDistance"
                 >
                   <template v-slot:prepend>
                     <q-icon name="location_on" />
@@ -1176,6 +1755,7 @@ const requestOtherQuotes = () => {
                   label="Destination Location"
                   outlined
                   dense
+                  :loading="isCalculatingDistance"
                 >
                   <template v-slot:prepend>
                     <q-icon name="place" />
@@ -1227,92 +1807,109 @@ const requestOtherQuotes = () => {
         </q-card>
       </div>
 
-      <div class="q-pa-md content-grid">
+      <div class="costs-route-grid q-pa-md">
       <!-- Cost Estimates -->
       <q-card flat bordered class="content-card">
         <q-card-section>
-          <div class="text-h6 text-primary q-mb-md">
-            <q-icon name="attach_money" size="sm" class="q-mr-xs" />
+          <!-- Heading 1: Cost Estimates -->
+          <div class="text-h5 text-weight-bold q-mb-lg">
             Cost Estimates
           </div>
 
           <div v-if="estimatedDistance">
-            <!-- DIY Move -->
-            <div class="q-mb-lg">
-            <div class="text-subtitle2 text-grey-8 q-mb-sm">
-              <q-icon name="drive_eta" size="sm" class="q-mr-xs" />
+            <!-- Heading 2: DIY Move -->
+            <div class="text-h6 text-weight-medium q-mb-sm">
               DIY Move
             </div>
-            <div class="row items-center q-mb-xs">
-              <div class="col text-h5 text-weight-medium">
-                ${{ costEstimates.diy.total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
-              </div>
+
+            <!-- Subheading: Dollar Amount -->
+            <div class="text-h5 text-weight-bold text-grey-9 q-mb-sm">
+              ${{ costEstimates.diy.total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
             </div>
-            <div class="text-caption text-grey-6 q-mb-sm">
-              Estimated total for self-move
-            </div>
-            <div class="text-caption text-grey-7">
+
+            <!-- Breakdown bullets -->
+            <div class="text-body2 text-grey-7 q-mb-lg">
               <div>• Truck rental: ${{ costEstimates.diy.breakdown.truckRental.toFixed(0) }} ({{ costEstimates.diy.breakdown.days }} day{{ costEstimates.diy.breakdown.days > 1 ? 's' : '' }})</div>
               <div>• Fuel: ${{ costEstimates.diy.breakdown.fuel.toFixed(0) }}</div>
-              <div>• Packing materials: ${{ costEstimates.diy.breakdown.materials.toFixed(0) }}</div>
-              <div>• Equipment/misc: ${{ costEstimates.diy.breakdown.equipment.toFixed(0) }}</div>
+              <div>• Packing materials & equipment: ${{ (costEstimates.diy.breakdown.materials + costEstimates.diy.breakdown.equipment).toFixed(0) }}</div>
+            </div>
+
+          <q-separator class="q-my-md" />
+
+          <!-- Heading 2: Professional Movers -->
+          <div class="text-h6 text-weight-medium q-mb-sm">
+            Professional Movers
+          </div>
+
+          <!-- Subheading: Total Range -->
+          <div class="text-h5 text-weight-bold text-grey-9 q-mb-sm">
+            ${{ costEstimates.professional.total.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
+            ${{ costEstimates.professional.total.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
+          </div>
+
+          <!-- Breakdown bullets -->
+          <div class="text-body2 text-grey-7 q-mb-lg">
+            <!-- Moving bullet -->
+            <div>
+              • Moving: ${{ costEstimates.professional.movingOnly.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
+              ${{ costEstimates.professional.movingOnly.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
+            </div>
+
+            <!-- Packing bullet with popup -->
+            <div>
+              • Packing: ${{ costEstimates.professional.packing.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
+              ${{ costEstimates.professional.packing.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
+              <q-icon name="info_outline" size="xs" class="q-ml-xs cursor-pointer" color="grey-6">
+                <q-tooltip max-width="200px" class="text-caption">
+                  <div class="text-weight-medium q-mb-xs" style="font-size: 11px;">{{ costEstimates.professional.packing.hours.toFixed(1) }} hrs</div>
+                  <div style="font-size: 10px;">
+                    Labor: ${{ costEstimates.professional.packing.breakdown.labor.toFixed(0) }}<br>
+                    Materials: ${{ (costEstimates.professional.packing.breakdown.boxes + costEstimates.professional.packing.breakdown.furnitureProtection + costEstimates.professional.packing.breakdown.supplies).toFixed(0) }}
+                  </div>
+                </q-tooltip>
+              </q-icon>
             </div>
           </div>
 
           <q-separator class="q-my-md" />
 
-          <!-- Professional Movers (Market Range) -->
-          <div class="q-mb-lg">
-            <div class="text-subtitle2 text-grey-8 q-mb-sm">
-              <q-icon name="local_shipping" size="sm" class="q-mr-xs" />
-              Professional Movers (Market Range)
+          <!-- VeriMove Blue Box -->
+          <div class="q-mb-md q-pa-md rounded-borders" style="background: #E3F2FD; border: 2px solid #1976D2;">
+            <div class="text-h6 text-weight-medium text-primary q-mb-sm">
+              VeriMove All-In Quote
             </div>
-            <div class="row items-center q-mb-xs">
-              <div class="col text-h5 text-weight-medium">
-                ${{ costEstimates.professional.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
-                ${{ costEstimates.professional.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
-              </div>
-            </div>
-            <div class="text-caption text-grey-6">
-              Estimated range from professional moving companies
-            </div>
-          </div>
-
-          <q-separator class="q-my-md" />
-
-          <!-- VeriMove Guaranteed Estimate -->
-          <div class="q-mb-md bg-primary-1 q-pa-md rounded-borders">
-            <div class="text-subtitle2 text-primary q-mb-sm">
-              <q-icon name="verified" size="sm" class="q-mr-xs" />
-              VeriMove Guaranteed Estimate
-            </div>
-            <div class="row items-center q-mb-xs">
-              <div class="col text-h5 text-weight-bold text-primary">
-                ${{ costEstimates.veriMove.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
+            <div class="row items-center q-mb-sm">
+              <div class="col text-h4 text-weight-bold text-primary">
                 ${{ costEstimates.veriMove.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
               </div>
             </div>
-            <div class="text-caption text-grey-7 q-mb-sm">
-              Binding not-to-exceed estimate
-            </div>
-            <div class="row items-center bg-positive text-white q-pa-xs rounded-borders" style="display: inline-flex;">
-              <q-icon name="savings" size="xs" class="q-mr-xs" />
-              <span class="text-caption">
-                Save up to ${{ costEstimates.veriMove.savings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} vs. market average
+
+            <!-- Savings callout -->
+            <div class="q-pa-sm rounded-borders q-mb-sm" style="background: #4CAF50; display: inline-block;">
+              <span class="text-body2 text-white">
+                Save <span class="text-weight-bold">${{ costEstimates.veriMove.savings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span> vs. market average
               </span>
+            </div>
+
+            <!-- Footnote -->
+            <div class="text-caption text-grey-6">
+              * Binding not-to-exceed quote includes moving + packing
             </div>
           </div>
 
-          <!-- Request Other Quotes Button -->
+          <!-- Download PDF Estimate Button -->
           <div class="q-mt-md">
             <q-btn
-              outline
-              color="secondary"
-              icon="request_quote"
-              label="Request Quotes from Other Movers"
+              unelevated
+              color="primary"
+              icon="download"
+              label="Download PDF Estimate"
               class="full-width"
-              @click="requestOtherQuotes"
+              @click="downloadPdfEstimate"
             />
+            <div class="text-caption text-grey-6 q-mt-sm text-center">
+              Get a detailed estimate to share with moving companies
+            </div>
           </div>
 
             <div class="text-caption text-grey-5 q-mt-sm">
@@ -1394,36 +1991,101 @@ const requestOtherQuotes = () => {
 }
 
 .subnav {
-  padding: 12px 24px 0;
-}
-
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-top: -8px;
-}
-
-.stat-card {
+  padding: 12px 24px;
   background: white;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+.pill-tabs {
+  background: #F0F2F5;
+  border-radius: 8px;
+  padding: 4px;
+  display: inline-flex;
+  gap: 4px;
 }
 
-.content-grid {
+.pill-tab {
+  border-radius: 6px;
+  padding: 6px 16px;
+  transition: all 0.2s;
+  color: #5F6368;
+  font-weight: 500;
+}
+
+.pill-tab:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.pill-tab-active {
+  background: white !important;
+  color: #1976D2 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* Row 2: Truck & Time Grid */
+.truck-time-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
   margin-top: -8px;
+  align-items: stretch;
+}
+
+.truck-time-grid > .content-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.truck-time-grid > .content-card > .q-card__section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Row 3: Packing Grid (Status, Materials, Special Handling) */
+.packing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: -8px;
+  align-items: stretch;
+}
+
+/* Costs & Route Grid (2 columns) */
+.costs-route-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  margin-top: -8px;
+  align-items: stretch;
+}
+
+.costs-route-grid > .content-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.costs-route-grid > .content-card > .q-card__section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.packing-grid > .content-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.packing-grid > .content-card > .q-card__section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .content-card {
   background: white;
-  height: fit-content;
 }
 
 .truck-details {
@@ -1432,6 +2094,35 @@ const requestOtherQuotes = () => {
   border-radius: 8px;
 }
 
+/* Horizontal time breakdown */
+.time-breakdown-horizontal {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  padding: 16px 8px;
+  gap: 16px;
+}
+
+.time-item-horizontal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  flex: 1;
+  padding: 8px;
+}
+
+.time-separator {
+  height: auto;
+  align-self: stretch;
+}
+
+.total-time-horizontal {
+  background: rgba(76, 175, 80, 0.05);
+  border-radius: 8px;
+}
+
+/* Old vertical time breakdown (keeping for backwards compatibility) */
 .time-breakdown {
   padding: 8px;
 }
@@ -1448,10 +2139,14 @@ const requestOtherQuotes = () => {
 
 .box-list {
   padding: 8px 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
 }
 
 .box-item {
-  padding: 8px 0;
+  padding: 12px 0;
 }
 
 .total-boxes {
@@ -1464,6 +2159,8 @@ const requestOtherQuotes = () => {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
+  flex: 1;
+  align-content: space-evenly;
 }
 
 .special-item {
@@ -1473,10 +2170,45 @@ const requestOtherQuotes = () => {
   border-radius: 8px;
 }
 
-.collection-item {
-  padding: 8px;
-  background: #F7F8FA;
-  border-radius: 8px;
+/* Collection Cards */
+.collection-breakdown-section {
+  background: white;
+  border: 1px solid #E0E0E0;
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.collection-cards-container {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  overflow-x: auto;
+  padding: 8px 0;
+}
+
+.collection-card {
+  min-width: 280px;
+  flex: 1 1 280px;
+  max-width: 350px;
+  background: white;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.collection-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Packing Materials Card - Match Packing Status Height */
+.packing-materials-card .packing-materials-section {
+  min-height: 250px;
+  display: flex;
+  flex-direction: column;
+}
+
+.packing-materials-card .q-item {
+  padding: 12px 0;
+  min-height: 56px;
 }
 
 .placeholder-card {
@@ -1492,15 +2224,22 @@ const requestOtherQuotes = () => {
   text-align: center;
 }
 
+/* Responsive Grid Layouts */
 @media (max-width: 1200px) {
-  .content-grid {
-    grid-template-columns: 1fr;
+  .packing-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .special-items-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
-@media (max-width: 1024px) {
-  .stats-grid {
-    grid-template-columns: repeat(2, 1fr);
+@media (max-width: 900px) {
+  .truck-time-grid,
+  .packing-grid,
+  .costs-route-grid {
+    grid-template-columns: 1fr;
   }
 
   .special-items-grid {
@@ -1509,12 +2248,13 @@ const requestOtherQuotes = () => {
 }
 
 @media (max-width: 600px) {
-  .stats-grid {
+  .special-items-grid {
     grid-template-columns: 1fr;
   }
 
-  .special-items-grid {
-    grid-template-columns: 1fr;
+  .collection-card {
+    min-width: 100%;
+    max-width: 100%;
   }
 }
 </style>

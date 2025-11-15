@@ -99,16 +99,7 @@
         { label: 'Wardrobe', value: 'wardrobe' },
         { label: 'Custom', value: 'custom' }
     ];
-    const locationOptions = computed(() => {
-        if (store.activeContainer == undefined || props.addType == 'Item') {
-        return store.locations.map(i => {return {label: i.label, value: i.value}})
-        } else if (store.containers.find(i => i.value == store.activeContainer?.value)?.location == undefined) {
-        console.log('location is undefined and this container doesnt have a location')
-        return store.locations.map(i => {return {label: i.label, value: i.value}})
-        } else {
-        return store.locations.filter(i => i.value == store.containers.find(i => i.value == store.activeContainer?.value)?.location).map(i => {return {label: i.label, value: i.value}})
-        }
-    })
+    // Note: locationOptions no longer needed for items/containers as they inherit from collection
 
     const fileToBlob = (file: File): Promise<Blob> => {
         return new Promise((resolve, reject) => {
@@ -148,6 +139,7 @@
                 blob = await fileToBlob(file.value);
             }
 
+            // Note: location is now inherited from collection
             store.createItem(
                 props.user,
                 name.value,
@@ -155,7 +147,6 @@
                 quantity.value,
                 store.activeCollection!.value,
                 store.activeContainer?.value,
-                location.value?.value,
                 blob,
                 // New MoveTrack fields
                 estimatedValue.value,
@@ -163,14 +154,17 @@
                 priority.value,
                 weightLbs.value,
                 dimensions.value,
-                notes.value
+                null,
+                null,
+                null,
+                notes.value || undefined
             )
         } else if (props.addType == 'Container') {
+            // Note: location is now inherited from collection
             store.createContainer(
                 props.user,
                 name.value,
                 store.activeCollection!.value,
-                location.value?.value,
                 // New MoveTrack fields
                 boxNumber.value,
                 boxType.value,
@@ -184,10 +178,16 @@
                 description.value
             )
         } else if (props.addType == 'Collection') {
+            // Collections now require a location
+            if (!location.value?.value) {
+                alert('Please select a location for this collection');
+                return;
+            }
             store.createCollection(
                 props.user,
                 name.value,
-                description.value
+                description.value,
+                location.value.value
             )
         } else if (props.addType == 'Location') {
             store.createLocation(
@@ -205,17 +205,6 @@
 
     watch(() => store.activeCollection, (newCollection, oldCollection) => {
         store.activeContainer = undefined
-    });
-
-    watch(() => store.activeContainer, (newContainer, oldContainer) => {
-        if (newContainer != undefined && store.containers.find(i => i.value == newContainer?.value)?.location != undefined) {
-        location.value = { 
-            label: store.locations.find(i => i.value == store.containers.find(i => i.value == newContainer?.value)?.location)?.label, 
-            value: store.containers.find(i => i.value == newContainer?.value)?.location
-        }
-        } else {
-        location.value = undefined
-        }
     });
 
     const file = ref<File | null>(null);
@@ -354,16 +343,15 @@
                 label="Container"
             />
 
+            <!-- Location selector: Required for Collections, not shown for Items/Containers (they inherit from collection) -->
             <q-select
-                v-if="(props.addType == 'Item' || props.addType == 'Container') && store.locations.length > 0"
+                v-if="props.addType == 'Collection' && store.locations.length > 0"
                 dense
                 v-model="location"
-                :options="locationOptions"
-                :disable="(props.addType === 'Item') && (store.activeContainer != undefined && store.containers.find(i => i.value == store.activeContainer?.value)?.location != undefined)"
-                disable-hint="Items in containers will take the location of that container"
+                :options="store.locations.map(i => {return {label: i.label, value: i.value}})"
                 filled
                 label="Location"
-                clearable
+                :rules="[(val: any) => !!val || 'Location is required for collections']"
             />
             
             <!-- REQUIRED FOR LOCATION -->

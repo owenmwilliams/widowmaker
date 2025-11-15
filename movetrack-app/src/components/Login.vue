@@ -19,7 +19,9 @@ const email = ref('');
 const emailError = ref(false);
 const emailErrorMessage = ref('');
 const isSubmitting = ref(false);
-const isVerifying = ref(false);
+// Check for token in URL immediately to avoid showing login form
+const hasTokenInUrl = !!route.query.token;
+const isVerifying = ref(hasTokenInUrl);
 const emailSent = ref(false);
 const verificationError = ref('');
 const isDevelopment = import.meta.env.MODE === 'development';
@@ -125,17 +127,26 @@ const verifyMagicLink = async (token: string) => {
       localStorage.setItem('session_token', response.data.sessionToken);
       localStorage.setItem('user_data', JSON.stringify(response.data.user));
 
+      // Development-only: Backup to sessionStorage for HMR resilience
+      if (isDevelopment) {
+        sessionStorage.setItem('dev_session_backup', response.data.sessionToken);
+        sessionStorage.setItem('dev_user_backup', JSON.stringify(response.data.user));
+        console.log('[Dev Session] Session backed up to sessionStorage');
+      }
+
       $q.notify({
         type: 'positive',
         message: `Welcome back!`
       });
 
-      // Redirect to items page
-      setTimeout(() => {
-        router.push('/items');
-      }, 500);
+      // Keep loading screen visible and redirect immediately
+      // Don't hide loading in finally block since we're navigating away
+      router.push('/items');
     } else {
+      // Only on error: show error and hide loading
       verificationError.value = response.data.error || 'Invalid or expired magic link';
+      isVerifying.value = false;
+      emits('app:loading', false);
       $q.notify({
         type: 'negative',
         message: verificationError.value
@@ -144,13 +155,12 @@ const verifyMagicLink = async (token: string) => {
   } catch (error: any) {
     console.error('Error verifying magic link:', error);
     verificationError.value = error.response?.data?.error || 'Failed to verify magic link';
+    isVerifying.value = false;
+    emits('app:loading', false);
     $q.notify({
       type: 'negative',
       message: verificationError.value
     });
-  } finally {
-    isVerifying.value = false;
-    emits('app:loading', false);
   }
 };
 
@@ -162,21 +172,22 @@ const tryAgain = () => {
 </script>
 
 <template>
-  <div class="login-container">
+  <!-- Full-screen loading when verifying magic link -->
+  <div v-if="isVerifying" class="fullscreen-loading">
+    <div class="loading-content">
+      <q-spinner color="primary" size="80px" />
+      <div class="q-mt-lg text-h5">Logging you in...</div>
+      <div class="q-mt-sm text-body2 text-grey-7">Please wait a moment</div>
+    </div>
+  </div>
+
+  <div v-else class="login-container">
     <q-card class="login-card">
       <q-card-section>
-        <div class="text-h4 q-mb-md">
-          {{ isVerifying ? 'Verifying...' : 'Login to MoveTrack' }}
-        </div>
-
-        <!-- Verifying state -->
-        <div v-if="isVerifying" class="text-center q-py-lg">
-          <q-spinner color="primary" size="50px" />
-          <div class="q-mt-md text-body1">Logging you in...</div>
-        </div>
+        <div class="text-h4 q-mb-md">Login to MoveTrack</div>
 
         <!-- Verification error -->
-        <div v-else-if="verificationError" class="text-center q-py-lg">
+        <div v-if="verificationError" class="text-center q-py-lg">
           <q-icon name="error" color="negative" size="50px" />
           <div class="q-mt-md text-body1 text-negative">{{ verificationError }}</div>
           <q-btn
@@ -252,6 +263,24 @@ const tryAgain = () => {
 </template>
 
 <style scoped>
+.fullscreen-loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  z-index: 9999;
+}
+
+.loading-content {
+  text-align: center;
+  color: white;
+}
+
 .login-container {
   display: flex;
   justify-content: center;

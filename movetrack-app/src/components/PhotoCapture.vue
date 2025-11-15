@@ -549,14 +549,19 @@ const saveItem = async () => {
       newItem.value.qty || 1,
       store.activeCollection.value,
       store.activeContainer?.value,
-      undefined, // location
       imageBlob,
       null, // estimatedValue
       editFragile.value,
       undefined, // priority
       editWeight.value,
       dimensions,
-      `Material: ${newItem.value.material || 'N/A'}, Color: ${newItem.value.primaryColor || 'N/A'}`
+      editDimensions.value.length || null,
+      editDimensions.value.width || null,
+      editDimensions.value.height || null,
+      `Material: ${newItem.value.material || 'N/A'}, Color: ${newItem.value.primaryColor || 'N/A'}`,
+      newItem.value.material || undefined,
+      newItem.value.primaryColor || undefined,
+      newItem.value.tags || []
     );
 
     // Reload inventory to show new item
@@ -682,20 +687,19 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       1, // quantity
       store.activeCollection.value,
       store.activeContainer?.value,
-      undefined, // location
       imageBlob,
       null, // estimatedValue
       aiDetails?.fragile ?? false,
       undefined, // priority
       weightEstimate ?? null,
       dimensionString,
-      `Material: ${material || 'N/A'}, Color: ${color || 'N/A'}`,
-      material,
-      color,
-      tags,
       lengthIn,
       widthIn,
-      heightIn
+      heightIn,
+      `Material: ${material || 'N/A'}, Color: ${color || 'N/A'}`,
+      material || undefined,
+      color || undefined,
+      tags
     );
 
     // Reload inventory to show new item

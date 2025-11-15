@@ -47,7 +47,8 @@
       "Bash(gcloud sql instances describe:*)",
       "Bash(gcloud sql operations list:*)",
       "Bash(echo:*)",
-      "Bash(gcloud sql instances patch:*)"
+      "Bash(gcloud sql instances patch:*)",
+      "Bash(PORT=3050 node:*)"
     ],
     "deny": [],
     "ask": []

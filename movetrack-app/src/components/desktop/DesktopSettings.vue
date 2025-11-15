@@ -312,7 +312,8 @@ const markPrimary = async (id: number | null) => {
 }
 
 .settings-header {
-  margin-bottom: 32px;
+  background: white;
+  border-bottom: 1px solid #E0E0E0;
 }
 
 .settings-content {

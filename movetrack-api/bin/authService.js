@@ -3,8 +3,29 @@ const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const { db } = require('./db');
 
-// JWT secret - in production, this should be a strong secret from environment variable
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+// --- Configuration Guards ----------------------------------------------------
+const isProduction = process.env.NODE_ENV === 'production';
+
+const jwtSecretFromEnv = process.env.JWT_SECRET;
+
+if (!jwtSecretFromEnv) {
+    if (isProduction) {
+        throw new Error('[authService] Missing required environment variable: JWT_SECRET');
+    } else {
+        console.warn('[authService] JWT_SECRET not set. Using development fallback. DO NOT USE IN PRODUCTION.');
+    }
+}
+
+if (jwtSecretFromEnv === 'your-secret-key-change-in-production') {
+    if (isProduction) {
+        throw new Error('[authService] JWT_SECRET must be set to a non-default, secure value.');
+    } else {
+        console.warn('[authService] Using placeholder JWT_SECRET. Please update .env with a secure value.');
+    }
+}
+
+// JWT secret - guaranteed to exist thanks to guard above
+const JWT_SECRET = jwtSecretFromEnv || 'development-secret-key';
 const JWT_EXPIRY = '30d'; // 30 day sessions
 const MAGIC_LINK_EXPIRY_MINUTES = 15;
 
@@ -58,30 +79,43 @@ function verifySessionToken(token) {
  */
 async function createMagicLinkToken(email, ipAddress, userAgent) {
     try {
+        // Normalize email to lowercase for consistency
+        const normalizedEmail = email.toLowerCase().trim();
+
         // Check if user exists, create if not
-        let user = await db.oneOrNone('SELECT user_id, email FROM users WHERE email = $1', [email]);
+        let user = await db.oneOrNone('SELECT user_id, email FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
 
         if (!user) {
             // Create new user
-            // Generate username from email (part before @)
-            const username = email.split('@')[0];
+            // Generate unique username from email (part before @)
+            let username = normalizedEmail.split('@')[0];
 
-            console.log('Creating new user for email:', email);
+            // Check if username already exists, append numbers if needed
+            let usernameExists = await db.oneOrNone('SELECT user_name FROM users WHERE user_name = $1', [username]);
+            let counter = 1;
+
+            while (usernameExists) {
+                username = `${normalizedEmail.split('@')[0]}${counter}`;
+                usernameExists = await db.oneOrNone('SELECT user_name FROM users WHERE user_name = $1', [username]);
+                counter++;
+            }
+
+            console.log('Creating new user for email:', normalizedEmail, 'with username:', username);
             user = await db.one(
                 `INSERT INTO users (email, user_name, created_at, last_login_at)
                  VALUES ($1, $2, NOW(), NOW())
                  RETURNING user_id, email`,
-                [email, username]
+                [normalizedEmail, username]
             );
             console.log('New user created:', user.user_id);
+        } else {
+            console.log('Existing user found for email:', normalizedEmail, '- sending new magic link');
         }
 
         // Generate magic link token
         const token = generateToken();
         // Store expiry as UTC timestamp by converting to ISO string
         const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
-
-        console.log('Creating token with expiry:', expiresAt, 'Current time:', new Date().toISOString());
 
         // Store token in database
         await db.none(
@@ -93,7 +127,7 @@ async function createMagicLinkToken(email, ipAddress, userAgent) {
         return { success: true, token, userId: user.user_id };
     } catch (error) {
         console.error('Error creating magic link token:', error);
-        return { success: false, error: error.message };
+        return { success: false, error: 'Unable to create login link. Please try again.' };
     }
 }
 
@@ -102,9 +136,6 @@ async function createMagicLinkToken(email, ipAddress, userAgent) {
  */
 async function verifyMagicLinkToken(token, ipAddress, userAgent) {
     try {
-        console.log('Verifying token:', token);
-        console.log('Current time:', new Date().toISOString());
-
         // First check if token exists at all
         const tokenCheck = await db.oneOrNone(
             `SELECT at.expires_at, at.used_at, NOW() as current_time
@@ -112,8 +143,6 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
              WHERE at.token = $1 AND at.token_type = 'magic_link'`,
             [token]
         );
-
-        console.log('Token check result:', tokenCheck);
 
         // Find valid magic link token
         const authToken = await db.oneOrNone(
@@ -181,7 +210,8 @@ async function sendMagicLinkEmail(email, token, baseUrl) {
     console.log('='.repeat(80));
     console.log(`Email: ${email}`);
     console.log(`Magic Link: ${magicLink}`);
-    console.log(`Token: ${token}`);
+    const maskedToken = `${token.slice(0, 4)}…${token.slice(-4)}`;
+    console.log(`Magic link generated for ${email} (token ${maskedToken})`);
     console.log(`Expires in: ${MAGIC_LINK_EXPIRY_MINUTES} minutes`);
     console.log('='.repeat(80) + '\n');
 
