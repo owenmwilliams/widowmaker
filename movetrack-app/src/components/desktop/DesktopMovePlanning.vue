@@ -5,6 +5,7 @@ import { storeToRefs } from 'pinia';
 import { Notify } from 'quasar';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import RouteMap from '../RouteMap.vue';
 
 const props = defineProps({
   user: String
@@ -20,13 +21,37 @@ const moveDate = ref<string | null>(null);
 const numHelpers = ref(2);
 
 // Additional move details for PDF
-const packingServicesRequired = ref(false);
+const packingServicesRequired = ref<'none' | 'partial' | 'full'>('none');
+const packingAreasSelected = ref<string[]>([]);
+
+// Origin location details
 const hasStairs = ref(false);
 const numberOfFlights = ref<number | null>(null);
 const hasElevator = ref(false);
-const parkingSituation = ref('');
+const elevatorType = ref<string | null>(null);
+const elevatorDistance = ref<number | null>(null);
+const elevatorReservationRequired = ref(false);
+const parkingSituation = ref<string | null>(null);
+const parkingDistance = ref<number | null>(null);
+const entryType = ref<string | null>(null);
+const entryChallenges = ref<string[]>([]);
 const accessNotes = ref('');
+
+// Destination location details
+const destHasStairs = ref(false);
+const destNumberOfFlights = ref<number | null>(null);
+const destHasElevator = ref(false);
+const destElevatorType = ref<string | null>(null);
+const destElevatorDistance = ref<number | null>(null);
+const destElevatorReservationRequired = ref(false);
+const destParkingSituation = ref<string | null>(null);
+const destParkingDistance = ref<number | null>(null);
+const destEntryType = ref<string | null>(null);
+const destEntryChallenges = ref<string[]>([]);
+const destAccessNotes = ref('');
+
 const specialRequirements = ref('');
+const estimatedSquareFootage = ref<number | null>(null);
 
 // Tab state
 const movePlanningTab = ref<'planning' | 'costs'>('planning');
@@ -513,9 +538,24 @@ const locationsWithDetails = computed(() => {
       .filter(item => collectionsInLocation.includes(item.collection))
       .reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
 
+    // Build full address string from components
+    const addressParts = [];
+    if (loc.address) addressParts.push(loc.address);
+    if (loc.address_2) addressParts.push(loc.address_2);
+    const cityStateZip = [loc.city, loc.state, loc.zip].filter(Boolean).join(', ');
+    if (cityStateZip) addressParts.push(cityStateZip);
+    const fullAddress = addressParts.join(', ') || loc.label;
+
     return {
       value: loc.value,
-      label: `${loc.label} (${itemCount} items)`
+      label: `${loc.label} (${itemCount} items)`,
+      name: loc.label,
+      address: loc.address,
+      address_2: loc.address_2,
+      city: loc.city,
+      state: loc.state,
+      zip: loc.zip,
+      fullAddress: fullAddress
     };
   });
 });
@@ -596,13 +636,17 @@ const formatAddress = (location: any): string | null => {
 // Cache for distance calculations
 const distanceCache = ref<Record<string, number>>({});
 
-// Calculate distance between origin and destination using Google Maps Distance Matrix API
+// Calculate distance between origin and destination using Google Maps Directions API
 const estimatedDistance = ref<number | null>(null);
 const isCalculatingDistance = ref(false);
+const routeData = ref<any>(null);
+const useTruckRoute = ref(true);
+const avoidTolls = ref(false);
 
 const calculateDistance = async () => {
   if (!originLocation.value || !destinationLocation.value) {
     estimatedDistance.value = null;
+    routeData.value = null;
     return;
   }
 
@@ -611,6 +655,7 @@ const calculateDistance = async () => {
 
   if (!originLoc || !destLoc) {
     estimatedDistance.value = null;
+    routeData.value = null;
     return;
   }
 
@@ -619,20 +664,21 @@ const calculateDistance = async () => {
 
   if (!originAddress || !destAddress) {
     estimatedDistance.value = null;
+    routeData.value = null;
     return;
   }
 
-  // Check cache first
-  const cacheKey = `${originAddress}|${destAddress}`;
+  // Check cache first (include routing preferences in cache key)
+  const cacheKey = `${originAddress}|${destAddress}|${useTruckRoute.value}|${avoidTolls.value}`;
   if (distanceCache.value[cacheKey]) {
     estimatedDistance.value = distanceCache.value[cacheKey];
-    return;
+    // Note: We're not caching full route data, only distance for now
   }
 
   try {
     isCalculatingDistance.value = true;
 
-    // Call backend API to calculate distance
+    // Call backend API to calculate distance with route geometry
     const response = await fetch('/api/calculate-distance', {
       method: 'POST',
       headers: {
@@ -641,6 +687,8 @@ const calculateDistance = async () => {
       body: JSON.stringify({
         origin: originAddress,
         destination: destAddress,
+        truckRoute: useTruckRoute.value,
+        avoidTolls: avoidTolls.value
       }),
     });
 
@@ -651,16 +699,19 @@ const calculateDistance = async () => {
     const data = await response.json();
 
     if (data.distance_miles) {
-      // Cache the result
+      // Cache the distance result
       distanceCache.value[cacheKey] = data.distance_miles;
       estimatedDistance.value = data.distance_miles;
+      routeData.value = data; // Store full route data including polyline
     } else {
       console.warn('Distance calculation failed:', data);
       estimatedDistance.value = null;
+      routeData.value = null;
     }
   } catch (error) {
     console.error('Error calculating distance:', error);
     estimatedDistance.value = null;
+    routeData.value = null;
   } finally {
     isCalculatingDistance.value = false;
   }
@@ -669,6 +720,13 @@ const calculateDistance = async () => {
 // Watch for location changes and recalculate distance
 watch([originLocation, destinationLocation], () => {
   calculateDistance();
+});
+
+// Watch for routing preference changes
+watch([useTruckRoute, avoidTolls], () => {
+  if (originLocation.value && destinationLocation.value) {
+    calculateDistance();
+  }
 });
 
 // Cost estimates
@@ -764,24 +822,49 @@ const costEstimates = computed(() => {
     packingCostHigh = (totalPackingHours * 85) + professionalMaterialsCost;
   }
 
-  // Market average (moving + packing)
+  // Adjust packing costs based on packingServicesRequired toggle
+  let adjustedPackingCostLow = 0;
+  let adjustedPackingCostHigh = 0;
+  let partialPackingMaterials = 0;
+
+  if (packingServicesRequired.value === 'full') {
+    // Full packing: all labor + all materials
+    adjustedPackingCostLow = packingCostLow;
+    adjustedPackingCostHigh = packingCostHigh;
+  } else if (packingServicesRequired.value === 'partial') {
+    // Partial packing: furniture protection only (no box packing labor)
+    // Only include furniture protection materials + minimal labor for wrapping
+    partialPackingMaterials = (furniturePadsCost + shrinkWrapCost + cornerProtectorsCost) * 1.10;
+    const furnitureWrappingHours = furnitureBreakdownTime; // Just furniture wrapping, no box packing
+
+    if (distance < 100) {
+      adjustedPackingCostLow = (furnitureWrappingHours * 50) + partialPackingMaterials;
+      adjustedPackingCostHigh = (furnitureWrappingHours * 75) + partialPackingMaterials;
+    } else {
+      adjustedPackingCostLow = (furnitureWrappingHours * 60) + partialPackingMaterials;
+      adjustedPackingCostHigh = (furnitureWrappingHours * 85) + partialPackingMaterials;
+    }
+  }
+  // else 'none': packing costs remain 0
+
+  // Market average (moving + packing based on selection)
   const marketMovingAverage = (professionalLow + professionalHigh) / 2;
-  const marketPackingAverage = (packingCostLow + packingCostHigh) / 2;
+  const marketPackingAverage = (adjustedPackingCostLow + adjustedPackingCostHigh) / 2;
   const marketTotalAverage = marketMovingAverage + marketPackingAverage;
 
-  // VeriMove estimate: Range from 80%-95% based on CoL adjustment
+  // ReloPrep estimate: Range from 80%-95% based on CoL adjustment
   // Lower CoL (colMultiplier < 1) = better savings (closer to 80%)
   // Higher CoL (colMultiplier > 1) = less savings (closer to 95%)
-  const veriMoveDiscountLow = 0.80 + (colMultiplier - 1) * 0.10; // 80% in low CoL, 95% in high CoL
-  const veriMoveDiscountHigh = 0.85 + (colMultiplier - 1) * 0.10; // 85% in low CoL, 100% in high CoL
+  const reloprepDiscountLow = 0.80 + (colMultiplier - 1) * 0.10; // 80% in low CoL, 95% in high CoL
+  const reloprepDiscountHigh = 0.85 + (colMultiplier - 1) * 0.10; // 85% in low CoL, 100% in high CoL
 
   // Clamp to reasonable bounds
-  const effectiveDiscountLow = Math.max(0.80, Math.min(0.95, veriMoveDiscountLow));
-  const effectiveDiscountHigh = Math.max(0.85, Math.min(1.00, veriMoveDiscountHigh));
+  const effectiveDiscountLow = Math.max(0.80, Math.min(0.95, reloprepDiscountLow));
+  const effectiveDiscountHigh = Math.max(0.85, Math.min(1.00, reloprepDiscountHigh));
 
-  const veriMoveLow = marketTotalAverage * effectiveDiscountLow;
-  const veriMoveHigh = marketTotalAverage * effectiveDiscountHigh;
-  const veriMoveAverage = (veriMoveLow + veriMoveHigh) / 2;
+  const reloprepLow = marketTotalAverage * effectiveDiscountLow;
+  const reloprepHigh = marketTotalAverage * effectiveDiscountHigh;
+  const reloprepAverage = (reloprepLow + reloprepHigh) / 2;
 
   return {
     diy: {
@@ -805,34 +888,38 @@ const costEstimates = computed(() => {
         average: marketMovingAverage
       },
       packing: {
-        low: packingCostLow,
-        high: packingCostHigh,
+        low: adjustedPackingCostLow,
+        high: adjustedPackingCostHigh,
         average: marketPackingAverage,
-        hours: totalPackingHours,
+        hours: packingServicesRequired.value === 'full' ? totalPackingHours :
+               packingServicesRequired.value === 'partial' ? furnitureBreakdownTime : 0,
         breakdown: {
-          labor: (packingCostLow + packingCostHigh) / 2 - professionalMaterialsCost,
-          materials: professionalMaterialsCost,
-          boxes: boxCost * 1.10,
+          labor: marketPackingAverage - (packingServicesRequired.value === 'full' ? professionalMaterialsCost :
+                 packingServicesRequired.value === 'partial' ? partialPackingMaterials : 0),
+          materials: packingServicesRequired.value === 'full' ? professionalMaterialsCost :
+                    packingServicesRequired.value === 'partial' ? partialPackingMaterials : 0,
+          boxes: packingServicesRequired.value === 'full' ? boxCost * 1.10 : 0,
           furnitureProtection: (furniturePadsCost + shrinkWrapCost + cornerProtectorsCost) * 1.10,
-          supplies: (tapeCost + bubbleWrapCost + paperCost + markersCost) * 1.10
+          supplies: packingServicesRequired.value === 'full' ? (tapeCost + bubbleWrapCost + paperCost + markersCost) * 1.10 : 0
         }
       },
       total: {
-        low: professionalLow + packingCostLow,
-        high: professionalHigh + packingCostHigh,
+        low: professionalLow + adjustedPackingCostLow,
+        high: professionalHigh + adjustedPackingCostHigh,
         average: marketTotalAverage
       }
     },
-    veriMove: {
-      low: veriMoveLow,
-      high: veriMoveHigh,
-      average: veriMoveAverage,
-      savings: marketTotalAverage - veriMoveHigh // Savings based on high end (conservative)
+    reloprep: {
+      low: reloprepLow,
+      high: reloprepHigh,
+      average: reloprepAverage,
+      savings: marketTotalAverage - reloprepHigh // Savings based on high end (conservative)
     },
     comparison: {
       diyVsProfessional: ((marketTotalAverage - diyTotal) / marketTotalAverage) * 100,
-      veriMoveVsProfessional: ((marketTotalAverage - veriMoveAverage) / marketTotalAverage) * 100
-    }
+      reloprepVsProfessional: ((marketTotalAverage - reloprepAverage) / marketTotalAverage) * 100
+    },
+    packingLevel: packingServicesRequired.value
   };
 });
 
@@ -884,6 +971,369 @@ const addLocation = async () => {
   }
 };
 
+// Helper function to load image as base64
+const loadImageAsBase64 = async (url: string): Promise<string | null> => {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.warn('Failed to load image:', url, error);
+    return null;
+  }
+};
+
+// Helper to build location access paragraph
+const buildAccessParagraph = (
+  entryType: string | null,
+  numFlights: number | null,
+  hasElev: boolean,
+  elevType: string | null,
+  parking: string | null,
+  challenges: string[],
+  notes: string
+): string => {
+  const parts: string[] = [];
+
+  if (entryType) parts.push(`${entryType}`);
+  if (numFlights && numFlights > 0) parts.push(`${numFlights} flight${numFlights > 1 ? 's' : ''} of stairs`);
+
+  // Always include elevator status
+  if (hasElev) {
+    parts.push(`Elevator: Yes (${elevType || 'Standard'})`);
+  } else {
+    parts.push('Elevator: No');
+  }
+
+  if (parking) parts.push(`Parking: ${parking}`);
+  if (challenges.length > 0) parts.push(`Challenges: ${challenges.join(', ')}`);
+  if (notes) parts.push(notes);
+
+  return parts.length > 0 ? parts.join('. ') + '.' : 'No additional access details provided.';
+};
+
+const downloadInventoryPdf = async () => {
+  if (!estimatedDistance.value) {
+    Notify.create({
+      type: 'warning',
+      message: 'Please select origin and destination locations first',
+      timeout: 3000
+    });
+    return;
+  }
+
+  try {
+    // Get all required data
+    const origin = locationsWithDetails.value.find(l => l.value === originLocation.value);
+    const destination = locationsWithDetails.value.find(l => l.value === destinationLocation.value);
+
+    if (!origin || !destination) {
+      throw new Error('Origin or destination location not found');
+    }
+
+    // Get full addresses from location objects
+    const originAddress = origin.fullAddress;
+    const destAddress = destination.fullAddress;
+
+    // Create PDF
+    const doc = new jsPDF();
+    let yPos = 20;
+
+    // Helper function to add section header
+    const addSectionHeader = (text: string) => {
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(25, 118, 210);
+      doc.text(text, 15, yPos);
+      yPos += 2;
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(25, 118, 210);
+      doc.line(15, yPos, 195, yPos);
+      yPos += 8;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
+    };
+
+    // Load ReloPrep logo
+    const logoUrl = 'https://storage.googleapis.com/widowmaker-site-images/reloprep_color.png';
+    let logoData: string | null = null;
+    try {
+      logoData = await loadImageAsBase64(logoUrl);
+    } catch (error) {
+      console.warn('Failed to load logo:', error);
+    }
+
+    // Title and logo badge
+    doc.setFontSize(20);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(25, 118, 210);
+    doc.text('Moving Inventory', 15, yPos);
+
+    // ReloPrep logo in top right
+    if (logoData) {
+      try {
+        doc.addImage(logoData, 'PNG', 160, yPos - 5, 35, 10);
+      } catch (error) {
+        console.warn('Failed to add logo to PDF:', error);
+        // Fallback to text
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 100, 100);
+        doc.text('Prepared with ReloPrep', 195, yPos, { align: 'right' });
+      }
+    } else {
+      // Fallback to text if logo didn't load
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      doc.text('Prepared with ReloPrep', 195, yPos, { align: 'right' });
+    }
+
+    yPos += 8;
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 15, yPos);
+    yPos += 12;
+
+    // SECTION 1: MOVE DETAILS
+    addSectionHeader('Move Details');
+
+    const moveDetails = [
+      ['Starting Address', originAddress],
+      ['Ending Address', destAddress],
+      ['Move Date', moveDate.value || 'Not set'],
+      ['Total Items', totalItems.value.toString()],
+      ['Total Weight', `${totalWeightLbs.value.toFixed(0)} lbs`],
+      ['Total Volume', `${totalVolumeCuFt.value.toFixed(1)} cu ft`]
+    ];
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [],
+      body: moveDetails,
+      theme: 'plain',
+      styles: { fontSize: 10, cellPadding: 2 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 60 },
+        1: { cellWidth: 120 }
+      }
+    });
+
+    yPos = (doc as any).lastAutoTable.finalY + 10;
+
+    // Origin Location Access Details
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    addSectionHeader('Origin Location Details');
+
+    const originAccessText = buildAccessParagraph(
+      entryType.value,
+      numberOfFlights.value,
+      hasElevator.value,
+      elevatorType.value,
+      parkingSituation.value,
+      entryChallenges.value,
+      accessNotes.value
+    );
+
+    doc.setFontSize(10);
+    const splitOriginAccess = doc.splitTextToSize(originAccessText, 180);
+    doc.text(splitOriginAccess, 15, yPos);
+    yPos += splitOriginAccess.length * 5 + 10;
+
+    // Destination Location Access Details
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    addSectionHeader('Destination Location Details');
+
+    const destAccessText = buildAccessParagraph(
+      destEntryType.value,
+      destNumberOfFlights.value,
+      destHasElevator.value,
+      destElevatorType.value,
+      destParkingSituation.value,
+      destEntryChallenges.value,
+      destAccessNotes.value
+    );
+
+    doc.setFontSize(10);
+    const splitDestAccess = doc.splitTextToSize(destAccessText, 180);
+    doc.text(splitDestAccess, 15, yPos);
+    yPos += splitDestAccess.length * 5 + 10;
+
+    // SECTION 2: INVENTORY TABLE
+    if (yPos > 220) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    addSectionHeader('Complete Inventory');
+
+    const inventoryItems = itemsInOriginLocation.value.map(item => {
+      const dims = parseItemDimensions(item);
+      const size = dims ? `${dims.length}"×${dims.width}"×${dims.height}"` : 'N/A';
+      const weight = item.weight_lbs ? `${item.weight_lbs} lbs` : 'N/A';
+      const qty = item.quantity || 1;
+      const description = item.description || '';
+
+      return [
+        item.label || 'Unnamed',
+        description.substring(0, 40), // Truncate long descriptions
+        qty.toString(),
+        size,
+        weight,
+        item.fragile ? 'Yes' : 'No'
+      ];
+    });
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Item', 'Description', 'Qty', 'Dimensions', 'Weight', 'Fragile']],
+      body: inventoryItems,
+      theme: 'striped',
+      styles: { fontSize: 8, cellPadding: 2 },
+      headStyles: { fillColor: [25, 118, 210], textColor: 255 },
+      columnStyles: {
+        0: { cellWidth: 40 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 15, halign: 'center' },
+        3: { cellWidth: 30 },
+        4: { cellWidth: 20 },
+        5: { cellWidth: 20, halign: 'center' }
+      }
+    });
+
+    yPos = (doc as any).lastAutoTable.finalY + 10;
+
+    // SECTION 3: ITEMS WITH IMAGES (loose items + larger items)
+    const itemsWithImages = itemsInOriginLocation.value.filter(item => {
+      if (!item.picture_url) return false;
+
+      // Include loose items
+      const isLoose = Array.isArray(item.tags) && item.tags.some((tag: string) =>
+        tag.toLowerCase() === 'loose'
+      );
+      if (isLoose) return true;
+
+      // Include larger items (10+ cu ft)
+      const dims = parseItemDimensions(item);
+      if (dims) {
+        const volumeCuFt = (dims.length * dims.width * dims.height) / 1728;
+        if (volumeCuFt >= 10) return true;
+      }
+
+      return false;
+    });
+
+    if (itemsWithImages.length > 0) {
+      if (yPos > 240) {
+        doc.addPage();
+        yPos = 20;
+      }
+
+      addSectionHeader('Large & Loose Items');
+
+      doc.setFontSize(9);
+      doc.text('Photos of furniture, large items, and other notable pieces:', 15, yPos);
+      yPos += 10;
+
+      // Display images in a grid (2 per row)
+      let itemIndex = 0;
+      for (const item of itemsWithImages) {
+        if (!item.picture_url) continue;
+
+        const imageData = await loadImageAsBase64(item.picture_url);
+        if (!imageData) continue;
+
+        // Position in grid (2 columns)
+        const col = itemIndex % 2;
+        const xPos = 15 + (col * 90);
+
+        // Check if we need a new page
+        if (yPos > 220) {
+          doc.addPage();
+          yPos = 20;
+        }
+
+        // Add image (max 80x60)
+        try {
+          doc.addImage(imageData, 'PNG', xPos, yPos, 80, 60);
+
+          // Add item name below image
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          const itemName = (item.label || 'Unnamed').substring(0, 30);
+          doc.text(itemName, xPos + 40, yPos + 65, { align: 'center' });
+
+          // Add dimensions if available
+          const dims = parseItemDimensions(item);
+          if (dims) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            doc.text(`${dims.length}"×${dims.width}"×${dims.height}"`, xPos + 40, yPos + 70, { align: 'center' });
+          }
+
+          doc.setFont('helvetica', 'normal');
+        } catch (imgError) {
+          console.warn('Failed to add image to PDF:', imgError);
+        }
+
+        // Move to next row after 2 items
+        if (col === 1) {
+          yPos += 75;
+        }
+
+        itemIndex++;
+      }
+
+      // Adjust yPos if we ended on first column
+      if (itemIndex % 2 === 1) {
+        yPos += 75;
+      }
+    }
+
+    // Footer on all pages
+    const pageCount = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Page ${i} of ${pageCount}`, 105, 285, { align: 'center' });
+      doc.text('Moving Inventory • Generated by ReloPrep', 105, 290, { align: 'center' });
+    }
+
+    // Save PDF
+    doc.save(`Moving-Inventory-${new Date().toISOString().split('T')[0]}.pdf`);
+
+    Notify.create({
+      type: 'positive',
+      message: 'Inventory PDF downloaded successfully',
+      caption: 'Share this with moving companies for accurate quotes',
+      timeout: 3000
+    });
+  } catch (error) {
+    console.error('Error generating inventory PDF:', error);
+    Notify.create({
+      type: 'negative',
+      message: 'Failed to generate inventory PDF',
+      caption: 'Please make sure you have items in your origin location',
+      timeout: 3000
+    });
+  }
+};
+
 const downloadPdfEstimate = async () => {
   if (!estimatedDistance.value) {
     Notify.create({
@@ -902,8 +1352,8 @@ const downloadPdfEstimate = async () => {
     const distance = estimatedDistance.value;
 
     // Validate all required data is present
-    if (!costs || !distance) {
-      throw new Error('Cost estimates not ready');
+    if (!costs || !distance || !origin || !destination) {
+      throw new Error('Missing required data for quote');
     }
 
     // Create PDF
@@ -925,11 +1375,41 @@ const downloadPdfEstimate = async () => {
       doc.setTextColor(0, 0, 0);
     };
 
-    // Title
+    // Load ReloPrep logo
+    const logoUrl = 'https://storage.googleapis.com/widowmaker-site-images/reloprep_color.png';
+    let logoData: string | null = null;
+    try {
+      logoData = await loadImageAsBase64(logoUrl);
+    } catch (error) {
+      console.warn('Failed to load logo:', error);
+    }
+
+    // Title and logo badge
     doc.setFontSize(20);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(25, 118, 210);
-    doc.text('VeriMove Moving Quote', 15, yPos);
+    doc.text('ReloPrep Moving Quote', 15, yPos);
+
+    // ReloPrep logo in top right
+    if (logoData) {
+      try {
+        doc.addImage(logoData, 'PNG', 160, yPos - 5, 35, 10);
+      } catch (error) {
+        console.warn('Failed to add logo to PDF:', error);
+        // Fallback to text
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 100, 100);
+        doc.text('Prepared with ReloPrep', 195, yPos, { align: 'right' });
+      }
+    } else {
+      // Fallback to text if logo didn't load
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 100, 100);
+      doc.text('Prepared with ReloPrep', 195, yPos, { align: 'right' });
+    }
+
     yPos += 8;
     doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
@@ -937,18 +1417,29 @@ const downloadPdfEstimate = async () => {
     doc.text(`Generated: ${new Date().toLocaleDateString()}`, 15, yPos);
     yPos += 12;
 
-    // SECTION 1: MOVE DETAILS
+    // SECTION 1: MOVE DETAILS (matching Inventory PDF)
     addSectionHeader('Move Details');
 
+    // Get full addresses from location objects
+    const originAddress = origin.fullAddress;
+    const destAddress = destination.fullAddress;
+
+    // Calculate totals safely
+    const totalWeight = Number(itemsInOriginLocation.value.reduce((sum, item) => sum + (Number(item.weight_lbs) || 0), 0));
+    const totalVolume = Number(itemsInOriginLocation.value.reduce((sum, item) => {
+      const dims = parseItemDimensions(item);
+      if (!dims) return sum;
+      return sum + (dims.length * dims.width * dims.height) / 1728;
+    }, 0));
+
     const moveDetails = [
-      ['From', origin?.label.replace(/\s*\(\d+\s*items\)/, '') || 'N/A'],
-      ['To', destination?.label.replace(/\s*\(\d+\s*items\)/, '') || 'N/A'],
+      ['Origin Address', originAddress],
+      ['Destination Address', destAddress],
+      ['Desired Move Date', moveDate.value || 'Not set'],
       ['Distance', `${distance.toLocaleString()} miles`],
-      ['Move Date', moveDate.value || 'Not set'],
-      ['Packing Services Required', packingServicesRequired.value ? 'Yes' : 'No'],
-      ['Stairs', hasStairs.value ? `Yes (${numberOfFlights.value || 0} flights)` : 'No'],
-      ['Elevator Available', hasElevator.value ? 'Yes' : 'No'],
-      ['Parking Situation', parkingSituation.value || 'Not specified'],
+      ['Total Items', itemsInOriginLocation.value.length.toString()],
+      ['Total Weight', `${totalWeight.toFixed(0)} lbs`],
+      ['Total Volume', `${totalVolume.toFixed(1)} cu ft`]
     ];
 
     autoTable(doc, {
@@ -965,19 +1456,53 @@ const downloadPdfEstimate = async () => {
 
     yPos = (doc as any).lastAutoTable.finalY + 10;
 
-    // Add Access Notes if provided
-    if (accessNotes.value) {
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Access Notes:', 15, yPos);
-      yPos += 5;
-      doc.setFont('helvetica', 'normal');
-      const splitNotes = doc.splitTextToSize(accessNotes.value, 180);
-      doc.text(splitNotes, 15, yPos);
-      yPos += splitNotes.length * 5 + 5;
+    // SECTION 2: ORIGIN LOCATION DETAILS
+    if (yPos > 250) {
+      doc.addPage();
+      yPos = 20;
     }
 
-    // SECTION 2: FULL INVENTORY with images
+    addSectionHeader('Origin Location Details');
+
+    const originAccessPara = buildAccessParagraph(
+      entryType.value,
+      numberOfFlights.value,
+      hasElevator.value,
+      elevatorType.value,
+      parkingSituation.value,
+      entryChallenges.value,
+      accessNotes.value
+    );
+
+    doc.setFontSize(10);
+    const splitOriginAccess = doc.splitTextToSize(originAccessPara, 180);
+    doc.text(splitOriginAccess, 15, yPos);
+    yPos += splitOriginAccess.length * 5 + 10;
+
+    // SECTION 3: DESTINATION LOCATION DETAILS
+    if (yPos > 250) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    addSectionHeader('Destination Location Details');
+
+    const destAccessPara = buildAccessParagraph(
+      destEntryType.value,
+      destNumberOfFlights.value,
+      destHasElevator.value,
+      destElevatorType.value,
+      destParkingSituation.value,
+      destEntryChallenges.value,
+      destAccessNotes.value
+    );
+
+    doc.setFontSize(10);
+    const splitDestAccess = doc.splitTextToSize(destAccessPara, 180);
+    doc.text(splitDestAccess, 15, yPos);
+    yPos += splitDestAccess.length * 5 + 10;
+
+    // SECTION 4: COMPLETE INVENTORY
     if (yPos > 240) {
       doc.addPage();
       yPos = 20;
@@ -987,75 +1512,56 @@ const downloadPdfEstimate = async () => {
 
     const inventoryItems = itemsInOriginLocation.value.map(item => {
       const dims = parseItemDimensions(item);
-      const size = dims ? `${dims.length}"x${dims.width}"x${dims.height}"` : 'N/A';
+      const size = dims ? `${dims.length}"×${dims.width}"×${dims.height}"` : 'N/A';
       const weight = item.weight_lbs ? `${item.weight_lbs} lbs` : 'N/A';
       const qty = item.quantity || 1;
+      const desc = item.description || '';
 
       return [
         item.label || 'Unnamed',
+        desc.substring(0, 40) + (desc.length > 40 ? '...' : ''),
         qty.toString(),
         size,
         weight,
-        item.fragile ? 'Yes' : 'No',
-        item.collection_name || 'Unassigned'
+        item.fragile ? 'Yes' : 'No'
       ];
     });
 
     autoTable(doc, {
       startY: yPos,
-      head: [['Item', 'Qty', 'Dimensions', 'Weight', 'Fragile', 'Location']],
+      head: [['Name', 'Description', 'Qty', 'Dimensions', 'Weight', 'Fragile']],
       body: inventoryItems,
       theme: 'striped',
       styles: { fontSize: 8, cellPadding: 2 },
       headStyles: { fillColor: [25, 118, 210], textColor: 255 },
       columnStyles: {
-        0: { cellWidth: 50 },
-        1: { cellWidth: 15, halign: 'center' },
-        2: { cellWidth: 35 },
-        3: { cellWidth: 25 },
-        4: { cellWidth: 20, halign: 'center' },
-        5: { cellWidth: 40 }
+        0: { cellWidth: 35 },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 15, halign: 'center' },
+        3: { cellWidth: 35 },
+        4: { cellWidth: 25 },
+        5: { cellWidth: 20, halign: 'center' }
       }
     });
 
     yPos = (doc as any).lastAutoTable.finalY + 10;
 
-    // Add images for large furniture items
-    const largeItems = itemsInOriginLocation.value.filter(item => {
-      const dims = parseItemDimensions(item);
-      if (!dims) return false;
-      const volumeCuFt = (dims.length * dims.width * dims.height) / 1728;
-      return volumeCuFt >= 10 && item.picture_url; // Items 10+ cu ft with images
-    });
+    // SECTION 5: LOOSE ITEMS (with images)
+    const looseItems = itemsInOriginLocation.value.filter(item =>
+      Array.isArray(item.tags) && item.tags.some((tag: string) => tag.toLowerCase() === 'loose')
+    );
 
-    if (largeItems.length > 0) {
+    if (looseItems.length > 0) {
       if (yPos > 240) {
         doc.addPage();
         yPos = 20;
       }
 
-      addSectionHeader('Large Furniture Items');
-
-      // Helper function to load image as base64
-      const loadImageAsBase64 = async (url: string): Promise<string | null> => {
-        try {
-          const response = await fetch(url);
-          const blob = await response.blob();
-          return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.onerror = () => resolve(null);
-            reader.readAsDataURL(blob);
-          });
-        } catch (error) {
-          console.warn('Failed to load image:', url, error);
-          return null;
-        }
-      };
+      addSectionHeader('Loose Items (Furniture & Large Items)');
 
       // Display images in a grid (2 per row)
       let itemIndex = 0;
-      for (const item of largeItems) {
+      for (const item of looseItems) {
         if (!item.picture_url) continue;
 
         const imageData = await loadImageAsBase64(item.picture_url);
@@ -1101,51 +1607,167 @@ const downloadPdfEstimate = async () => {
       yPos += 10;
     }
 
-    // SECTION 3: COST ESTIMATES
-    if (yPos > 220) {
+    // SECTION 6: QUOTE BREAKDOWN
+    if (yPos > 200) {
       doc.addPage();
       yPos = 20;
     }
 
-    addSectionHeader('Cost Estimates');
+    addSectionHeader('ReloPrep Quote Breakdown');
 
-    // VeriMove Quote (highlighted)
+    // ReloPrep All-In Quote (highlighted box)
     doc.setFillColor(227, 242, 253); // Light blue
-    doc.rect(15, yPos, 180, 25, 'F');
-    doc.setFontSize(12);
+    doc.rect(15, yPos, 180, 30, 'F');
+    doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(25, 118, 210);
-    doc.text('VeriMove All-In Quote', 20, yPos + 8);
-    doc.setFontSize(16);
-    doc.text(`$${(costs.veriMove?.high || 0).toLocaleString()}`, 20, yPos + 18);
+    doc.text('All-In Quote (Binding Not-to-Exceed)', 20, yPos + 10);
+    doc.setFontSize(20);
+    doc.text(`$${(costs.reloprep?.high || 0).toLocaleString()}`, 20, yPos + 22);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
-    doc.text('Binding not-to-exceed • Includes moving + packing', 20, yPos + 23);
-    yPos += 32;
+    doc.text('Includes moving, packing, materials, fuel, and all other costs', 20, yPos + 27);
+    yPos += 38;
 
-    // Cost comparison table
-    const costData = [
-      ['DIY Move', `$${(costs.diy?.total || 0).toLocaleString()}`],
-      ['Professional Movers (avg)', `$${(costs.professional?.total?.average || 0).toLocaleString()}`],
-      ['VeriMove Savings', `$${(costs.veriMove?.savings || 0).toLocaleString()}`]
+    doc.setTextColor(0, 0, 0);
+
+    // Cost Breakdown - Market Rate Components
+    const distanceMiles = distance;
+
+    // Extract and round all cost components
+    const movingLabor = Math.round(costs.professional?.movingOnly?.average || 0);
+    const packingLabor = Math.round((costs.professional?.packing?.breakdown?.labor || 0));
+    const fuelCost = Math.round(costs.diy?.breakdown?.fuel || 0);
+    const materialsCost = Math.round(costs.professional?.packing?.breakdown?.materials || 0);
+
+    // Calculate misc costs (tolls + hotels for long distance)
+    const estimatedTolls = distanceMiles > 100 ? Math.round(distanceMiles * 0.15) : 0;
+    const overnightStops = distanceMiles > 500 ? Math.ceil(distanceMiles / 500) - 1 : 0;
+    const hotelCosts = overnightStops * 150;
+    const miscCost = estimatedTolls + hotelCosts;
+
+    // Calculate market subtotal
+    const marketSubtotal = movingLabor + packingLabor + fuelCost + materialsCost + miscCost;
+
+    // Calculate ReloPrep discount
+    const reloprepQuote = Math.round(costs.reloprep?.high || 0);
+    const discountAmount = marketSubtotal - reloprepQuote;
+    const discountPercent = marketSubtotal > 0 ? Math.round((discountAmount / marketSubtotal) * 100) : 0;
+
+    // Build cost breakdown table with assumptions
+    const costBreakdown: [string, string][] = [];
+
+    if (movingLabor > 0) {
+      const assumption = distanceMiles < 100
+        ? `~${Math.round(costs.professional?.movingOnly?.average / 150)} hrs @ $150/hr`
+        : `${Math.round(totalWeightLbs.value).toLocaleString()} lbs, ${distanceMiles.toLocaleString()} mi`;
+      costBreakdown.push([`Moving Labor\n  ${assumption}`, `$${movingLabor.toLocaleString()}`]);
+    }
+
+    if (packingLabor > 0) {
+      const packingHours = Math.round(costs.professional?.packing?.hours || 0);
+      const packingLevel = costs.packingLevel || 'none';
+      let packingDescription = '';
+
+      if (packingLevel === 'full') {
+        packingDescription = `~${packingHours} hrs full packing (boxes + furniture)`;
+      } else if (packingLevel === 'partial') {
+        packingDescription = `~${packingHours} hrs furniture protection only`;
+      } else {
+        packingDescription = `~${packingHours} hrs packing`;
+      }
+
+      costBreakdown.push([`Packing Labor\n  ${packingDescription}`, `$${packingLabor.toLocaleString()}`]);
+    }
+
+    if (fuelCost > 0) {
+      const roundTrip = Math.round(distanceMiles * 2);
+      costBreakdown.push([`Fuel\n  ${roundTrip.toLocaleString()} mi round trip @ 8 mpg`, `$${fuelCost.toLocaleString()}`]);
+    }
+
+    if (materialsCost > 0) {
+      const packingLevel = costs.packingLevel || 'none';
+      let materialsDescription = '';
+
+      if (packingLevel === 'full') {
+        const boxCount = boxEstimates.value.total;
+        materialsDescription = `${boxCount} boxes + furniture protection`;
+      } else if (packingLevel === 'partial') {
+        materialsDescription = 'Furniture pads, wrap, corner protectors';
+      } else {
+        const boxCount = boxEstimates.value.total;
+        materialsDescription = `${boxCount} boxes + supplies`;
+      }
+
+      costBreakdown.push([`Packing Materials\n  ${materialsDescription}`, `$${materialsCost.toLocaleString()}`]);
+    }
+
+    if (miscCost > 0) {
+      let miscDetail = '';
+      if (estimatedTolls > 0) miscDetail += `$${estimatedTolls.toLocaleString()} tolls`;
+      if (hotelCosts > 0) {
+        if (miscDetail) miscDetail += ', ';
+        miscDetail += `$${hotelCosts.toLocaleString()} hotels (${overnightStops} night${overnightStops > 1 ? 's' : ''})`;
+      }
+      costBreakdown.push([`Miscellaneous\n  ${miscDetail}`, `$${miscCost.toLocaleString()}`]);
+    }
+
+    autoTable(doc, {
+      startY: yPos,
+      head: [['Service', 'Market Rate']],
+      body: costBreakdown,
+      theme: 'striped',
+      styles: { fontSize: 9, cellPadding: 3 },
+      headStyles: { fillColor: [25, 118, 210], textColor: 255 },
+      columnStyles: {
+        0: { cellWidth: 120 },
+        1: { cellWidth: 60, halign: 'right', fontStyle: 'bold' }
+      }
+    });
+
+    yPos = (doc as any).lastAutoTable.finalY + 5;
+
+    // Subtotal, Discount, and Final Total
+    const summaryRows = [
+      ['Market Rate Subtotal', `$${marketSubtotal.toLocaleString()}`],
+      [`ReloPrep Discount (${discountPercent}%)`, `-$${discountAmount.toLocaleString()}`],
     ];
 
     autoTable(doc, {
       startY: yPos,
       head: [],
-      body: costData,
+      body: summaryRows,
       theme: 'plain',
-      styles: { fontSize: 10, cellPadding: 3 },
+      styles: { fontSize: 10, cellPadding: 2 },
       columnStyles: {
-        0: { fontStyle: 'bold', cellWidth: 90 },
-        1: { cellWidth: 90, halign: 'right' }
+        0: { cellWidth: 120, halign: 'right', fontStyle: 'bold' },
+        1: { cellWidth: 60, halign: 'right', fontStyle: 'bold' }
       }
     });
 
-    yPos = (doc as any).lastAutoTable.finalY + 10;
+    yPos = (doc as any).lastAutoTable.finalY + 2;
 
-    // SECTION 4: SPECIAL REQUIREMENTS / NOTES
+    // Final Total line
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(25, 118, 210);
+    doc.line(60, yPos, 180, yPos);
+    yPos += 5;
+
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(25, 118, 210);
+    doc.text('Your ReloPrep Quote (Binding)', 60, yPos);
+    doc.text(`$${Math.round(reloprepQuote).toLocaleString()}`, 180, yPos, { align: 'right' });
+    yPos += 10;
+
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 100, 100);
+    doc.text('All-inclusive, binding not-to-exceed price', 60, yPos);
+    yPos += 10;
+
+    // SECTION 7: SPECIAL REQUIREMENTS / NOTES
     if (specialRequirements.value) {
       if (yPos > 250) {
         doc.addPage();
@@ -1160,31 +1782,31 @@ const downloadPdfEstimate = async () => {
       yPos += splitReq.length * 5 + 10;
     }
 
-    // Footer
+    // Footer on all pages
     const pageCount = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
       doc.setFontSize(8);
       doc.setTextColor(150, 150, 150);
       doc.text(`Page ${i} of ${pageCount}`, 105, 285, { align: 'center' });
-      doc.text('VeriMove • For questions or to book: contact@verimove.com', 105, 290, { align: 'center' });
+      doc.text('ReloPrep • For questions or to book: contact@reloprep.com', 105, 290, { align: 'center' });
     }
 
     // Save PDF
-    doc.save(`VeriMove-Quote-${new Date().toISOString().split('T')[0]}.pdf`);
+    doc.save(`ReloPrep-Quote-${new Date().toISOString().split('T')[0]}.pdf`);
 
     Notify.create({
       type: 'positive',
-      message: 'Estimate downloaded successfully',
-      caption: 'Share this detailed estimate with moving companies',
+      message: 'Quote PDF downloaded successfully',
+      caption: 'Complete quote with pricing breakdown',
       timeout: 3000
     });
   } catch (error) {
-    console.error('Error generating PDF estimate:', error);
+    console.error('Error generating PDF quote:', error);
     Notify.create({
       type: 'negative',
-      message: 'Failed to generate estimate',
-      caption: 'Please make sure you have items in your origin location',
+      message: 'Failed to generate quote',
+      caption: 'Please make sure all move details are filled in',
       timeout: 3000
     });
   }
@@ -1229,187 +1851,510 @@ const downloadPdfEstimate = async () => {
       <q-card flat bordered>
         <q-card-section>
           <div class="text-h6 text-primary q-mb-md">Move Details</div>
-          <div class="row q-col-gutter-md">
-            <div class="col-12 col-md-3">
-              <q-select
-                v-model="originLocation"
-                :options="locationsWithDetails"
-                option-value="value"
-                option-label="label"
-                emit-value
-                map-options
-                label="Origin Location"
-                outlined
-                dense
-                :loading="isCalculatingDistance"
-              >
-                <template v-slot:prepend>
-                  <q-icon name="location_on" />
-                </template>
-                <template v-slot:after>
-                  <q-btn
-                    round
-                    dense
-                    flat
-                    icon="add"
-                    color="primary"
-                    @click="showAddLocationDialog = true"
-                  >
-                    <q-tooltip>Add new location</q-tooltip>
-                  </q-btn>
-                </template>
-              </q-select>
-            </div>
-            <div class="col-12 col-md-3">
-              <q-select
-                v-model="destinationLocation"
-                :options="locationsWithDetails"
-                option-value="value"
-                option-label="label"
-                emit-value
-                map-options
-                label="Destination Location"
-                outlined
-                dense
-                :loading="isCalculatingDistance"
-              >
-                <template v-slot:prepend>
-                  <q-icon name="place" />
-                </template>
-                <template v-slot:after>
-                  <q-btn
-                    round
-                    dense
-                    flat
-                    icon="add"
-                    color="primary"
-                    @click="showAddLocationDialog = true"
-                  >
-                    <q-tooltip>Add new location</q-tooltip>
-                  </q-btn>
-                </template>
-              </q-select>
-            </div>
-            <div class="col-12 col-md-3">
-              <q-input
-                v-model="moveDate"
-                type="date"
-                label="Move Date"
-                outlined
-                dense
-              >
-                <template v-slot:prepend>
-                  <q-icon name="event" />
-                </template>
-              </q-input>
-            </div>
-            <div class="col-12 col-md-3">
-              <q-input
-                v-model.number="numHelpers"
-                type="number"
-                label="Number of Helpers"
-                outlined
-                dense
-                :min="1"
-                :max="10"
-              >
-                <template v-slot:prepend>
-                  <q-icon name="group" />
-                </template>
-              </q-input>
+
+          <!-- Section 1: Move Locations -->
+          <div class="form-section">
+            <div class="text-subtitle2 text-grey-8 q-mb-sm section-header">Move Locations</div>
+            <div class="row q-col-gutter-md">
+              <div class="col-12 col-md-6">
+                <q-select
+                  v-model="originLocation"
+                  :options="locationsWithDetails"
+                  option-value="value"
+                  option-label="label"
+                  emit-value
+                  map-options
+                  label="Origin Location"
+                  outlined
+                  dense
+                  :loading="isCalculatingDistance"
+                  use-input
+                  input-debounce="300"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="location_on" />
+                  </template>
+                  <template v-slot:after>
+                    <q-btn
+                      round
+                      dense
+                      flat
+                      icon="add"
+                      color="primary"
+                      @click="showAddLocationDialog = true"
+                    >
+                      <q-tooltip>Add new location</q-tooltip>
+                    </q-btn>
+                  </template>
+                </q-select>
+              </div>
+              <div class="col-12 col-md-6">
+                <q-select
+                  v-model="destinationLocation"
+                  :options="locationsWithDetails"
+                  option-value="value"
+                  option-label="label"
+                  emit-value
+                  map-options
+                  label="Destination Location"
+                  outlined
+                  dense
+                  :loading="isCalculatingDistance"
+                  use-input
+                  input-debounce="300"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="place" />
+                  </template>
+                  <template v-slot:after>
+                    <q-btn
+                      round
+                      dense
+                      flat
+                      icon="add"
+                      color="primary"
+                      @click="showAddLocationDialog = true"
+                    >
+                      <q-tooltip>Add new location</q-tooltip>
+                    </q-btn>
+                  </template>
+                </q-select>
+              </div>
+              <div class="col-12 col-md-4">
+                <q-input
+                  v-model="moveDate"
+                  type="date"
+                  label="Move Date"
+                  outlined
+                  dense
+                  mask="##/##/####"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="event" class="cursor-pointer">
+                      <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+                        <q-date v-model="moveDate" mask="YYYY-MM-DD">
+                          <div class="row items-center justify-end">
+                            <q-btn v-close-popup label="Close" color="primary" flat />
+                          </div>
+                        </q-date>
+                      </q-popup-proxy>
+                    </q-icon>
+                  </template>
+                </q-input>
+              </div>
+              <div class="col-12 col-md-4">
+                <q-input
+                  v-model.number="numHelpers"
+                  type="number"
+                  label="Number of Helpers"
+                  outlined
+                  dense
+                  :min="1"
+                  :max="10"
+                  hint="Total movers (not including truck driver)"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="group" />
+                  </template>
+                </q-input>
+              </div>
+              <div class="col-12 col-md-4">
+                <q-input
+                  v-model.number="estimatedSquareFootage"
+                  type="number"
+                  label="Estimated Square Footage (optional)"
+                  outlined
+                  dense
+                  :min="100"
+                  :max="10000"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="square_foot" />
+                  </template>
+                </q-input>
+              </div>
             </div>
           </div>
 
-          <!-- Additional Move Details -->
-          <div class="row q-col-gutter-md q-mt-sm">
-            <div class="col-12">
-              <div class="text-subtitle2 text-grey-8 q-mb-sm">Move Details</div>
-            </div>
+          <q-separator class="q-my-md" />
 
-            <div class="col-12 col-md-4">
-              <q-checkbox
-                v-model="packingServicesRequired"
-                label="Packing services required"
-                dense
-              />
-            </div>
+          <!-- Section 2: Origin Access Details -->
+          <div class="form-section">
+            <div class="text-subtitle2 text-grey-8 q-mb-sm section-header">Origin Location Access Details</div>
+            <div class="row q-col-gutter-md">
+              <!-- Entry Type -->
+              <div class="col-12 col-md-4">
+                <q-select
+                  v-model="entryType"
+                  :options="['House', 'Apartment', 'Office', 'Storage Unit', 'Other']"
+                  label="Entry Type"
+                  outlined
+                  dense
+                  clearable
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="home" />
+                  </template>
+                </q-select>
+              </div>
 
-            <div class="col-12 col-md-4">
-              <q-checkbox
-                v-model="hasStairs"
-                label="Stairs present"
-                dense
-              />
-            </div>
+              <!-- Stairs -->
+              <div class="col-12 col-md-4">
+                <q-input
+                  v-model.number="numberOfFlights"
+                  type="number"
+                  label="Number of Stair Flights"
+                  outlined
+                  dense
+                  :min="0"
+                  :max="10"
+                  hint="Enter 0 if no stairs"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="stairs" />
+                  </template>
+                </q-input>
+              </div>
 
-            <div class="col-12 col-md-4" v-if="hasStairs">
-              <q-input
-                v-model.number="numberOfFlights"
-                type="number"
-                label="Number of flights"
-                outlined
-                dense
-                :min="1"
-                :max="20"
-              >
-                <template v-slot:prepend>
-                  <q-icon name="stairs" />
-                </template>
-              </q-input>
-            </div>
+              <!-- Elevator -->
+              <div class="col-12 col-md-4">
+                <q-checkbox
+                  v-model="hasElevator"
+                  label="Elevator available"
+                  dense
+                />
+              </div>
 
-            <div class="col-12 col-md-4">
-              <q-checkbox
-                v-model="hasElevator"
-                label="Elevator available"
-                dense
-              />
-            </div>
+              <!-- Elevator Details (conditional) -->
+              <template v-if="hasElevator">
+                <div class="col-12 col-md-4">
+                  <q-select
+                    v-model="elevatorType"
+                    :options="['Passenger', 'Freight', 'Service']"
+                    label="Elevator Type"
+                    outlined
+                    dense
+                    clearable
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="elevator" />
+                    </template>
+                  </q-select>
+                </div>
+                <div class="col-12 col-md-4">
+                  <q-input
+                    v-model.number="elevatorDistance"
+                    type="number"
+                    label="Distance from Unit (ft)"
+                    outlined
+                    dense
+                    :min="0"
+                    :max="500"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="straighten" />
+                    </template>
+                  </q-input>
+                </div>
+                <div class="col-12 col-md-4">
+                  <q-checkbox
+                    v-model="elevatorReservationRequired"
+                    label="Reservation required"
+                    dense
+                  />
+                </div>
+              </template>
 
-            <div class="col-12 col-md-8">
-              <q-input
-                v-model="parkingSituation"
-                label="Parking situation"
-                outlined
-                dense
-                placeholder="e.g., Street parking, Loading dock, Driveway"
-              >
-                <template v-slot:prepend>
-                  <q-icon name="local_parking" />
-                </template>
-              </q-input>
-            </div>
+              <!-- Parking -->
+              <div class="col-12 col-md-4">
+                <q-select
+                  v-model="parkingSituation"
+                  :options="['Street Parking', 'Driveway', 'Loading Zone', 'Garage', 'Other']"
+                  label="Parking Situation"
+                  outlined
+                  dense
+                  clearable
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="local_parking" />
+                  </template>
+                </q-select>
+              </div>
 
-            <div class="col-12">
-              <q-input
-                v-model="accessNotes"
-                label="Access notes"
-                outlined
-                dense
-                type="textarea"
-                rows="2"
-                placeholder="Any access restrictions, narrow hallways, tight corners, etc."
-              >
-                <template v-slot:prepend>
-                  <q-icon name="location_on" />
-                </template>
-              </q-input>
-            </div>
+              <div class="col-12 col-md-4">
+                <q-input
+                  v-model.number="parkingDistance"
+                  type="number"
+                  label="Distance from Truck to Entry (ft)"
+                  outlined
+                  dense
+                  :min="0"
+                  :max="1000"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="social_distance" />
+                  </template>
+                </q-input>
+              </div>
 
-            <div class="col-12">
-              <q-input
-                v-model="specialRequirements"
-                label="Special requirements"
-                outlined
-                dense
-                type="textarea"
-                rows="2"
-                placeholder="Piano moving, antique furniture, storage needed, etc."
-              >
-                <template v-slot:prepend>
-                  <q-icon name="info" />
-                </template>
-              </q-input>
+              <!-- Entry Challenges -->
+              <div class="col-12 col-md-4">
+                <q-select
+                  v-model="entryChallenges"
+                  :options="['Narrow Hallway', 'Long Carry', 'No Loading Zone', 'Gated Entry', 'Tight Corners', 'Low Clearance']"
+                  label="Entry Challenges"
+                  outlined
+                  dense
+                  multiple
+                  use-chips
+                  stack-label
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="warning" />
+                  </template>
+                </q-select>
+              </div>
+
+              <!-- Access Notes -->
+              <div class="col-12">
+                <q-input
+                  v-model="accessNotes"
+                  label="Additional Access Notes (Origin)"
+                  outlined
+                  dense
+                  type="textarea"
+                  rows="2"
+                  placeholder="Any other access details for origin location"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="notes" />
+                  </template>
+                </q-input>
+              </div>
+            </div>
+          </div>
+
+          <q-separator class="q-my-md" />
+
+          <!-- Section 2b: Destination Access Details -->
+          <div class="form-section">
+            <div class="text-subtitle2 text-grey-8 q-mb-sm section-header">Destination Location Access Details</div>
+            <div class="row q-col-gutter-md">
+              <!-- Entry Type -->
+              <div class="col-12 col-md-4">
+                <q-select
+                  v-model="destEntryType"
+                  :options="['House', 'Apartment', 'Office', 'Storage Unit', 'Other']"
+                  label="Entry Type"
+                  outlined
+                  dense
+                  clearable
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="home" />
+                  </template>
+                </q-select>
+              </div>
+
+              <!-- Stairs -->
+              <div class="col-12 col-md-4">
+                <q-input
+                  v-model.number="destNumberOfFlights"
+                  type="number"
+                  label="Number of Stair Flights"
+                  outlined
+                  dense
+                  :min="0"
+                  :max="10"
+                  hint="Enter 0 if no stairs"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="stairs" />
+                  </template>
+                </q-input>
+              </div>
+
+              <!-- Elevator -->
+              <div class="col-12 col-md-4">
+                <q-checkbox
+                  v-model="destHasElevator"
+                  label="Elevator available"
+                  dense
+                />
+              </div>
+
+              <!-- Elevator Details (conditional) -->
+              <template v-if="destHasElevator">
+                <div class="col-12 col-md-4">
+                  <q-select
+                    v-model="destElevatorType"
+                    :options="['Passenger', 'Freight', 'Service']"
+                    label="Elevator Type"
+                    outlined
+                    dense
+                    clearable
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="elevator" />
+                    </template>
+                  </q-select>
+                </div>
+                <div class="col-12 col-md-4">
+                  <q-input
+                    v-model.number="destElevatorDistance"
+                    type="number"
+                    label="Distance from Unit (ft)"
+                    outlined
+                    dense
+                    :min="0"
+                    :max="500"
+                  >
+                    <template v-slot:prepend>
+                      <q-icon name="straighten" />
+                    </template>
+                  </q-input>
+                </div>
+                <div class="col-12 col-md-4">
+                  <q-checkbox
+                    v-model="destElevatorReservationRequired"
+                    label="Reservation required"
+                    dense
+                  />
+                </div>
+              </template>
+
+              <!-- Parking -->
+              <div class="col-12 col-md-4">
+                <q-select
+                  v-model="destParkingSituation"
+                  :options="['Street Parking', 'Driveway', 'Loading Zone', 'Garage', 'Other']"
+                  label="Parking Situation"
+                  outlined
+                  dense
+                  clearable
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="local_parking" />
+                  </template>
+                </q-select>
+              </div>
+
+              <div class="col-12 col-md-4">
+                <q-input
+                  v-model.number="destParkingDistance"
+                  type="number"
+                  label="Distance from Truck to Entry (ft)"
+                  outlined
+                  dense
+                  :min="0"
+                  :max="1000"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="social_distance" />
+                  </template>
+                </q-input>
+              </div>
+
+              <!-- Entry Challenges -->
+              <div class="col-12 col-md-4">
+                <q-select
+                  v-model="destEntryChallenges"
+                  :options="['Narrow Hallway', 'Long Carry', 'No Loading Zone', 'Gated Entry', 'Tight Corners', 'Low Clearance']"
+                  label="Entry Challenges"
+                  outlined
+                  dense
+                  multiple
+                  use-chips
+                  stack-label
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="warning" />
+                  </template>
+                </q-select>
+              </div>
+
+              <!-- Access Notes -->
+              <div class="col-12">
+                <q-input
+                  v-model="destAccessNotes"
+                  label="Additional Access Notes (Destination)"
+                  outlined
+                  dense
+                  type="textarea"
+                  rows="2"
+                  placeholder="Any other access details for destination location"
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="notes" />
+                  </template>
+                </q-input>
+              </div>
+            </div>
+          </div>
+
+          <q-separator class="q-my-md" />
+
+          <!-- Section 3: Special Needs -->
+          <div class="form-section">
+            <div class="text-subtitle2 text-grey-8 q-mb-sm section-header">Special Needs</div>
+            <div class="row q-col-gutter-md">
+              <!-- Packing Services -->
+              <div class="col-12 col-md-4">
+                <q-select
+                  v-model="packingServicesRequired"
+                  :options="[
+                    { label: 'None', value: 'none' },
+                    { label: 'Partial Packing', value: 'partial' },
+                    { label: 'Full Service', value: 'full' }
+                  ]"
+                  option-label="label"
+                  option-value="value"
+                  emit-value
+                  map-options
+                  label="Packing Services"
+                  outlined
+                  dense
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="inventory" />
+                  </template>
+                </q-select>
+              </div>
+
+              <!-- Packing Areas (conditional) -->
+              <div class="col-12 col-md-8" v-if="packingServicesRequired === 'partial'">
+                <q-select
+                  v-model="packingAreasSelected"
+                  :options="['Kitchen', 'Wardrobe', 'Fragile Items', 'Electronics', 'Artwork', 'Books']"
+                  label="Areas to Pack"
+                  outlined
+                  dense
+                  multiple
+                  use-chips
+                  stack-label
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="check_box" />
+                  </template>
+                </q-select>
+              </div>
+
+              <!-- Special Requirements -->
+              <div class="col-12">
+                <q-input
+                  v-model="specialRequirements"
+                  label="Special Requirements"
+                  outlined
+                  dense
+                  type="textarea"
+                  rows="2"
+                  placeholder="Piano moving, antique furniture, storage needed, white glove service, etc."
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="star" />
+                  </template>
+                </q-input>
+              </div>
             </div>
           </div>
         </q-card-section>
@@ -1873,21 +2818,21 @@ const downloadPdfEstimate = async () => {
 
           <q-separator class="q-my-md" />
 
-          <!-- VeriMove Blue Box -->
+          <!-- ReloPrep Blue Box -->
           <div class="q-mb-md q-pa-md rounded-borders" style="background: #E3F2FD; border: 2px solid #1976D2;">
             <div class="text-h6 text-weight-medium text-primary q-mb-sm">
-              VeriMove All-In Quote
+              ReloPrep All-In Quote
             </div>
             <div class="row items-center q-mb-sm">
               <div class="col text-h4 text-weight-bold text-primary">
-                ${{ costEstimates.veriMove.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
+                ${{ costEstimates.reloprep.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
               </div>
             </div>
 
             <!-- Savings callout -->
             <div class="q-pa-sm rounded-borders q-mb-sm" style="background: #4CAF50; display: inline-block;">
               <span class="text-body2 text-white">
-                Save <span class="text-weight-bold">${{ costEstimates.veriMove.savings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span> vs. market average
+                Save <span class="text-weight-bold">${{ costEstimates.reloprep.savings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span> vs. market average
               </span>
             </div>
 
@@ -1897,18 +2842,42 @@ const downloadPdfEstimate = async () => {
             </div>
           </div>
 
-          <!-- Download PDF Estimate Button -->
+          <!-- Download PDF Buttons -->
           <div class="q-mt-md">
-            <q-btn
-              unelevated
-              color="primary"
-              icon="download"
-              label="Download PDF Estimate"
-              class="full-width"
-              @click="downloadPdfEstimate"
-            />
-            <div class="text-caption text-grey-6 q-mt-sm text-center">
-              Get a detailed estimate to share with moving companies
+            <div class="row q-col-gutter-sm">
+              <!-- Inventory PDF for 3rd Party Movers -->
+              <div class="col-12 col-md-6">
+                <q-btn
+                  unelevated
+                  color="secondary"
+                  icon="inventory"
+                  label="Download Inventory PDF"
+                  class="full-width"
+                  @click="downloadInventoryPdf"
+                >
+                  <q-tooltip>For sharing with 3rd party moving companies</q-tooltip>
+                </q-btn>
+                <div class="text-caption text-grey-6 q-mt-xs text-center">
+                  For 3rd party movers
+                </div>
+              </div>
+
+              <!-- Quote PDF with Pricing -->
+              <div class="col-12 col-md-6">
+                <q-btn
+                  unelevated
+                  color="primary"
+                  icon="receipt"
+                  label="Download Quote PDF"
+                  class="full-width"
+                  @click="downloadPdfEstimate"
+                >
+                  <q-tooltip>ReloPrep quote with pricing breakdown</q-tooltip>
+                </q-btn>
+                <div class="text-caption text-grey-6 q-mt-xs text-center">
+                  With pricing breakdown
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1928,17 +2897,130 @@ const downloadPdfEstimate = async () => {
         </q-card-section>
       </q-card>
 
-      <!-- Distance & Route Placeholder -->
-      <q-card flat bordered class="content-card placeholder-card">
+      <!-- Distance & Route -->
+      <q-card flat bordered class="content-card">
         <q-card-section>
-          <div class="text-h6 text-grey-6 q-mb-md">
-            <q-icon name="map" size="sm" class="q-mr-xs" />
+          <div class="text-h5 text-weight-bold q-mb-lg">
             Distance & Route
           </div>
-          <div class="placeholder-content">
-            <q-icon name="construction" size="xl" color="grey-5" />
-            <div class="text-body2 text-grey-6 q-mt-md">Coming Soon</div>
-            <div class="text-caption text-grey-5">Distance calculation and route planning</div>
+
+          <div v-if="estimatedDistance && routeData">
+            <!-- Route Controls -->
+            <div class="row q-col-gutter-md q-mb-md">
+              <div class="col-12 col-md-6">
+                <q-checkbox
+                  v-model="useTruckRoute"
+                  label="Truck-friendly route"
+                  dense
+                >
+                  <q-tooltip max-width="250px">
+                    Prefer routes suitable for large moving trucks (highways, wide roads)
+                  </q-tooltip>
+                </q-checkbox>
+              </div>
+              <div class="col-12 col-md-6">
+                <q-checkbox
+                  v-model="avoidTolls"
+                  label="Avoid tolls"
+                  dense
+                >
+                  <q-tooltip>
+                    Find routes that avoid toll roads when possible
+                  </q-tooltip>
+                </q-checkbox>
+              </div>
+            </div>
+
+            <!-- Route Stats -->
+            <div class="route-stats q-mb-md">
+              <div class="row q-col-gutter-sm">
+                <div class="col-6">
+                  <div class="stat-box">
+                    <q-icon name="straighten" size="sm" color="primary" class="q-mr-xs" />
+                    <div>
+                      <div class="text-h6 text-primary">{{ estimatedDistance.toLocaleString() }}</div>
+                      <div class="text-caption text-grey-6">miles</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-6">
+                  <div class="stat-box">
+                    <q-icon name="schedule" size="sm" color="secondary" class="q-mr-xs" />
+                    <div>
+                      <div class="text-h6 text-secondary">{{ routeData.duration_text }}</div>
+                      <div class="text-caption text-grey-6">drive time</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-6" v-if="routeData.estimated_tolls > 0">
+                  <div class="stat-box">
+                    <q-icon name="toll" size="sm" color="warning" class="q-mr-xs" />
+                    <div>
+                      <div class="text-h6 text-warning">${{ routeData.estimated_tolls }}</div>
+                      <div class="text-caption text-grey-6">est. tolls</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-6" v-if="routeData.overnight_stops > 0">
+                  <div class="stat-box">
+                    <q-icon name="hotel" size="sm" color="accent" class="q-mr-xs" />
+                    <div>
+                      <div class="text-h6 text-accent">{{ routeData.overnight_stops }}</div>
+                      <div class="text-caption text-grey-6">suggested stops</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Route Summary -->
+            <div class="text-caption text-grey-7 q-mb-sm">
+              <q-icon name="route" size="xs" class="q-mr-xs" />
+              {{ routeData.route_summary }}
+            </div>
+
+            <!-- Warnings -->
+            <div v-if="routeData.warnings && routeData.warnings.length > 0" class="q-mb-md">
+              <q-banner dense class="bg-orange-1 text-orange-9">
+                <template v-slot:avatar>
+                  <q-icon name="warning" color="orange" />
+                </template>
+                <div v-for="(warning, idx) in routeData.warnings" :key="idx" class="text-caption">
+                  {{ warning }}
+                </div>
+              </q-banner>
+            </div>
+
+            <!-- Route Map -->
+            <div class="route-map-container q-mt-md">
+              <RouteMap
+                v-if="routeData.route_polyline"
+                :route-polyline="routeData.route_polyline"
+                :origin-address="routeData.origin_address"
+                :destination-address="routeData.destination_address"
+                height="450px"
+              />
+            </div>
+
+            <!-- Multi-day Trip Notice -->
+            <div v-if="routeData.overnight_stops > 0" class="q-mt-md">
+              <q-banner dense class="bg-blue-1 text-primary">
+                <template v-slot:avatar>
+                  <q-icon name="info" color="primary" />
+                </template>
+                <div class="text-caption">
+                  This is a long-distance move requiring {{ routeData.overnight_stops }} overnight stop{{ routeData.overnight_stops > 1 ? 's' : '' }}.
+                  Consider adding hotel costs (~${{ routeData.overnight_stops * 100 }}) to your budget.
+                </div>
+              </q-banner>
+            </div>
+          </div>
+
+          <!-- Placeholder when no locations selected -->
+          <div v-else class="text-center text-grey-5 q-py-lg">
+            <q-icon name="map" size="xl" />
+            <div class="text-body2 q-mt-md">Select origin and destination locations</div>
+            <div class="text-caption">to view route and distance</div>
           </div>
         </q-card-section>
       </q-card>
@@ -2256,5 +3338,37 @@ const downloadPdfEstimate = async () => {
     min-width: 100%;
     max-width: 100%;
   }
+}
+
+/* Form Section Styling */
+.form-section {
+  margin-bottom: 8px;
+}
+
+.section-header {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 0.75rem;
+  color: #274690;
+  padding-bottom: 4px;
+  border-bottom: 2px solid #E8EAF6;
+}
+
+/* Route Stats Styling */
+.route-stats .stat-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: #F7F8FA;
+  border-radius: 8px;
+  border: 1px solid #E0E0E0;
+}
+
+.route-map-container {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 </style>

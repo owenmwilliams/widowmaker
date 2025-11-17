@@ -48,7 +48,13 @@
       "Bash(gcloud sql operations list:*)",
       "Bash(echo:*)",
       "Bash(gcloud sql instances patch:*)",
-      "Bash(PORT=3050 node:*)"
+      "Bash(PORT=3050 node:*)",
+      "Bash(chmod:*)",
+      "Bash(./test-google-maps-api.sh:*)",
+      "Bash(if [ -f .env ])",
+      "Bash(then grep VITE_GOOGLE_MAPS_API_KEY .env)",
+      "Bash(else echo \"No .env file found\")",
+      "Bash(fi)"
     ],
     "deny": [],
     "ask": []

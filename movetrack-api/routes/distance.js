@@ -40,7 +40,7 @@ function estimateDistance(origin, destination) {
 
 router.post('/calculate-distance', async (req, res) => {
   try {
-    const { origin, destination } = req.body;
+    const { origin, destination, avoidTolls = false, truckRoute = false } = req.body;
 
     if (!origin || !destination) {
       return res.status(400).json({ error: 'Origin and destination addresses are required' });
@@ -49,33 +49,70 @@ router.post('/calculate-distance', async (req, res) => {
     // Try Google Maps API if available
     if (GOOGLE_MAPS_API_KEY) {
       try {
-        const response = await axios.get('https://maps.googleapis.com/maps/api/distancematrix/json', {
-          params: {
-            origins: origin,
-            destinations: destination,
-            units: 'imperial',
-            key: GOOGLE_MAPS_API_KEY
-          },
-          timeout: 5000 // 5 second timeout
+        // Use Directions API instead of Distance Matrix for route geometry
+        const params = {
+          origin: origin,
+          destination: destination,
+          mode: 'driving',
+          units: 'imperial',
+          key: GOOGLE_MAPS_API_KEY
+        };
+
+        // Add avoid parameters
+        const avoid = [];
+        if (avoidTolls) avoid.push('tolls');
+        if (avoid.length > 0) {
+          params.avoid = avoid.join('|');
+        }
+
+        // For truck routing, we'll use travel_mode=driving but note limitations
+        // Google doesn't have full truck-specific routing in Directions API
+        // We'd need to use Routes API (newer) for truck restrictions
+        // Note: Full truck routing requires Google Routes API with vehicle restrictions
+
+        const response = await axios.get('https://maps.googleapis.com/maps/api/directions/json', {
+          params,
+          timeout: 10000 // 10 second timeout
         });
 
         const data = response.data;
 
-        if (data.status === 'OK' && data.rows[0]?.elements[0]?.status === 'OK') {
-          const element = data.rows[0].elements[0];
-          const distanceMeters = element.distance.value;
+        if (data.status === 'OK' && data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const leg = route.legs[0];
+
+          const distanceMeters = leg.distance.value;
           const distanceMiles = Math.round(distanceMeters * 0.000621371);
+
+          // Extract route overview polyline for map rendering
+          const overviewPolyline = route.overview_polyline.points;
+
+          // Calculate estimated tolls (rough estimate based on distance and highways)
+          const estimatedTolls = !avoidTolls && distanceMiles > 100
+            ? Math.round(distanceMiles * 0.15) // Rough estimate: $0.15/mile for toll routes
+            : 0;
 
           return res.json({
             success: true,
             distance_miles: distanceMiles,
-            distance_text: element.distance.text,
-            duration_seconds: element.duration.value,
-            duration_text: element.duration.text,
-            origin_address: data.origin_addresses[0],
-            destination_address: data.destination_addresses[0],
-            source: 'google_maps'
+            distance_text: leg.distance.text,
+            duration_seconds: leg.duration.value,
+            duration_text: leg.duration.text,
+            origin_address: leg.start_address,
+            destination_address: leg.end_address,
+            source: 'google_maps',
+            route_polyline: overviewPolyline,
+            route_summary: route.summary || 'Route via highways',
+            warnings: route.warnings || [],
+            estimated_tolls: estimatedTolls,
+            truck_friendly: truckRoute,
+            // Add waypoint/leg information for future multi-stop support
+            steps_count: leg.steps.length,
+            // Suggest overnight stops for long distances
+            overnight_stops: distanceMiles > 500 ? Math.ceil(distanceMiles / 500) - 1 : 0
           });
+        } else {
+          console.warn('Google Directions API returned no routes:', data.status, data.error_message);
         }
       } catch (apiError) {
         console.warn('Google Maps API unavailable, using fallback:', apiError.message);

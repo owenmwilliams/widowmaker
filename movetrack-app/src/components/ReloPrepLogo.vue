@@ -1,6 +1,6 @@
 <template>
   <img
-    class="verimove-logo"
+    class="reloprep-logo"
     :src="logoSrc"
     :alt="alt"
     :width="width"
@@ -22,17 +22,17 @@ defineProps({
   },
   alt: {
     type: String,
-    default: 'VeriMove logo'
+    default: 'ReloPrep logo'
   },
   logoSrc: {
     type: String,
-    default: 'https://storage.googleapis.com/widowmaker-site-images/verimove_logo.png?v=2'
+    default: 'https://storage.googleapis.com/widowmaker-site-images/reloprep_color.png'
   }
 });
 </script>
 
 <style scoped>
-.verimove-logo {
+.reloprep-logo {
   display: inline-block;
   max-width: 100%;
   border: 0;

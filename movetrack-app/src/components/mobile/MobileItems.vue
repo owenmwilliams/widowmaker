@@ -11,7 +11,7 @@
   import axios from 'axios';
   import ItemToggleCard from '../ItemToggleCard.vue';
   import PhotoCapture from '../PhotoCapture.vue';
-  import VeriMoveLogo from '../VeriMoveLogo.vue';
+  import ReloPrepLogo from '../ReloPrepLogo.vue';
   import MobileSettings from './MobileSettings.vue';
   import type { InventoryItem } from '../../data/inventoryItems';
   import draggable from 'vuedraggable';
@@ -444,7 +444,7 @@
           </q-breadcrumbs>
         </q-toolbar-title>
 
-        <VeriMoveLogo :width="30" :height="8" logo-src="https://storage.googleapis.com/widowmaker-site-images/verimove_app_logo_white.png" style="margin-left: 8px;" />
+        <ReloPrepLogo :width="30" :height="8" logo-src="https://storage.googleapis.com/widowmaker-site-images/reloprep_color.png" style="margin-left: 8px;" />
       </q-toolbar>
     </q-header>
 
