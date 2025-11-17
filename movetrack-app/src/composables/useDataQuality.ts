@@ -23,19 +23,24 @@ export const dataQualityDefinitions = [
   {
     key: 'dimensions',
     label: 'Missing Dimensions',
-    description: 'Items without dimensions or L/W/H',
+    description: 'Items without length, width, and height',
     color: 'accent',
     predicate: (item: any) => {
-      if (item.dimensions) return false;
       return !(item.length_in && item.width_in && item.height_in);
     }
   },
   {
     key: 'container',
     label: 'Unpacked Items',
-    description: 'Items not assigned to a container',
+    description: 'Items not assigned to a container (excludes loose items like furniture)',
     color: 'primary',
-    predicate: (item: any) => !item.container
+    predicate: (item: any) => {
+      // Exclude items tagged as "loose" (furniture, large appliances, etc.)
+      const isLoose = Array.isArray(item.tags) && item.tags.some((tag: string) =>
+        tag.toLowerCase() === 'loose'
+      );
+      return !item.container && !isLoose;
+    }
   }
 ] as const;
 

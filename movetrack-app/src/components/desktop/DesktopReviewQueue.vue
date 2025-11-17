@@ -19,8 +19,6 @@ const { duplicatePairs, duplicateCount, dismissPair } = useDuplicateDetection(st
 const $q = useQuasar();
 
 const selectedIssueFilter = ref<string | null>(null);
-const searchTerm = ref('');
-const showFiltersMenu = ref(false);
 const attributesContainerRef = ref<HTMLElement | null>(null);
 const attributesHeight = ref<number | null>(null);
 const normalizedView = computed(() => {
@@ -130,11 +128,6 @@ const filteredReviewQueue = computed(() => {
     );
   }
 
-  if (searchTerm.value.trim()) {
-    const term = searchTerm.value.trim().toLowerCase();
-    queue = queue.filter((item) => item.name.toLowerCase().includes(term));
-  }
-
   return queue;
 });
 
@@ -165,6 +158,12 @@ const reviewColumns = [
     label: 'Missing Details',
     field: 'issues',
     align: 'left'
+  },
+  {
+    name: 'actions',
+    label: 'Actions',
+    field: 'actions',
+    align: 'right'
   }
 ];
 
@@ -273,6 +272,81 @@ const handleInlineSave = async (itemId: number, issueKey: string, value: any) =>
 const handlePhotoFix = (itemId: number) => {
   if (!props.user) return;
   store.openItemDetailsModal(itemId, props.user, 'edit');
+};
+
+const handleMarkAsLoose = async (itemId: number) => {
+  if (!props.user) return;
+
+  const item = store.items.find(i => i.value === itemId);
+  if (!item) return;
+
+  try {
+    // Get current tags and add 'loose' if not already present
+    const currentTags = Array.isArray(item.tags) ? item.tags : [];
+    const updatedTags = currentTags.includes('loose')
+      ? currentTags
+      : [...currentTags, 'loose'];
+
+    const updateData = {
+      tags: updatedTags
+    };
+
+    await store.updateItem(
+      itemId,
+      props.user,
+      item.label,
+      item.description || '',
+      item.quantity || 1,
+      item.collection,
+      item.container ?? undefined,
+      undefined,
+      updateData
+    );
+
+    $q.notify({
+      type: 'positive',
+      message: 'Item marked as loose - no container needed',
+      icon: 'chair'
+    });
+  } catch (error) {
+    console.error('Error marking item as loose:', error);
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to mark item as loose'
+    });
+  }
+};
+
+  const handleDeleteItem = (itemId: number, itemName: string) => {
+  $q.dialog({
+    title: 'Delete Item?',
+    message: `Are you sure you want to permanently delete "${itemName}"? This action cannot be undone.`,
+    persistent: false,
+    ok: {
+      label: 'Delete',
+      color: 'negative',
+      flat: true
+    },
+    cancel: {
+      label: 'Cancel',
+      color: 'grey-7',
+      flat: true
+    }
+  }).onOk(async () => {
+    try {
+      await store.deleteItem(itemId, props.user!);
+      $q.notify({
+        type: 'positive',
+        message: `"${itemName}" deleted successfully`
+      });
+    } catch (error) {
+      console.error('Error deleting item:', error);
+      $q.notify({
+        type: 'negative',
+        message: 'Failed to delete item'
+      });
+    }
+  });
 };
 
 // Duplicate handling functions
@@ -396,6 +470,35 @@ const keepBothItems = (pairKey: string) => {
       ref="attributesContainerRef"
       :style="attributesHeight ? { height: attributesHeight + 'px' } : undefined"
     >
+      <!-- Summary Cards for Attributes View -->
+      <div class="summary-cards q-pa-md">
+        <q-card
+          v-for="summary in missingAttributeSummary"
+          :key="summary.key"
+          flat
+          bordered
+          clickable
+          class="summary-card"
+          :class="{ 'selected-filter': selectedIssueFilter === summary.key }"
+          @click="selectedIssueFilter = selectedIssueFilter === summary.key ? null : summary.key"
+        >
+          <q-card-section>
+            <div class="summary-label">{{ summary.label }}</div>
+            <div class="summary-value">{{ summary.missing }}</div>
+            <q-linear-progress
+              :value="summary.pct / 100"
+              :color="summary.color"
+              rounded
+              size="8px"
+              class="q-mt-sm"
+            />
+            <div class="text-caption text-grey-6 q-mt-xs">
+              {{ summary.total }} total items
+            </div>
+          </q-card-section>
+        </q-card>
+      </div>
+
       <div class="attributes-table-page q-pa-md">
         <div class="attributes-table-wrapper">
           <q-table
@@ -411,87 +514,6 @@ const keepBothItems = (pairKey: string) => {
             :virtual-scroll-sticky-size-start="48"
             no-data-label="All caught up! Nothing to review."
           >
-            <template #top>
-              <q-input
-                dense
-                filled
-                debounce="300"
-                color="primary"
-                bg-color="transparent"
-                v-model="searchTerm"
-                placeholder="Search items"
-                class="search-input"
-              >
-                <template #prepend>
-                  <q-icon color="primary" name="search" />
-                </template>
-                <template #append>
-                  <q-icon
-                    v-if="searchTerm"
-                    name="close"
-                    class="cursor-pointer"
-                    @click="searchTerm = ''"
-                  />
-                </template>
-              </q-input>
-
-              <q-space />
-
-              <div class="row items-center q-gutter-sm">
-                <q-chip
-                  v-if="selectedIssueFilter"
-                  dense
-                  color="primary"
-                  text-color="white"
-                  removable
-                  @remove="selectedIssueFilter = null"
-                >
-                  {{
-                    reviewFilterOptions.find(option => option.value === selectedIssueFilter)?.label ||
-                    'Filtered'
-                  }}
-                </q-chip>
-                <q-btn
-                  flat
-                  color="primary"
-                  label="Filters"
-                  icon="filter_list"
-                  @click.stop="showFiltersMenu = true"
-                />
-              </div>
-
-              <q-dialog v-model="showFiltersMenu">
-                <q-card class="filters-menu">
-                  <q-card-section class="row items-center justify-between q-pb-none">
-                    <div class="text-h6 text-primary">Filter Missing Attributes</div>
-                    <q-btn flat dense icon="close" color="grey-7" v-close-popup />
-                  </q-card-section>
-                  <q-card-section>
-                    <div class="filter-section">
-                      <div class="section-label">Issue Types</div>
-                      <div class="chip-row">
-                        <q-chip
-                          v-for="option in reviewFilterOptions"
-                          :key="option.value ?? 'all'"
-                          dense
-                          clickable
-                          :color="selectedIssueFilter === option.value ? 'primary' : 'grey-4'"
-                          :text-color="selectedIssueFilter === option.value ? 'white' : 'grey-8'"
-                          @click="selectedIssueFilter = option.value"
-                        >
-                          {{ option.label }}
-                        </q-chip>
-                      </div>
-                    </div>
-                    <div class="text-right q-mt-md">
-                      <q-btn flat color="grey-7" label="Reset" @click="selectedIssueFilter = null" />
-                      <q-btn flat color="primary" label="Done" v-close-popup />
-                    </div>
-                  </q-card-section>
-                </q-card>
-              </q-dialog>
-            </template>
-
             <template #body-cell-name="props">
               <q-td :props="props">
                 <div class="item-name-cell">
@@ -603,21 +625,51 @@ const keepBothItems = (pairKey: string) => {
                               step="0.1"
                             />
                           </div>
-                          <q-select
-                            v-else-if="issue.key === 'container'"
-                            v-model="scope.value"
-                            :options="containerOptions"
-                            emit-value
-                            map-options
-                            label="Select container"
-                            outlined
-                            dense
-                          />
+                          <div v-else-if="issue.key === 'container'" class="container-fix-options">
+                            <q-select
+                              v-model="scope.value"
+                              :options="containerOptions"
+                              emit-value
+                              map-options
+                              label="Select container"
+                              outlined
+                              dense
+                              class="q-mb-sm"
+                            />
+                            <div class="text-center q-mb-xs text-caption text-grey-7">or</div>
+                            <q-btn
+                              flat
+                              dense
+                              color="secondary"
+                              icon="chair"
+                              label="Mark as Loose Item"
+                              class="full-width"
+                              @click="handleMarkAsLoose(props.row.id); scope.cancel()"
+                            >
+                              <q-tooltip>Mark this as furniture/large item that doesn't need a container</q-tooltip>
+                            </q-btn>
+                          </div>
                         </template>
                       </q-popup-edit>
                     </template>
                   </q-chip>
                 </div>
+              </q-td>
+            </template>
+
+            <template #body-cell-actions="props">
+              <q-td :props="props">
+                <q-btn
+                  flat
+                  dense
+                  round
+                  color="negative"
+                  icon="delete"
+                  size="sm"
+                  @click="handleDeleteItem(props.row.id, props.row.name)"
+                >
+                  <q-tooltip>Delete item</q-tooltip>
+                </q-btn>
               </q-td>
             </template>
 
@@ -778,6 +830,20 @@ const keepBothItems = (pairKey: string) => {
 
 .summary-card {
   background: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.summary-card:hover {
+  background: #f5f5f5;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.summary-card.selected-filter {
+  border-color: var(--q-primary);
+  border-width: 2px;
+  background: rgba(25, 118, 210, 0.05);
 }
 
 .duplicate-card.has-duplicates {
@@ -800,6 +866,25 @@ const keepBothItems = (pairKey: string) => {
 @media (max-width: 600px) {
   .summary-grid {
     grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+}
+
+.summary-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 0;
+}
+
+@media (max-width: 1200px) {
+  .summary-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .summary-cards {
+    grid-template-columns: repeat(1, 1fr);
   }
 }
 
@@ -908,6 +993,10 @@ const keepBothItems = (pairKey: string) => {
   flex-direction: column;
   gap: 8px;
   width: 240px;
+}
+
+.container-fix-options {
+  min-width: 260px;
 }
 
 .review-table-footer {

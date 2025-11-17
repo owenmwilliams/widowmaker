@@ -51,6 +51,14 @@ Important:
 - Dimensions should be in inches (approximate based on visual reference)
 - Weight should be in pounds (approximate)
 - Tags should be relevant categories like "Fragile", "Glass", "Metal", "Ceramic", "Antique", "Decorative", "Functional", etc.
+- For items that should NOT be packed in standard moving boxes, add the "loose" tag. Examples include:
+  * Furniture (chairs, tables, sofas, dressers, beds, cabinets, shelving)
+  * Large appliances (refrigerators, washing machines, dryers, dishwashers, stoves)
+  * Large electronics (TVs over 32", large monitors, floor speakers)
+  * Exercise equipment (treadmills, bikes, weights over 25lbs)
+  * Large artwork or mirrors
+  * Musical instruments (pianos, guitars, drums)
+- Smaller items that CAN be boxed (small electronics, monitors under 27", decorative items, kitchenware, books, etc.) should NOT have the "loose" tag
 - Confidence should reflect how certain you are about the analysis (0.0 = very uncertain, 1.0 = very certain)
 - For fragile, consider if the item is breakable or requires careful handling
 

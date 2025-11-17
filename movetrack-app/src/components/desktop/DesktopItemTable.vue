@@ -93,7 +93,9 @@
                     fragile: i.fragile || false,
                     priority: i.priority || null,
                     weight_lbs: i.weight_lbs || null,
-                    dimensions: i.dimensions || null,
+                    dimensions: (i.length_in && i.width_in && i.height_in)
+                        ? `${i.length_in}" × ${i.width_in}" × ${i.height_in}"`
+                        : (i.dimensions || null),
                     selection: false
                 }
             })

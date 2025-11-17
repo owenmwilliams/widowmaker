@@ -2,6 +2,7 @@
 import { ref, onMounted, defineEmits } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
+import ReloPrepLogo from './ReloPrepLogo.vue';
 import { useQuasar } from 'quasar';
 
 const route = useRoute();
@@ -184,6 +185,9 @@ const tryAgain = () => {
   <div v-else class="login-container">
     <q-card class="login-card">
       <q-card-section>
+        <div class="logo-row">
+          <ReloPrepLogo :width="140" :height="34" />
+        </div>
         <div class="text-h4 q-mb-md">Login to MoveTrack</div>
 
         <!-- Verification error -->
@@ -292,6 +296,13 @@ const tryAgain = () => {
 .login-card {
   width: 100%;
   max-width: 500px;
+}
+
+.logo-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 @media (max-width: 600px) {
