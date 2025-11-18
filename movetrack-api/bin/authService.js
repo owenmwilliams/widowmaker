@@ -335,6 +335,40 @@ async function getUserFromToken(sessionToken) {
     }
 }
 
+/**
+ * Express middleware to authenticate requests using Bearer token
+ */
+async function authenticate(req, res, next) {
+    try {
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ error: 'Unauthorized - No token provided' });
+        }
+
+        const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+        const user = await getUserFromToken(token);
+
+        if (!user) {
+            return res.status(401).json({ error: 'Unauthorized - Invalid token' });
+        }
+
+        // Attach user info to request object
+        req.user = {
+            user_id: user.userId,
+            email: user.email,
+            username: user.username,
+            first_name: user.firstName,
+            last_name: user.lastName
+        };
+
+        next();
+    } catch (error) {
+        console.error('Authentication error:', error);
+        return res.status(401).json({ error: 'Unauthorized - Authentication failed' });
+    }
+}
+
 module.exports = {
     generateToken,
     generateSessionToken,
@@ -344,5 +378,6 @@ module.exports = {
     sendMagicLinkEmail,
     logLoginAttempt,
     logout,
-    getUserFromToken
+    getUserFromToken,
+    authenticate
 };

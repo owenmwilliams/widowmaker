@@ -6,6 +6,18 @@ import ReloPrepLogo from '../components/ReloPrepLogo.vue';
 
 const showPrivacyPolicy = ref(false);
 const showTermsOfService = ref(false);
+
+const planRows = [
+  { feature: 'Items & photos', basic: 'Up to 500', pro: 'Unlimited', proCheck: true },
+  { feature: 'Locations', basic: 'Up to 2', pro: 'Unlimited', proCheck: true },
+  { feature: 'Capture & attributes', basic: 'AI name & description', pro: 'Full AI + auto attributes', proCheck: true },
+  { feature: 'AI model', basic: 'AI name & description', pro: 'Full AI + auto attributes', proCheck: true },
+  { feature: 'Packing tools', basic: 'Basic checks', pro: 'Smart Pack algorithm', proCheck: true },
+  { feature: 'Exports (PDF)', basic: '—', pro: 'Photos & counts', proCheck: true },
+  { feature: 'Sharing', basic: '—', pro: 'Links + permissions', proCheck: true },
+  { feature: 'Photo quality', basic: 'Reduced', pro: 'Full-res storage', proCheck: true },
+  { feature: 'Support', basic: 'Standard', pro: 'Priority', proCheck: true },
+];
 </script>
 
 <template>
@@ -174,6 +186,79 @@ const showTermsOfService = ref(false);
               <q-icon name="schedule" color="primary" size="28px" />
               <div class="feature-title">Fast setup, free to start</div>
               <div class="feature-body">Create your smart moving inventory in minutes—perfect for long-distance moves, local moves, or downsizing.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Pricing -->
+        <section id="pricing" class="constrained section surface">
+          <div class="section-header">
+            <h2>Pricing</h2>
+            <p class="section-subtext">Pick the plan that matches your move—free to start, flexible to upgrade.</p>
+          </div>
+          <div class="cards-grid">
+            <q-card flat bordered class="info-card pricing-card">
+              <q-card-section>
+                <div class="semi-bold text-subtitle1">Monthly</div>
+                <div class="price">$8<span class="price-suffix">/month</span></div>
+                <div class="text-body2 text-grey-8 q-mt-sm">
+                  Unlimited items, photos, exports, and packing fit checks. Perfect if you’re mid-move or organizing now.
+                </div>
+              </q-card-section>
+              <q-card-actions align="right">
+                <q-btn unelevated color="primary" label="Choose monthly" to="/login" />
+              </q-card-actions>
+            </q-card>
+
+            <q-card flat bordered class="info-card pricing-card">
+              <q-card-section>
+                <div class="semi-bold text-subtitle1">Move Pack</div>
+                <div class="price">$20<span class="price-suffix"> / 3 months</span></div>
+                <div class="text-body2 text-grey-8 q-mt-sm">
+                  One-time access for a single move. Full features for 90 days to capture, share, and export your inventory.
+                </div>
+              </q-card-section>
+              <q-card-actions align="right">
+                <q-btn unelevated color="primary" label="Choose move pack" to="/login" />
+              </q-card-actions>
+            </q-card>
+
+            <q-card flat bordered class="info-card pricing-card">
+              <q-card-section>
+                <div class="semi-bold text-subtitle1">Annual</div>
+                <div class="price">$70<span class="price-suffix">/year</span></div>
+                <div class="text-body2 text-grey-8 q-mt-sm">
+                  Best value for planners and organizers. All features, all year—great for multiple moves or ongoing inventory.
+                </div>
+              </q-card-section>
+              <q-card-actions align="right">
+                <q-btn unelevated color="primary" label="Choose annual" to="/login" />
+              </q-card-actions>
+            </q-card>
+          </div>
+        </section>
+
+        <!-- Plan comparison -->
+        <section class="constrained section surface">
+          <div class="section-header">
+            <h2>Compare plans</h2>
+            <p class="section-subtext">See what’s included on the free track vs. paid plans.</p>
+          </div>
+            <div class="plan-grid">
+              <div class="plan-grid-row plan-grid-head">
+                <div class="plan-grid-cell plan-label-cell">Feature</div>
+                <div class="plan-grid-cell">Basic (Free)</div>
+                <div class="plan-grid-cell">Pro (Monthly / Annual)</div>
+              </div>
+              <div v-for="row in planRows" :key="row.feature" class="plan-grid-row">
+                <div class="plan-grid-cell plan-label-cell">{{ row.feature }}</div>
+                <div class="plan-grid-cell">{{ row.basic }}</div>
+                <div class="plan-grid-cell">
+                  <span v-if="row.proCheck" class="check-icon">
+                    <q-icon name="check" size="16px" />
+                  </span>
+                  <span>{{ row.pro }}</span>
+                </div>
             </div>
           </div>
         </section>
@@ -546,6 +631,92 @@ const showTermsOfService = ref(false);
 .section-cta.outside {
   margin-top: 8px;
   margin-bottom: 56px;
+}
+
+.pricing-card {
+  display: grid;
+  gap: 6px;
+}
+
+.price {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #1f2a44;
+}
+
+.price-suffix {
+  font-size: 0.95rem;
+  color: #374151;
+  margin-left: 4px;
+}
+
+.plan-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+  border-radius: 12px;
+  overflow: hidden;
+  background: white;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.04);
+}
+
+.plan-grid-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.plan-grid-row:last-child {
+  border-bottom: none;
+}
+
+.plan-grid-head {
+  background: #f8fafc;
+  font-weight: 700;
+  color: #1f2a44;
+  border-bottom: 2px solid #d8deeb;
+}
+
+.plan-grid-cell {
+  display: flex;
+  align-items: center;
+  line-height: 1.45;
+  color: #374151;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.plan-label-cell {
+  font-weight: 700;
+  color: #1f2a44;
+}
+
+.plan-grid-row:not(.plan-grid-head) .plan-label-cell {
+  font-weight: 600;
+  margin-right: 12px;
+}
+
+.plan-grid-row:nth-child(2n + 1):not(.plan-grid-head) {
+  background: #f9fbfd;
+}
+
+.text-muted {
+  color: #9ba3af;
+}
+
+.check-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #274690;
+  color: white;
+  box-shadow: 0 4px 10px rgba(39, 70, 144, 0.25);
+  margin-right: 6px;
 }
 
 .cta-strong {

@@ -30,6 +30,7 @@ var googleRouter = require('./routes/google');
 var emailRouter = require('./routes/email');
 var authRouter = require('./routes/auth');
 var distanceRouter = require('./routes/distance');
+var savedMovesRouter = require('./routes/savedMoves');
 
 var app = express();
 app.set('trust proxy', 1);
@@ -91,6 +92,7 @@ app.use('/google', googleRouter)
 app.use('/email', emailRouter)
 app.use('/auth', authRouter)
 app.use('/api', distanceRouter)
+app.use('/api/saved-moves', savedMovesRouter)
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
