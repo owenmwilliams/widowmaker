@@ -12,9 +12,10 @@
   import ItemToggleCard from '../ItemToggleCard.vue';
   import PhotoCapture from '../PhotoCapture.vue';
   import ReloPrepLogo from '../ReloPrepLogo.vue';
-  import MobileSettings from './MobileSettings.vue';
-  import type { InventoryItem } from '../../data/inventoryItems';
-  import draggable from 'vuedraggable';
+import MobileSettings from './MobileSettings.vue';
+import type { InventoryItem } from '../../data/inventoryItems';
+import draggable from 'vuedraggable';
+import { useQuasar } from 'quasar';
 
 //ALL PROPS & EMITS
   enum ObjectEnum {
@@ -46,11 +47,12 @@
 //ALL CONSTANTS AND VARIABLES
   const isAdd = ref(false)
 
-  const core_url = import.meta.env.MODE == 'development'
-    ? 'http://localhost:3050'
-    : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
+const core_url = import.meta.env.MODE == 'development'
+  ? 'http://localhost:3050'
+  : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
 
-  const store = inventoryStore()
+const store = inventoryStore()
+const $q = useQuasar()
 
   const showAdd = ref(false);
   const collectionIndex = ref(0)
@@ -63,16 +65,17 @@
   const showPhotoCapture = ref(false)
   const showSettings = ref(false)
   const currentVisionProvider = ref<string>('gemini')
+  const cameraInput = ref<HTMLInputElement | null>(null)
 
   const containerItemLists = ref<Record<number, StoreInventoryItem[]>>({})
   const unassignedItems = ref<StoreInventoryItem[]>([])
   const isPersistingMove = ref(false)
   // Track which containers are open locally (survives store reloads)
   const openContainerIds = ref<Set<number>>(new Set())
-  
-  // Filter states
-  const filterFragile = ref(false)
-  const filterPriority = ref<string | null>(null)
+
+  const selectedLocationId = ref<number | null>(null)
+  const quickPhotoItemId = ref<number | null>(null)
+  const quickPhotoUploading = ref(false)
 
   const rebuildDragLists = () => {
     const map: Record<number, StoreInventoryItem[]> = {}
@@ -84,25 +87,18 @@
       return
     }
 
-    // Filter function for items
-    const shouldIncludeItem = (item: any) => {
-      if (filterFragile.value && !item.fragile) return false
-      if (filterPriority.value && item.priority?.toLowerCase() !== filterPriority.value.toLowerCase()) return false
-      return true
-    }
-
     store.containers
       .filter((container) => container.collection === currentCollectionId)
       .forEach((container) => {
         map[container.value] = store.items.filter(
-          (item) => item.collection === currentCollectionId && item.container === container.value && shouldIncludeItem(item)
+          (item) => item.collection === currentCollectionId && item.container === container.value
         ) as StoreInventoryItem[]
       })
 
     containerItemLists.value = map
 
     unassignedItems.value = store.items.filter(
-      (item) => item.collection === currentCollectionId && (item.container === null || item.container === undefined) && shouldIncludeItem(item)
+      (item) => item.collection === currentCollectionId && (item.container === null || item.container === undefined)
     ) as StoreInventoryItem[]
 
     console.log('🔍 Rebuild drag lists:', {
@@ -115,7 +111,7 @@
   }
 
   // Watch items and collection changes, but NOT container changes (to preserve open/closed state)
-  watch([() => store.items, activeCollection, filterFragile, filterPriority], () => {
+  watch([() => store.items, activeCollection], () => {
     rebuildDragLists()
   }, { deep: true, immediate: true })
 
@@ -128,6 +124,14 @@
     return store.items.filter(i => i.collection === activeCollection.value?.value).length;
   });
 
+  const hasItemsOrContainers = computed(() => {
+    if (activeCollection.value) {
+      const cid = activeCollection.value.value;
+      return store.items.some(i => i.collection === cid) || store.containers.some(c => c.collection === cid);
+    }
+    return store.items.length > 0 || store.containers.length > 0;
+  });
+
   // Show enhanced CTA when inventory is sparse (< 4 items)
   const showEnhancedCTA = computed(() => totalItemsCount.value < 4);
 
@@ -137,7 +141,57 @@
     return username.length > 15 ? username.substring(0, 15) + '...' : username;
   });
 
-  // Removed computedAddThings and show() function - bottom sheet no longer used
+  // Filter collections by selected location
+  const filteredCollections = computed(() => {
+    if (!selectedLocationId.value) {
+      return store.collections;
+    }
+    return store.collections.filter(c => c.location === selectedLocationId.value);
+  });
+
+  // Handler for quick photo capture
+  const handleQuickPhoto = (itemId: number) => {
+    quickPhotoItemId.value = itemId;
+    // Trigger native camera capture (no AI flow)
+    if (cameraInput.value) {
+      cameraInput.value.value = '';
+      cameraInput.value.click();
+    }
+  };
+
+const handleCameraCapture = async (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file || !quickPhotoItemId.value) return;
+
+  const item = store.items.find(i => i.value === quickPhotoItemId.value);
+  if (!item) return;
+
+  try {
+    quickPhotoUploading.value = true;
+    $q.loading.show({ message: 'Uploading photo...' });
+    await store.updateItem(
+      item.value,
+      props.user,
+      item.label,
+      item.description || '',
+        item.quantity ?? 1,
+        item.collection,
+      item.container ?? undefined,
+      undefined,
+      undefined,
+      { newImage: file }
+    );
+    $q.notify({ type: 'positive', message: 'Photo added' });
+  } catch (error: any) {
+    $q.notify({ type: 'negative', message: 'Upload failed', caption: error?.message || 'Please try again' });
+  } finally {
+    quickPhotoItemId.value = null;
+    if (cameraInput.value) cameraInput.value.value = '';
+    quickPhotoUploading.value = false;
+    $q.loading.hide();
+  }
+};
 
 
   const onSelectThing = (item: string) => {
@@ -432,9 +486,17 @@
     />
   </q-dialog>
 
-  <q-layout view="hHh lpR fFf">
+  <q-layout view="hHh lpR fFf" class="mobile-layout">
+    <input
+      ref="cameraInput"
+      type="file"
+      accept="image/*"
+      capture="environment"
+      class="hidden-file-input"
+      @change="handleCameraCapture"
+    />
 
-    <q-header v-if="shouldRevealHeader" reveal bordered class="bg-primary text-white">
+    <q-header v-if="shouldRevealHeader" reveal bordered class="frosted-header text-white">
       <q-toolbar>
         <q-btn dense flat round icon="menu" @click="showLeft = !showLeft" />
 
@@ -444,20 +506,41 @@
           </q-breadcrumbs>
         </q-toolbar-title>
 
-        <ReloPrepLogo :width="30" :height="8" logo-src="https://storage.googleapis.com/widowmaker-site-images/reloprep_color.png" style="margin-left: 8px;" />
+        <ReloPrepLogo :width="30" logo-src="https://storage.googleapis.com/widowmaker-site-images/verimove_app_logo_white.png" style="margin-left: 8px;" />
       </q-toolbar>
     </q-header>
 
     <q-drawer  v-model="showLeft" style="background-color: #f5f9e9;" side="left" overlay behavior="mobile" elevated>
       <q-list  padding class="rounded-borders text-primary">
+        <!-- Location Filter Section -->
+        <q-item-label header>Location</q-item-label>
+        <q-item>
+          <q-item-section>
+            <q-select
+              v-model="selectedLocationId"
+              :options="[{ label: 'All Locations', value: null }, ...store.locations.map(l => ({ label: l.label, value: l.value }))]"
+              option-label="label"
+              option-value="value"
+              emit-value
+              map-options
+              dense
+              outlined
+              label="Filter by location"
+            />
+          </q-item-section>
+        </q-item>
+
+        <q-separator class="q-my-md" />
+
         <!-- Collections Section -->
         <q-item-label header>Collections</q-item-label>
         <q-item
-          v-for="(collection, index) in store.collections"
+          v-for="(collection, index) in filteredCollections"
+          :key="collection.value"
           clickable
           v-ripple
-          :active="(index == collectionIndex)"
-          @click="changeCollection(index)"
+          :active="(activeCollection?.value == collection.value)"
+          @click="changeCollection(store.collections.findIndex(c => c.value === collection.value))"
           active-class="bg-primary text-white"
         >
           <q-item-section>{{ collection.label }}</q-item-section>
@@ -503,66 +586,7 @@
       </q-list>
     </q-drawer>
 
-    <q-page-container>
-
-      <!-- Filter chips -->
-      <div class="q-px-md q-pt-md q-pb-sm">
-        <div class="text-caption text-grey-7 q-mb-xs">Filter Items:</div>
-        <div class="row q-gutter-sm">
-          <q-chip
-            :outline="!filterFragile"
-            :color="filterFragile ? 'red' : 'grey-4'"
-            :text-color="filterFragile ? 'white' : 'grey-8'"
-            clickable
-            @click="filterFragile = !filterFragile"
-          >
-            <q-icon name="warning" size="xs" class="q-mr-xs" />
-            Fragile
-          </q-chip>
-          
-          <q-chip
-            :outline="filterPriority !== 'high'"
-            :color="filterPriority === 'high' ? 'red-7' : 'grey-4'"
-            :text-color="filterPriority === 'high' ? 'white' : 'grey-8'"
-            clickable
-            @click="filterPriority = filterPriority === 'high' ? null : 'high'"
-          >
-            High Priority
-          </q-chip>
-          
-          <q-chip
-            :outline="filterPriority !== 'medium'"
-            :color="filterPriority === 'medium' ? 'orange-7' : 'grey-4'"
-            :text-color="filterPriority === 'medium' ? 'white' : 'grey-8'"
-            clickable
-            @click="filterPriority = filterPriority === 'medium' ? null : 'medium'"
-          >
-            Medium Priority
-          </q-chip>
-          
-          <q-chip
-            :outline="filterPriority !== 'low'"
-            :color="filterPriority === 'low' ? 'green-7' : 'grey-4'"
-            :text-color="filterPriority === 'low' ? 'white' : 'grey-8'"
-            clickable
-            @click="filterPriority = filterPriority === 'low' ? null : 'low'"
-          >
-            Low Priority
-          </q-chip>
-          
-          <q-chip
-            v-if="filterFragile || filterPriority"
-            outline
-            color="grey-6"
-            text-color="grey-8"
-            clickable
-            @click="filterFragile = false; filterPriority = null"
-          >
-            <q-icon name="clear" size="xs" class="q-mr-xs" />
-            Clear All
-          </q-chip>
-        </div>
-      </div>
+    <q-page-container :class="[{ 'empty-bg': !hasItemsOrContainers }, 'page-container']">
 
       <!-- Collection card removed - editing collections only available on desktop -->
       <div class="q-pa-md" >
@@ -647,6 +671,7 @@
                     :weight_lbs="element.weight_lbs"
                     :dimensions="element.dimensions"
                     @edit="onEditItem"
+                    @quick-photo="handleQuickPhoto"
                   />
                 </template>
 
@@ -680,19 +705,23 @@
                   :weight_lbs="element.weight_lbs"
                   :dimensions="element.dimensions"
                   @edit="onEditItem"
+                  @quick-photo="handleQuickPhoto"
                 />
               </template>
             </draggable>
           </div>
         </q-list>
       </div>
-      
+
+      <!-- Fade spacer to separate content from sticky CTAs on long lists -->
+      <div v-if="!showEnhancedCTA" class="footer-fade-spacer"></div>
+
     </q-page-container>
 
     <!-- Enhanced CTA Bottom Sheet (when inventory is sparse) -->
     <q-page-sticky v-if="shouldRevealFooter && showEnhancedCTA" position="bottom" :offset="[0, 0]">
       <div class="enhanced-cta-sheet">
-        <div class="cta-gradient-top"></div>
+        <!-- <div class="cta-gradient-top"></div> -->
         <div class="cta-content">
           <div class="cta-header">
             <h3 class="cta-title">Start Adding Items</h3>
@@ -703,10 +732,9 @@
             <q-btn
               unelevated
               size="lg"
-              color="primary"
               icon="add_a_photo"
               label="Take Photo"
-              class="cta-primary-btn"
+              class="fab-button fab-pill"
               :disable="store.collections.length == 0"
               @click="showPhotoCapture = true"
             />
@@ -737,11 +765,10 @@
     <!-- Regular FAB (when inventory is substantial) -->
     <q-page-sticky v-if="shouldRevealFooter && !showEnhancedCTA" position="bottom" :offset="[0, 16]">
       <q-btn
-        fab
+        unelevated
         icon="add_a_photo"
-        color="primary"
-        size="lg"
-        class="fab-button"
+        label="Add photo"
+        class="fab-button fab-pill"
         :disable="store.collections.length == 0"
         @click="showPhotoCapture = true"
       >
@@ -782,27 +809,94 @@
 
 /* Floating Action Button for AI Photo */
 .fab-button {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  transition: transform 0.2s ease;
+  box-shadow: 0 10px 24px rgba(39, 70, 144, 0.28);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  background: linear-gradient(135deg, #274690, #1CA1C1, #7dd3fc);
+  background-size: 240% 240%;
+  animation: fabShimmer 2.8s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.fab-pill {
+  border-radius: 999px;
+  padding: 14px 22px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  text-transform: none;
+  color: white;
+  min-width: 160px;
+}
+
+.fab-pill :deep(.q-btn__content) {
+  gap: 10px;
+  font-size: 1rem;
 }
 
 .fab-button:hover {
   transform: scale(1.1);
+  box-shadow: 0 12px 28px rgba(39, 70, 144, 0.32);
 }
 
 .fab-button:active {
   transform: scale(0.95);
+  box-shadow: 0 8px 18px rgba(39, 70, 144, 0.25);
+}
+
+@keyframes fabShimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; box-shadow: 0 12px 28px rgba(39, 70, 144, 0.34); }
+  100% { background-position: 0% 50%; }
+}
+
+.fab-button::after {
+  content: '';
+  position: absolute;
+  inset: -12%;
+  background:
+    radial-gradient(10px 10px at 20% 30%, rgba(255,255,255,0.45), transparent 60%),
+    radial-gradient(6px 6px at 70% 20%, rgba(255,255,255,0.25), transparent 60%),
+    radial-gradient(5px 5px at 40% 70%, rgba(255,255,255,0.25), transparent 60%);
+  opacity: 0.9;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: sparkleDrift 4s linear infinite;
+}
+
+@keyframes sparkleDrift {
+  0% { transform: translateY(0); opacity: 0.75; }
+  50% { transform: translateY(-6px); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0.75; }
+}
+
+.hidden-file-input {
+  display: none;
 }
 
 /* Enhanced CTA Bottom Sheet for Sparse Inventory */
 .enhanced-cta-sheet {
   width: 100vw;
-  background: linear-gradient(to top, #ffffff 85%, rgba(255, 255, 255, 0.95) 95%, transparent);
+  background: linear-gradient(180deg, #93b3f5 0%, #e6edff 100%);
   border-radius: 24px 24px 0 0;
-  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15);
+  border: none;
+  box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.16);
   animation: slideUpFade 0.6s ease-out;
   position: relative;
   overflow: hidden;
+}
+
+.enhanced-cta-sheet::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(12px 12px at 20% 30%, rgba(255,255,255,0.45), transparent 70%),
+    radial-gradient(8px 8px at 70% 25%, rgba(255,255,255,0.3), transparent 65%),
+    radial-gradient(10px 10px at 40% 75%, rgba(255,255,255,0.3), transparent 65%);
+  opacity: 0.8;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: sparkleDrift 5s linear infinite;
 }
 
 @keyframes slideUpFade {
@@ -838,6 +932,7 @@
 
 .cta-content {
   padding: 32px 24px 24px;
+  position: relative;
 }
 
 .cta-header {
@@ -894,19 +989,49 @@
   width: 100%;
   padding: 16px;
   font-size: 1.1rem;
-  font-weight: 600;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(39, 70, 144, 0.3);
+  font-weight: 700;
+  border-radius: 999px;
+  box-shadow: 0 18px 40px rgba(39, 70, 144, 0.18), 0 0 0 1px rgba(39, 70, 144, 0.12);
   transition: all 0.2s ease;
+  background: linear-gradient(145deg, #ffffff, #f7fbff);
+  border: 2px solid rgba(39, 70, 144, 0.16);
+  color: #20335d;
+  position: relative;
+  overflow: hidden;
 }
 
 .cta-primary-btn:hover {
-  box-shadow: 0 6px 16px rgba(39, 70, 144, 0.4);
+  box-shadow: 0 20px 44px rgba(39, 70, 144, 0.22), 0 0 0 1px rgba(39, 70, 144, 0.2);
   transform: translateY(-2px);
 }
 
 .cta-primary-btn:active {
   transform: translateY(0);
+  box-shadow: 0 8px 18px rgba(39, 70, 144, 0.25);
+}
+
+.cta-primary-btn::after {
+  content: '';
+  position: absolute;
+  inset: -10%;
+  background:
+    radial-gradient(10px 10px at 25% 20%, rgba(255,255,255,0.45), transparent 60%),
+    radial-gradient(7px 7px at 70% 30%, rgba(255,255,255,0.3), transparent 60%),
+    radial-gradient(6px 6px at 50% 70%, rgba(255,255,255,0.3), transparent 60%);
+  opacity: 0.9;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: sparkleDrift 4s linear infinite;
+}
+
+.cta-primary-btn :deep(.q-btn__content) {
+  color: #20335d;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.cta-primary-btn :deep(.q-icon) {
+  color: #20335d;
 }
 
 .cta-secondary-actions {
@@ -989,6 +1114,53 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.mobile-layout {
+  background: radial-gradient(circle at 20% 20%, rgba(39, 70, 144, 0.08), transparent 35%), radial-gradient(circle at 80% 10%, rgba(28, 161, 193, 0.07), transparent 30%), #f7f8fa;
+}
+
+.page-container {
+  position: relative;
+}
+
+.empty-bg {
+  background: url('https://storage.googleapis.com/widowmaker-site-images/no_items_graphic.png') center 40% no-repeat;
+  background-size: 220px;
+  min-height: 100vh;
+}
+
+.footer-fade-spacer {
+  height: 20vh;
+  min-height: 200px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.5) 100%);
+  pointer-events: none;
+}
+
+.frosted-header {
+  background: rgba(39, 70, 144, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* Fixed gradient overlay that sits between content and FAB */
+.q-page-container::after {
+  content: '';
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 18vh;
+  min-height: 120px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 1) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Ensure FAB is above the gradient overlay */
+.q-page-sticky {
+  z-index: 2;
 }
 
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, defineProps } from 'vue';
+import { defineProps, ref } from 'vue';
 
 const props = defineProps({
         id: { 
@@ -35,13 +35,10 @@ const props = defineProps({
 
 const emits = defineEmits<{
   (e: 'edit', id: number): void;
+  (e: 'quickPhoto', id: number): void;
 }>();
 
-const isExpanded = ref(false);
-
-const toggleCard = () => {
-  isExpanded.value = !isExpanded.value;
-};
+const isImgLoading = ref(true);
 
 const getPriorityColor = (priority: string | null) => {
   if (!priority) return 'grey';
@@ -60,23 +57,36 @@ const truncateText = (text?: string, length = 18) => {
 
 <template>
     <div>
-        <q-card
-            v-if="!isExpanded"
-            bordered
-            class="item-card q-ma-sm"
-            @click="toggleCard"
-        >
+        <q-card bordered class="item-card q-ma-sm">
             <div class="item-thumb">
+                <q-skeleton
+                  v-if="props.picture_url && isImgLoading"
+                  type="rect"
+                  class="thumb-skeleton"
+                />
                 <q-img
                     v-if="props.picture_url"
                     :src="props.picture_url"
                     fit="cover"
                     ratio="1"
                     class="item-thumb__img"
+                    :img-style="{ objectFit: 'cover' }"
+                    loading="lazy"
+                    @load="isImgLoading = false"
+                    @error="isImgLoading = false"
                 />
-                <div v-else class="item-thumb--placeholder">
-                    <q-icon name="inventory_2" size="24px" color="grey-5" />
-                    <span>{{ truncateText(props.label, 10) }}</span>
+                <div v-if="!props.picture_url" class="item-thumb--placeholder">
+                    <q-btn
+                        round
+                        dense
+                        size="sm"
+                        color="primary"
+                        icon="photo_camera"
+                        class="add-photo-btn"
+                        @click.stop="emits('quickPhoto', props.id)"
+                      >
+                        <q-tooltip>Add photo</q-tooltip>
+                    </q-btn>
                 </div>
             </div>
             <div class="item-info">
@@ -85,73 +95,22 @@ const truncateText = (text?: string, length = 18) => {
                     {{ truncateText(props.description, 48) }}
                 </div>
                 <div class="item-badges row q-gutter-xs q-mt-xs">
-                    <q-badge v-if="props.fragile" color="red" text-color="white" class="q-px-sm">
+                    <q-badge v-if="props.fragile" color="red-6" text-color="white" class="q-px-sm pill-badge">
                         <q-icon name="warning" size="xs" class="q-mr-xs" />
                         Fragile
                     </q-badge>
-                    <q-badge v-if="props.priority" :color="getPriorityColor(props.priority)" text-color="white" class="q-px-sm">
+                    <q-badge v-if="props.priority" :color="getPriorityColor(props.priority)" text-color="white" class="q-px-sm pill-badge">
                         {{ props.priority }}
                     </q-badge>
-                    <q-badge v-if="props.weight_lbs" color="grey-7" text-color="white" class="q-px-sm">
+                    <q-badge v-if="props.weight_lbs" color="grey-6" text-color="white" class="q-px-sm pill-badge">
+                        <q-icon name="scale" size="xs" class="q-mr-xs" />
                         {{ props.weight_lbs }} lbs
                     </q-badge>
                 </div>
             </div>
-        </q-card>
-
-        <q-card 
-            v-else
-            flat 
-            class="q-ma-md">
-            <q-card-section class="row justify-end vertical-middle q-pa-none">
-                <q-btn
-                    @click="toggleCard"
-                    class="q-pa-none q-ma-sm absolute-top-left"
-                    size="xs"
-                    flat
-                    icon="close_fullscreen"
-                />
-                <q-card-section class="col-11 q-pa-none q-pl-sm q-ma-sm">
-                    <div class="text-body1 vertical-middle text-primary">{{ props.label }}</div>
-                </q-card-section>
-            </q-card-section>
-
-
-            <q-card-section class="q-pa-none" v-if="props.picture_url">
-                <q-img
-                    :src="props.picture_url"
-                    spinner-color="white"
-                    fit="cover"
-                    ratio="16/9"
-                    class="expanded-image"
-                />
-            </q-card-section>  
-            <q-card-section v-if="props.picture_url" class="q-space-between">
-                <div class="text-body1 text-weight-medium text-primary">{{ props.label }}</div>
-                <div class="row q-gutter-xs q-mt-sm">
-                    <q-badge v-if="props.fragile" color="red" text-color="white" class="q-px-sm">
-                        <q-icon name="warning" size="xs" class="q-mr-xs" />
-                        Fragile
-                    </q-badge>
-                    <q-badge v-if="props.priority" :color="getPriorityColor(props.priority)" text-color="white" class="q-px-sm">
-                        {{ props.priority }}
-                    </q-badge>
-                    <q-badge v-if="props.weight_lbs" color="grey-7" text-color="white" class="q-px-sm">
-                        <q-icon name="scale" size="xs" class="q-mr-xs" />
-                        {{ props.weight_lbs }} lbs
-                    </q-badge>
-                    <q-badge v-if="props.dimensions" color="grey-6" text-color="white" class="q-px-sm">
-                        <q-icon name="straighten" size="xs" class="q-mr-xs" />
-                        {{ props.dimensions }}
-                    </q-badge>
-                </div>
-            </q-card-section>
-            <q-card-section v-if="props.description.length > 0" class="text-weight-light">
-                {{props.description}}
-            </q-card-section>
-            <q-card-actions align="right">
-            <q-btn unelevated color="primary" right dense label="View Details" @click="emits('edit', props.id)" />
-            </q-card-actions>
+            <div class="item-actions">
+              <q-btn dense flat round icon="chevron_right" aria-label="View details" @click.stop="emits('edit', props.id)" />
+            </div>
         </q-card>
   </div>
  </template>
@@ -163,6 +122,16 @@ const truncateText = (text?: string, length = 18) => {
   gap: 12px;
   min-height: 110px;
   padding: 12px;
+  cursor: default;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #ffffff 0%, #f7f9ff 100%);
+  box-shadow: 0 12px 30px rgba(31, 42, 68, 0.08);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.item-card:active {
+  transform: scale(0.99);
+  box-shadow: 0 6px 18px rgba(31, 42, 68, 0.12);
 }
 
 .item-thumb {
@@ -182,18 +151,33 @@ const truncateText = (text?: string, length = 18) => {
   height: 100%;
 }
 
+.thumb-skeleton {
+  width: 100%;
+  height: 100%;
+}
+
 .item-thumb--placeholder {
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
-  gap: 4px;
   color: var(--text-secondary);
   text-align: center;
-  padding: 0 6px;
-  font-size: 0.75rem;
+  position: relative;
+}
+
+.add-photo-btn {
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+}
+
+.item-actions {
+  margin-left: auto;
+}
+
+.pill-badge {
+  border-radius: 999px;
+  font-weight: 600;
 }
 
 .item-info {

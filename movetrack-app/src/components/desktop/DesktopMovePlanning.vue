@@ -539,7 +539,7 @@ const locationsWithDetails = computed(() => {
       .reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
 
     // Build full address string from components
-    const addressParts = [];
+    const addressParts: string[] = [];
     if (loc.address) addressParts.push(loc.address);
     if (loc.address_2) addressParts.push(loc.address_2);
     const cityStateZip = [loc.city, loc.state, loc.zip].filter(Boolean).join(', ');
@@ -765,11 +765,16 @@ const costEstimates = computed(() => {
 
   const fuelCostPerGallon = 4.50; // Average diesel
   const mpg = 8; // Typical moving truck MPG
-  const fuel = (distance / mpg) * fuelCostPerGallon * 2; // Round trip
+  const fuel = (distance / mpg) * fuelCostPerGallon; // One-way move
 
   const equipmentRental = 75; // Dolly, blankets, straps, hand truck
 
-  const diyTotal = truckRental + fuel + packingMaterialsCost + equipmentRental;
+  // Calculate tolls and hotel costs for long distance moves
+  const estimatedTolls = distance > 100 ? Math.round(distance * 0.15) : 0;
+  const overnightStops = distance > 500 ? Math.ceil(distance / 500) - 1 : 0;
+  const hotelCosts = overnightStops * 150;
+
+  const diyTotal = truckRental + fuel + packingMaterialsCost + equipmentRental + estimatedTolls + hotelCosts;
 
   // Calculate packing time based on box sizes and furniture
   // Time benchmarks: 10 min/small, 20 min/medium, 30 min/large box
@@ -847,10 +852,11 @@ const costEstimates = computed(() => {
   }
   // else 'none': packing costs remain 0
 
-  // Market average (moving + packing based on selection)
+  // Market average (moving + packing based on selection + tolls/hotels)
   const marketMovingAverage = (professionalLow + professionalHigh) / 2;
   const marketPackingAverage = (adjustedPackingCostLow + adjustedPackingCostHigh) / 2;
-  const marketTotalAverage = marketMovingAverage + marketPackingAverage;
+  const miscCosts = estimatedTolls + hotelCosts;
+  const marketTotalAverage = marketMovingAverage + marketPackingAverage + miscCosts;
 
   // ReloPrep estimate: Range from 80%-95% based on CoL adjustment
   // Lower CoL (colMultiplier < 1) = better savings (closer to 80%)
@@ -874,6 +880,8 @@ const costEstimates = computed(() => {
         fuel,
         materials: packingMaterialsCost,
         equipment: equipmentRental,
+        tolls: estimatedTolls,
+        hotels: hotelCosts,
         days: daysNeeded,
         boxes: boxCost,
         tape: tapeCost,
@@ -903,9 +911,14 @@ const costEstimates = computed(() => {
           supplies: packingServicesRequired.value === 'full' ? (tapeCost + bubbleWrapCost + paperCost + markersCost) * 1.10 : 0
         }
       },
+      misc: {
+        tolls: estimatedTolls,
+        hotels: hotelCosts,
+        total: miscCosts
+      },
       total: {
-        low: professionalLow + adjustedPackingCostLow,
-        high: professionalHigh + adjustedPackingCostHigh,
+        low: professionalLow + adjustedPackingCostLow + miscCosts,
+        high: professionalHigh + adjustedPackingCostHigh + miscCosts,
         average: marketTotalAverage
       }
     },
@@ -1334,6 +1347,295 @@ const downloadInventoryPdf = async () => {
   }
 };
 
+// Saved moves functionality
+const savedMoves = ref<any[]>([]);
+const currentSavedMoveId = ref<number | null>(null);
+const showSaveMoveDialog = ref(false);
+const showLoadMoveDialog = ref(false);
+const saveMoveFormModel = ref({
+  name: ''
+});
+
+// Fetch saved moves
+const fetchSavedMoves = async () => {
+  if (!props.user) return;
+
+  try {
+    const sessionToken = localStorage.getItem('session_token');
+    if (!sessionToken) {
+      console.error('No session token found');
+      return;
+    }
+
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/saved-moves`, {
+      headers: {
+        'Authorization': `Bearer ${sessionToken}`
+      }
+    });
+
+    if (!response.ok) throw new Error('Failed to fetch saved moves');
+
+    savedMoves.value = await response.json();
+  } catch (error) {
+    console.error('Error fetching saved moves:', error);
+    Notify.create({
+      type: 'negative',
+      message: 'Failed to load saved moves'
+    });
+  }
+};
+
+// Save current move
+const saveMove = async () => {
+  if (!props.user || !saveMoveFormModel.value.name.trim()) {
+    Notify.create({
+      type: 'warning',
+      message: 'Please enter a name for this move'
+    });
+    return;
+  }
+
+  if (!originLocation.value || !destinationLocation.value) {
+    Notify.create({
+      type: 'warning',
+      message: 'Please select origin and destination locations'
+    });
+    return;
+  }
+
+  try {
+    const moveData = {
+      name: saveMoveFormModel.value.name.trim(),
+      originLocationId: originLocation.value,
+      destinationLocationId: destinationLocation.value,
+      moveDate: moveDate.value,
+      numHelpers: numHelpers.value,
+      packingServicesRequired: packingServicesRequired.value,
+      // Origin details
+      hasStairs: hasStairs.value,
+      numberOfFlights: numberOfFlights.value,
+      hasElevator: hasElevator.value,
+      elevatorType: elevatorType.value,
+      elevatorDistance: elevatorDistance.value,
+      elevatorReservationRequired: elevatorReservationRequired.value,
+      parkingSituation: parkingSituation.value,
+      parkingDistance: parkingDistance.value,
+      entryType: entryType.value,
+      entryChallenges: entryChallenges.value,
+      accessNotes: accessNotes.value,
+      // Destination details
+      destHasStairs: destHasStairs.value,
+      destNumberOfFlights: destNumberOfFlights.value,
+      destHasElevator: destHasElevator.value,
+      destElevatorType: destElevatorType.value,
+      destElevatorDistance: destElevatorDistance.value,
+      destElevatorReservationRequired: destElevatorReservationRequired.value,
+      destParkingSituation: destParkingSituation.value,
+      destParkingDistance: destParkingDistance.value,
+      destEntryType: destEntryType.value,
+      destEntryChallenges: destEntryChallenges.value,
+      destAccessNotes: destAccessNotes.value,
+      // Additional
+      specialRequirements: specialRequirements.value,
+      estimatedSquareFootage: estimatedSquareFootage.value,
+      useTruckRoute: useTruckRoute.value,
+      avoidTolls: avoidTolls.value,
+      // Calculated metrics
+      totalItems: totalItems.value,
+      totalWeightLbs: totalWeightLbs.value,
+      totalVolumeCuFt: totalVolumeCuFt.value,
+      estimatedDistanceMiles: estimatedDistance.value,
+      costCalculations: costEstimates.value,
+      routeData: routeData.value
+    };
+
+    const url = currentSavedMoveId.value
+      ? `${import.meta.env.VITE_API_BASE_URL}/api/saved-moves/${currentSavedMoveId.value}`
+      : `${import.meta.env.VITE_API_BASE_URL}/api/saved-moves`;
+
+    const method = currentSavedMoveId.value ? 'PUT' : 'POST';
+
+    const sessionToken = localStorage.getItem('session_token');
+    if (!sessionToken) {
+      throw new Error('No session token found. Please log in again.');
+    }
+
+    const response = await fetch(url, {
+      method,
+      headers: {
+        'Authorization': `Bearer ${sessionToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(moveData)
+    });
+
+    if (!response.ok) throw new Error('Failed to save move');
+
+    const savedMove = await response.json();
+    currentSavedMoveId.value = savedMove.id;
+
+    Notify.create({
+      type: 'positive',
+      message: currentSavedMoveId.value ? 'Move updated successfully' : 'Move saved successfully',
+      icon: 'save'
+    });
+
+    showSaveMoveDialog.value = false;
+    await fetchSavedMoves();
+  } catch (error) {
+    console.error('Error saving move:', error);
+    Notify.create({
+      type: 'negative',
+      message: 'Failed to save move'
+    });
+  }
+};
+
+// Load a saved move
+const loadMove = async (moveId: number) => {
+  if (!props.user) return;
+
+  try {
+    const sessionToken = localStorage.getItem('session_token');
+    if (!sessionToken) {
+      throw new Error('No session token found. Please log in again.');
+    }
+
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/saved-moves/${moveId}`, {
+      headers: {
+        'Authorization': `Bearer ${sessionToken}`
+      }
+    });
+
+    if (!response.ok) throw new Error('Failed to load move');
+
+    const move = await response.json();
+
+    // Load all the data
+    originLocation.value = move.origin_location_id;
+    destinationLocation.value = move.destination_location_id;
+    moveDate.value = move.move_date;
+    numHelpers.value = move.num_helpers;
+    packingServicesRequired.value = move.packing_services_required;
+
+    // Origin details
+    hasStairs.value = move.has_stairs;
+    numberOfFlights.value = move.number_of_flights;
+    hasElevator.value = move.has_elevator;
+    elevatorType.value = move.elevator_type;
+    elevatorDistance.value = move.elevator_distance;
+    elevatorReservationRequired.value = move.elevator_reservation_required;
+    parkingSituation.value = move.parking_situation;
+    parkingDistance.value = move.parking_distance;
+    entryType.value = move.entry_type;
+    entryChallenges.value = move.entry_challenges || [];
+    accessNotes.value = move.access_notes;
+
+    // Destination details
+    destHasStairs.value = move.dest_has_stairs;
+    destNumberOfFlights.value = move.dest_number_of_flights;
+    destHasElevator.value = move.dest_has_elevator;
+    destElevatorType.value = move.dest_elevator_type;
+    destElevatorDistance.value = move.dest_elevator_distance;
+    destElevatorReservationRequired.value = move.dest_elevator_reservation_required;
+    destParkingSituation.value = move.dest_parking_situation;
+    destParkingDistance.value = move.dest_parking_distance;
+    destEntryType.value = move.dest_entry_type;
+    destEntryChallenges.value = move.dest_entry_challenges || [];
+    destAccessNotes.value = move.dest_access_notes;
+
+    // Additional
+    specialRequirements.value = move.special_requirements;
+    estimatedSquareFootage.value = move.estimated_square_footage;
+    useTruckRoute.value = move.use_truck_route;
+    avoidTolls.value = move.avoid_tolls;
+
+    // Set current saved move ID
+    currentSavedMoveId.value = moveId;
+    saveMoveFormModel.value.name = move.name;
+
+    // Check if costs are stale (older than 2 weeks)
+    if (move.cost_calculations_stale) {
+      Notify.create({
+        type: 'info',
+        message: 'Cost estimates are being recalculated',
+        caption: 'Saved costs were more than 2 weeks old'
+      });
+      // Distance calculation will trigger automatically via watchers
+    } else {
+      // Use cached values
+      estimatedDistance.value = move.estimated_distance_miles;
+      routeData.value = move.route_data;
+    }
+
+    showLoadMoveDialog.value = false;
+
+    Notify.create({
+      type: 'positive',
+      message: 'Move loaded successfully',
+      icon: 'folder_open'
+    });
+  } catch (error) {
+    console.error('Error loading move:', error);
+    Notify.create({
+      type: 'negative',
+      message: 'Failed to load move'
+    });
+  }
+};
+
+// Delete a saved move
+const deleteSavedMove = async (moveId: number, moveName: string) => {
+  if (!props.user) return;
+
+  // Confirm deletion
+  if (!confirm(`Delete "${moveName}"? This cannot be undone.`)) {
+    return;
+  }
+
+  try {
+    const sessionToken = localStorage.getItem('session_token');
+    if (!sessionToken) {
+      throw new Error('No session token found. Please log in again.');
+    }
+
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/saved-moves/${moveId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${sessionToken}`
+      }
+    });
+
+    if (!response.ok) throw new Error('Failed to delete move');
+
+    Notify.create({
+      type: 'positive',
+      message: 'Move deleted successfully',
+      icon: 'delete'
+    });
+
+    if (currentSavedMoveId.value === moveId) {
+      currentSavedMoveId.value = null;
+      saveMoveFormModel.value.name = '';
+    }
+
+    await fetchSavedMoves();
+  } catch (error) {
+    console.error('Error deleting move:', error);
+    Notify.create({
+      type: 'negative',
+      message: 'Failed to delete move'
+    });
+  }
+};
+
+// Load saved moves on mount
+watch(() => props.user, (newUser) => {
+  if (newUser) {
+    fetchSavedMoves();
+  }
+}, { immediate: true });
+
 const downloadPdfEstimate = async () => {
   if (!estimatedDistance.value) {
     Notify.create({
@@ -1623,7 +1925,7 @@ const downloadPdfEstimate = async () => {
     doc.setTextColor(25, 118, 210);
     doc.text('All-In Quote (Binding Not-to-Exceed)', 20, yPos + 10);
     doc.setFontSize(20);
-    doc.text(`$${(costs.reloprep?.high || 0).toLocaleString()}`, 20, yPos + 22);
+    doc.text(`$${Math.round(costs.reloprep?.high || 0).toLocaleString()}`, 20, yPos + 22);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
@@ -1659,10 +1961,24 @@ const downloadPdfEstimate = async () => {
     const costBreakdown: [string, string][] = [];
 
     if (movingLabor > 0) {
-      const assumption = distanceMiles < 100
-        ? `~${Math.round(costs.professional?.movingOnly?.average / 150)} hrs @ $150/hr`
-        : `${Math.round(totalWeightLbs.value).toLocaleString()} lbs, ${distanceMiles.toLocaleString()} mi`;
-      costBreakdown.push([`Moving Labor\n  ${assumption}`, `$${movingLabor.toLocaleString()}`]);
+      let assumption = '';
+      let serviceLabel = '';
+      if (distanceMiles < 100) {
+        // Local move: show crew size, hours, and hourly rate
+        serviceLabel = 'Moving Services';
+        // Calculate CoL-adjusted hourly rate and round to nearest $5
+        const baseHourlyRate = 150;
+        const adjustedHourlyRate = Math.round((baseHourlyRate * colAdjustment.value) / 5) * 5;
+        const totalHours = Math.round(costs.professional?.movingOnly?.average / adjustedHourlyRate);
+        const crewSize = numHelpers.value;
+        const daysNeeded = Math.ceil(totalHours / 8); // 8-hour workday
+        assumption = `${crewSize} movers, ${daysNeeded} day${daysNeeded > 1 ? 's' : ''} (~${totalHours} hrs @ $${adjustedHourlyRate}/hr)`;
+      } else {
+        // Long distance: show weight, distance, and calculation method
+        serviceLabel = 'Transportation & Moving Services';
+        assumption = `${Math.round(totalWeightLbs.value).toLocaleString()} lbs, ${distanceMiles.toLocaleString()} mi`;
+      }
+      costBreakdown.push([`${serviceLabel}\n  ${assumption}`, `$${movingLabor.toLocaleString()}`]);
     }
 
     if (packingLabor > 0) {
@@ -1682,8 +1998,7 @@ const downloadPdfEstimate = async () => {
     }
 
     if (fuelCost > 0) {
-      const roundTrip = Math.round(distanceMiles * 2);
-      costBreakdown.push([`Fuel\n  ${roundTrip.toLocaleString()} mi round trip @ 8 mpg`, `$${fuelCost.toLocaleString()}`]);
+      costBreakdown.push([`Fuel\n  ${distanceMiles.toLocaleString()} mi one-way @ 8 mpg`, `$${fuelCost.toLocaleString()}`]);
     }
 
     if (materialsCost > 0) {
@@ -1765,7 +2080,27 @@ const downloadPdfEstimate = async () => {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
     doc.text('All-inclusive, binding not-to-exceed price', 60, yPos);
-    yPos += 10;
+    yPos += 15;
+
+    // Quote Validity Disclaimer
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 20;
+    }
+
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 0, 0);
+    doc.text('Quote Valid Upon Scheduling:', 15, yPos);
+    yPos += 5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(60, 60, 60);
+    const disclaimerText = `These estimates are based on ${routeData.value.source === 'estimated' ? 'estimated' : 'calculated'} distances and current market rates. Quote is honored if scheduled within the next 10 business days, subject only to significant unforeseen circumstances (e.g., inaccessible roads, major inventory changes). Fuel surcharges may apply for moves scheduled 30+ days out.`;
+    const splitDisclaimer = doc.splitTextToSize(disclaimerText, 180);
+    doc.text(splitDisclaimer, 15, yPos);
+    yPos += splitDisclaimer.length * 4 + 10;
 
     // SECTION 7: SPECIAL REQUIREMENTS / NOTES
     if (specialRequirements.value) {
@@ -1840,8 +2175,37 @@ const downloadPdfEstimate = async () => {
     </div>
 
     <div class="move-planning-header q-pa-md">
-      <h5 class="text-h5 text-primary q-my-none">Move Planning</h5>
-      <p class="text-caption text-grey-7 q-mt-xs">Estimate materials, truck size, and timeline for your move</p>
+      <div class="row items-center justify-between">
+        <div>
+          <h5 class="text-h5 text-primary q-my-none">Move Planning</h5>
+          <p class="text-caption text-grey-7 q-mt-xs">Estimate materials, truck size, and timeline for your move</p>
+        </div>
+        <!-- Save/Load Move buttons -->
+        <div class="row q-gutter-sm">
+          <q-btn
+            flat
+            dense
+            color="primary"
+            icon="folder_open"
+            label="Load Move"
+            @click="showLoadMoveDialog = true"
+          >
+            <q-badge v-if="savedMoves.length > 0" color="positive" floating>{{ savedMoves.length }}</q-badge>
+            <q-tooltip>Load a previously saved move</q-tooltip>
+          </q-btn>
+          <q-btn
+            flat
+            dense
+            color="primary"
+            icon="save"
+            label="Save Move"
+            @click="showSaveMoveDialog = true"
+            :disable="!originLocation || !destinationLocation"
+          >
+            <q-tooltip>Save current move planning details</q-tooltip>
+          </q-btn>
+        </div>
+      </div>
     </div>
 
     <!-- Planning Tab -->
@@ -2757,7 +3121,7 @@ const downloadPdfEstimate = async () => {
       <q-card flat bordered class="content-card">
         <q-card-section>
           <!-- Heading 1: Cost Estimates -->
-          <div class="text-h5 text-weight-bold q-mb-lg">
+          <div class="text-h5 text-weight-bold q-mb-md">
             Cost Estimates
           </div>
 
@@ -2782,8 +3146,21 @@ const downloadPdfEstimate = async () => {
           <q-separator class="q-my-md" />
 
           <!-- Heading 2: Professional Movers -->
-          <div class="text-h6 text-weight-medium q-mb-sm">
-            Professional Movers
+          <div class="row items-center justify-between q-mb-sm">
+            <div class="text-h6 text-weight-medium">
+              Professional Movers
+            </div>
+            <q-btn
+              dense
+              flat
+              color="primary"
+              icon="download"
+              label="Download PDF"
+              size="sm"
+              @click="downloadInventoryPdf"
+            >
+              <q-tooltip>Share inventory with movers for accurate quotes</q-tooltip>
+            </q-btn>
           </div>
 
           <!-- Subheading: Total Range -->
@@ -2845,25 +3222,8 @@ const downloadPdfEstimate = async () => {
           <!-- Download PDF Buttons -->
           <div class="q-mt-md">
             <div class="row q-col-gutter-sm">
-              <!-- Inventory PDF for 3rd Party Movers -->
-              <div class="col-12 col-md-6">
-                <q-btn
-                  unelevated
-                  color="secondary"
-                  icon="inventory"
-                  label="Download Inventory PDF"
-                  class="full-width"
-                  @click="downloadInventoryPdf"
-                >
-                  <q-tooltip>For sharing with 3rd party moving companies</q-tooltip>
-                </q-btn>
-                <div class="text-caption text-grey-6 q-mt-xs text-center">
-                  For 3rd party movers
-                </div>
-              </div>
-
               <!-- Quote PDF with Pricing -->
-              <div class="col-12 col-md-6">
+              <div class="col-12">
                 <q-btn
                   unelevated
                   color="primary"
@@ -2874,18 +3234,14 @@ const downloadPdfEstimate = async () => {
                 >
                   <q-tooltip>ReloPrep quote with pricing breakdown</q-tooltip>
                 </q-btn>
-                <div class="text-caption text-grey-6 q-mt-xs text-center">
-                  With pricing breakdown
+                <div class="text-caption text-grey-6 q-mt-sm">
+                  <strong>Quote Valid Upon Scheduling:</strong> These estimates are based on {{ routeData.source === 'estimated' ? 'estimated' : 'calculated' }} distances and current market rates.
+                  Quote is honored if scheduled within the next 10 business days, subject only to significant unforeseen circumstances (e.g., inaccessible roads, major inventory changes).
+                  Fuel surcharges may apply for moves scheduled 30+ days out.
                 </div>
               </div>
             </div>
           </div>
-
-            <div class="text-caption text-grey-5 q-mt-sm">
-              <q-icon name="info" size="xs" class="q-mr-xs" />
-              Estimates based on {{ totalWeightLbs.toLocaleString() }} lbs, {{ totalVolumeCuFt.toFixed(0) }} cu ft,
-              {{ estimatedDistance.toLocaleString() }} miles
-            </div>
           </div>
 
           <!-- Placeholder when no locations selected -->
@@ -2991,7 +3347,7 @@ const downloadPdfEstimate = async () => {
               </q-banner>
             </div>
 
-            <!-- Route Map -->
+            <!-- Route Map or Estimate Warning -->
             <div class="route-map-container q-mt-md">
               <RouteMap
                 v-if="routeData.route_polyline"
@@ -3000,6 +3356,18 @@ const downloadPdfEstimate = async () => {
                 :destination-address="routeData.destination_address"
                 height="450px"
               />
+
+              <!-- Fallback Estimate Warning (when no polyline) -->
+              <q-banner v-else-if="routeData.source === 'estimated'" dense class="bg-orange-1 text-warning">
+                <template v-slot:avatar>
+                  <q-icon name="warning" color="warning" />
+                </template>
+                <div class="text-weight-medium">Using Estimated Distance</div>
+                <div class="text-caption q-mt-xs">
+                  Distance is estimated at {{ routeData.distance_miles }} miles based on city-to-city averages.
+                  Actual driving distance may vary. For precise routing and cost calculations, Google Maps API needs to be configured.
+                </div>
+              </q-banner>
             </div>
 
             <!-- Multi-day Trip Notice -->
@@ -3054,6 +3422,99 @@ const downloadPdfEstimate = async () => {
         <q-card-actions align="right">
           <q-btn flat label="Cancel" color="grey-7" v-close-popup />
           <q-btn flat label="Add Location" color="primary" @click="addLocation" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Save Move Dialog -->
+    <q-dialog v-model="showSaveMoveDialog">
+      <q-card style="min-width: 400px">
+        <q-card-section>
+          <div class="text-h6">Save Move</div>
+        </q-card-section>
+
+        <q-card-section class="q-pt-none">
+          <q-input
+            v-model="saveMoveFormModel.name"
+            label="Move Name"
+            hint="e.g., 'Philadelphia to San Francisco - June 2025'"
+            outlined
+            dense
+            autofocus
+            @keyup.enter="saveMove"
+          />
+          <div class="text-caption text-grey-7 q-mt-md">
+            This will save all your move details and cost calculations. Cost estimates remain valid for 2 weeks.
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="grey-7" v-close-popup />
+          <q-btn flat label="Save" color="primary" @click="saveMove" :disable="!saveMoveFormModel.name.trim()" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Load Move Dialog -->
+    <q-dialog v-model="showLoadMoveDialog">
+      <q-card style="min-width: 500px; max-width: 600px">
+        <q-card-section>
+          <div class="text-h6">Load Move</div>
+        </q-card-section>
+
+        <q-card-section class="q-pt-none" style="max-height: 400px; overflow-y: auto">
+          <div v-if="savedMoves.length === 0" class="text-center text-grey-6 q-pa-lg">
+            <q-icon name="folder_open" size="48px" color="grey-5" />
+            <div class="q-mt-md">No saved moves yet</div>
+            <div class="text-caption">Save your first move to see it here</div>
+          </div>
+
+          <q-list v-else separator>
+            <q-item
+              v-for="move in savedMoves"
+              :key="move.id"
+              clickable
+              v-ripple
+              @click="loadMove(move.id)"
+            >
+              <q-item-section>
+                <q-item-label>{{ move.name }}</q-item-label>
+                <q-item-label caption>
+                  {{ move.origin_location_name }} → {{ move.destination_location_name }}
+                </q-item-label>
+                <q-item-label caption class="text-grey-6">
+                  <q-icon name="event" size="12px" /> {{ new Date(move.move_date).toLocaleDateString() }}
+                  <span class="q-ml-sm">
+                    <q-icon name="inventory_2" size="12px" /> {{ move.total_items }} items
+                  </span>
+                  <span class="q-ml-sm">
+                    <q-icon name="straighten" size="12px" /> {{ move.estimated_distance_miles }} mi
+                  </span>
+                </q-item-label>
+                <q-item-label caption class="text-grey-5">
+                  Saved {{ new Date(move.updated_at).toLocaleDateString() }}
+                </q-item-label>
+              </q-item-section>
+
+              <q-item-section side>
+                <q-btn
+                  flat
+                  dense
+                  round
+                  icon="delete"
+                  color="negative"
+                  size="sm"
+                  @click.stop="deleteSavedMove(move.id, move.name)"
+                >
+                  <q-tooltip>Delete this saved move</q-tooltip>
+                </q-btn>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Close" color="grey-7" v-close-popup />
         </q-card-actions>
       </q-card>
     </q-dialog>

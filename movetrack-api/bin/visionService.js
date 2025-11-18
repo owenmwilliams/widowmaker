@@ -1,6 +1,7 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const fetch = require('node-fetch');
 
 // Initialize clients
 let anthropicClient = null;
@@ -21,6 +22,23 @@ if (process.env.OPENAI_API_KEY) {
 if (process.env.GOOGLE_AI_API_KEY) {
     geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
     console.log('Google Gemini Vision configured');
+}
+
+const huggingFaceToken = process.env.HUGGINGFACE_API_TOKEN || process.env.HUGGING_FACE_API_TOKEN;
+const florenceModelId = process.env.HUGGINGFACE_FLORENCE_MODEL || 'microsoft/Florence-2-base';
+const nemotronModelId = process.env.HUGGINGFACE_NEMOTRON_MODEL || 'nvidia/Nemotron-4-140B-Vision-Instruction';
+
+if (huggingFaceToken) {
+    console.log(`HuggingFace Vision configured - Models: ${florenceModelId}, ${nemotronModelId}`);
+}
+
+// Together.ai configuration
+const togetherApiKey = process.env.TOGETHER_API_KEY;
+const togetherScoutModel = process.env.TOGETHER_SCOUT_MODEL || 'meta-llama/Llama-4-Scout-17B-16E-Instruct';
+const togetherQwenModel = process.env.TOGETHER_QWEN_MODEL || 'Qwen/Qwen2.5-VL-72B-Instruct';
+
+if (togetherApiKey) {
+    console.log(`Together.ai Vision configured - Free: ${togetherScoutModel}, Paid: ${togetherQwenModel}`);
 }
 
 // Default provider (can be changed via admin settings)
@@ -248,6 +266,236 @@ async function analyzeWithGemini(base64Image, mimeType) {
             success: false,
             error: error.message,
             provider: 'gemini'
+        };
+    }
+}
+
+/**
+ * Generic helper for Together.ai Vision API
+ */
+async function callTogetherVision(modelId, base64Image, mimeType, prompt, maxTokens = 1024) {
+    if (!togetherApiKey) {
+        throw new Error('Together.ai API key not configured');
+    }
+
+    try {
+        const response = await fetch('https://api.together.xyz/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${togetherApiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model: modelId,
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            {
+                                type: "text",
+                                text: prompt
+                            },
+                            {
+                                type: "image_url",
+                                image_url: {
+                                    url: `data:${mimeType};base64,${base64Image}`
+                                }
+                            }
+                        ]
+                    }
+                ],
+                max_tokens: maxTokens,
+                temperature: 0.7,
+                top_p: 0.7,
+                top_k: 50,
+                repetition_penalty: 1,
+                stop: ["<|eot_id|>", "<|eom_id|>"]
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Together.ai API error (${response.status}): ${errorText}`);
+        }
+
+        const result = await response.json();
+        const textContent = result.choices[0].message.content;
+
+        // Remove markdown code blocks if present
+        const jsonText = textContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const parsedData = JSON.parse(jsonText);
+
+        return {
+            success: true,
+            data: parsedData,
+            rawResponse: textContent,
+            model: modelId
+        };
+    } catch (error) {
+        console.error(`Together.ai Vision API error (${modelId}):`, error);
+        return {
+            success: false,
+            error: error.message,
+            model: modelId
+        };
+    }
+}
+
+/**
+ * Analyze photo using Together.ai Scout (Free tier)
+ */
+async function analyzeWithTogetherScout(base64Image, mimeType) {
+    const result = await callTogetherVision(togetherScoutModel, base64Image, mimeType, VISION_PROMPT);
+    if (result.success) {
+        result.provider = 'together-scout';
+    }
+    return result;
+}
+
+/**
+ * Analyze photo using Together.ai Qwen (Paid tier)
+ */
+async function analyzeWithTogetherQwen(base64Image, mimeType) {
+    const result = await callTogetherVision(togetherQwenModel, base64Image, mimeType, VISION_PROMPT);
+    if (result.success) {
+        result.provider = 'together-qwen';
+    }
+    return result;
+}
+
+/**
+ * Analyze photo using Together.ai (defaults to Scout/free tier)
+ */
+async function analyzeWithTogether(base64Image, mimeType) {
+    return await analyzeWithTogetherScout(base64Image, mimeType);
+}
+
+/**
+ * Analyze multi-item photo using Together.ai Scout (Free tier)
+ */
+async function analyzeMultiItemWithTogetherScout(base64Image, mimeType) {
+    const result = await callTogetherVision(togetherScoutModel, base64Image, mimeType, MULTI_ITEM_VISION_PROMPT);
+    if (result.success) {
+        result.provider = 'together-scout';
+    }
+    return result;
+}
+
+/**
+ * Analyze multi-item photo using Together.ai Qwen (Paid tier)
+ */
+async function analyzeMultiItemWithTogetherQwen(base64Image, mimeType) {
+    const result = await callTogetherVision(togetherQwenModel, base64Image, mimeType, MULTI_ITEM_VISION_PROMPT);
+    if (result.success) {
+        result.provider = 'together-qwen';
+    }
+    return result;
+}
+
+/**
+ * Analyze multi-item photo using Together.ai (defaults to Scout/free tier)
+ */
+async function analyzeMultiItemWithTogether(base64Image, mimeType) {
+    return await analyzeMultiItemWithTogetherScout(base64Image, mimeType);
+}
+
+/**
+ * Generic helper for Hugging Face Inference API (vision-language chat style)
+ */
+async function callHuggingFaceVision(modelId, base64Image, mimeType, prompt, maxTokens = 512) {
+    if (!huggingFaceToken) {
+        throw new Error('Hugging Face token not configured');
+    }
+
+    // Use the new Hugging Face Inference Router endpoint
+    const response = await fetch(`https://router.huggingface.co/hf-inference/models/${modelId}`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${huggingFaceToken}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            inputs: [
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: prompt },
+                        { type: "image_url", image_url: `data:${mimeType};base64,${base64Image}` }
+                    ]
+                }
+            ],
+            parameters: {
+                max_new_tokens: maxTokens
+            }
+        })
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Hugging Face API error (${modelId}): ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    let text;
+    if (Array.isArray(data)) {
+        text = data[0]?.generated_text || data[0]?.text;
+    } else if (data.generated_text || data.text) {
+        text = data.generated_text || data.text;
+    }
+
+    if (!text) {
+        throw new Error(`Unexpected response from Hugging Face (${modelId})`);
+    }
+
+    text = text.trim();
+    // Strip code fences if present
+    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    return cleaned;
+}
+
+/**
+ * Analyze photo using Florence-2 (Hugging Face)
+ */
+async function analyzeWithFlorence(base64Image, mimeType) {
+    try {
+        const jsonText = await callHuggingFaceVision(florenceModelId, base64Image, mimeType, VISION_PROMPT, 512);
+        const result = JSON.parse(jsonText);
+        return {
+            success: true,
+            data: result,
+            provider: 'florence',
+            model: florenceModelId
+        };
+    } catch (error) {
+        console.error('Florence Vision API error:', error);
+        return {
+            success: false,
+            error: error.message,
+            provider: 'florence'
+        };
+    }
+}
+
+/**
+ * Analyze photo using Nemotron Vision (Hugging Face)
+ */
+async function analyzeWithNemotron(base64Image, mimeType) {
+    try {
+        const jsonText = await callHuggingFaceVision(nemotronModelId, base64Image, mimeType, VISION_PROMPT, 512);
+        const result = JSON.parse(jsonText);
+        return {
+            success: true,
+            data: result,
+            provider: 'nemotron',
+            model: nemotronModelId
+        };
+    } catch (error) {
+        console.error('Nemotron Vision API error:', error);
+        return {
+            success: false,
+            error: error.message,
+            provider: 'nemotron'
         };
     }
 }
@@ -506,6 +754,52 @@ async function analyzeMultiItemWithGemini(base64Image, mimeType) {
 }
 
 /**
+ * Analyze photo for multiple items using Florence-2
+ */
+async function analyzeMultiItemWithFlorence(base64Image, mimeType) {
+    try {
+        const jsonText = await callHuggingFaceVision(florenceModelId, base64Image, mimeType, MULTI_ITEM_VISION_PROMPT, 1024);
+        const data = JSON.parse(jsonText);
+        return {
+            success: true,
+            data,
+            provider: 'florence',
+            model: florenceModelId
+        };
+    } catch (error) {
+        console.error('Florence Multi-Item Vision API error:', error);
+        return {
+            success: false,
+            error: error.message,
+            provider: 'florence'
+        };
+    }
+}
+
+/**
+ * Analyze photo for multiple items using Nemotron
+ */
+async function analyzeMultiItemWithNemotron(base64Image, mimeType) {
+    try {
+        const jsonText = await callHuggingFaceVision(nemotronModelId, base64Image, mimeType, MULTI_ITEM_VISION_PROMPT, 1024);
+        const data = JSON.parse(jsonText);
+        return {
+            success: true,
+            data,
+            provider: 'nemotron',
+            model: nemotronModelId
+        };
+    } catch (error) {
+        console.error('Nemotron Multi-Item Vision API error:', error);
+        return {
+            success: false,
+            error: error.message,
+            provider: 'nemotron'
+        };
+    }
+}
+
+/**
  * Main function to analyze photo with current provider
  */
 async function analyzeItemPhoto(base64Image, mimeType, provider = null) {
@@ -522,10 +816,19 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null) {
         case 'gemini':
         case 'google':
             return await analyzeWithGemini(base64Image, mimeType);
+        case 'together':
+        case 'scout':
+            return await analyzeWithTogetherScout(base64Image, mimeType);
+        case 'qwen':
+            return await analyzeWithTogetherQwen(base64Image, mimeType);
+        case 'florence':
+            return await analyzeWithFlorence(base64Image, mimeType);
+        case 'nemotron':
+            return await analyzeWithNemotron(base64Image, mimeType);
         default:
             return {
                 success: false,
-                error: `Unknown provider: ${providerToUse}. Valid options: claude, gpt4, gemini`
+                error: `Unknown provider: ${providerToUse}. Valid options: claude, gpt4, gemini, together/scout, qwen, florence, nemotron`
             };
     }
 }
@@ -547,10 +850,19 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null) {
         case 'gemini':
         case 'google':
             return await analyzeMultiItemWithGemini(base64Image, mimeType);
+        case 'together':
+        case 'scout':
+            return await analyzeMultiItemWithTogetherScout(base64Image, mimeType);
+        case 'qwen':
+            return await analyzeMultiItemWithTogetherQwen(base64Image, mimeType);
+        case 'florence':
+            return await analyzeMultiItemWithFlorence(base64Image, mimeType);
+        case 'nemotron':
+            return await analyzeMultiItemWithNemotron(base64Image, mimeType);
         default:
             return {
                 success: false,
-                error: `Unknown provider: ${providerToUse}. Valid options: claude, gpt4, gemini`
+                error: `Unknown provider: ${providerToUse}. Valid options: claude, gpt4, gemini, together/scout, qwen, florence, nemotron`
             };
     }
 }
@@ -559,7 +871,7 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null) {
  * Set the default vision provider
  */
 function setProvider(provider) {
-    const validProviders = ['claude', 'gpt4', 'gemini'];
+    const validProviders = ['claude', 'gpt4', 'gemini', 'together', 'scout', 'qwen', 'florence', 'nemotron'];
     if (!validProviders.includes(provider.toLowerCase())) {
         throw new Error(`Invalid provider. Valid options: ${validProviders.join(', ')}`);
     }
@@ -583,6 +895,12 @@ function getAvailableProviders() {
     if (anthropicClient) available.push('claude');
     if (openaiClient) available.push('gpt4');
     if (geminiClient) available.push('gemini');
+    if (togetherApiKey) {
+        available.push('scout');    // Free tier (Llama Scout)
+        available.push('qwen');     // Paid tier (Qwen Vision)
+    }
+    // Note: HuggingFace providers (florence, nemotron) are not included
+    // as they require paid Inference Endpoints, not available on free tier
     return available;
 }
 
