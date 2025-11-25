@@ -133,6 +133,83 @@ const activeCollectionId = computed<string | null>(() => {
   if (!refValue) return null;
   return typeof refValue === "string" ? refValue : String(refValue);
 });
+
+// Collection selector state
+const selectedCollectionId = ref<string | null>(null);
+const showNewCollectionDialog = ref(false);
+const newCollectionName = ref("");
+const newCollectionLocation = ref<string | null>(null);
+
+// Initialize selectedCollectionId with activeCollectionId
+watch(activeCollectionId, (newValue) => {
+  if (newValue && !selectedCollectionId.value) {
+    selectedCollectionId.value = newValue;
+  }
+}, { immediate: true });
+
+// Create new collection
+const createNewCollection = async () => {
+  if (!newCollectionName.value.trim()) {
+    $q.notify({
+      type: "warning",
+      message: "Please enter a collection name",
+      position: "bottom",
+    });
+    return;
+  }
+
+  if (!newCollectionLocation.value) {
+    $q.notify({
+      type: "warning",
+      message: "Please select a location",
+      position: "bottom",
+    });
+    return;
+  }
+
+  try {
+    $q.loading.show({
+      message: "Creating collection...",
+    });
+
+    await store.createCollection(
+      props.user,
+      newCollectionName.value,
+      newCollectionLocation.value,
+      ""
+    );
+
+    await store.getCollections(props.user);
+
+    // Find the newly created collection and select it
+    const newCollection = store.collections.find(
+      (c) => c.label === newCollectionName.value
+    );
+    if (newCollection) {
+      selectedCollectionId.value = String(newCollection.value);
+    }
+
+    $q.notify({
+      type: "positive",
+      message: "Collection created successfully",
+      position: "bottom",
+    });
+
+    showNewCollectionDialog.value = false;
+    newCollectionName.value = "";
+    newCollectionLocation.value = null;
+  } catch (error) {
+    console.error("Failed to create collection:", error);
+    $q.notify({
+      type: "negative",
+      message: "Failed to create collection",
+      position: "bottom",
+    });
+  } finally {
+    $q.loading.hide();
+  }
+};
+
 const analyzeItemBlob = async (blob: Blob) => {
   const sessionToken = localStorage.getItem("session_token");
   if (!sessionToken) {
@@ -683,8 +760,8 @@ const saveItem = async () => {
     return;
   }
 
-  // Check if we have an active collection (required for items)
-  if (!store.activeCollection?.value) {
+  // Check if we have a selected collection (required for items)
+  if (!selectedCollectionId.value) {
     $q.notify({
       type: "warning",
       message: "Please select a collection first",
@@ -723,7 +800,7 @@ const saveItem = async () => {
       newItem.value.name,
       newItem.value.description || "",
       newItem.value.qty || 1,
-      store.activeCollection.value,
+      selectedCollectionId.value,
       store.activeContainer?.value,
       imageBlob,
       null, // estimatedValue
@@ -815,8 +892,14 @@ const cancelEditedName = () => {
 };
 
 const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
-  // Check if we have an active collection (required for items)
-  if (!store.activeCollection?.value) {
+  // Safety check for item
+  if (!item || !item.id) {
+    console.error("Invalid item provided to handleMultiItemAdd:", item);
+    return;
+  }
+
+  // Check if we have a selected collection (required for items)
+  if (!selectedCollectionId.value) {
     $q.notify({
       type: "warning",
       message: "Please select a collection first",
@@ -910,7 +993,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       item.name,
       description,
       1,
-      store.activeCollection.value,
+      selectedCollectionId.value,
       store.activeContainer?.value,
       imageBlob,
       null,
@@ -1220,6 +1303,36 @@ onMounted(() => {
           class="form-field"
         />
 
+        <!-- Collection selector -->
+        <div class="collection-selector">
+          <q-select
+            v-model="selectedCollectionId"
+            :options="store.collections"
+            label="Collection *"
+            outlined
+            dense
+            emit-value
+            map-options
+            option-value="value"
+            option-label="label"
+            class="form-field"
+          >
+            <template v-slot:append>
+              <q-btn
+                flat
+                dense
+                round
+                icon="add"
+                size="sm"
+                color="primary"
+                @click.stop="showNewCollectionDialog = true"
+              >
+                <q-tooltip>Create new collection</q-tooltip>
+              </q-btn>
+            </template>
+          </q-select>
+        </div>
+
         <div class="dimensions-row">
           <q-input
             v-model.number="editDimensions.length"
@@ -1382,6 +1495,50 @@ onMounted(() => {
       </q-card-actions>
     </q-card>
   </q-dialog>
+
+  <!-- New Collection Dialog -->
+  <q-dialog v-model="showNewCollectionDialog">
+    <q-card style="min-width: 350px">
+      <q-card-section>
+        <div class="text-h6">Create New Collection</div>
+      </q-card-section>
+      <q-card-section>
+        <q-input
+          v-model="newCollectionName"
+          label="Collection Name *"
+          outlined
+          dense
+          autofocus
+          class="q-mb-md"
+        />
+        <q-select
+          v-model="newCollectionLocation"
+          :options="store.locations"
+          label="Location *"
+          outlined
+          dense
+          emit-value
+          map-options
+          option-value="value"
+          option-label="label"
+        />
+      </q-card-section>
+      <q-card-actions align="right">
+        <q-btn
+          flat
+          label="Cancel"
+          color="primary"
+          @click="showNewCollectionDialog = false"
+        />
+        <q-btn
+          flat
+          label="Create"
+          color="primary"
+          @click="createNewCollection"
+        />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
 <style scoped>
@@ -1489,7 +1646,7 @@ onMounted(() => {
 .photo-preview-container {
   display: flex;
   flex-direction: column;
-  max-height: 80vh;
+  max-height: 90vh;
   overflow: hidden;
 }
 
