@@ -24,7 +24,7 @@ async function enforceLocationCap(req, res, next) {
   if (plan === 'pro') return next();
   try {
     const userId = req.user?.user_id;
-    const countResult = await knex('locations').count('* as cnt').where('owner_id', userId);
+    const countResult = await knex('locations').count('* as cnt').where('owner', userId);
     const currentCount = Number(countResult?.[0]?.cnt || 0);
     if (currentCount >= BASIC_LOCATION_CAP) {
       return res.status(402).json({ error: `Basic plan supports up to ${BASIC_LOCATION_CAP} locations. Upgrade to add more.` });
@@ -121,14 +121,14 @@ router.post('/post', jsonParser, enforceLocationCap, async function(req, res, ne
         await knex('locations')
           .transacting(trx)
           .update({ location_type: 'residence' })
-          .where('owner_id', userId)
+          .where('owner', userId)
           .andWhere('location_type', 'primary_residence');
       }
 
       await knex('locations')
       .transacting(trx)
       .insert({
-        owner_id: userId,
+        owner: userId,
         name: req.query.name,
         description: req.query.description,
         address: req.query.address,
@@ -201,14 +201,14 @@ router.put('/update', jsonParser, async function(req, res, next) {
         await knex('locations')
           .transacting(trx)
           .update({ location_type: 'residence' })
-          .where('owner_id', userId)
+          .where('owner', userId)
           .andWhere('location_type', 'primary_residence');
       }
 
       await knex('locations')
       .transacting(trx)
       .update({
-        owner_id: userId,
+        owner: userId,
         name: req.query.name,
         description: req.query.description,
         address: req.query.address,
