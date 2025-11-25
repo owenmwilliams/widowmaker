@@ -6,6 +6,8 @@ import { Notify } from 'quasar';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import RouteMap from '../RouteMap.vue';
+import DesktopMoveDay from './DesktopMoveDay.vue';
+import WaypointManager from '../WaypointManager.vue';
 
 const props = defineProps({
   user: String
@@ -18,7 +20,39 @@ const { locationValues, collectionValues, containerValues } = storeToRefs(store)
 const originLocation = ref<string | null>(null);
 const destinationLocation = ref<string | null>(null);
 const moveDate = ref<string | null>(null);
+const moveEndDate = ref<string | null>(null);
 const numHelpers = ref(2);
+
+const formatDateLabel = (value: string | null) => {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+
+const moveDateRangeDisplay = computed(() => {
+  if (moveDate.value && moveEndDate.value) {
+    if (moveDate.value === moveEndDate.value) {
+      return formatDateLabel(moveDate.value);
+    }
+    return `${formatDateLabel(moveDate.value)} → ${formatDateLabel(moveEndDate.value)}`;
+  }
+  if (moveDate.value) {
+    return formatDateLabel(moveDate.value);
+  }
+  return 'Not set';
+});
+
+const normalizeDateInput = (value?: string | null) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value.slice(0, 10);
+  }
+  return parsed.toISOString().split('T')[0];
+};
 
 // Additional move details for PDF
 const packingServicesRequired = ref<'none' | 'partial' | 'full'>('none');
@@ -54,26 +88,116 @@ const specialRequirements = ref('');
 const estimatedSquareFootage = ref<number | null>(null);
 
 // Tab state
-const movePlanningTab = ref<'planning' | 'costs'>('planning');
+const movePlanningTab = ref<'planning' | 'costs' | 'moveday'>('planning');
+
+watch(moveDate, (newStart) => {
+  if (!newStart) {
+    moveEndDate.value = null;
+    return;
+  }
+  const startDate = new Date(newStart);
+  if (!moveEndDate.value || new Date(moveEndDate.value) < startDate) {
+    moveEndDate.value = newStart;
+  }
+});
+
+const userData = ref<any>({});
+if (typeof window !== 'undefined') {
+  try {
+    userData.value = JSON.parse(localStorage.getItem('user_data') || '{}');
+  } catch (e) {
+    userData.value = {};
+  }
+}
+
+const basePlan = computed(() => (userData.value?.plan || 'basic').toLowerCase());
+const isAdmin = computed(() => !!userData.value?.is_admin);
+const effectivePlan = computed(() => basePlan.value);
+const isPro = computed(() => effectivePlan.value === 'pro');
+
+const selectTab = (tab: 'planning' | 'costs' | 'moveday') => {
+  if (tab === 'moveday' && !isPro.value) {
+    Notify.create({
+      type: 'warning',
+      message: 'Move Day Mode is available on Pro plans',
+      caption: 'Upgrade to unlock Move Day Mode'
+    });
+    return;
+  }
+  movePlanningTab.value = tab;
+};
+
+// Dynamic page title and subtitle based on active tab
+const pageTitle = computed(() => {
+  switch (movePlanningTab.value) {
+    case 'planning':
+      return 'Move Planning';
+    case 'costs':
+      return 'Costs & Route';
+    case 'moveday':
+      return 'Move Day Mode';
+    default:
+      return 'Move Planning';
+  }
+});
+
+const pageSubtitle = computed(() => {
+  switch (movePlanningTab.value) {
+    case 'planning':
+      return 'Estimate materials, truck size, and timeline for your move';
+    case 'costs':
+      return 'View cost estimates and optimize your moving route';
+    case 'moveday':
+      return 'Track and manage your move in real-time';
+    default:
+      return 'Estimate materials, truck size, and timeline for your move';
+  }
+});
 
 // Dialog states
 const showAddLocationDialog = ref(false);
 const newLocationName = ref('');
 const newLocationAddress = ref('');
 
+// Ref for DesktopMoveDay component
+const moveDayRef = ref<InstanceType<typeof DesktopMoveDay> | null>(null);
+const moveDaySessions = computed<any[]>(() => moveDayRef.value?.moveSessions || []);
+const filteredMoveDaySessions = computed(() => {
+  if (!currentSavedMoveId.value) return [];
+  return moveDaySessions.value.filter(session => String(session.saved_move_id) === String(currentSavedMoveId.value));
+});
+const moveDaySessionOptions = computed(() => filteredMoveDaySessions.value.map(session => ({
+  label: session.session_name || session.session_date || `Session #${session.id}`,
+  value: session.id
+})));
+const activeMoveDaySessionId = computed<number | null>(() => moveDayRef.value?.activeSession?.id ?? null);
+
+const handleMoveDaySessionSelect = (sessionId: number | null) => {
+  if (!sessionId) return;
+  const session = moveDaySessions.value.find(s => s.id === sessionId);
+  if (session) {
+    moveDayRef.value?.selectSession(session);
+  }
+};
+
 // Parse item dimensions helper
 const parseItemDimensions = (item: any) => {
-  if (item.length_in != null && item.width_in != null && item.height_in != null) {
+  if (
+    item.length_in != null &&
+    item.width_in != null &&
+    item.height_in != null
+  ) {
     const length = Number(item.length_in);
     const width = Number(item.width_in);
     const height = Number(item.height_in);
-    if (length && width && height) {
+    if ([length, width, height].every((val) => Number.isFinite(val) && val > 0)) {
       return { length, width, height };
     }
   }
-  if (item.dimensions) {
-    const parts = item.dimensions.split('x').map((p: string) => Number(p.trim()));
-    if (parts.length === 3 && !parts.some(isNaN)) {
+  if (typeof item.dimensions === 'string' && item.dimensions.trim().length > 0) {
+    const cleaned = item.dimensions.toLowerCase().replace(/[^0-9.x×]/g, '');
+    const parts = cleaned.split(/[x×]/).filter(Boolean).map(Number);
+    if (parts.length === 3 && parts.every((val) => Number.isFinite(val) && val > 0)) {
       return { length: parts[0], width: parts[1], height: parts[2] };
     }
   }
@@ -468,7 +592,6 @@ const specialItems = computed(() => {
 // Time estimates (industry standard: 3-4 hours per bedroom equivalent)
 const timeEstimates = computed(() => {
   const itemCount = totalItems.value;
-  const weight = totalWeightLbs.value;
   const helpers = numHelpers.value;
 
   // Base time: 1 item = 3 minutes average (packing/loading)
@@ -560,6 +683,12 @@ const locationsWithDetails = computed(() => {
   });
 });
 
+// Get destination location name for waypoint display
+const destinationDisplayName = computed(() => {
+  const dest = locationsWithDetails.value.find(l => l.value === destinationLocation.value);
+  return dest?.name || null;
+});
+
 const getUtilizationColor = (pct: number) => {
   if (pct < 60) return 'warning';
   if (pct > 95) return 'negative';
@@ -643,6 +772,58 @@ const routeData = ref<any>(null);
 const useTruckRoute = ref(true);
 const avoidTolls = ref(false);
 
+// Waypoints for the journey
+interface MapWaypoint {
+  id: number;
+  city: string;
+  state?: string;
+  lat?: number;
+  lng?: number;
+  overnight_recommended?: boolean;
+  sequence_order: number;
+}
+const journeyWaypoints = ref<MapWaypoint[]>([]);
+
+const handleWaypointsUpdate = (waypoints: MapWaypoint[]) => {
+  journeyWaypoints.value = waypoints;
+};
+
+// Handle route updates from WaypointManager (after calculating/optimizing route)
+interface RouteUpdateData {
+  routePolyline: string;
+  waypoints: MapWaypoint[];
+  totalDistanceMiles: number;
+  totalDurationHours: number;
+  waypointsReordered: boolean;
+}
+
+const handleRouteUpdated = (data: RouteUpdateData) => {
+  console.log('[DesktopMovePlanning] Route updated:', data);
+
+  // Update the route polyline for the map
+  if (routeData.value && data.routePolyline) {
+    routeData.value.route_polyline = data.routePolyline;
+  }
+
+  // Update estimated distance
+  if (data.totalDistanceMiles) {
+    estimatedDistance.value = data.totalDistanceMiles;
+  }
+
+  // Update waypoints (they may have been reordered)
+  journeyWaypoints.value = data.waypoints;
+
+  // Show notification if waypoints were reordered
+  if (data.waypointsReordered) {
+    Notify.create({
+      type: 'info',
+      message: 'Waypoints reordered for optimal route',
+      icon: 'route',
+      timeout: 3000
+    });
+  }
+};
+
 const calculateDistance = async () => {
   if (!originLocation.value || !destinationLocation.value) {
     estimatedDistance.value = null;
@@ -668,8 +849,23 @@ const calculateDistance = async () => {
     return;
   }
 
-  // Check cache first (include routing preferences in cache key)
-  const cacheKey = `${originAddress}|${destAddress}|${useTruckRoute.value}|${avoidTolls.value}`;
+  // Get intermediate/drop-off locations from moveLocations
+  const waypointAddresses: string[] = [];
+  moveLocations.value
+    .filter(loc => loc.role === 'intermediate' && loc.location)
+    .forEach(loc => {
+      const locationData = store.locations.find(l => l.value === loc.location);
+      if (locationData) {
+        const address = formatAddress(locationData);
+        if (address) {
+          waypointAddresses.push(address);
+        }
+      }
+    });
+
+  // Check cache first (include routing preferences and waypoints in cache key)
+  const waypointsKey = waypointAddresses.join('|');
+  const cacheKey = `${originAddress}|${waypointsKey}|${destAddress}|${useTruckRoute.value}|${avoidTolls.value}`;
   if (distanceCache.value[cacheKey]) {
     estimatedDistance.value = distanceCache.value[cacheKey];
     // Note: We're not caching full route data, only distance for now
@@ -687,6 +883,7 @@ const calculateDistance = async () => {
       body: JSON.stringify({
         origin: originAddress,
         destination: destAddress,
+        waypoints: waypointAddresses,
         truckRoute: useTruckRoute.value,
         avoidTolls: avoidTolls.value
       }),
@@ -1120,7 +1317,7 @@ const downloadInventoryPdf = async () => {
     const moveDetails = [
       ['Starting Address', originAddress],
       ['Ending Address', destAddress],
-      ['Move Date', moveDate.value || 'Not set'],
+      ['Move Window', moveDateRangeDisplay.value],
       ['Total Items', totalItems.value.toString()],
       ['Total Weight', `${totalWeightLbs.value.toFixed(0)} lbs`],
       ['Total Volume', `${totalVolumeCuFt.value.toFixed(1)} cu ft`]
@@ -1356,6 +1553,235 @@ const saveMoveFormModel = ref({
   name: ''
 });
 
+// Multi-location move support
+interface MoveLocation {
+  id: number;
+  role: 'origin' | 'intermediate' | 'destination';
+  location: any | null;
+  // Access details
+  entryType: string | null;
+  numberOfFlights: number | null;
+  hasElevator: boolean;
+  elevatorType: string | null;
+  elevatorDistance: number | null;
+  elevatorReservationRequired: boolean;
+  parkingSituation: string | null;
+  parkingDistance: number | null;
+  entryChallenges: string[];
+  accessNotes: string;
+}
+
+let moveLocationIdCounter = 1;
+
+const createEmptyMoveLocation = (role: 'origin' | 'intermediate' | 'destination' = 'intermediate'): MoveLocation => ({
+  id: moveLocationIdCounter++,
+  role,
+  location: null,
+  entryType: null,
+  numberOfFlights: null,
+  hasElevator: false,
+  elevatorType: null,
+  elevatorDistance: null,
+  elevatorReservationRequired: false,
+  parkingSituation: null,
+  parkingDistance: null,
+  entryChallenges: [],
+  accessNotes: ''
+});
+
+const moveLocations = ref<MoveLocation[]>([]);
+
+// Watch for intermediate location changes and recalculate distance
+watch(
+  () => moveLocations.value.map(loc => ({ role: loc.role, location: loc.location })),
+  () => {
+    if (originLocation.value && destinationLocation.value) {
+      calculateDistance();
+    }
+  },
+  { deep: true }
+);
+
+// Extended time estimates including driving, intermediate stops, and overhead
+const fullTimeEstimates = computed(() => {
+  const base = timeEstimates.value;
+
+  // Calculate driving time from route data or estimated distance
+  let drivingHours = 0;
+  if (routeData.value && routeData.value.duration_seconds) {
+    // Use API-provided duration
+    drivingHours = Math.ceil(routeData.value.duration_seconds / 3600);
+  } else if (estimatedDistance.value) {
+    // Estimate: assume average 50 mph (accounting for breaks, traffic, etc.)
+    drivingHours = Math.ceil(estimatedDistance.value / 50);
+  }
+
+  // Count intermediate stops (drop-off locations)
+  const intermediateStops = moveLocations.value.filter(loc => loc.role === 'intermediate' && loc.location).length;
+
+  // Each intermediate stop adds time:
+  // - 30 minutes minimum for partial unload
+  // - Plus 25% overhead per stop for logistics (finding parking, access, etc.)
+  const intermediateUnloadMinutes = intermediateStops * 30;
+  const intermediateUnloadHours = intermediateUnloadMinutes / 60;
+
+  // Apply overhead percentage: 25% per additional stop (only to loading/unloading)
+  const overheadMultiplier = 1 + (intermediateStops * 0.25);
+
+  // Base work time for loading/unloading only (overhead applies here)
+  const loadUnloadHours = base.loading + base.unloading + intermediateUnloadHours;
+  const adjustedLoadUnloadHours = loadUnloadHours * overheadMultiplier;
+
+  // Total work hours: packing (no overhead) + adjusted loading/unloading
+  const adjustedWorkHours = Math.ceil(base.packing + adjustedLoadUnloadHours);
+
+  return {
+    ...base,
+    driving: drivingHours,
+    intermediateStops: intermediateStops,
+    intermediateUnload: Math.ceil(intermediateUnloadHours * 10) / 10, // Round to 1 decimal
+    overheadPercent: Math.round((overheadMultiplier - 1) * 100),
+    total: adjustedWorkHours + drivingHours
+  };
+});
+
+// Computed property for intermediate drop-off locations to pass to RouteMap
+const intermediateDropoffLocations = computed(() => {
+  return moveLocations.value
+    .filter(loc => loc.role === 'intermediate' && loc.location)
+    .map((loc, index) => {
+      const locationData = store.locations.find(l => l.value === loc.location);
+      return {
+        id: loc.id,
+        name: locationData?.label || `Drop-off ${index + 1}`,
+        address: locationData ? formatAddress(locationData) : undefined
+      };
+    });
+});
+
+const addMoveLocation = () => {
+  if (moveLocations.value.length >= 5) {
+    Notify.create({
+      type: 'warning',
+      message: 'Maximum of 5 locations allowed',
+      timeout: 2000
+    });
+    return;
+  }
+  moveLocations.value.push(createEmptyMoveLocation());
+  syncLegacyLocations();
+};
+
+const removeMoveLocation = (index: number) => {
+  if (moveLocations.value.length <= 1) {
+    Notify.create({
+      type: 'warning',
+      message: 'At least one location is required',
+      timeout: 2000
+    });
+    return;
+  }
+  moveLocations.value.splice(index, 1);
+  syncLegacyLocations();
+};
+
+// Sync moveLocations with legacy originLocation/destinationLocation refs
+const syncLegacyLocations = () => {
+  const origin = moveLocations.value.find(loc => loc.role === 'origin');
+  const destination = moveLocations.value.find(loc => loc.role === 'destination');
+
+  originLocation.value = origin?.location || null;
+  destinationLocation.value = destination?.location || null;
+
+  // Sync origin access details
+  if (origin) {
+    entryType.value = origin.entryType;
+    numberOfFlights.value = origin.numberOfFlights;
+    hasElevator.value = origin.hasElevator;
+    elevatorType.value = origin.elevatorType;
+    elevatorDistance.value = origin.elevatorDistance;
+    elevatorReservationRequired.value = origin.elevatorReservationRequired;
+    parkingSituation.value = origin.parkingSituation;
+    parkingDistance.value = origin.parkingDistance;
+    entryChallenges.value = origin.entryChallenges;
+    accessNotes.value = origin.accessNotes;
+  }
+
+  // Sync destination access details
+  if (destination) {
+    destEntryType.value = destination.entryType;
+    destNumberOfFlights.value = destination.numberOfFlights;
+    destHasElevator.value = destination.hasElevator;
+    destElevatorType.value = destination.elevatorType;
+    destElevatorDistance.value = destination.elevatorDistance;
+    destElevatorReservationRequired.value = destination.elevatorReservationRequired;
+    destParkingSituation.value = destination.parkingSituation;
+    destParkingDistance.value = destination.parkingDistance;
+    destEntryChallenges.value = destination.entryChallenges;
+    destAccessNotes.value = destination.accessNotes;
+  }
+};
+
+// Watch moveLocations for changes and sync
+watch(moveLocations, () => {
+  syncLegacyLocations();
+}, { deep: true });
+
+// Reset form for new move
+const resetMoveForm = () => {
+  // Clear current move ID
+  currentSavedMoveId.value = null;
+  saveMoveFormModel.value.name = '';
+
+  // Clear multi-location array
+  moveLocations.value = [];
+  moveLocationIdCounter = 1;
+
+  // Clear move configuration (legacy)
+  originLocation.value = null;
+  destinationLocation.value = null;
+  moveDate.value = null;
+  moveEndDate.value = null;
+  numHelpers.value = 2;
+  packingServicesRequired.value = 'none';
+  packingAreasSelected.value = [];
+
+  // Clear origin location details
+  hasStairs.value = false;
+  numberOfFlights.value = null;
+  hasElevator.value = false;
+  elevatorType.value = null;
+  elevatorDistance.value = null;
+  elevatorReservationRequired.value = false;
+  parkingSituation.value = null;
+  parkingDistance.value = null;
+  entryType.value = null;
+  entryChallenges.value = [];
+  accessNotes.value = '';
+
+  // Clear destination location details
+  destHasStairs.value = false;
+  destNumberOfFlights.value = null;
+  destHasElevator.value = false;
+  destElevatorType.value = null;
+  destElevatorDistance.value = null;
+  destElevatorReservationRequired.value = false;
+  destParkingSituation.value = null;
+  destParkingDistance.value = null;
+  destEntryType.value = null;
+  destEntryChallenges.value = [];
+  destAccessNotes.value = '';
+
+  // Clear other fields
+  specialRequirements.value = '';
+  estimatedSquareFootage.value = null;
+
+  Notify.create({
+    type: 'info',
+    message: 'Started new move'
+  });
+};
+
 // Fetch saved moves
 const fetchSavedMoves = async () => {
   if (!props.user) return;
@@ -1409,6 +1835,8 @@ const saveMove = async () => {
       originLocationId: originLocation.value,
       destinationLocationId: destinationLocation.value,
       moveDate: moveDate.value,
+      desiredStartDate: moveDate.value,
+      desiredEndDate: moveEndDate.value || moveDate.value,
       numHelpers: numHelpers.value,
       packingServicesRequired: packingServicesRequired.value,
       // Origin details
@@ -1446,7 +1874,15 @@ const saveMove = async () => {
       totalVolumeCuFt: totalVolumeCuFt.value,
       estimatedDistanceMiles: estimatedDistance.value,
       costCalculations: costEstimates.value,
-      routeData: routeData.value
+      routeData: routeData.value,
+      // Include all move locations (origin, intermediate, destination)
+      moveLocations: moveLocations.value.map((loc, index) => ({
+        locationId: loc.location,
+        locationRole: loc.role,
+        sequenceOrder: index,
+        hasLoading: loc.role === 'origin' || loc.role === 'intermediate',
+        hasUnloading: loc.role === 'destination' || loc.role === 'intermediate'
+      }))
     };
 
     const url = currentSavedMoveId.value
@@ -1511,12 +1947,96 @@ const loadMove = async (moveId: number) => {
 
     const move = await response.json();
 
-    // Load all the data
-    originLocation.value = move.origin_location_id;
-    destinationLocation.value = move.destination_location_id;
-    moveDate.value = move.move_date;
+    // Load basic move data
+    moveDate.value = normalizeDateInput(move.desired_start_date || move.move_date);
+    moveEndDate.value = normalizeDateInput(move.desired_end_date || move.desired_start_date || move.move_date);
     numHelpers.value = move.num_helpers;
     packingServicesRequired.value = move.packing_services_required;
+
+    // Populate moveLocations array for the UI
+    // This is the new multi-location model that displays the location cards
+    moveLocations.value = [];
+
+    // Check if we have move_locations data from the API (new multi-location model)
+    if (move.move_locations && move.move_locations.length > 0) {
+      // Use move_locations data - this includes intermediate locations
+      move.move_locations.forEach((ml: any) => {
+        // Parse entry_challenges if it's a string
+        let entryChallenges = ml.entry_challenges || [];
+        if (typeof entryChallenges === 'string') {
+          try {
+            entryChallenges = JSON.parse(entryChallenges);
+          } catch {
+            entryChallenges = [];
+          }
+        }
+
+        moveLocations.value.push({
+          id: moveLocationIdCounter++,
+          role: ml.location_role as 'origin' | 'intermediate' | 'destination',
+          location: ml.location_id,
+          entryType: ml.entry_type,
+          numberOfFlights: ml.number_of_flights,
+          hasElevator: ml.has_elevator,
+          elevatorType: ml.elevator_type,
+          elevatorDistance: ml.elevator_distance,
+          elevatorReservationRequired: ml.elevator_reservation_required,
+          parkingSituation: ml.parking_situation,
+          parkingDistance: ml.parking_distance,
+          entryChallenges: entryChallenges,
+          accessNotes: ml.access_notes || ''
+        });
+
+        // Also set legacy refs for origin/destination
+        if (ml.location_role === 'origin') {
+          originLocation.value = ml.location_id;
+        } else if (ml.location_role === 'destination') {
+          destinationLocation.value = ml.location_id;
+        }
+      });
+    } else {
+      // Set legacy refs from move data
+      originLocation.value = move.origin_location_id;
+      destinationLocation.value = move.destination_location_id;
+      // Fallback to legacy origin/destination fields for backward compatibility
+      // Add origin location
+      if (move.origin_location_id) {
+        moveLocations.value.push({
+          id: moveLocationIdCounter++,
+          role: 'origin',
+          location: move.origin_location_id,
+          entryType: move.entry_type,
+          numberOfFlights: move.number_of_flights,
+          hasElevator: move.has_elevator,
+          elevatorType: move.elevator_type,
+          elevatorDistance: move.elevator_distance,
+          elevatorReservationRequired: move.elevator_reservation_required,
+          parkingSituation: move.parking_situation,
+          parkingDistance: move.parking_distance,
+          entryChallenges: move.entry_challenges || [],
+          accessNotes: move.access_notes || ''
+        });
+      }
+
+      // Add destination location
+      if (move.destination_location_id) {
+        moveLocations.value.push({
+          id: moveLocationIdCounter++,
+          role: 'destination',
+          location: move.destination_location_id,
+          entryType: move.dest_entry_type,
+          numberOfFlights: move.dest_number_of_flights,
+          hasElevator: move.dest_has_elevator,
+          elevatorType: move.dest_elevator_type,
+          elevatorDistance: move.dest_elevator_distance,
+          elevatorReservationRequired: move.dest_elevator_reservation_required,
+          parkingSituation: move.dest_parking_situation,
+          parkingDistance: move.dest_parking_distance,
+          entryChallenges: move.dest_entry_challenges || [],
+          accessNotes: move.dest_access_notes || ''
+        });
+      }
+    }
 
     // Origin details
     hasStairs.value = move.has_stairs;
@@ -1737,7 +2257,7 @@ const downloadPdfEstimate = async () => {
     const moveDetails = [
       ['Origin Address', originAddress],
       ['Destination Address', destAddress],
-      ['Desired Move Date', moveDate.value || 'Not set'],
+      ['Desired Move Window', moveDateRangeDisplay.value],
       ['Distance', `${distance.toLocaleString()} miles`],
       ['Total Items', itemsInOriginLocation.value.length.toString()],
       ['Total Weight', `${totalWeight.toFixed(0)} lbs`],
@@ -2160,7 +2680,7 @@ const downloadPdfEstimate = async () => {
           :class="{ 'pill-tab-active': movePlanningTab === 'planning' }"
           class="pill-tab"
           label="Planning"
-          @click="movePlanningTab = 'planning'"
+          @click="selectTab('planning')"
         />
         <q-btn
           flat
@@ -2169,7 +2689,16 @@ const downloadPdfEstimate = async () => {
           :class="{ 'pill-tab-active': movePlanningTab === 'costs' }"
           class="pill-tab"
           label="Costs & Route"
-          @click="movePlanningTab = 'costs'"
+          @click="selectTab('costs')"
+        />
+        <q-btn
+          flat
+          dense
+          no-caps
+          :class="{ 'pill-tab-active': movePlanningTab === 'moveday' }"
+          class="pill-tab"
+          label="Move Day"
+          @click="selectTab('moveday')"
         />
       </q-btn-group>
     </div>
@@ -2177,11 +2706,20 @@ const downloadPdfEstimate = async () => {
     <div class="move-planning-header q-pa-md">
       <div class="row items-center justify-between">
         <div>
-          <h5 class="text-h5 text-primary q-my-none">Move Planning</h5>
-          <p class="text-caption text-grey-7 q-mt-xs">Estimate materials, truck size, and timeline for your move</p>
+          <h5 class="text-h5 text-primary q-my-none">{{ pageTitle }}</h5>
+          <p class="text-caption text-grey-7 q-mt-xs">{{ pageSubtitle }}</p>
         </div>
-        <!-- Save/Load Move buttons -->
         <div class="row q-gutter-sm">
+          <q-btn
+            flat
+            dense
+            color="primary"
+            icon="add"
+            label="New Move"
+            @click="resetMoveForm"
+          >
+            <q-tooltip>Start a new move</q-tooltip>
+          </q-btn>
           <q-btn
             flat
             dense
@@ -2208,531 +2746,351 @@ const downloadPdfEstimate = async () => {
       </div>
     </div>
 
-    <!-- Planning Tab -->
-    <div v-if="movePlanningTab === 'planning'">
-    <!-- Row 1: Move Configuration -->
-    <div class="q-pa-md">
-      <q-card flat bordered>
+    <div v-if="movePlanningTab === 'moveday'" class="q-pa-md q-pt-none">
+      <q-card flat bordered class="bg-grey-1">
         <q-card-section>
-          <div class="text-h6 text-primary q-mb-md">Move Details</div>
-
-          <!-- Section 1: Move Locations -->
-          <div class="form-section">
-            <div class="text-subtitle2 text-grey-8 q-mb-sm section-header">Move Locations</div>
-            <div class="row q-col-gutter-md">
-              <div class="col-12 col-md-6">
-                <q-select
-                  v-model="originLocation"
-                  :options="locationsWithDetails"
-                  option-value="value"
-                  option-label="label"
-                  emit-value
-                  map-options
-                  label="Origin Location"
-                  outlined
-                  dense
-                  :loading="isCalculatingDistance"
-                  use-input
-                  input-debounce="300"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="location_on" />
-                  </template>
-                  <template v-slot:after>
-                    <q-btn
-                      round
-                      dense
-                      flat
-                      icon="add"
-                      color="primary"
-                      @click="showAddLocationDialog = true"
-                    >
-                      <q-tooltip>Add new location</q-tooltip>
-                    </q-btn>
-                  </template>
-                </q-select>
-              </div>
-              <div class="col-12 col-md-6">
-                <q-select
-                  v-model="destinationLocation"
-                  :options="locationsWithDetails"
-                  option-value="value"
-                  option-label="label"
-                  emit-value
-                  map-options
-                  label="Destination Location"
-                  outlined
-                  dense
-                  :loading="isCalculatingDistance"
-                  use-input
-                  input-debounce="300"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="place" />
-                  </template>
-                  <template v-slot:after>
-                    <q-btn
-                      round
-                      dense
-                      flat
-                      icon="add"
-                      color="primary"
-                      @click="showAddLocationDialog = true"
-                    >
-                      <q-tooltip>Add new location</q-tooltip>
-                    </q-btn>
-                  </template>
-                </q-select>
-              </div>
-              <div class="col-12 col-md-4">
-                <q-input
-                  v-model="moveDate"
-                  type="date"
-                  label="Move Date"
-                  outlined
-                  dense
-                  mask="##/##/####"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="event" class="cursor-pointer">
-                      <q-popup-proxy cover transition-show="scale" transition-hide="scale">
-                        <q-date v-model="moveDate" mask="YYYY-MM-DD">
-                          <div class="row items-center justify-end">
-                            <q-btn v-close-popup label="Close" color="primary" flat />
-                          </div>
-                        </q-date>
-                      </q-popup-proxy>
-                    </q-icon>
-                  </template>
-                </q-input>
-              </div>
-              <div class="col-12 col-md-4">
-                <q-input
-                  v-model.number="numHelpers"
-                  type="number"
-                  label="Number of Helpers"
-                  outlined
-                  dense
-                  :min="1"
-                  :max="10"
-                  hint="Total movers (not including truck driver)"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="group" />
-                  </template>
-                </q-input>
-              </div>
-              <div class="col-12 col-md-4">
-                <q-input
-                  v-model.number="estimatedSquareFootage"
-                  type="number"
-                  label="Estimated Square Footage (optional)"
-                  outlined
-                  dense
-                  :min="100"
-                  :max="10000"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="square_foot" />
-                  </template>
-                </q-input>
-              </div>
+          <div class="row items-center q-col-gutter-md">
+            <div class="col-12 col-md">
+              <q-select
+                :model-value="activeMoveDaySessionId"
+                @update:model-value="handleMoveDaySessionSelect"
+                :options="moveDaySessionOptions"
+                option-label="label"
+                option-value="value"
+                label="Select Move Session"
+                outlined
+                dense
+                emit-value
+                map-options
+                :disable="!currentSavedMoveId || moveDaySessionOptions.length === 0"
+                placeholder="Load a move to view sessions"
+              >
+              </q-select>
             </div>
-          </div>
-
-          <q-separator class="q-my-md" />
-
-          <!-- Section 2: Origin Access Details -->
-          <div class="form-section">
-            <div class="text-subtitle2 text-grey-8 q-mb-sm section-header">Origin Location Access Details</div>
-            <div class="row q-col-gutter-md">
-              <!-- Entry Type -->
-              <div class="col-12 col-md-4">
-                <q-select
-                  v-model="entryType"
-                  :options="['House', 'Apartment', 'Office', 'Storage Unit', 'Other']"
-                  label="Entry Type"
-                  outlined
-                  dense
-                  clearable
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="home" />
-                  </template>
-                </q-select>
-              </div>
-
-              <!-- Stairs -->
-              <div class="col-12 col-md-4">
-                <q-input
-                  v-model.number="numberOfFlights"
-                  type="number"
-                  label="Number of Stair Flights"
-                  outlined
-                  dense
-                  :min="0"
-                  :max="10"
-                  hint="Enter 0 if no stairs"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="stairs" />
-                  </template>
-                </q-input>
-              </div>
-
-              <!-- Elevator -->
-              <div class="col-12 col-md-4">
-                <q-checkbox
-                  v-model="hasElevator"
-                  label="Elevator available"
-                  dense
-                />
-              </div>
-
-              <!-- Elevator Details (conditional) -->
-              <template v-if="hasElevator">
-                <div class="col-12 col-md-4">
-                  <q-select
-                    v-model="elevatorType"
-                    :options="['Passenger', 'Freight', 'Service']"
-                    label="Elevator Type"
-                    outlined
-                    dense
-                    clearable
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="elevator" />
-                    </template>
-                  </q-select>
-                </div>
-                <div class="col-12 col-md-4">
-                  <q-input
-                    v-model.number="elevatorDistance"
-                    type="number"
-                    label="Distance from Unit (ft)"
-                    outlined
-                    dense
-                    :min="0"
-                    :max="500"
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="straighten" />
-                    </template>
-                  </q-input>
-                </div>
-                <div class="col-12 col-md-4">
-                  <q-checkbox
-                    v-model="elevatorReservationRequired"
-                    label="Reservation required"
-                    dense
-                  />
-                </div>
-              </template>
-
-              <!-- Parking -->
-              <div class="col-12 col-md-4">
-                <q-select
-                  v-model="parkingSituation"
-                  :options="['Street Parking', 'Driveway', 'Loading Zone', 'Garage', 'Other']"
-                  label="Parking Situation"
-                  outlined
-                  dense
-                  clearable
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="local_parking" />
-                  </template>
-                </q-select>
-              </div>
-
-              <div class="col-12 col-md-4">
-                <q-input
-                  v-model.number="parkingDistance"
-                  type="number"
-                  label="Distance from Truck to Entry (ft)"
-                  outlined
-                  dense
-                  :min="0"
-                  :max="1000"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="social_distance" />
-                  </template>
-                </q-input>
-              </div>
-
-              <!-- Entry Challenges -->
-              <div class="col-12 col-md-4">
-                <q-select
-                  v-model="entryChallenges"
-                  :options="['Narrow Hallway', 'Long Carry', 'No Loading Zone', 'Gated Entry', 'Tight Corners', 'Low Clearance']"
-                  label="Entry Challenges"
-                  outlined
-                  dense
-                  multiple
-                  use-chips
-                  stack-label
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="warning" />
-                  </template>
-                </q-select>
-              </div>
-
-              <!-- Access Notes -->
-              <div class="col-12">
-                <q-input
-                  v-model="accessNotes"
-                  label="Additional Access Notes (Origin)"
-                  outlined
-                  dense
-                  type="textarea"
-                  rows="2"
-                  placeholder="Any other access details for origin location"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="notes" />
-                  </template>
-                </q-input>
-              </div>
+            <div class="col-auto">
+              <q-btn
+                color="primary"
+                label="New Session"
+                icon="add"
+                @click="moveDayRef && (moveDayRef.showCreateSession = true)"
+                unelevated
+                dense
+                :disable="!currentSavedMoveId"
+              />
             </div>
-          </div>
-
-          <q-separator class="q-my-md" />
-
-          <!-- Section 2b: Destination Access Details -->
-          <div class="form-section">
-            <div class="text-subtitle2 text-grey-8 q-mb-sm section-header">Destination Location Access Details</div>
-            <div class="row q-col-gutter-md">
-              <!-- Entry Type -->
-              <div class="col-12 col-md-4">
-                <q-select
-                  v-model="destEntryType"
-                  :options="['House', 'Apartment', 'Office', 'Storage Unit', 'Other']"
-                  label="Entry Type"
-                  outlined
-                  dense
-                  clearable
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="home" />
-                  </template>
-                </q-select>
-              </div>
-
-              <!-- Stairs -->
-              <div class="col-12 col-md-4">
-                <q-input
-                  v-model.number="destNumberOfFlights"
-                  type="number"
-                  label="Number of Stair Flights"
-                  outlined
-                  dense
-                  :min="0"
-                  :max="10"
-                  hint="Enter 0 if no stairs"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="stairs" />
-                  </template>
-                </q-input>
-              </div>
-
-              <!-- Elevator -->
-              <div class="col-12 col-md-4">
-                <q-checkbox
-                  v-model="destHasElevator"
-                  label="Elevator available"
-                  dense
-                />
-              </div>
-
-              <!-- Elevator Details (conditional) -->
-              <template v-if="destHasElevator">
-                <div class="col-12 col-md-4">
-                  <q-select
-                    v-model="destElevatorType"
-                    :options="['Passenger', 'Freight', 'Service']"
-                    label="Elevator Type"
-                    outlined
-                    dense
-                    clearable
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="elevator" />
-                    </template>
-                  </q-select>
-                </div>
-                <div class="col-12 col-md-4">
-                  <q-input
-                    v-model.number="destElevatorDistance"
-                    type="number"
-                    label="Distance from Unit (ft)"
-                    outlined
-                    dense
-                    :min="0"
-                    :max="500"
-                  >
-                    <template v-slot:prepend>
-                      <q-icon name="straighten" />
-                    </template>
-                  </q-input>
-                </div>
-                <div class="col-12 col-md-4">
-                  <q-checkbox
-                    v-model="destElevatorReservationRequired"
-                    label="Reservation required"
-                    dense
-                  />
-                </div>
-              </template>
-
-              <!-- Parking -->
-              <div class="col-12 col-md-4">
-                <q-select
-                  v-model="destParkingSituation"
-                  :options="['Street Parking', 'Driveway', 'Loading Zone', 'Garage', 'Other']"
-                  label="Parking Situation"
-                  outlined
-                  dense
-                  clearable
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="local_parking" />
-                  </template>
-                </q-select>
-              </div>
-
-              <div class="col-12 col-md-4">
-                <q-input
-                  v-model.number="destParkingDistance"
-                  type="number"
-                  label="Distance from Truck to Entry (ft)"
-                  outlined
-                  dense
-                  :min="0"
-                  :max="1000"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="social_distance" />
-                  </template>
-                </q-input>
-              </div>
-
-              <!-- Entry Challenges -->
-              <div class="col-12 col-md-4">
-                <q-select
-                  v-model="destEntryChallenges"
-                  :options="['Narrow Hallway', 'Long Carry', 'No Loading Zone', 'Gated Entry', 'Tight Corners', 'Low Clearance']"
-                  label="Entry Challenges"
-                  outlined
-                  dense
-                  multiple
-                  use-chips
-                  stack-label
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="warning" />
-                  </template>
-                </q-select>
-              </div>
-
-              <!-- Access Notes -->
-              <div class="col-12">
-                <q-input
-                  v-model="destAccessNotes"
-                  label="Additional Access Notes (Destination)"
-                  outlined
-                  dense
-                  type="textarea"
-                  rows="2"
-                  placeholder="Any other access details for destination location"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="notes" />
-                  </template>
-                </q-input>
-              </div>
+            <div class="col-12 text-caption text-grey-7" v-if="!currentSavedMoveId">
+              Load a move to plan and track Move Day sessions.
             </div>
-          </div>
-
-          <q-separator class="q-my-md" />
-
-          <!-- Section 3: Special Needs -->
-          <div class="form-section">
-            <div class="text-subtitle2 text-grey-8 q-mb-sm section-header">Special Needs</div>
-            <div class="row q-col-gutter-md">
-              <!-- Packing Services -->
-              <div class="col-12 col-md-4">
-                <q-select
-                  v-model="packingServicesRequired"
-                  :options="[
-                    { label: 'None', value: 'none' },
-                    { label: 'Partial Packing', value: 'partial' },
-                    { label: 'Full Service', value: 'full' }
-                  ]"
-                  option-label="label"
-                  option-value="value"
-                  emit-value
-                  map-options
-                  label="Packing Services"
-                  outlined
-                  dense
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="inventory" />
-                  </template>
-                </q-select>
-              </div>
-
-              <!-- Packing Areas (conditional) -->
-              <div class="col-12 col-md-8" v-if="packingServicesRequired === 'partial'">
-                <q-select
-                  v-model="packingAreasSelected"
-                  :options="['Kitchen', 'Wardrobe', 'Fragile Items', 'Electronics', 'Artwork', 'Books']"
-                  label="Areas to Pack"
-                  outlined
-                  dense
-                  multiple
-                  use-chips
-                  stack-label
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="check_box" />
-                  </template>
-                </q-select>
-              </div>
-
-              <!-- Special Requirements -->
-              <div class="col-12">
-                <q-input
-                  v-model="specialRequirements"
-                  label="Special Requirements"
-                  outlined
-                  dense
-                  type="textarea"
-                  rows="2"
-                  placeholder="Piano moving, antique furniture, storage needed, white glove service, etc."
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="star" />
-                  </template>
-                </q-input>
-              </div>
+            <div class="col-12 text-caption text-grey-7" v-else-if="moveDaySessionOptions.length === 0">
+              No sessions yet for this move. Use “New Session” to get started.
             </div>
           </div>
         </q-card-section>
       </q-card>
     </div>
 
-    <!-- Prompt to select origin location -->
-    <div v-if="!originLocation" class="q-pa-md">
+    <!-- Planning Tab -->
+    <div v-if="movePlanningTab === 'planning'">
+    <!-- Row 1: Move Details Card -->
+    <div class="q-pa-md q-pb-none">
+      <q-card flat bordered>
+        <q-card-section>
+          <div class="text-h6 text-primary q-mb-md">Move Details</div>
+          <div class="row q-col-gutter-md">
+            <div class="col-12 col-md-3">
+              <q-input
+                v-model="moveDate"
+                type="date"
+                label="Start Date"
+                outlined
+                dense
+              >
+                <template v-slot:prepend>
+                  <q-icon name="event" class="cursor-pointer">
+                    <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+                      <q-date v-model="moveDate" mask="YYYY-MM-DD">
+                        <div class="row items-center justify-end">
+                          <q-btn v-close-popup label="Close" color="primary" flat />
+                        </div>
+                      </q-date>
+                    </q-popup-proxy>
+                  </q-icon>
+                </template>
+              </q-input>
+            </div>
+            <div class="col-12 col-md-3">
+              <q-input
+                v-model="moveEndDate"
+                type="date"
+                label="End Date"
+                outlined
+                dense
+              >
+                <template v-slot:prepend>
+                  <q-icon name="event_available" class="cursor-pointer">
+                    <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+                      <q-date v-model="moveEndDate" mask="YYYY-MM-DD">
+                        <div class="row items-center justify-end">
+                          <q-btn v-close-popup label="Close" color="primary" flat />
+                        </div>
+                      </q-date>
+                    </q-popup-proxy>
+                  </q-icon>
+                </template>
+              </q-input>
+            </div>
+            <div class="col-12 col-md-2">
+              <q-input
+                v-model.number="numHelpers"
+                type="number"
+                label="Helpers"
+                outlined
+                dense
+                :min="1"
+                :max="10"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="group" />
+                </template>
+              </q-input>
+            </div>
+            <div class="col-12 col-md-4">
+              <q-select
+                v-model="packingServicesRequired"
+                :options="[
+                  { label: 'No Packing Services', value: 'none' },
+                  { label: 'Partial Packing', value: 'partial' },
+                  { label: 'Full Service', value: 'full' }
+                ]"
+                option-label="label"
+                option-value="value"
+                emit-value
+                map-options
+                label="Packing Services"
+                outlined
+                dense
+              >
+                <template v-slot:prepend>
+                  <q-icon name="inventory" />
+                </template>
+              </q-select>
+            </div>
+            <div class="col-12">
+              <q-input
+                v-model="specialRequirements"
+                label="Notes & Special Requirements"
+                outlined
+                dense
+                type="textarea"
+                rows="2"
+                placeholder="Piano moving, antique furniture, white glove service, etc."
+              >
+                <template v-slot:prepend>
+                  <q-icon name="notes" />
+                </template>
+              </q-input>
+            </div>
+          </div>
+        </q-card-section>
+      </q-card>
+    </div>
+
+    <!-- Row 2: Locations Cards -->
+    <div class="q-pa-md">
+      <div class="row items-center justify-between q-mb-sm">
+        <div class="text-h6 text-primary">Locations</div>
+        <q-btn
+          flat
+          dense
+          color="primary"
+          icon="add"
+          label="Add Location"
+          :disable="moveLocations.length >= 5"
+          @click="addMoveLocation"
+        >
+          <q-tooltip v-if="moveLocations.length >= 5">Maximum 5 locations</q-tooltip>
+        </q-btn>
+      </div>
+
+      <div class="locations-row">
+        <div
+          v-for="(loc, index) in moveLocations"
+          :key="index"
+          class="location-card-wrapper"
+        >
+          <q-card flat bordered class="location-card" :class="{ 'location-start': loc.role === 'origin', 'location-dropoff': loc.role === 'intermediate', 'location-end': loc.role === 'destination' }">
+            <q-card-section class="q-pb-sm">
+              <div class="row items-center justify-between q-mb-sm">
+                <q-btn-toggle
+                  v-model="loc.role"
+                  toggle-color="primary"
+                  text-color="grey-7"
+                  :options="[
+                    { value: 'origin', label: 'Starting', icon: 'trip_origin' },
+                    { value: 'intermediate', label: 'Drop-off', icon: 'local_shipping' },
+                    { value: 'destination', label: 'Final', icon: 'flag' }
+                  ]"
+                  dense
+                  unelevated
+                  rounded
+                  size="sm"
+                  class="location-role-toggle"
+                />
+                <q-btn
+                  flat
+                  dense
+                  round
+                  icon="close"
+                  size="sm"
+                  color="negative"
+                  @click="removeMoveLocation(index)"
+                  :disable="moveLocations.length <= 2"
+                >
+                  <q-tooltip>Remove location</q-tooltip>
+                </q-btn>
+              </div>
+
+              <q-select
+                v-model="loc.location"
+                :options="locationsWithDetails"
+                option-value="value"
+                option-label="label"
+                emit-value
+                map-options
+                label="Location"
+                outlined
+                dense
+                use-input
+                input-debounce="300"
+              >
+                <template v-slot:after>
+                  <q-btn
+                    round
+                    dense
+                    flat
+                    icon="add"
+                    color="primary"
+                    size="sm"
+                    @click="showAddLocationDialog = true"
+                  >
+                    <q-tooltip>Add new location</q-tooltip>
+                  </q-btn>
+                </template>
+              </q-select>
+            </q-card-section>
+
+            <q-expansion-item
+              dense
+              dense-toggle
+              label="Access Details"
+              header-class="text-caption text-grey-7"
+            >
+              <q-card-section class="q-pt-none">
+                <div class="row q-col-gutter-sm">
+                  <div class="col-6">
+                    <q-select
+                      v-model="loc.entryType"
+                      :options="['House', 'Apartment', 'Office', 'Storage', 'Other']"
+                      label="Entry Type"
+                      outlined
+                      dense
+                      clearable
+                    />
+                  </div>
+                  <div class="col-6">
+                    <q-input
+                      v-model.number="loc.numberOfFlights"
+                      type="number"
+                      label="Stair Flights"
+                      outlined
+                      dense
+                      :min="0"
+                      :max="10"
+                    />
+                  </div>
+                  <div class="col-12">
+                    <q-checkbox
+                      v-model="loc.hasElevator"
+                      label="Elevator available"
+                      dense
+                    />
+                  </div>
+                  <template v-if="loc.hasElevator">
+                    <div class="col-6">
+                      <q-select
+                        v-model="loc.elevatorType"
+                        :options="['Passenger', 'Freight', 'Service']"
+                        label="Elevator Type"
+                        outlined
+                        dense
+                        clearable
+                      />
+                    </div>
+                    <div class="col-6">
+                      <q-checkbox
+                        v-model="loc.elevatorReservationRequired"
+                        label="Needs reservation"
+                        dense
+                      />
+                    </div>
+                  </template>
+                  <div class="col-6">
+                    <q-select
+                      v-model="loc.parkingSituation"
+                      :options="['Street', 'Driveway', 'Loading Zone', 'Garage']"
+                      label="Parking"
+                      outlined
+                      dense
+                      clearable
+                    />
+                  </div>
+                  <div class="col-6">
+                    <q-input
+                      v-model.number="loc.parkingDistance"
+                      type="number"
+                      label="Walk Distance (ft)"
+                      outlined
+                      dense
+                      :min="0"
+                    />
+                  </div>
+                  <div class="col-12">
+                    <q-select
+                      v-model="loc.entryChallenges"
+                      :options="['Narrow Hallway', 'Long Carry', 'Tight Corners', 'Low Clearance', 'Gated']"
+                      label="Challenges"
+                      outlined
+                      dense
+                      multiple
+                      use-chips
+                    />
+                  </div>
+                  <div class="col-12">
+                    <q-input
+                      v-model="loc.accessNotes"
+                      label="Access Notes"
+                      outlined
+                      dense
+                      type="textarea"
+                      rows="2"
+                    />
+                  </div>
+                </div>
+              </q-card-section>
+            </q-expansion-item>
+          </q-card>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompt to add locations -->
+    <div v-if="moveLocations.length === 0" class="q-pa-md">
       <q-banner rounded class="bg-blue-1 text-primary">
         <template v-slot:avatar>
           <q-icon name="info" color="primary" size="lg" />
         </template>
         <div class="text-body1 text-weight-medium q-mb-xs">Get started with your move planning</div>
-        <div class="text-body2">Select an origin location above to see truck recommendations, time estimates, and packing requirements for your move.</div>
+        <div class="text-body2">Add locations above to see truck recommendations, time estimates, and packing requirements for your move. You need at least an origin and destination.</div>
       </q-banner>
     </div>
 
@@ -2788,12 +3146,15 @@ const downloadPdfEstimate = async () => {
       <q-card flat bordered class="content-card">
         <q-card-section>
           <div class="text-h6 text-primary q-mb-md">Time Estimates</div>
-          <div class="text-caption text-grey-6 q-mb-md">Based on {{ numHelpers }} helper{{ numHelpers > 1 ? 's' : '' }}</div>
+          <div class="text-caption text-grey-6 q-mb-sm">Based on {{ numHelpers }} helper{{ numHelpers > 1 ? 's' : '' }}</div>
+          <div v-if="fullTimeEstimates.intermediateStops > 0" class="text-caption text-orange q-mb-md">
+            +{{ fullTimeEstimates.overheadPercent }}% overhead for {{ fullTimeEstimates.intermediateStops }} drop-off{{ fullTimeEstimates.intermediateStops > 1 ? 's' : '' }}
+          </div>
 
           <div class="time-breakdown-horizontal">
             <div class="time-item-horizontal">
               <q-icon name="inventory" size="sm" color="primary" class="q-mb-xs" />
-              <div class="text-body1 text-weight-medium">{{ timeEstimates.packing }} hrs</div>
+              <div class="text-body1 text-weight-medium">{{ fullTimeEstimates.packing }} hrs</div>
               <div class="text-caption text-grey-7">Packing</div>
             </div>
 
@@ -2801,15 +3162,23 @@ const downloadPdfEstimate = async () => {
 
             <div class="time-item-horizontal">
               <q-icon name="publish" size="sm" color="secondary" class="q-mb-xs" />
-              <div class="text-body1 text-weight-medium">{{ timeEstimates.loading }} hrs</div>
+              <div class="text-body1 text-weight-medium">{{ fullTimeEstimates.loading }} hrs</div>
               <div class="text-caption text-grey-7">Loading</div>
             </div>
 
             <q-separator vertical class="time-separator" />
 
+            <div v-if="fullTimeEstimates.driving > 0" class="time-item-horizontal">
+              <q-icon name="directions_car" size="sm" color="info" class="q-mb-xs" />
+              <div class="text-body1 text-weight-medium">{{ fullTimeEstimates.driving }} hrs</div>
+              <div class="text-caption text-grey-7">Driving</div>
+            </div>
+
+            <q-separator v-if="fullTimeEstimates.driving > 0" vertical class="time-separator" />
+
             <div class="time-item-horizontal">
               <q-icon name="get_app" size="sm" color="accent" class="q-mb-xs" />
-              <div class="text-body1 text-weight-medium">{{ timeEstimates.unloading }} hrs</div>
+              <div class="text-body1 text-weight-medium">{{ fullTimeEstimates.unloading }} hrs</div>
               <div class="text-caption text-grey-7">Unloading</div>
             </div>
 
@@ -2817,7 +3186,7 @@ const downloadPdfEstimate = async () => {
 
             <div class="time-item-horizontal total-time-horizontal">
               <q-icon name="schedule" size="sm" color="positive" class="q-mb-xs" />
-              <div class="text-h6 text-positive">{{ timeEstimates.total }} hrs</div>
+              <div class="text-h6 text-positive">{{ fullTimeEstimates.total }} hrs</div>
               <div class="text-caption text-grey-7">Total</div>
             </div>
           </div>
@@ -3087,12 +3456,25 @@ const downloadPdfEstimate = async () => {
                 <q-input
                   v-model="moveDate"
                   type="date"
-                  label="Move Date"
+                  label="Desired Start Date"
                   outlined
                   dense
                 >
                   <template v-slot:prepend>
                     <q-icon name="event" />
+                  </template>
+                </q-input>
+              </div>
+              <div class="col-12 col-md-3">
+                <q-input
+                  v-model="moveEndDate"
+                  type="date"
+                  label="Target Completion Date"
+                  outlined
+                  dense
+                >
+                  <template v-slot:prepend>
+                    <q-icon name="event_available" />
                   </template>
                 </q-input>
               </div>
@@ -3141,6 +3523,8 @@ const downloadPdfEstimate = async () => {
               <div>• Truck rental: ${{ costEstimates.diy.breakdown.truckRental.toFixed(0) }} ({{ costEstimates.diy.breakdown.days }} day{{ costEstimates.diy.breakdown.days > 1 ? 's' : '' }})</div>
               <div>• Fuel: ${{ costEstimates.diy.breakdown.fuel.toFixed(0) }}</div>
               <div>• Packing materials & equipment: ${{ (costEstimates.diy.breakdown.materials + costEstimates.diy.breakdown.equipment).toFixed(0) }}</div>
+              <div v-if="costEstimates.diy.breakdown.tolls > 0">• Tolls: ${{ costEstimates.diy.breakdown.tolls.toFixed(0) }}</div>
+              <div v-if="costEstimates.diy.breakdown.hotels > 0">• Hotels: ${{ costEstimates.diy.breakdown.hotels.toFixed(0) }}</div>
             </div>
 
           <q-separator class="q-my-md" />
@@ -3198,7 +3582,7 @@ const downloadPdfEstimate = async () => {
           <!-- ReloPrep Blue Box -->
           <div class="q-mb-md q-pa-md rounded-borders" style="background: #E3F2FD; border: 2px solid #1976D2;">
             <div class="text-h6 text-weight-medium text-primary q-mb-sm">
-              ReloPrep All-In Quote
+              ReloPrep Estimated Quote
             </div>
             <div class="row items-center q-mb-sm">
               <div class="col text-h4 text-weight-bold text-primary">
@@ -3209,13 +3593,13 @@ const downloadPdfEstimate = async () => {
             <!-- Savings callout -->
             <div class="q-pa-sm rounded-borders q-mb-sm" style="background: #4CAF50; display: inline-block;">
               <span class="text-body2 text-white">
-                Save <span class="text-weight-bold">${{ costEstimates.reloprep.savings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span> vs. market average
+                Save <span class="text-weight-bold">${{ costEstimates.reloprep.savings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span>
               </span>
             </div>
 
             <!-- Footnote -->
             <div class="text-caption text-grey-6">
-              * Binding not-to-exceed quote includes moving + packing
+              * Not-to-exceed estimation
             </div>
           </div>
 
@@ -3255,106 +3639,25 @@ const downloadPdfEstimate = async () => {
 
       <!-- Distance & Route -->
       <q-card flat bordered class="content-card">
-        <q-card-section>
-          <div class="text-h5 text-weight-bold q-mb-lg">
+        <q-card-section class="q-pb-none">
+          <div class="text-h5 text-weight-bold q-mb-md">
             Distance & Route
           </div>
+        </q-card-section>
 
-          <div v-if="estimatedDistance && routeData">
-            <!-- Route Controls -->
-            <div class="row q-col-gutter-md q-mb-md">
-              <div class="col-12 col-md-6">
-                <q-checkbox
-                  v-model="useTruckRoute"
-                  label="Truck-friendly route"
-                  dense
-                >
-                  <q-tooltip max-width="250px">
-                    Prefer routes suitable for large moving trucks (highways, wide roads)
-                  </q-tooltip>
-                </q-checkbox>
-              </div>
-              <div class="col-12 col-md-6">
-                <q-checkbox
-                  v-model="avoidTolls"
-                  label="Avoid tolls"
-                  dense
-                >
-                  <q-tooltip>
-                    Find routes that avoid toll roads when possible
-                  </q-tooltip>
-                </q-checkbox>
-              </div>
-            </div>
-
-            <!-- Route Stats -->
-            <div class="route-stats q-mb-md">
-              <div class="row q-col-gutter-sm">
-                <div class="col-6">
-                  <div class="stat-box">
-                    <q-icon name="straighten" size="sm" color="primary" class="q-mr-xs" />
-                    <div>
-                      <div class="text-h6 text-primary">{{ estimatedDistance.toLocaleString() }}</div>
-                      <div class="text-caption text-grey-6">miles</div>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-6">
-                  <div class="stat-box">
-                    <q-icon name="schedule" size="sm" color="secondary" class="q-mr-xs" />
-                    <div>
-                      <div class="text-h6 text-secondary">{{ routeData.duration_text }}</div>
-                      <div class="text-caption text-grey-6">drive time</div>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-6" v-if="routeData.estimated_tolls > 0">
-                  <div class="stat-box">
-                    <q-icon name="toll" size="sm" color="warning" class="q-mr-xs" />
-                    <div>
-                      <div class="text-h6 text-warning">${{ routeData.estimated_tolls }}</div>
-                      <div class="text-caption text-grey-6">est. tolls</div>
-                    </div>
-                  </div>
-                </div>
-                <div class="col-6" v-if="routeData.overnight_stops > 0">
-                  <div class="stat-box">
-                    <q-icon name="hotel" size="sm" color="accent" class="q-mr-xs" />
-                    <div>
-                      <div class="text-h6 text-accent">{{ routeData.overnight_stops }}</div>
-                      <div class="text-caption text-grey-6">suggested stops</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- Route Summary -->
-            <div class="text-caption text-grey-7 q-mb-sm">
-              <q-icon name="route" size="xs" class="q-mr-xs" />
-              {{ routeData.route_summary }}
-            </div>
-
-            <!-- Warnings -->
-            <div v-if="routeData.warnings && routeData.warnings.length > 0" class="q-mb-md">
-              <q-banner dense class="bg-orange-1 text-orange-9">
-                <template v-slot:avatar>
-                  <q-icon name="warning" color="orange" />
-                </template>
-                <div v-for="(warning, idx) in routeData.warnings" :key="idx" class="text-caption">
-                  {{ warning }}
-                </div>
-              </q-banner>
-            </div>
-
-            <!-- Route Map or Estimate Warning -->
-            <div class="route-map-container q-mt-md">
+        <q-card-section v-if="estimatedDistance && routeData" class="q-pt-sm">
+          <!-- Map with Waypoints Overlay -->
+          <div class="route-map-wrapper">
+            <!-- The Map -->
+            <div class="route-map-container">
               <RouteMap
                 v-if="routeData.route_polyline"
                 :route-polyline="routeData.route_polyline"
                 :origin-address="routeData.origin_address"
                 :destination-address="routeData.destination_address"
-                height="450px"
+                :waypoints="journeyWaypoints"
+                :dropoff-locations="intermediateDropoffLocations"
+                height="500px"
               />
 
               <!-- Fallback Estimate Warning (when no polyline) -->
@@ -3370,28 +3673,99 @@ const downloadPdfEstimate = async () => {
               </q-banner>
             </div>
 
-            <!-- Multi-day Trip Notice -->
-            <div v-if="routeData.overnight_stops > 0" class="q-mt-md">
-              <q-banner dense class="bg-blue-1 text-primary">
-                <template v-slot:avatar>
-                  <q-icon name="info" color="primary" />
-                </template>
-                <div class="text-caption">
-                  This is a long-distance move requiring {{ routeData.overnight_stops }} overnight stop{{ routeData.overnight_stops > 1 ? 's' : '' }}.
-                  Consider adding hotel costs (~${{ routeData.overnight_stops * 100 }}) to your budget.
-                </div>
-              </q-banner>
+            <!-- Waypoints Overlay Panel (positioned on map) -->
+            <div v-if="currentSavedMoveId" class="waypoints-overlay">
+              <WaypointManager
+                :move-id="currentSavedMoveId"
+                :route-polyline="routeData.route_polyline"
+                :total-distance-miles="estimatedDistance"
+                :destination-name="destinationDisplayName"
+                @update="handleWaypointsUpdate"
+                @route-updated="handleRouteUpdated"
+              />
             </div>
           </div>
 
-          <!-- Placeholder when no locations selected -->
-          <div v-else class="text-center text-grey-5 q-py-lg">
-            <q-icon name="map" size="xl" />
-            <div class="text-body2 q-mt-md">Select origin and destination locations</div>
-            <div class="text-caption">to view route and distance</div>
+          <!-- Route Stats - Compact Cards Row -->
+          <div class="route-stats-row q-mt-md">
+            <div class="stat-card">
+              <q-icon name="straighten" size="sm" color="primary" />
+              <div class="stat-value text-primary">{{ estimatedDistance.toLocaleString() }}</div>
+              <div class="stat-label">miles</div>
+            </div>
+            <div class="stat-card">
+              <q-icon name="schedule" size="sm" color="secondary" />
+              <div class="stat-value text-secondary">{{ routeData.duration_text }}</div>
+              <div class="stat-label">drive time</div>
+            </div>
+            <div v-if="routeData.estimated_tolls > 0" class="stat-card">
+              <q-icon name="toll" size="sm" color="warning" />
+              <div class="stat-value text-warning">${{ routeData.estimated_tolls }}</div>
+              <div class="stat-label">est. tolls</div>
+            </div>
+            <div v-if="routeData.overnight_stops > 0" class="stat-card">
+              <q-icon name="hotel" size="sm" color="accent" />
+              <div class="stat-value text-accent">{{ routeData.overnight_stops }}</div>
+              <div class="stat-label">stops</div>
+            </div>
+          </div>
+
+          <!-- Route Summary -->
+          <div class="text-caption text-grey-7 q-mt-sm">
+            <q-icon name="route" size="xs" class="q-mr-xs" />
+            {{ routeData.route_summary }}
+          </div>
+
+          <!-- Warnings -->
+          <div v-if="routeData.warnings && routeData.warnings.length > 0" class="q-mt-md">
+            <q-banner dense class="bg-orange-1 text-orange-9">
+              <template v-slot:avatar>
+                <q-icon name="warning" color="orange" />
+              </template>
+              <div v-for="(warning, idx) in routeData.warnings" :key="idx" class="text-caption">
+                {{ warning }}
+              </div>
+            </q-banner>
           </div>
         </q-card-section>
+
+        <!-- Placeholder when no locations selected -->
+        <q-card-section v-else class="text-center text-grey-5 q-py-lg">
+          <q-icon name="map" size="xl" />
+          <div class="text-body2 q-mt-md">Select origin and destination locations</div>
+          <div class="text-caption">to view route and distance</div>
+        </q-card-section>
       </q-card>
+      </div>
+    </div>
+
+    <!-- Move Day Tab -->
+    <div v-else-if="movePlanningTab === 'moveday'">
+      <div v-if="isPro" class="moveday-pro-wrapper">
+        <DesktopMoveDay
+          ref="moveDayRef"
+          :user="user"
+          :current-saved-move-id="currentSavedMoveId"
+          :saved-moves="savedMoves"
+          :origin-location="originLocation"
+          :destination-location="destinationLocation"
+          :move-date="moveDate"
+          :move-date-end="moveEndDate"
+          :recommended-truck-size="truckRecommendation.size"
+        />
+      </div>
+      <div v-else class="moveday-locked q-pa-lg">
+        <q-card flat bordered class="bg-blue-1">
+          <q-card-section>
+            <div class="row items-center q-gutter-md">
+              <q-icon name="lock" color="primary" size="md" />
+              <div>
+                <div class="text-subtitle1 text-primary">Move Day Mode is a Pro feature</div>
+                <div class="text-caption text-grey-7">Upgrade to unlock live scanning and tracking—or use admin preview to test.</div>
+              </div>
+            </div>
+          </q-card-section>
+        </q-card>
       </div>
     </div>
 
@@ -3827,9 +4201,136 @@ const downloadPdfEstimate = async () => {
   border: 1px solid #E0E0E0;
 }
 
+.route-map-wrapper {
+  position: relative;
+}
+
 .route-map-container {
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.waypoints-overlay {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  max-width: 360px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.waypoints-overlay :deep(.waypoint-manager) {
+  padding: 12px;
+  background: transparent;
+}
+
+.waypoints-overlay :deep(.text-subtitle1) {
+  font-size: 14px;
+}
+
+.waypoints-overlay :deep(.waypoint-list) {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+/* Compact stat cards row below map */
+.route-stats-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #F7F8FA;
+  border-radius: 8px;
+  border: 1px solid #E0E0E0;
+  flex: 1;
+  min-width: 120px;
+}
+
+.stat-card .stat-value {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.stat-card .stat-label {
+  font-size: 11px;
+  color: #666;
+  line-height: 1.2;
+}
+
+@media (max-width: 768px) {
+  .waypoints-overlay {
+    position: relative;
+    top: auto;
+    right: auto;
+    max-width: 100%;
+    margin-top: 12px;
+  }
+
+  .stat-card {
+    min-width: calc(50% - 6px);
+    flex: 0 0 calc(50% - 6px);
+  }
+}
+
+/* Locations row - full-width horizontal flex layout */
+.locations-row {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  width: 100%;
+}
+
+.location-card-wrapper {
+  flex: 1 1 0;
+  min-width: 0; /* Allow cards to shrink below content size for equal distribution */
+}
+
+/* Location card styles */
+.location-card {
+  transition: border-color 0.2s, box-shadow 0.2s;
+  border: 2px solid #e0e0e0;
+  height: 100%;
+}
+
+.location-card.location-start {
+  border-color: #4CAF50;
+  background: linear-gradient(to bottom, #E8F5E9 0%, #fff 15%);
+}
+
+.location-card.location-dropoff {
+  border-color: #FF9800;
+  background: linear-gradient(to bottom, #FFF3E0 0%, #fff 15%);
+}
+
+.location-card.location-end {
+  border-color: #F44336;
+  background: linear-gradient(to bottom, #FFEBEE 0%, #fff 15%);
+}
+
+.location-role-toggle {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.location-role-toggle .q-btn {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.location-role-toggle .q-btn--active {
+  font-weight: 600;
 }
 </style>

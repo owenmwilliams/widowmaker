@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+import { useQuasar } from 'quasar';
 import VisionProviderToggle from '../VisionProviderToggle.vue';
+import MobileAdd from './MobileAdd.vue';
+import { inventoryStore } from '../../stores/InventoryStore';
 
 const props = defineProps<{
   user: string;
@@ -8,14 +11,68 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'addCollection'): void;
-  (e: 'addLocation'): void;
 }>();
+
+const store = inventoryStore();
+const $q = useQuasar();
 
 const currentVisionProvider = ref<string>('gemini');
 
+const manageDialogOpen = ref(false);
+const manageObjectType = ref<'location' | 'collection'>('location');
+const manageEditMode = ref(false);
+const manageId = ref<string | number | undefined>(undefined);
+
 const handleProviderChanged = (provider: string) => {
   currentVisionProvider.value = provider;
+};
+
+const locationList = computed(() => store.locations);
+const collectionList = computed(() =>
+  store.collections.map((collection) => ({
+    ...collection,
+    locationLabel:
+      store.locations.find((loc) => loc.value === collection.location)?.label ||
+      'No location'
+  }))
+);
+
+const openManageDialog = (type: 'location' | 'collection', options?: { id?: string | number; edit?: boolean }) => {
+  manageObjectType.value = type;
+  manageEditMode.value = options?.edit ?? false;
+  manageId.value = options?.id;
+  manageDialogOpen.value = true;
+};
+
+const closeManageDialog = () => {
+  manageDialogOpen.value = false;
+  manageId.value = undefined;
+  manageEditMode.value = false;
+};
+
+const formatLocationSubtitle = (location: any) => {
+  const parts = [
+    location.address,
+    location.city,
+    location.state,
+    location.zip
+  ].filter(Boolean);
+  return parts.join(', ');
+};
+
+const confirmDelete = (type: 'location' | 'collection', id: string | number, name: string) => {
+  $q.dialog({
+    title: `Delete ${type === 'location' ? 'Location' : 'Collection'}`,
+    message: `Are you sure you want to delete "${name}"?`,
+    cancel: true,
+    persistent: true
+  }).onOk(async () => {
+    if (type === 'location') {
+      await store.deleteLocation(id, props.user, { skipRedirect: true });
+    } else {
+      await store.deleteCollection(id, props.user);
+    }
+  });
 };
 </script>
 
@@ -28,7 +85,7 @@ const handleProviderChanged = (provider: string) => {
       </div>
     </q-card-section>
 
-    <q-card-section>
+    <q-card-section class="settings-content">
       <!-- Vision AI Section -->
       <div class="settings-section">
         <div class="section-header">
@@ -50,16 +107,44 @@ const handleProviderChanged = (provider: string) => {
           <div class="text-h6 q-ml-sm">Manage Locations</div>
         </div>
         <div class="text-caption text-grey-7 q-mt-sm q-mb-md">
-          Add and manage locations where your items are stored
+          Add, edit, or remove the locations where your items live.
         </div>
         <q-btn 
           color="primary" 
           label="Add Location" 
           icon="add" 
           outline 
-          class="full-width"
-          @click="emit('addLocation')"
+          class="full-width q-mb-md"
+          @click="openManageDialog('location')"
         />
+        <q-list bordered class="manage-list">
+          <q-item v-for="location in locationList" :key="location.value">
+            <q-item-section>
+              <q-item-label>{{ location.label }}</q-item-label>
+              <q-item-label caption>
+                {{ formatLocationSubtitle(location) || 'No address on file' }}
+              </q-item-label>
+            </q-item-section>
+            <q-item-section side top>
+              <q-btn
+                flat
+                round
+                color="primary"
+                icon="edit"
+                @click="openManageDialog('location', { id: location.value, edit: true })"
+              />
+            </q-item-section>
+            <q-item-section side top>
+              <q-btn
+                flat
+                round
+                color="negative"
+                icon="delete"
+                @click="confirmDelete('location', location.value, location.label)"
+              />
+            </q-item-section>
+          </q-item>
+        </q-list>
       </div>
 
       <q-separator class="q-my-lg" />
@@ -71,24 +156,62 @@ const handleProviderChanged = (provider: string) => {
           <div class="text-h6 q-ml-sm">Manage Collections</div>
         </div>
         <div class="text-caption text-grey-7 q-mt-sm q-mb-md">
-          Add and organize your collections
+          Add, rename, or delete collections across your locations.
         </div>
         <q-btn 
           color="primary" 
           label="Add Collection" 
           icon="add" 
           outline 
-          class="full-width"
-          @click="emit('addCollection')"
+          class="full-width q-mb-md"
+          @click="openManageDialog('collection')"
         />
+        <q-list bordered class="manage-list">
+          <q-item v-for="collection in collectionList" :key="collection.value">
+            <q-item-section>
+              <q-item-label>{{ collection.label }}</q-item-label>
+              <q-item-label caption>{{ collection.locationLabel }}</q-item-label>
+            </q-item-section>
+            <q-item-section side top>
+              <q-btn
+                flat
+                round
+                color="primary"
+                icon="edit"
+                @click="openManageDialog('collection', { id: collection.value, edit: true })"
+              />
+            </q-item-section>
+            <q-item-section side top>
+              <q-btn
+                flat
+                round
+                color="negative"
+                icon="delete"
+                @click="confirmDelete('collection', collection.value, collection.label)"
+              />
+            </q-item-section>
+          </q-item>
+        </q-list>
       </div>
     </q-card-section>
   </q-card>
+
+  <q-dialog v-model="manageDialogOpen">
+    <MobileAdd
+      :user="props.user"
+      :edit-select="manageEditMode"
+      :object-type="manageObjectType"
+      :id-prop="manageId"
+      @close="closeManageDialog"
+    />
+  </q-dialog>
 </template>
 
 <style scoped>
 .mobile-settings-card {
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-section {
@@ -98,5 +221,15 @@ const handleProviderChanged = (provider: string) => {
 .section-header {
   display: flex;
   align-items: center;
+}
+
+.manage-list {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.settings-content {
+  flex: 1;
+  overflow-y: auto;
 }
 </style>

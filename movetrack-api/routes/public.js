@@ -89,7 +89,7 @@ router.get('/', jsonParser, async function(req, res, next) {
       .leftJoin('containers', 'items.container_id', 'containers.id')
       .leftJoin('locations', 'items.location_id', 'locations.id')
       .where(knex.raw('items.id = ?', item_id))
-      .andWhere(knex.raw('items.owner= ?', user_id))
+      .andWhere(knex.raw('items.user_id = ?', user_id))
     .then(data => {
       res.send(data)
     })

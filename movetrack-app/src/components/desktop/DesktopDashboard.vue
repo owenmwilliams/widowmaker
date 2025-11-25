@@ -20,17 +20,22 @@ const normalizeDate = (value: any) => {
 
 // Parse item dimensions helper
 const parseItemDimensions = (item: any) => {
-  if (item.length_in != null && item.width_in != null && item.height_in != null) {
+  if (
+    item.length_in != null &&
+    item.width_in != null &&
+    item.height_in != null
+  ) {
     const length = Number(item.length_in);
     const width = Number(item.width_in);
     const height = Number(item.height_in);
-    if (length && width && height) {
+    if ([length, width, height].every((val) => Number.isFinite(val) && val > 0)) {
       return { length, width, height };
     }
   }
-  if (item.dimensions) {
-    const parts = item.dimensions.split('x').map((p: string) => Number(p.trim()));
-    if (parts.length === 3 && !parts.some(isNaN)) {
+  if (typeof item.dimensions === 'string' && item.dimensions.trim().length > 0) {
+    const cleaned = item.dimensions.toLowerCase().replace(/[^0-9.x×]/g, '');
+    const parts = cleaned.split(/[x×]/).filter(Boolean).map(Number);
+    if (parts.length === 3 && parts.every((val) => Number.isFinite(val) && val > 0)) {
       return { length: parts[0], width: parts[1], height: parts[2] };
     }
   }

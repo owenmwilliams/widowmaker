@@ -15,6 +15,9 @@ const emit = defineEmits<{
 const currentProvider = ref('gemini');
 const availableProviders = ref<string[]>([]);
 const isLoading = ref(false);
+const plan = ref<'basic' | 'pro'>('pro');
+const previewOverride = ref<'basic' | 'pro' | null>(localStorage.getItem('plan_preview') as any || null);
+const isPro = ref(true);
 
 const providerLabels: Record<string, string> = {
   gemini: 'Google Gemini 2.0',
@@ -53,6 +56,12 @@ const fetchProviderInfo = async () => {
     });
     currentProvider.value = response.data.current;
     availableProviders.value = response.data.available;
+    plan.value = (response.data.plan || 'pro').toLowerCase() as 'basic' | 'pro';
+    const effectivePlan = (previewOverride.value || plan.value) as 'basic' | 'pro';
+    isPro.value = effectivePlan === 'pro';
+    if (!isPro.value && currentProvider.value !== 'scout') {
+      currentProvider.value = 'scout';
+    }
   } catch (error) {
     console.error('Error fetching provider info:', error);
     $q.notify({
@@ -65,6 +74,14 @@ const fetchProviderInfo = async () => {
 
 // Set provider
 const setProvider = async (provider: string) => {
+  if (!isPro.value && provider !== 'scout') {
+    $q.notify({
+      type: 'warning',
+      message: 'Upgrade to Pro to use premium AI providers'
+    });
+    return;
+  }
+
   if (provider === currentProvider.value) return;
 
   isLoading.value = true;
@@ -102,11 +119,22 @@ const setProvider = async (provider: string) => {
 
 onMounted(() => {
   fetchProviderInfo();
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'plan_preview') {
+      previewOverride.value = (e.newValue as 'basic' | 'pro' | null) || null;
+      isPro.value = (previewOverride.value || plan.value) === 'pro';
+      fetchProviderInfo();
+    }
+  });
 });
 </script>
 
 <template>
   <div class="vision-provider-toggle">
+    <div v-if="!isPro" class="plan-note">
+      <q-icon name="lock" size="16px" class="q-mr-xs" />
+      Basic plan is limited to Scout (Meta Llama). Upgrade to access premium models.
+    </div>
     <!-- Free Tier Providers -->
     <div v-if="availableProviders.some(p => freeProviders.includes(p))" class="provider-section">
       <div class="section-label">
@@ -141,8 +169,13 @@ onMounted(() => {
         <q-btn
           v-for="provider in availableProviders.filter(p => premiumProviders.includes(p))"
           :key="provider"
-          :class="['provider-btn', 'provider-btn-premium', { 'provider-btn-active': currentProvider === provider }]"
-          :disable="isLoading"
+          :class="[
+            'provider-btn',
+            'provider-btn-premium',
+            { 'provider-btn-active': currentProvider === provider },
+            { 'provider-btn-locked': !isPro }
+          ]"
+          :disable="isLoading || (!isPro && provider !== 'scout')"
           unelevated
           @click="setProvider(provider)"
         >
@@ -153,6 +186,7 @@ onMounted(() => {
           </div>
         </q-btn>
       </div>
+      <div v-if="!isPro" class="pro-only-note">Pro only</div>
     </div>
 
     <div v-if="availableProviders.length === 0" class="no-providers-warning">
@@ -165,6 +199,17 @@ onMounted(() => {
 <style scoped>
 .vision-provider-toggle {
   width: 100%;
+}
+
+.plan-note {
+  display: flex;
+  align-items: center;
+  background: #eef2ff;
+  color: #1f2a44;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  margin-bottom: 12px;
 }
 
 .provider-section {
@@ -211,17 +256,42 @@ onMounted(() => {
 }
 
 .provider-btn-premium {
-  background: #f5f5f5;
+  background: #eef2ff;
+  color: #1f2937;
+  border-color: transparent;
 }
 
 .provider-btn-premium:hover {
   background: #eeeeee;
 }
 
+.provider-btn-locked {
+  position: relative;
+  overflow: hidden;
+}
+
+.provider-btn-locked::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.7);
+  z-index: 1;
+}
+
 .provider-btn-active {
   background: #e3f2fd;
   border-color: #274690;
   color: #274690;
+}
+
+.pro-only-note {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: #1f2937;
+  text-align: center;
+  margin-top: 6px;
+  font-weight: 600;
 }
 
 .provider-btn-free.provider-btn-active {

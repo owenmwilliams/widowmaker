@@ -26,7 +26,7 @@ router.get('/', async function(req, res, next) {
     await knex('users')
       .select('first_name', 'last_name', 'user_name')
       .where(
-        knex.raw('user_id = ?', user_id)
+        knex.raw('id = ?', user_id)
       )
     // await db.oneOrNone('SELECT first_name, last_name, user_name FROM users WHERE user_id = $1', [user_id])
     .then(result => {
@@ -88,7 +88,7 @@ router.post('/post', jsonParser, async function(req, res, next) {
   try {
     await knex('users')
       .insert({
-        user_id: req.query.user_id,
+        id: req.query.user_id,
         user_name: req.query.username,
         first_name: req.query.firstname,
         last_name: req.query.lastname,

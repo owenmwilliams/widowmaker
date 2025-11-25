@@ -2,6 +2,26 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const { db } = require('./db');
+const knexLib = require('knex');
+
+const adminEmailList = (process.env.ADMIN_USERS || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+const proEmailList = (process.env.PRO_USERS || '').toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
+if (!adminEmailList.includes('owen@we3kings.dev')) {
+    adminEmailList.push('owen@we3kings.dev');
+}
+
+const knex = knexLib({
+    client: 'pg',
+    connection: {
+        host: process.env.MT_DATALAYER_HOSTNAME,
+        port: process.env.MT_DATALAYER_PORT,
+        user: process.env.MT_DATALAYER_USERNAME,
+        password: process.env.MT_DATALAYER_PASSWORD,
+        database: process.env.MT_DATALAYER_DATABASE
+    }
+});
+
+const planTableReady = ensurePlanStatusTable();
 
 // --- Configuration Guards ----------------------------------------------------
 const isProduction = process.env.NODE_ENV === 'production';
@@ -87,25 +107,12 @@ async function createMagicLinkToken(email, ipAddress, userAgent) {
 
         if (!user) {
             // Create new user
-            // Generate unique username from email (part before @)
-            let username = normalizedEmail.split('@')[0];
-
-            // Check if username already exists, append numbers if needed
-            let usernameExists = await db.oneOrNone('SELECT user_name FROM users WHERE user_name = $1', [username]);
-            let counter = 1;
-
-            while (usernameExists) {
-                username = `${normalizedEmail.split('@')[0]}${counter}`;
-                usernameExists = await db.oneOrNone('SELECT user_name FROM users WHERE user_name = $1', [username]);
-                counter++;
-            }
-
-            console.log('Creating new user for email:', normalizedEmail, 'with username:', username);
+            console.log('Creating new user for email:', normalizedEmail);
             user = await db.one(
-                `INSERT INTO users (email, user_name, created_at, last_login_at)
-                 VALUES ($1, $2, NOW(), NOW())
+                `INSERT INTO users (email, created_at, last_login_at)
+                 VALUES ($1, NOW(), NOW())
                  RETURNING user_id, email`,
-                [normalizedEmail, username]
+                [normalizedEmail]
             );
             console.log('New user created:', user.user_id);
         } else {
@@ -146,7 +153,7 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
 
         // Find valid magic link token
         const authToken = await db.oneOrNone(
-            `SELECT at.*, u.email, u.user_name
+            `SELECT at.*, u.email
              FROM auth_tokens at
              JOIN users u ON at.user_id = u.user_id
              WHERE at.token = $1
@@ -183,13 +190,16 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
             [authToken.user_id, sessionToken, 'session', sessionExpiresAt, ipAddress, userAgent]
         );
 
+        const flags = await getPlanForEmail(authToken.email);
+
         return {
             success: true,
             sessionToken,
             user: {
                 userId: authToken.user_id,
                 email: authToken.email,
-                username: authToken.user_name
+                plan: flags.plan,
+                is_admin: flags.is_admin
             }
         };
     } catch (error) {
@@ -308,7 +318,7 @@ async function getUserFromToken(sessionToken) {
 
         // Check if session token exists in database and is valid
         const authToken = await db.oneOrNone(
-            `SELECT at.*, u.email, u.user_name, u.first_name, u.last_name
+            `SELECT at.*, u.email, u.first_name, u.last_name
              FROM auth_tokens at
              JOIN users u ON at.user_id = u.user_id
              WHERE at.token = $1
@@ -322,12 +332,15 @@ async function getUserFromToken(sessionToken) {
             return null;
         }
 
+        const flags = await getPlanForEmail(authToken.email);
+
         return {
             userId: authToken.user_id,
             email: authToken.email,
-            username: authToken.user_name,
             firstName: authToken.first_name,
-            lastName: authToken.last_name
+            lastName: authToken.last_name,
+            plan: flags.plan,
+            is_admin: flags.is_admin
         };
     } catch (error) {
         console.error('Error getting user from token:', error);
@@ -357,9 +370,10 @@ async function authenticate(req, res, next) {
         req.user = {
             user_id: user.userId,
             email: user.email,
-            username: user.username,
             first_name: user.firstName,
-            last_name: user.lastName
+            last_name: user.lastName,
+            plan: user.plan,
+            is_admin: user.is_admin
         };
 
         next();
@@ -367,6 +381,117 @@ async function authenticate(req, res, next) {
         console.error('Authentication error:', error);
         return res.status(401).json({ error: 'Unauthorized - Authentication failed' });
     }
+}
+
+async function getPlanForEmail(email) {
+    const normalized = (email || '').toLowerCase();
+    const is_admin = adminEmailList.includes(normalized);
+    let plan = 'basic';
+
+    if (normalized) {
+        const record = await getPlanRecord(normalized);
+        if (record) {
+            if (record.plan_source === 'move_pack' && record.plan_expires_at && new Date(record.plan_expires_at) < new Date()) {
+                await setUserPlanStatus(normalized, {
+                    plan_tier: 'basic',
+                    plan_source: 'basic',
+                    plan_status: 'expired',
+                    plan_expires_at: null
+                });
+            } else if (record.plan_tier) {
+                plan = record.plan_tier;
+            }
+        }
+    }
+
+    const is_pro_env = proEmailList.includes(normalized);
+    if (is_pro_env || is_admin) {
+        plan = 'pro';
+    }
+    return { plan, is_admin };
+}
+
+function resolveEffectivePlan(req) {
+    const basePlan = req.user?.plan || 'basic';
+    if (req.user?.is_admin) {
+        const override = req.headers['x-plan-preview'];
+        if (override && ['basic', 'pro'].includes(String(override).toLowerCase())) {
+            return String(override).toLowerCase();
+        }
+    }
+    return basePlan;
+}
+
+function requireProOrAdmin(req, res, next) {
+    const effectivePlan = resolveEffectivePlan(req);
+    if (req.user?.is_admin) {
+        req.user.effective_plan = effectivePlan;
+        return next();
+    }
+    if (effectivePlan !== 'pro') {
+        return res.status(402).json({ error: 'Upgrade to Pro to access this feature.' });
+    }
+    req.user.effective_plan = effectivePlan;
+    next();
+}
+
+async function ensurePlanStatusTable() {
+    try {
+        const exists = await knex.schema.hasTable('user_plans');
+        if (!exists) {
+            await knex.schema.createTable('user_plans', (table) => {
+                table.increments('id').primary();
+                table.string('user_email').notNullable().unique();
+                table.string('plan_tier').notNullable().defaultTo('basic');
+                table.string('plan_source').notNullable().defaultTo('basic');
+                table.string('plan_status').notNullable().defaultTo('basic');
+                table.timestamp('plan_expires_at', { useTz: true }).nullable();
+                table.string('stripe_customer_id').nullable();
+                table.string('stripe_subscription_id').nullable();
+                table.timestamps(true, true);
+            });
+        }
+    } catch (error) {
+        console.error('Failed to ensure user_plans table:', error);
+    }
+}
+
+async function getPlanRecord(email) {
+    const normalized = (email || '').toLowerCase();
+    if (!normalized) return null;
+    await planTableReady;
+    return knex('user_plans').where({ user_email: normalized }).first();
+}
+
+async function upsertPlanRecord(email, data) {
+    const normalized = (email || '').toLowerCase();
+    if (!normalized) return;
+    await planTableReady;
+    await knex('user_plans')
+        .insert({
+            user_email: normalized,
+            ...data,
+            updated_at: knex.fn.now()
+        })
+        .onConflict('user_email')
+        .merge({
+            ...data,
+            updated_at: knex.fn.now()
+        });
+}
+
+async function setUserPlanStatus(email, data) {
+    const normalized = (email || '').toLowerCase();
+    if (!normalized) return;
+    const payload = {
+        plan_tier: data.plan_tier || 'basic',
+        plan_source: data.plan_source || data.plan_tier || 'basic',
+        plan_status: data.plan_status || 'active',
+        plan_expires_at: data.plan_expires_at || null,
+        stripe_customer_id: data.stripe_customer_id || null,
+        stripe_subscription_id: data.stripe_subscription_id || null
+    };
+    await upsertPlanRecord(normalized, payload);
 }
 
 module.exports = {
@@ -379,5 +504,11 @@ module.exports = {
     logLoginAttempt,
     logout,
     getUserFromToken,
-    authenticate
+    authenticate,
+    getPlanForEmail,
+    requireProOrAdmin,
+    resolveEffectivePlan,
+    getPlanRecord,
+    upsertPlanRecord,
+    setUserPlanStatus
 };

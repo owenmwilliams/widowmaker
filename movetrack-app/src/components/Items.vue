@@ -14,6 +14,8 @@
   const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
 
   const username = ref('')
+  const userId = ref('')
+  const redirectedToMobile = ref(false)
 
   const emits = defineEmits<{
     (e: 'app:loading', id: boolean): void
@@ -45,9 +47,13 @@
         });
 
         if (response.data.success) {
-          // Use email as username if user_name is not set
           username.value = response.data.user.username || response.data.user.email;
+          userId.value = response.data.user.userId;
           emits('app:loading', false);
+          if (isMobile.value) {
+            redirectedToMobile.value = true;
+            router.replace({ name: 'mobile-locations' });
+          }
         } else {
           // Session expired, redirect to login
           localStorage.removeItem('session_token');
@@ -79,14 +85,14 @@
 </script>
 
 <template>
-  <div v-if="isMobile">
-    <MobileItemsVue :user="username" />
+  <div v-if="isMobile && !redirectedToMobile">
+    <MobileItemsVue :user="userId" />
   </div>
 
   <div v-else>
-    <DesktopItemsVue :user="username" />
+    <DesktopItemsVue :user="userId" />
   </div>
-    
+
 </template>
 
 <style scoped>

@@ -6,7 +6,11 @@ import Login from '../components/Login.vue'
 import PrivacyPolicy from '../views/PrivacyPolicy.vue'
 import TermsAndConditions from '../views/TermsAndConditions.vue'
 import LearningCenter from '../views/LearningCenter.vue'
+import Pricing from '../views/Pricing.vue'
 import Items from '../components/Items.vue'
+import MobileLocations from '../views/MobileLocations.vue'
+import MobileMoves from '../views/MobileMoves.vue'
+import MobileSettingsPage from '../views/MobileSettingsPage.vue'
 import NotFound from '../views/NotFound.vue'
 
 // Custom auth guard using session tokens
@@ -40,6 +44,32 @@ const router = createRouter({
       beforeEnter: authGuard
     },
     {
+      path: "/mobile",
+      redirect: { name: 'mobile-locations' }
+    },
+    {
+      path: "/mobile/locations/:locationId?",
+      name: "mobile-locations",
+      component: MobileLocations,
+      beforeEnter: authGuard
+    },
+    {
+      path: "/mobile/moves/:moveId?",
+      name: "mobile-moves",
+      component: MobileMoves,
+      beforeEnter: authGuard
+    },
+    {
+      path: "/mobile/settings",
+      name: "mobile-settings",
+      component: MobileSettingsPage,
+      beforeEnter: authGuard
+    },
+    {
+      path: "/move-session",
+      redirect: { name: 'mobile-moves' }
+    },
+    {
       path: "/",
       name: "home",
       component: Home
@@ -69,6 +99,11 @@ const router = createRouter({
       path: "/terms",
       name: "terms",
       component: TermsAndConditions
+    },
+    {
+      path: "/pricing",
+      name: "pricing",
+      component: Pricing
     },
     // Fall back component for pages not found
     {

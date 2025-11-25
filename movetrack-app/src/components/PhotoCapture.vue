@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
-import { useQuasar } from 'quasar';
-import axios from 'axios';
-import type { InventoryItem } from '../data/inventoryItems';
-import { inventoryStore } from '../stores/InventoryStore';
+import { ref, computed, onMounted, watch } from "vue";
+import { useQuasar } from "quasar";
+import axios from "axios";
+import type { InventoryItem } from "../data/inventoryItems";
+import { inventoryStore } from "../stores/InventoryStore";
 
 const $q = useQuasar();
 const store = inventoryStore();
 
 // To adjust url based on whether in prod or not
-const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+const core_url =
+  import.meta.env.MODE == "development"
+    ? "http://localhost:3050"
+    : "https://movetrack-api-7hwn7ggbiq-uc.a.run.app";
 
 const emit = defineEmits<{
-  (e: 'item-added', item: InventoryItem): void;
-  (e: 'close'): void;
+  (e: "item-added", item: InventoryItem): void;
+  (e: "close"): void;
 }>();
 
 // Vision provider (passed from parent or defaults to current backend setting)
@@ -21,7 +24,7 @@ const props = defineProps<{
   visionProvider?: string;
   user?: string;
   autoOpen?: boolean;
-  defaultCaptureMode?: 'single' | 'multi';
+  defaultCaptureMode?: "single" | "multi";
 }>();
 
 // Camera/Photo state
@@ -29,16 +32,21 @@ const showCamera = ref(false);
 const capturedImage = ref<string | null>(null);
 const isProcessing = ref(false);
 
+const multiScanLimit = ref<number | null>(null);
+const multiScanRemaining = ref<number | null>(null);
+const multiScanNextReset = ref<string | null>(null);
+const multiPlanType = ref<"basic" | "pro">("basic");
+
 // Capture mode: 'single' or 'multi'
-const captureMode = ref<'single' | 'multi'>('single');
+const captureMode = ref<"single" | "multi">("single");
 const showModeSelection = ref(true);
 
-const applyDefaultCaptureMode = (mode?: 'single' | 'multi') => {
+const applyDefaultCaptureMode = (mode?: "single" | "multi") => {
   if (mode) {
     captureMode.value = mode;
     showModeSelection.value = false;
   } else {
-    captureMode.value = 'single';
+    captureMode.value = "single";
     showModeSelection.value = true;
   }
 };
@@ -48,7 +56,7 @@ watch(
   (mode) => {
     applyDefaultCaptureMode(mode);
   },
-  { immediate: true }
+  { immediate: true },
 );
 
 // Multi-item state
@@ -67,79 +75,113 @@ interface DetectedItem {
 const detectedItems = ref<DetectedItem[]>([]);
 const selectedItemIndex = ref<number | null>(null);
 const imageNaturalDimensions = ref({ width: 0, height: 0 });
+const processingMultiItemIds = ref<Set<number>>(new Set());
+const nameEditIndex = ref<number | null>(null);
+const editedName = ref("");
+const isNameDialogOpen = computed({
+  get() {
+    return nameEditIndex.value !== null;
+  },
+  set(value: boolean) {
+    if (!value) {
+      nameEditIndex.value = null;
+    }
+  },
+});
 
 // Loading overlay state
-const loadingMessage = ref('');
+const loadingMessage = ref("");
 const loadingMessageInterval = ref<number | null>(null);
 
 // Fun loading messages
 const loadingMessages = [
-  'Analyzing your treasure...',
-  'Counting pixels...',
-  'Consulting the AI oracle...',
-  'Identifying mysterious objects...',
-  'Channeling digital intuition...',
-  'Teaching robots to see...',
-  'Decoding visual mysteries...',
-  'Summoning computer vision...',
-  'Reading the item tea leaves...',
-  'Activating neural networks...',
-  'Examining every detail...',
-  'Making educated guesses...',
-  'Putting on AI glasses...',
-  'Detecting object essence...',
-  'Unleashing image recognition...'
+  "Analyzing your treasure...",
+  "Counting pixels...",
+  "Consulting the AI oracle...",
+  "Identifying mysterious objects...",
+  "Channeling digital intuition...",
+  "Teaching robots to see...",
+  "Decoding visual mysteries...",
+  "Summoning computer vision...",
+  "Reading the item tea leaves...",
+  "Activating neural networks...",
+  "Examining every detail...",
+  "Making educated guesses...",
+  "Putting on AI glasses...",
+  "Detecting object essence...",
+  "Unleashing image recognition...",
 ];
 
 // Item editing state
 const newItem = ref<Partial<InventoryItem>>({
-  name: '',
+  name: "",
   qty: 1,
-  size: '',
-  weight: '',
-  material: '',
-  primaryColor: '',
-  description: '',
-  tags: []
+  size: "",
+  weight: "",
+  material: "",
+  primaryColor: "",
+  description: "",
+  tags: [],
 });
 
 const editDimensions = ref({ length: 0, width: 0, height: 0 });
 const editWeight = ref(0);
 const editFragile = ref(false);
 const duplicateThreshold = 0.4;
-const activeCollectionId = computed<number | null>(() => {
-  const refValue = store.activeCollection?.value as { value: number } | undefined;
-  return refValue?.value ?? null;
+const activeCollectionId = computed<string | null>(() => {
+  const refValue = store.activeCollection?.value;
+  if (!refValue) return null;
+  return typeof refValue === "string" ? refValue : String(refValue);
 });
 const analyzeItemBlob = async (blob: Blob) => {
-  const sessionToken = localStorage.getItem('session_token');
+  const sessionToken = localStorage.getItem("session_token");
   if (!sessionToken) {
-    throw new Error('Please log in to analyze items');
+    throw new Error("Please log in to analyze items");
   }
 
   const formData = new FormData();
-  formData.append('image', blob, 'item.jpg');
-  const providerParam = props.visionProvider ? `?provider=${props.visionProvider}` : '';
+  formData.append("image", blob, "item.jpg");
+  const providerParam = props.visionProvider
+    ? `?provider=${props.visionProvider}`
+    : "";
 
-  const response = await axios.post(`${core_url}/vision/analyze-item${providerParam}`, formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-      Authorization: `Bearer ${sessionToken}`
-    }
-  });
+  const response = await axios.post(
+    `${core_url}/vision/analyze-item${providerParam}`,
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    },
+  );
 
   if (response.data?.success) {
     return response.data.data;
   }
 
-  throw new Error(response.data?.error || 'Vision analysis failed');
+  throw new Error(response.data?.error || "Vision analysis failed");
+};
+
+const boundingBoxStyle = (box: DetectedItem["boundingBox"]) => {
+  const padding = 0.02;
+  const left = Math.max(box.x - padding, 0) * 100;
+  const top = Math.max(box.y - padding, 0) * 100;
+  const width = Math.min(box.width + padding * 2, 1 - box.x) * 100;
+  const height = Math.min(box.height + padding * 2, 1 - box.y) * 100;
+  return {
+    left: `${left}%`,
+    top: `${top}%`,
+    width: `${width}%`,
+    height: `${height}%`,
+  };
 };
 
 const tokenize = (value?: string | null) => {
   if (!value) return [];
   return value
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter(Boolean);
 };
@@ -148,7 +190,7 @@ const similarityScore = (aTokens: string[], bTokens: string[]) => {
   if (!aTokens.length || !bTokens.length) return 0;
   const setA = new Set(aTokens);
   const setB = new Set(bTokens);
-  const intersection = [...setA].filter(token => setB.has(token));
+  const intersection = [...setA].filter((token) => setB.has(token));
   return intersection.length / Math.min(setA.size, setB.size);
 };
 
@@ -157,21 +199,31 @@ const potentialMatches = computed(() => {
   if (!targetTokens.length) return [];
 
   return store.items
-    .map(item => {
+    .map((item) => {
       const tokens = tokenize(item.label);
       const score = similarityScore(targetTokens, tokens);
-      const isExact = newItem.value?.name?.trim().toLowerCase() === item.label?.trim().toLowerCase();
-      const sameCollection = !!activeCollectionId.value && item.collection === activeCollectionId.value;
+      const isExact =
+        newItem.value?.name?.trim().toLowerCase() ===
+        item.label?.trim().toLowerCase();
+      const sameCollection =
+        !!activeCollectionId.value &&
+        item.collection === activeCollectionId.value;
       return {
         id: item.value,
         name: item.label,
-        collection: store.collections.find(c => c.value === item.collection)?.label || 'Unassigned',
-        container: store.containers.find(c => c.value === item.container)?.label || 'No container',
+        collection:
+          store.collections.find((c) => c.value === item.collection)?.label ||
+          "Unassigned",
+        container:
+          store.containers.find((c) => c.value === item.container)?.label ||
+          "No container",
         score: isExact ? 1 : score,
-        sameCollection
+        sameCollection,
       };
     })
-    .filter(match => match.score >= duplicateThreshold || match.sameCollection)
+    .filter(
+      (match) => match.score >= duplicateThreshold || match.sameCollection,
+    )
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 });
@@ -179,17 +231,17 @@ const potentialMatches = computed(() => {
 const handleUseExistingItem = (itemId: number) => {
   if (!props.user) {
     $q.notify({
-      type: 'warning',
-      message: 'Please log in again to edit existing items.'
+      type: "warning",
+      message: "Please log in again to edit existing items.",
     });
     return;
   }
   store.openItemDetailsModal(itemId, props.user);
-  emit('close');
+  emit("close");
   $q.notify({
-    type: 'info',
-    message: 'Opening existing item for review',
-    position: 'bottom'
+    type: "info",
+    message: "Opening existing item for review",
+    position: "bottom",
   });
 };
 
@@ -197,17 +249,63 @@ const handleUseExistingItem = (itemId: number) => {
 const fileInput = ref<HTMLInputElement | null>(null);
 
 const isMobile = computed(() => {
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent,
+  );
 });
+
+const multiScanDisplay = computed(() => {
+  if (multiScanLimit.value == null) return null;
+  const remaining = Math.max(
+    multiScanRemaining.value ?? multiScanLimit.value,
+    0,
+  );
+  return `${remaining}/${multiScanLimit.value}`;
+});
+
+const hasMultiQuota = computed(() => multiScanLimit.value !== null);
+const multiScanLabel = computed(() => {
+  const display = multiScanDisplay.value;
+  return display ? `Multiple Items (${display})` : "Multiple Items";
+});
+
+const fetchMultiQuota = async () => {
+  const sessionToken = localStorage.getItem("session_token");
+  if (!sessionToken) return;
+  try {
+    const response = await axios.get(`${core_url}/vision/multi-quota`, {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    });
+    multiPlanType.value = response.data.plan || "basic";
+    if (response.data.limit != null) {
+      multiScanLimit.value = response.data.limit;
+      multiScanRemaining.value =
+        typeof response.data.remaining === "number"
+          ? Math.max(response.data.remaining, 0)
+          : response.data.limit;
+      multiScanNextReset.value = response.data.nextReset || null;
+    } else {
+      multiScanLimit.value = null;
+      multiScanRemaining.value = null;
+      multiScanNextReset.value = null;
+    }
+  } catch (error) {
+    console.error("Error fetching multi quota:", error);
+  }
+};
 
 // Start loading message rotation
 const startLoadingMessages = () => {
   // Set initial message
-  loadingMessage.value = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+  loadingMessage.value =
+    loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
 
   // Rotate messages every 2.5 seconds
   loadingMessageInterval.value = window.setInterval(() => {
-    loadingMessage.value = loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
+    loadingMessage.value =
+      loadingMessages[Math.floor(Math.random() * loadingMessages.length)];
   }, 2500);
 };
 
@@ -217,32 +315,45 @@ const stopLoadingMessages = () => {
     clearInterval(loadingMessageInterval.value);
     loadingMessageInterval.value = null;
   }
-  loadingMessage.value = '';
+  loadingMessage.value = "";
 };
 
 // Crop image based on bounding box
 const cropImageFromBoundingBox = async (
   imageDataUrl: string,
   boundingBox: { x: number; y: number; width: number; height: number },
-  naturalDimensions: { width: number; height: number }
+  naturalDimensions: { width: number; height: number },
+  paddingPercent = 0.1,
 ): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       // Create canvas for cropping
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
 
       if (!ctx) {
-        reject(new Error('Failed to get canvas context'));
+        reject(new Error("Failed to get canvas context"));
         return;
       }
 
       // Calculate actual pixel coordinates from normalized values
-      const cropX = boundingBox.x * naturalDimensions.width;
-      const cropY = boundingBox.y * naturalDimensions.height;
-      const cropWidth = boundingBox.width * naturalDimensions.width;
-      const cropHeight = boundingBox.height * naturalDimensions.height;
+      const padX = boundingBox.width * naturalDimensions.width * paddingPercent;
+      const padY =
+        boundingBox.height * naturalDimensions.height * paddingPercent;
+      const cropX = Math.max(boundingBox.x * naturalDimensions.width - padX, 0);
+      const cropY = Math.max(
+        boundingBox.y * naturalDimensions.height - padY,
+        0,
+      );
+      const cropWidth = Math.min(
+        boundingBox.width * naturalDimensions.width + padX * 2,
+        naturalDimensions.width - cropX,
+      );
+      const cropHeight = Math.min(
+        boundingBox.height * naturalDimensions.height + padY * 2,
+        naturalDimensions.height - cropY,
+      );
 
       // Set canvas size to crop dimensions
       canvas.width = cropWidth;
@@ -251,22 +362,32 @@ const cropImageFromBoundingBox = async (
       // Draw the cropped portion
       ctx.drawImage(
         img,
-        cropX, cropY, cropWidth, cropHeight,  // Source rectangle
-        0, 0, cropWidth, cropHeight            // Destination rectangle
+        cropX,
+        cropY,
+        cropWidth,
+        cropHeight, // Source rectangle
+        0,
+        0,
+        cropWidth,
+        cropHeight, // Destination rectangle
       );
 
       // Convert canvas to blob
-      canvas.toBlob((blob) => {
-        if (blob) {
-          resolve(blob);
-        } else {
-          reject(new Error('Failed to create blob from canvas'));
-        }
-      }, 'image/jpeg', 0.9);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error("Failed to create blob from canvas"));
+          }
+        },
+        "image/jpeg",
+        0.9,
+      );
     };
 
     img.onerror = () => {
-      reject(new Error('Failed to load image'));
+      reject(new Error("Failed to load image"));
     };
 
     img.src = imageDataUrl;
@@ -282,7 +403,7 @@ const openCamera = () => {
 };
 
 // Select capture mode
-const selectMode = (mode: 'single' | 'multi') => {
+const selectMode = (mode: "single" | "multi") => {
   captureMode.value = mode;
   openCamera();
 };
@@ -302,10 +423,13 @@ const handlePhotoCapture = async (event: Event) => {
     capturedImage.value = e.target?.result as string;
 
     // For multi-item mode, also get image dimensions
-    if (captureMode.value === 'multi') {
+    if (captureMode.value === "multi") {
       const img = new Image();
       img.onload = () => {
-        imageNaturalDimensions.value = { width: img.naturalWidth, height: img.naturalHeight };
+        imageNaturalDimensions.value = {
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        };
       };
       img.src = e.target?.result as string;
     }
@@ -313,7 +437,7 @@ const handlePhotoCapture = async (event: Event) => {
   reader.readAsDataURL(file);
 
   // Branch based on capture mode
-  if (captureMode.value === 'single') {
+  if (captureMode.value === "single") {
     await handleSingleItemCapture(file);
   } else {
     await handleMultiItemCapture(file);
@@ -327,29 +451,39 @@ const handleSingleItemCapture = async (file: File) => {
 
   try {
     // Get session token for authentication
-    const sessionToken = localStorage.getItem('session_token');
+    const sessionToken = localStorage.getItem("session_token");
 
     if (!sessionToken) {
-      throw new Error('Please log in to use AI-powered photo analysis');
+      throw new Error("Please log in to use AI-powered photo analysis");
     }
 
     // Call vision API
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append("image", file);
 
-    const providerParam = props.visionProvider ? `?provider=${props.visionProvider}` : '';
-    const response = await axios.post(`${core_url}/vision/analyze-item${providerParam}`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-        'Authorization': `Bearer ${sessionToken}`
-      }
-    });
+    const providerParam = props.visionProvider
+      ? `?provider=${props.visionProvider}`
+      : "";
+    const response = await axios.post(
+      `${core_url}/vision/analyze-item${providerParam}`,
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+      },
+    );
 
     if (response.data.success) {
       const aiData = response.data.data;
 
       // Safely extract dimensions with fallback values
-      const dimensions = aiData.estimatedDimensions || { length: 6, width: 4, height: 4 };
+      const dimensions = aiData.estimatedDimensions || {
+        length: 6,
+        width: 4,
+        height: 4,
+      };
       const weight = aiData.estimatedWeight || 1.0;
 
       // Map AI response to item format
@@ -358,48 +492,50 @@ const handleSingleItemCapture = async (file: File) => {
         qty: 1,
         size: `${dimensions.length}"×${dimensions.width}"×${dimensions.height}"`,
         weight: `${weight} lbs`,
-        material: aiData.material || '',
-        primaryColor: aiData.color || '',
-        description: aiData.reasoning || 'Item detected from photo',
+        material: aiData.material || "",
+        primaryColor: aiData.color || "",
+        description: aiData.reasoning || "Item detected from photo",
         tags: Array.isArray(aiData.tags) ? aiData.tags : [],
-        image: capturedImage.value || ''
+        image: capturedImage.value || "",
       };
 
       editDimensions.value = {
         length: dimensions.length || 0,
         width: dimensions.width || 0,
-        height: dimensions.height || 0
+        height: dimensions.height || 0,
       };
       editWeight.value = weight;
       editFragile.value = aiData.fragile || false;
 
-      const providerName = response.data.provider || 'AI';
-      const confidencePercent = aiData.confidence ? Math.round(aiData.confidence * 100) : 80;
+      const providerName = response.data.provider || "AI";
+      const confidencePercent = aiData.confidence
+        ? Math.round(aiData.confidence * 100)
+        : 80;
 
       $q.notify({
-        type: 'positive',
+        type: "positive",
         message: `Item detected! (${providerName}, ${confidencePercent}% confidence)`,
-        caption: 'Review and confirm details below',
-        position: 'bottom',
-        timeout: 3000
+        caption: "Review and confirm details below",
+        position: "bottom",
+        timeout: 3000,
       });
     } else {
-      throw new Error(response.data.error || 'Failed to analyze image');
+      throw new Error(response.data.error || "Failed to analyze image");
     }
   } catch (error: any) {
-    console.error('Vision API error:', error);
+    console.error("Vision API error:", error);
 
     // Fallback to basic detection
     newItem.value = {
       name: detectItemName(file.name),
       qty: 1,
       size: '6"×4"×4"',
-      weight: '1.0 lbs',
-      material: '',
-      primaryColor: '',
-      description: 'Please update item details manually',
+      weight: "1.0 lbs",
+      material: "",
+      primaryColor: "",
+      description: "Please update item details manually",
       tags: [],
-      image: capturedImage.value || ''
+      image: capturedImage.value || "",
     };
 
     editDimensions.value = { length: 6, width: 4, height: 4 };
@@ -407,11 +543,14 @@ const handleSingleItemCapture = async (file: File) => {
     editFragile.value = false;
 
     $q.notify({
-      type: 'warning',
-      message: 'Could not analyze image automatically',
-      caption: error.response?.data?.error || error.message || 'Please enter details manually',
-      position: 'bottom',
-      timeout: 3000
+      type: "warning",
+      message: "Could not analyze image automatically",
+      caption:
+        error.response?.data?.error ||
+        error.message ||
+        "Please enter details manually",
+      position: "bottom",
+      timeout: 3000,
     });
   } finally {
     isProcessing.value = false;
@@ -427,23 +566,29 @@ const handleMultiItemCapture = async (file: File) => {
 
   try {
     // Get session token for authentication
-    const sessionToken = localStorage.getItem('session_token');
+    const sessionToken = localStorage.getItem("session_token");
 
     if (!sessionToken) {
-      throw new Error('Please log in to use AI-powered photo analysis');
+      throw new Error("Please log in to use AI-powered photo analysis");
     }
 
     // Call multi-item vision API
     const formData = new FormData();
-    formData.append('image', file);
+    formData.append("image", file);
 
-    const providerParam = props.visionProvider ? `?provider=${props.visionProvider}` : '';
-    const response = await axios.post(`${core_url}/vision/analyze-multi-item${providerParam}`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-        'Authorization': `Bearer ${sessionToken}`
-      }
-    });
+    const providerParam = props.visionProvider
+      ? `?provider=${props.visionProvider}`
+      : "";
+    const response = await axios.post(
+      `${core_url}/vision/analyze-multi-item${providerParam}`,
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+      },
+    );
 
     if (response.data.success) {
       const aiData = response.data.data;
@@ -451,29 +596,63 @@ const handleMultiItemCapture = async (file: File) => {
       // Store detected items
       detectedItems.value = aiData.items || [];
 
-      const providerName = response.data.provider || 'AI';
+      const providerName = response.data.provider || "AI";
       const itemCount = aiData.itemCount || detectedItems.value.length;
 
+      if (response.data.demoInfo) {
+        const info = response.data.demoInfo;
+        if (typeof info.limit === "number") {
+          multiScanLimit.value = info.limit;
+        }
+        if (typeof info.remaining === "number") {
+          multiScanRemaining.value = Math.max(info.remaining, 0);
+        }
+        if (info.nextReset) {
+          multiScanNextReset.value = info.nextReset;
+        }
+        multiPlanType.value = "basic";
+      }
+
       $q.notify({
-        type: 'positive',
+        type: "positive",
         message: `${itemCount} items detected! (${providerName})`,
-        caption: 'Click on an item to add it to inventory',
-        position: 'bottom',
-        timeout: 3000
+        caption: "Click on an item to add it to inventory",
+        position: "bottom",
+        timeout: 3000,
       });
     } else {
-      throw new Error(response.data.error || 'Failed to analyze image');
+      throw new Error(response.data.error || "Failed to analyze image");
     }
   } catch (error: any) {
-    console.error('Multi-item Vision API error:', error);
+    console.error("Multi-item Vision API error:", error);
 
-    $q.notify({
-      type: 'warning',
-      message: 'Could not detect multiple items',
-      caption: error.response?.data?.error || error.message || 'Try single-item mode instead',
-      position: 'bottom',
-      timeout: 3000
-    });
+    if (
+      error.response?.status === 402 &&
+      error.response?.data?.demoLimitReached
+    ) {
+      multiScanLimit.value = error.response.data.limit ?? multiScanLimit.value;
+      multiScanRemaining.value = 0;
+      multiScanNextReset.value =
+        error.response.data.nextReset || multiScanNextReset.value;
+      $q.notify({
+        type: "warning",
+        message: "Weekly multi-item scan limit reached",
+        caption: "Upgrade to Pro for unlimited scans",
+        position: "bottom",
+        timeout: 4000,
+      });
+    } else {
+      $q.notify({
+        type: "warning",
+        message: "Could not detect multiple items",
+        caption:
+          error.response?.data?.error ||
+          error.message ||
+          "Try single-item mode instead",
+        position: "bottom",
+        timeout: 3000,
+      });
+    }
 
     // Reset to mode selection
     resetForm();
@@ -488,18 +667,18 @@ const handleMultiItemCapture = async (file: File) => {
 // Simple name detection from filename
 const detectItemName = (filename: string): string => {
   return filename
-    .replace(/\.[^/.]+$/, '') // Remove extension
-    .replace(/[_-]/g, ' ') // Replace underscores/hyphens with spaces
-    .replace(/\b\w/g, l => l.toUpperCase()); // Capitalize
+    .replace(/\.[^/.]+$/, "") // Remove extension
+    .replace(/[_-]/g, " ") // Replace underscores/hyphens with spaces
+    .replace(/\b\w/g, (l) => l.toUpperCase()); // Capitalize
 };
 
 // Save item
 const saveItem = async () => {
   if (!newItem.value.name) {
     $q.notify({
-      type: 'warning',
-      message: 'Please enter an item name',
-      position: 'bottom'
+      type: "warning",
+      message: "Please enter an item name",
+      position: "bottom",
     });
     return;
   }
@@ -507,10 +686,10 @@ const saveItem = async () => {
   // Check if we have an active collection (required for items)
   if (!store.activeCollection?.value) {
     $q.notify({
-      type: 'warning',
-      message: 'Please select a collection first',
-      caption: 'Items must be added to a collection',
-      position: 'bottom'
+      type: "warning",
+      message: "Please select a collection first",
+      caption: "Items must be added to a collection",
+      position: "bottom",
     });
     return;
   }
@@ -518,9 +697,9 @@ const saveItem = async () => {
   // Check if user is provided
   if (!props.user) {
     $q.notify({
-      type: 'negative',
-      message: 'User not found. Please log in again.',
-      position: 'bottom'
+      type: "negative",
+      message: "User not found. Please log in again.",
+      position: "bottom",
     });
     return;
   }
@@ -528,11 +707,8 @@ const saveItem = async () => {
   try {
     // Show loading
     $q.loading.show({
-      message: 'Saving item to inventory...'
+      message: "Saving item to inventory...",
     });
-
-    // Construct dimensions string
-    const dimensions = `${editDimensions.value.length}"×${editDimensions.value.width}"×${editDimensions.value.height}"`;
 
     // Convert base64 image to blob if available
     let imageBlob: Blob | undefined;
@@ -545,7 +721,7 @@ const saveItem = async () => {
     await store.createItem(
       props.user,
       newItem.value.name,
-      newItem.value.description || '',
+      newItem.value.description || "",
       newItem.value.qty || 1,
       store.activeCollection.value,
       store.activeContainer?.value,
@@ -554,49 +730,46 @@ const saveItem = async () => {
       editFragile.value,
       undefined, // priority
       editWeight.value,
-      dimensions,
       editDimensions.value.length || null,
       editDimensions.value.width || null,
       editDimensions.value.height || null,
-      `Material: ${newItem.value.material || 'N/A'}, Color: ${newItem.value.primaryColor || 'N/A'}`,
+      `Material: ${newItem.value.material || "N/A"}, Color: ${newItem.value.primaryColor || "N/A"}`,
       newItem.value.material || undefined,
       newItem.value.primaryColor || undefined,
-      newItem.value.tags || []
+      newItem.value.tags || [],
     );
 
     // Reload inventory to show new item
     await store.loadInventory(props.user);
 
     $q.notify({
-      type: 'positive',
+      type: "positive",
       message: `${newItem.value.name} added to inventory!`,
-      position: 'bottom',
-      timeout: 2000
+      position: "bottom",
+      timeout: 2000,
     });
 
     resetForm();
-    emit('close');
+    emit("close");
   } catch (error: any) {
-    console.error('Error saving item:', error);
+    console.error("Error saving item:", error);
 
     // Check if it's a 401 authentication error
     if (error.response?.status === 401) {
       $q.notify({
-        type: 'negative',
-        message: 'Session Expired',
-        caption: 'Please log out and log back in to continue',
-        position: 'bottom',
+        type: "negative",
+        message: "Session Expired",
+        caption: "Please log out and log back in to continue",
+        position: "bottom",
         timeout: 5000,
-        actions: [
-          { label: 'Dismiss', color: 'white' }
-        ]
+        actions: [{ label: "Dismiss", color: "white" }],
       });
     } else {
       $q.notify({
-        type: 'negative',
-        message: 'Failed to save item',
-        caption: error.message || 'Please try again',
-        position: 'bottom'
+        type: "negative",
+        message: "Failed to save item",
+        caption: error.message || "Please try again",
+        position: "bottom",
       });
     }
   } finally {
@@ -610,14 +783,45 @@ const quickConfirm = () => {
 };
 
 // Handle adding a multi-item detection result
+const setProcessingMultiItem = (id: number, processing: boolean) => {
+  const next = new Set(processingMultiItemIds.value);
+  if (processing) {
+    next.add(id);
+  } else {
+    next.delete(id);
+  }
+  processingMultiItemIds.value = next;
+};
+
+const isProcessingMultiItem = (id: number) =>
+  processingMultiItemIds.value.has(id);
+
+const openNameEditDialog = (index: number) => {
+  nameEditIndex.value = index;
+  editedName.value = detectedItems.value[index]?.name || "";
+};
+
+const saveEditedName = () => {
+  if (nameEditIndex.value === null) return;
+  const target = detectedItems.value[nameEditIndex.value];
+  if (target && editedName.value.trim()) {
+    target.name = editedName.value.trim();
+  }
+  nameEditIndex.value = null;
+};
+
+const cancelEditedName = () => {
+  nameEditIndex.value = null;
+};
+
 const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
   // Check if we have an active collection (required for items)
   if (!store.activeCollection?.value) {
     $q.notify({
-      type: 'warning',
-      message: 'Please select a collection first',
-      caption: 'Items must be added to a collection',
-      position: 'bottom'
+      type: "warning",
+      message: "Please select a collection first",
+      caption: "Items must be added to a collection",
+      position: "bottom",
     });
     return;
   }
@@ -625,17 +829,24 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
   // Check if user is provided
   if (!props.user) {
     $q.notify({
-      type: 'negative',
-      message: 'User not found. Please log in again.',
-      position: 'bottom'
+      type: "negative",
+      message: "User not found. Please log in again.",
+      position: "bottom",
     });
     return;
   }
 
+  if (processingMultiItemIds.value.has(item.id)) {
+    return;
+  }
+
   try {
-    // Show loading
-    $q.loading.show({
-      message: `Analyzing ${item.name}...`
+    setProcessingMultiItem(item.id, true);
+    $q.notify({
+      type: "info",
+      message: `Adding ${item.name} in the background...`,
+      position: "bottom",
+      timeout: 1500,
     });
 
     // Crop the image based on bounding box
@@ -645,10 +856,11 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
         imageBlob = await cropImageFromBoundingBox(
           capturedImage.value,
           item.boundingBox,
-          imageNaturalDimensions.value
+          imageNaturalDimensions.value,
+          0.15,
         );
       } catch (error) {
-        console.error('Failed to crop image, using full image instead:', error);
+        console.error("Failed to crop image, using full image instead:", error);
         // Fallback to full image if cropping fails
         const response = await fetch(capturedImage.value);
         imageBlob = await response.blob();
@@ -660,56 +872,67 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       try {
         aiDetails = await analyzeItemBlob(imageBlob);
       } catch (analysisError) {
-        console.warn('Unable to fetch AI details for multi-item capture', analysisError);
+        console.warn(
+          "Unable to fetch AI details for multi-item capture",
+          analysisError,
+        );
       }
     }
 
     const dimensions = aiDetails?.estimatedDimensions;
     const weightEstimate = aiDetails?.estimatedWeight;
-    const description = aiDetails?.reasoning || 'Detected from multi-item photo';
+    const description =
+      aiDetails?.reasoning || "Detected from multi-item photo";
     const tags = Array.isArray(aiDetails?.tags) ? aiDetails.tags : [];
-    const material = aiDetails?.material ?? '';
-    const color = aiDetails?.color ?? '';
+    const material = aiDetails?.material ?? "";
+    const color = aiDetails?.color ?? "";
 
     const dimensionString = dimensions
       ? `${dimensions.length}"×${dimensions.width}"×${dimensions.height}"`
-      : '';
+      : "";
 
     const lengthIn = dimensions?.length ?? null;
     const widthIn = dimensions?.width ?? null;
     const heightIn = dimensions?.height ?? null;
 
     // Call the inventory store's createItem function with minimal details
+    const notes = [
+      description,
+      dimensionString ? `Dimensions: ${dimensionString}` : null,
+      material ? `Material: ${material}` : null,
+      color ? `Color: ${color}` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     await store.createItem(
       props.user,
       item.name,
       description,
-      1, // quantity
+      1,
       store.activeCollection.value,
       store.activeContainer?.value,
       imageBlob,
-      null, // estimatedValue
+      null,
       aiDetails?.fragile ?? false,
-      undefined, // priority
+      undefined,
       weightEstimate ?? null,
-      dimensionString,
       lengthIn,
       widthIn,
       heightIn,
-      `Material: ${material || 'N/A'}, Color: ${color || 'N/A'}`,
+      notes || undefined,
       material || undefined,
       color || undefined,
-      tags
+      tags,
     );
 
-    // Reload inventory to show new item
-    await store.loadInventory(props.user);
-
     $q.notify({
-      type: 'positive',
-      message: aiDetails ? `${item.name} added with AI details!` : `${item.name} added!`,
-      position: 'bottom',
-      timeout: 2000
+      type: "positive",
+      message: aiDetails
+        ? `${item.name} added with AI details!`
+        : `${item.name} added!`,
+      position: "bottom",
+      timeout: 2000,
     });
 
     // Remove the item from the detected items list
@@ -718,25 +941,25 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
     // If no more items, close and reset
     if (detectedItems.value.length === 0) {
       $q.notify({
-        type: 'info',
-        message: 'All items added!',
-        position: 'bottom',
-        timeout: 2000
+        type: "info",
+        message: "All items added!",
+        position: "bottom",
+        timeout: 2000,
       });
       resetForm();
-      emit('close');
+      emit("close");
     }
   } catch (error: any) {
-    console.error('Error adding multi-item:', error);
+    console.error("Error adding multi-item:", error);
 
     $q.notify({
-      type: 'negative',
-      message: 'Failed to add item',
-      caption: error.message || 'Please try again',
-      position: 'bottom'
+      type: "negative",
+      message: "Failed to add item",
+      caption: error.message || "Please try again",
+      position: "bottom",
     });
   } finally {
-    $q.loading.hide();
+    setProcessingMultiItem(item.id, false);
   }
 };
 
@@ -746,14 +969,14 @@ const resetForm = () => {
   detectedItems.value = [];
   selectedItemIndex.value = null;
   newItem.value = {
-    name: '',
+    name: "",
     qty: 1,
-    size: '',
-    weight: '',
-    material: '',
-    primaryColor: '',
-    description: '',
-    tags: []
+    size: "",
+    weight: "",
+    material: "",
+    primaryColor: "",
+    description: "",
+    tags: [],
   };
   editDimensions.value = { length: 0, width: 0, height: 0 };
   editWeight.value = 0;
@@ -763,7 +986,7 @@ const resetForm = () => {
 // Cancel and close
 const cancel = () => {
   resetForm();
-  emit('close');
+  emit("close");
 };
 
 // Auto-open camera if prop is set
@@ -771,6 +994,7 @@ onMounted(() => {
   if (props.autoOpen) {
     openCamera();
   }
+  fetchMultiQuota();
 });
 </script>
 
@@ -788,7 +1012,11 @@ onMounted(() => {
 
     <!-- Full-screen loading overlay with image and rotating messages -->
     <div v-if="isProcessing && capturedImage" class="loading-overlay">
-      <img :src="capturedImage || undefined" alt="Processing" class="loading-overlay-image" />
+      <img
+        :src="capturedImage || undefined"
+        alt="Processing"
+        class="loading-overlay-image"
+      />
       <div class="loading-overlay-content">
         <q-spinner-dots color="white" size="60px" />
         <div class="loading-message">{{ loadingMessage }}</div>
@@ -799,9 +1027,16 @@ onMounted(() => {
     <div v-if="!capturedImage && !detectedItems.length" class="camera-prompt">
       <!-- Mode selection -->
       <div v-if="showModeSelection">
-        <q-icon name="photo_camera" size="80px" color="primary" class="camera-icon" />
+        <q-icon
+          name="photo_camera"
+          size="80px"
+          color="primary"
+          class="camera-icon"
+        />
         <h3 class="prompt-title">Photograph Items</h3>
-        <p class="prompt-text">Choose how many items to detect in your photo:</p>
+        <p class="prompt-text">
+          Choose how many items to detect in your photo:
+        </p>
 
         <div class="mode-selection">
           <q-btn
@@ -819,10 +1054,14 @@ onMounted(() => {
             color="secondary"
             size="lg"
             icon="filter_9_plus"
-            label="Multiple Items"
+            :label="multiScanLabel"
             class="mode-btn q-mt-sm"
             @click="selectMode('multi')"
           />
+          <div v-if="hasMultiQuota" class="multi-quota-note">
+            {{ multiScanDisplay }} scans remaining · resets weekly. Upgrade to
+            Pro for unlimited scans.
+          </div>
         </div>
 
         <q-btn
@@ -836,9 +1075,17 @@ onMounted(() => {
 
       <!-- Direct camera button (when mode already selected) -->
       <div v-else>
-        <q-icon name="photo_camera" size="80px" color="primary" class="camera-icon" />
+        <q-icon
+          name="photo_camera"
+          size="80px"
+          color="primary"
+          class="camera-icon"
+        />
         <h3 class="prompt-title">Photograph an Item</h3>
-        <p class="prompt-text">Tap below to take a photo. Our AI will automatically detect item details.</p>
+        <p class="prompt-text">
+          Tap below to take a photo. Our AI will automatically detect item
+          details.
+        </p>
 
         <q-btn
           unelevated
@@ -864,7 +1111,12 @@ onMounted(() => {
     <!-- Multi-item detection results - show bounding boxes -->
     <div v-else-if="detectedItems.length > 0" class="multi-item-container">
       <div class="image-preview">
-        <img :src="capturedImage || undefined" ref="multiItemImage" alt="Captured items" class="preview-img" />
+        <img
+          :src="capturedImage || undefined"
+          ref="multiItemImage"
+          alt="Captured items"
+          class="preview-img"
+        />
         <q-btn
           round
           flat
@@ -879,13 +1131,8 @@ onMounted(() => {
           v-for="(item, index) in detectedItems"
           :key="item.id"
           class="bounding-box"
-          :class="{ 'selected': selectedItemIndex === index }"
-          :style="{
-            left: `${item.boundingBox.x * 100}%`,
-            top: `${item.boundingBox.y * 100}%`,
-            width: `${item.boundingBox.width * 100}%`,
-            height: `${item.boundingBox.height * 100}%`
-          }"
+          :class="{ selected: selectedItemIndex === index }"
+          :style="boundingBoxStyle(item.boundingBox)"
           @click="selectedItemIndex = index"
         >
           <div class="item-label">{{ item.name }}</div>
@@ -901,14 +1148,30 @@ onMounted(() => {
             v-for="(item, index) in detectedItems"
             :key="item.id"
             clickable
+            :disable="isProcessingMultiItem(item.id)"
             :active="selectedItemIndex === index"
-            @click="handleMultiItemAdd(item, index)"
           >
             <q-item-section>
-              <q-item-label>{{ item.name }}</q-item-label>
+              <q-item-label clickable @click.stop="openNameEditDialog(index)">
+                {{ item.name }}
+              </q-item-label>
             </q-item-section>
             <q-item-section side>
-              <q-icon name="add_circle" color="primary" />
+              <q-spinner
+                v-if="isProcessingMultiItem(item.id)"
+                size="20px"
+                color="primary"
+              />
+              <q-btn
+                v-else
+                round
+                dense
+                color="primary"
+                icon="add_circle"
+                @click.stop="handleMultiItemAdd(item, index)"
+              >
+                <q-tooltip>Add this item</q-tooltip>
+              </q-btn>
             </q-item-section>
           </q-item>
         </q-list>
@@ -918,7 +1181,10 @@ onMounted(() => {
           color="grey-7"
           label="Start Over"
           class="q-mt-md"
-          @click="resetForm(); showModeSelection = true"
+          @click="
+            resetForm();
+            showModeSelection = true;
+          "
         />
       </div>
     </div>
@@ -927,7 +1193,11 @@ onMounted(() => {
     <div v-else class="photo-preview-container">
       <!-- Image preview -->
       <div class="image-preview">
-        <img :src="capturedImage || undefined" alt="Captured item" class="preview-img" />
+        <img
+          :src="capturedImage || undefined"
+          alt="Captured item"
+          class="preview-img"
+        />
         <q-btn
           round
           flat
@@ -1042,7 +1312,8 @@ onMounted(() => {
 
         <div v-if="potentialMatches.length" class="duplicate-alert">
           <q-banner dense rounded class="bg-warning text-dark duplicate-banner">
-            Possible duplicate{{ potentialMatches.length > 1 ? 's' : '' }} detected. Review before saving to avoid double entries.
+            Possible duplicate{{ potentialMatches.length > 1 ? "s" : "" }}
+            detected. Review before saving to avoid double entries.
           </q-banner>
           <q-list dense class="duplicate-list">
             <q-item
@@ -1051,14 +1322,24 @@ onMounted(() => {
               class="duplicate-item"
             >
               <q-item-section>
-                <q-item-label class="text-weight-medium">{{ match.name }}</q-item-label>
+                <q-item-label class="text-weight-medium">{{
+                  match.name
+                }}</q-item-label>
                 <q-item-label caption>
                   {{ match.collection }} • {{ match.container }}
                 </q-item-label>
               </q-item-section>
               <q-item-section side class="duplicate-actions">
-                <q-chip dense :color="match.score === 1 ? 'primary' : 'secondary'" text-color="white">
-                  {{ match.score === 1 ? 'Exact' : `${Math.round(match.score * 100)}%` }}
+                <q-chip
+                  dense
+                  :color="match.score === 1 ? 'primary' : 'secondary'"
+                  text-color="white"
+                >
+                  {{
+                    match.score === 1
+                      ? "Exact"
+                      : `${Math.round(match.score * 100)}%`
+                  }}
                 </q-chip>
                 <q-btn
                   dense
@@ -1087,6 +1368,20 @@ onMounted(() => {
       </div>
     </div>
   </div>
+  <q-dialog v-model="isNameDialogOpen">
+    <q-card>
+      <q-card-section>
+        <div class="text-h6">Edit Item Name</div>
+      </q-card-section>
+      <q-card-section>
+        <q-input v-model="editedName" label="Item Name" autofocus />
+      </q-card-section>
+      <q-card-actions align="right">
+        <q-btn flat label="Cancel" color="primary" @click="cancelEditedName" />
+        <q-btn flat label="Save" color="primary" @click="saveEditedName" />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 </template>
 
 <style scoped>
@@ -1315,6 +1610,13 @@ onMounted(() => {
   font-size: 1.05rem;
 }
 
+.multi-quota-note {
+  font-size: 0.8rem;
+  color: #374151;
+  margin-top: 8px;
+  text-align: center;
+}
+
 /* Multi-item detection */
 .multi-item-container {
   display: flex;
@@ -1359,7 +1661,7 @@ onMounted(() => {
 /* Bounding boxes */
 .bounding-box {
   position: absolute;
-  border: 2px solid #1976D2;
+  border: 2px solid #1976d2;
   background: rgba(25, 118, 210, 0.1);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -1374,7 +1676,7 @@ onMounted(() => {
 }
 
 .bounding-box.selected {
-  border-color: #FF9800;
+  border-color: #ff9800;
   background: rgba(255, 152, 0, 0.2);
   border-width: 3px;
 }
