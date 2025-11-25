@@ -54,7 +54,18 @@
       "Bash(if [ -f .env ])",
       "Bash(then grep VITE_GOOGLE_MAPS_API_KEY .env)",
       "Bash(else echo \"No .env file found\")",
-      "Bash(fi)"
+      "Bash(fi)",
+      "Bash(docker cp:*)",
+      "Bash(npm test:*)",
+      "Bash(npx jest:*)",
+      "Bash(npx vue-tsc:*)",
+      "Bash(gcloud sql databases delete:*)",
+      "Bash(gcloud sql databases create:*)",
+      "Bash(gsutil cp:*)",
+      "Bash(gcloud sql import sql:*)",
+      "Bash(gsutil rm:*)",
+      "Bash(gsutil rb:*)",
+      "Bash(collection\" error even when inside a collection.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
