@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
 import { useQuasar } from 'quasar';
+import { useRouter } from 'vue-router';
 import DesktopEdit from './DesktopEdit.vue';
+import QrCodeCard from '../QrCodeCard.vue';
 import { evaluatePackingFit } from '../../utils/packing';
 
 const props = defineProps({
@@ -13,6 +15,20 @@ const props = defineProps({
 const store = inventoryStore();
 const { collections, containers, items } = storeToRefs(store);
 const $q = useQuasar();
+const router = useRouter();
+
+const userData = ref<any>({});
+if (typeof window !== 'undefined') {
+  try {
+    userData.value = JSON.parse(localStorage.getItem('user_data') || '{}');
+  } catch (e) {
+    userData.value = {};
+  }
+}
+const planPreviewOverride = ref<'basic' | 'pro' | null>(localStorage.getItem('plan_preview') as 'basic' | 'pro' | null);
+const basePlan = computed(() => (userData.value?.plan || 'basic').toLowerCase());
+const effectivePlan = computed(() => (planPreviewOverride.value || basePlan.value) as 'basic' | 'pro');
+const isProPlan = computed(() => effectivePlan.value === 'pro');
 
 // State
 const selectedCollection = ref<any>(null);
@@ -75,9 +91,49 @@ watch(newContainerBoxSize, (newSize) => {
 
 const showContainerDetailsDialog = ref(false);
 const detailsContainer = ref<any | null>(null);
+const containerQrLoading = ref(false);
+const pendingContainerQr = ref<string | null>(null);
+const actualContainerQrUrl = computed(() => {
+  if (!detailsContainer.value) return null;
+  return (
+    detailsContainer.value.qr_url ||
+    (detailsContainer.value.qr_code
+      ? store.getQrUrl('container', detailsContainer.value.qr_code)
+      : null)
+  );
+});
+const containerQrUrl = computed(
+  () => pendingContainerQr.value || actualContainerQrUrl.value,
+);
+
+watch(actualContainerQrUrl, (url) => {
+  if (url) {
+    pendingContainerQr.value = null;
+  }
+});
 const showContainerEditDialog = ref(false);
 const containerToEdit = ref<number | null>(null);
 const showBoxGenerationDialog = ref(false);
+const goToPricing = () => {
+  router.push('/pricing');
+};
+
+onMounted(() => {
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === 'plan_preview') {
+      planPreviewOverride.value = (event.newValue as 'basic' | 'pro' | null) || null;
+    }
+  };
+  const handleCustom = (event: Event) => {
+    planPreviewOverride.value = ((event as CustomEvent).detail as 'basic' | 'pro' | null) || null;
+  };
+  window.addEventListener('storage', handleStorage);
+  window.addEventListener('plan-preview-change', handleCustom as EventListener);
+  onBeforeUnmount(() => {
+    window.removeEventListener('storage', handleStorage);
+    window.removeEventListener('plan-preview-change', handleCustom as EventListener);
+  });
+});
 
 // Computed
 // Group collections by location
@@ -355,19 +411,24 @@ const getContainerItems = (containerValue: number) => {
 
 const parseItemDimensions = (item: any) => {
   // Prefer new separate fields
-  if (item.length_in != null && item.width_in != null && item.height_in != null) {
+  if (
+    item.length_in != null &&
+    item.width_in != null &&
+    item.height_in != null
+  ) {
     const length = toNumber(item.length_in);
     const width = toNumber(item.width_in);
     const height = toNumber(item.height_in);
-    if (length && width && height) {
+    if ([length, width, height].every((val) => Number.isFinite(val) && val > 0)) {
       return { length, width, height };
     }
   }
 
   // Fallback to old dimensions string format for backwards compatibility
-  if (item.dimensions) {
-    const parts = item.dimensions.split('x').map((p: string) => Number(p.trim()));
-    if (parts.length === 3 && !parts.some(isNaN)) {
+  if (typeof item.dimensions === 'string' && item.dimensions.trim().length > 0) {
+    const cleaned = item.dimensions.toLowerCase().replace(/[^0-9.x×]/g, '');
+    const parts = cleaned.split(/[x×]/).filter(Boolean).map(Number);
+    if (parts.length === 3 && parts.every((val) => Number.isFinite(val) && val > 0)) {
       return { length: parts[0], width: parts[1], height: parts[2] };
     }
   }
@@ -689,6 +750,65 @@ const handleDrop = async (event: DragEvent, containerValue: number | null) => {
 const openContainerDetails = (container: any) => {
   detailsContainer.value = container;
   showContainerDetailsDialog.value = true;
+};
+
+const generateQrForDetailsContainer = async () => {
+  if (!detailsContainer.value) return;
+  try {
+    containerQrLoading.value = true;
+    const response = await store.generateContainerQr(detailsContainer.value.value, props.user);
+    if (response?.url) {
+      pendingContainerQr.value = null;
+    }
+    $q.notify({
+      type: 'positive',
+      message: 'QR code created for this container',
+      position: 'bottom'
+    });
+  } catch (error) {
+    console.error('Failed to generate container QR', error);
+    $q.notify({
+      type: 'negative',
+      message: 'Unable to generate QR code',
+      position: 'bottom'
+    });
+  } finally {
+    containerQrLoading.value = false;
+  }
+};
+
+const assignQrToDetailsContainer = async (payload: string) => {
+  if (!detailsContainer.value) return;
+  const scannedValue = payload.trim();
+  if (scannedValue) {
+    pendingContainerQr.value = scannedValue;
+    console.log("[DesktopCollections] Pending container QR (scan)", scannedValue);
+  }
+  try {
+    containerQrLoading.value = true;
+    const response = await store.generateContainerQr(detailsContainer.value.value, props.user, {
+      token: payload
+    });
+    console.log("[DesktopCollections] Container QR link response:", response);
+    if (response?.url) {
+      pendingContainerQr.value = response.url;
+      console.log("[DesktopCollections] Pending container QR updated with response url:", response.url);
+    }
+    $q.notify({
+      type: 'positive',
+      message: 'QR linked to container',
+      position: 'bottom'
+    });
+  } catch (error) {
+    console.error('Failed to link container QR', error);
+    $q.notify({
+      type: 'negative',
+      message: 'Unable to link QR code',
+      position: 'bottom'
+    });
+  } finally {
+    containerQrLoading.value = false;
+  }
 };
 
 const openContainerEdit = (container: any) => {
@@ -1045,14 +1165,28 @@ onMounted(() => {
               <div class="text-body2 text-grey-7">{{ selectedCollection.description }}</div>
             </div>
             <div class="q-gutter-sm">
-              <q-btn
-                v-if="unassignedItems.length > 0"
-                outline
-                color="secondary"
-                icon="auto_awesome"
-                label="Smart Pack"
-                @click="showBoxGenerationDialog = true"
-              />
+              <template v-if="isProPlan">
+                <q-btn
+                  v-if="unassignedItems.length > 0"
+                  outline
+                  color="secondary"
+                  icon="auto_awesome"
+                  label="Smart Pack"
+                  @click="showBoxGenerationDialog = true"
+                />
+              </template>
+              <template v-else>
+                <q-btn
+                  outline
+                  color="grey-5"
+                  text-color="grey-8"
+                  icon="lock"
+                  label="Smart Pack (Pro)"
+                  @click="goToPricing"
+                >
+                  <q-tooltip>Upgrade to Pro to unlock Smart Pack</q-tooltip>
+                </q-btn>
+              </template>
             </div>
           </div>
 
@@ -1510,6 +1644,16 @@ onMounted(() => {
               <div class="text-caption text-grey-7">Current Weight</div>
               <div class="text-subtitle2">{{ detailsContainer.weight_lbs }} lbs</div>
             </div>
+          </div>
+          <div v-if="detailsContainer" class="q-mb-lg">
+            <QrCodeCard
+              title="Container QR Code"
+              description="Print or label this QR so crews can scan boxes as they load."
+              :qr-url="containerQrUrl"
+              :generating="containerQrLoading"
+              @generate="generateQrForDetailsContainer"
+              @assign="assignQrToDetailsContainer"
+            />
           </div>
           <div class="text-subtitle2 q-mb-sm">Items in container</div>
           <div v-if="detailsContainer && getContainerItems(detailsContainer.value).length === 0" class="text-caption text-grey-6">

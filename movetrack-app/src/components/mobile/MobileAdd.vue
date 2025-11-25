@@ -22,7 +22,8 @@
     user: { type: String, required: true },
     editSelect: { type: Boolean, required: true },
     objectType: { type: String as PropType<ObjectEnum>, required: true },
-    idProp: { type: Number, required: false },
+    idProp: { type: [String, Number], required: false },
+    defaultLocationId: { type: String as PropType<string | null>, required: false, default: null }
   })
 
   const emits = defineEmits<{
@@ -49,9 +50,19 @@
 
     
   // These are constants that populate the drop-down select menu to allow choosing a location and room
-  const location: Ref<{label: string, value: number} | undefined> = ref();
+  const location: Ref<{label: string, value: string} | undefined> = ref();
 
   const image_url = ref('');
+
+  const applyDefaultCollectionLocation = () => {
+    if (props.objectType !== ObjectEnum.collection || props.editSelect || !props.defaultLocationId) {
+      return
+    }
+    const targetLocation = store.locations.find(i => i.value == props.defaultLocationId)
+    if (targetLocation) {
+      location.value = { label: targetLocation.label, value: targetLocation.value }
+    }
+  }
 
 //ALL FUNCTIONS
   // collectionOptions.value = store.collections.map(i => {return {label: i.label, value: i.value}})
@@ -62,7 +73,7 @@
         console.log('props.idProp is ' + props.idProp)
         console.log('props.objectType is ' + props.objectType)
         if (props.objectType == ObjectEnum.location) {
-          const targetLocation = store.locations.find(i => i.value == props.idProp);
+          const targetLocation = store.locations.find(i => i.value == String(props.idProp));
           if (targetLocation) {
             location.value = { label: targetLocation.label, value: targetLocation.value };
           } else {
@@ -77,7 +88,7 @@
           zip.value = store.locations.find(i => i.value == props.idProp)?.zip ?? ''
 
         } else if (props.objectType == ObjectEnum.collection) {
-          const collection = store.collections.find(i => i.value == props.idProp);
+          const collection = store.collections.find(i => i.value == String(props.idProp));
           name.value = collection?.label ?? ''
           description.value = collection?.description ?? ''
 
@@ -87,11 +98,13 @@
               label: store.locations.find(i => i.value == collection.location)?.label ?? '',
               value: collection.location
             };
+          } else {
+            applyDefaultCollectionLocation()
           }
 
         } else if (props.objectType == ObjectEnum.container) {
-          name.value = store.containers.find(i => i.value == props.idProp)?.label ?? ''
-          description.value = store.containers.find(i => i.value == props.idProp)?.description ?? ''
+            name.value = store.containers.find(i => i.value == props.idProp)?.label ?? ''
+            description.value = store.containers.find(i => i.value == props.idProp)?.description ?? ''
           // Note: location is now inherited from collection, so we don't load it here
 
         } else if (props.objectType == ObjectEnum.item) {
@@ -114,6 +127,13 @@
       console.log(error)
     }
     emits("app:loading", false)
+    if (!props.editSelect) {
+      applyDefaultCollectionLocation()
+    }
+  })
+
+  watch(() => props.defaultLocationId, () => {
+    applyDefaultCollectionLocation()
   })
   
   // This function calls post function to add a container to a room and *** SHOULD *** navigate to the room added to

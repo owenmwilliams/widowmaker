@@ -3,6 +3,7 @@ var router = express.Router();
 const pgp = require('pg-promise')();
 var bodyParser = require('body-parser');
 var conn = require('../bin/db');
+const { QR_TYPES, buildQrUrl, generateUniqueToken, extractQrToken } = require('../services/qrService');
 
 const db = conn.db;
 
@@ -18,11 +19,31 @@ const knex = require('knex')({
 
 var jsonParser = bodyParser.json();
 
+function parseDimensionString(value) {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+  const cleaned = value.toLowerCase().replace(/[^0-9.x×]/g, '');
+  const parts = cleaned.split(/[x×]/).filter(Boolean);
+  if (parts.length !== 3) {
+    return null;
+  }
+  const numbers = parts.map(Number);
+  if (numbers.some(num => !Number.isFinite(num) || num <= 0)) {
+    return null;
+  }
+  return {
+    length: numbers[0],
+    width: numbers[1],
+    height: numbers[2]
+  };
+}
+
 /* GET items listing. */
 router.get('/', jsonParser, async function(req, res, next) {
-  var user_name = req.query.user
+  var user_id = req.query.user
   var location_id = req.query.location
-  var room_id = req.query.room
+  var collection_id = req.query.collection
   var container_id = req.query.container
 
   try {
@@ -33,18 +54,22 @@ router.get('/', jsonParser, async function(req, res, next) {
         description: 'items.description',
         quantity: 'items.quantity',
         picture_url: 'items.picture_url',
+        qr_code: 'items.qr_code',
         container_id: 'containers.id',
-        room_id: 'rooms.id',
+        collection_id: 'collections.id',
         location_id: 'locations.id'
       })
       .from('locations')
-      .leftJoin('permissions', 'permissions.location_id', 'locations.id')
-      .leftJoin('rooms', 'rooms.location_id', 'locations.id')
-      .leftJoin('containers', 'containers.room_id', 'rooms.id')
+      .leftJoin('permissions', function() {
+        this.on('permissions.resource_id', '=', 'locations.id')
+            .andOn('permissions.resource_type', '=', knex.raw('?', ['location']))
+      })
+      .leftJoin('collections', 'collections.location_id', 'locations.id')
+      .leftJoin('containers', 'containers.collection_id', 'collections.id')
       .leftJoin('items', 'items.container_id', 'containers.id')
-      .where(knex.raw('permissions.user_name = ?', user_name))
+      .where(knex.raw('permissions.user_id = ?', user_id))
       .andWhere(knex.raw('locations.id = ?', location_id))
-      .andWhere(knex.raw('rooms.id = ?', room_id))
+      .andWhere(knex.raw('collections.id = ?', collection_id))
       .andWhere(knex.raw('containers.id = ?', container_id))
     .then(data => {
       res.send(data)
@@ -63,7 +88,7 @@ router.get('/', jsonParser, async function(req, res, next) {
 /* GET items listing. */
 // THIS IS USED BY THE APPLICATION TO GET A SINGLE ITEM
 router.get('/single', jsonParser, async function(req, res, next) {
-  var user_name = req.query.user
+  var user_id = req.query.user
   var item_id = req.query.item
 
   try {
@@ -84,18 +109,32 @@ router.get('/single', jsonParser, async function(req, res, next) {
         fragile: 'items.fragile',
         priority: 'items.priority',
         weight_lbs: 'items.weight_lbs',
-        dimensions: 'items.dimensions',
+        qr_code: 'items.qr_code',
+        qr_assigned_at: 'items.qr_assigned_at',
+        dimensions: knex.raw(`
+          CASE
+            WHEN items.length_in IS NOT NULL AND items.width_in IS NOT NULL AND items.height_in IS NOT NULL
+              THEN CONCAT(items.length_in, '" × ', items.width_in, '" × ', items.height_in, '"')
+            ELSE NULL
+          END
+        `),
+        length_in: 'items.length_in',
+        width_in: 'items.width_in',
+        height_in: 'items.height_in',
         notes: 'items.notes',
         material: 'items.material',
         primary_color: 'items.primary_color',
         tags: 'items.tags'
       })
       .from('items')
-      .leftJoin('permissions', 'permissions.id', 'items.id')
+      .leftJoin('permissions', function() {
+        this.on('permissions.resource_id', '=', 'items.id')
+            .andOn('permissions.resource_type', '=', knex.raw('?', ['item']))
+      })
       .leftJoin('collections', 'collections.id', 'items.collection_id')
       .leftJoin('containers', 'containers.id', 'items.container_id')
-      .leftJoin('locations', 'locations.id', 'items.location_id')
-      .where(knex.raw('permissions.user_name = ?', user_name))
+      .leftJoin('locations', 'locations.id', 'collections.location_id')
+      .where(knex.raw('permissions.user_id = ?', user_id))
       .andWhere(knex.raw('items.id = ?', item_id))
     .then(data => {
       res.send(data)
@@ -110,29 +149,33 @@ router.get('/single', jsonParser, async function(req, res, next) {
 });
 
 router.get('/all', jsonParser, async function(req, res, next) {
-  var user_name = req.query.user
+  var user_id = req.query.user
 
   try {
     await knex('locations')
       .distinct({
         location_id: 'locations.id',
         location_name: 'locations.name',
-        room_id: 'rooms.id',
-        room_name: 'rooms.name',
+        collection_id: 'collections.id',
+        collection_name: 'collections.name',
         container_id: 'containers.id',
         container_name: 'containers.name',
         id: 'items.id',
         name: 'items.name',
         description: 'items.description',
         quantity: 'items.quantity',
+        qr_code: 'items.qr_code',
         picture_url: 'items.picture_url'
       })
-      .leftJoin('permissions', 'permissions.location_id', 'locations.id')
-      .leftJoin('rooms', 'rooms.location_id', 'locations.id')
-      .leftJoin('containers', 'containers.room_id', 'rooms.id')
+      .leftJoin('permissions', function() {
+        this.on('permissions.resource_id', '=', 'locations.id')
+            .andOn('permissions.resource_type', '=', knex.raw('?', ['location']))
+      })
+      .leftJoin('collections', 'collections.location_id', 'locations.id')
+      .leftJoin('containers', 'containers.collection_id', 'collections.id')
       .leftJoin('items', 'items.container_id', 'containers.id')
       .whereNotNull('items.id')
-      .andWhere(knex.raw('permissions.user_name = ?', user_name))
+      .andWhere(knex.raw('permissions.user_id = ?', user_id))
     .then(function (data) {
       res.send(data)
     })
@@ -176,7 +219,7 @@ router.post('/post', jsonParser, async function(req, res, next) {
     }
 
     var params = {
-      owner: req.query.user,
+      user_id: req.query.user,
       name: req.query.name,
       description: req.query.description,
       quantity: req.query.quantity,
@@ -206,11 +249,23 @@ router.post('/post', jsonParser, async function(req, res, next) {
     if(req.query.weight_lbs) {
       params.weight_lbs = req.query.weight_lbs
     }
-    if(req.query.dimensions) {
-      params.dimensions = req.query.dimensions
-    }
     if(req.query.notes) {
       params.notes = req.query.notes
+    }
+
+    if(req.query.dimensions) {
+      const parsed = parseDimensionString(req.query.dimensions)
+      if (parsed) {
+        if (params.length_in === undefined) {
+          params.length_in = parsed.length
+        }
+        if (params.width_in === undefined) {
+          params.width_in = parsed.width
+        }
+        if (params.height_in === undefined) {
+          params.height_in = parsed.height
+        }
+      }
     }
 
     // Dimension fields (individual measurements)
@@ -244,32 +299,32 @@ router.post('/post', jsonParser, async function(req, res, next) {
       }
     }
 
-    knex.transaction(async trx => {
-      await knex('items')
-      .transacting(trx)
-      .insert(params)
-      .returning('id')
-      .then(async result => {
+    knex
+      .transaction(async (trx) => {
+        const [item] = await knex('items')
+          .transacting(trx)
+          .insert(params)
+          .returning(['id']);
+
         await knex('permissions')
-        .transacting(trx)
-        .insert({
-          user_name: req.query.user,
-          id: result[0].id,
-          type: 'item',
-          permission_level: 'owner',
-          granted_by: req.query.user
-        })
-        .returning('id')
-        .then(result => {
-          res.send(result)
-        })
+          .transacting(trx)
+          .insert({
+            user_id: req.query.user,
+            resource_id: item.id,
+            resource_type: 'item',
+            permission_level: 'owner',
+            granted_by: req.query.user,
+          });
+
+        return item;
       })
-      .then(trx.commit)
-      .catch(trx.rollback);
-    })
-    .then((data) => {
-      res.send(data)
-    }) 
+      .then((item) => {
+        res.send(item);
+      })
+      .catch((err) => {
+        console.error(err);
+        res.status(500).send(err);
+      });
   }
   catch(e) {
     res.send(e)
@@ -281,6 +336,14 @@ router.post('/post', jsonParser, async function(req, res, next) {
 router.delete('/delete', jsonParser, async function(req, res, next) {
   try {
     knex.transaction(async trx => {
+      await knex('permissions')
+      .transacting(trx)
+      .where({
+        resource_id: req.query.item_id,
+        resource_type: 'item'
+      })
+      .del()
+
       await knex('items')
       .transacting(trx)
       .where('id', req.query.item_id)
@@ -317,7 +380,7 @@ router.put('/update', jsonParser, async function(req, res, next) {
 
     // Required fields for identification
     if (req.query.user !== undefined) {
-      params.owner = req.query.user
+      params.user_id = req.query.user
     }
 
     // Only update these fields if they are provided
@@ -358,11 +421,17 @@ router.put('/update', jsonParser, async function(req, res, next) {
     if(req.query.weight_lbs !== undefined) {
       params.weight_lbs = req.query.weight_lbs
     }
-    if(req.query.dimensions !== undefined) {
-      params.dimensions = req.query.dimensions
-    }
     if(req.query.notes !== undefined) {
       params.notes = req.query.notes
+    }
+
+    if(req.query.dimensions !== undefined) {
+      const parsed = parseDimensionString(req.query.dimensions)
+      if (parsed) {
+        params.length_in = params.length_in !== undefined ? params.length_in : parsed.length
+        params.width_in = params.width_in !== undefined ? params.width_in : parsed.width
+        params.height_in = params.height_in !== undefined ? params.height_in : parsed.height
+      }
     }
 
     // Dimension fields (individual measurements)
@@ -413,6 +482,72 @@ router.put('/update', jsonParser, async function(req, res, next) {
   }
   catch(e) {
     res.send(e)
+  }
+});
+
+router.post('/:id/qr', jsonParser, async function(req, res) {
+  try {
+    const { id } = req.params;
+    const userId = req.query.user || req.user?.user_id;
+    if (!userId) {
+      return res.status(400).json({ error: 'user is required' });
+    }
+
+    const item = await knex('items')
+      .select('id', 'user_id', 'qr_code')
+      .where({ id })
+      .first();
+
+    if (!item) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
+    if (String(item.user_id) !== String(userId)) {
+      return res.status(403).json({ error: 'Not authorized to modify this item' });
+    }
+
+    const shouldRegenerate =
+      req.query.regenerate === 'true' ||
+      req.body?.regenerate === true;
+
+    const requestedToken = req.body?.token || req.query?.token;
+    const normalizedToken = requestedToken ? extractQrToken(requestedToken) : null;
+
+    if (normalizedToken) {
+      const existsInItems = await knex('items').where({ qr_code: normalizedToken }).first();
+      const existsInContainers = await knex('containers').where({ qr_code: normalizedToken }).first();
+      if (
+        (existsInItems && existsInItems.id !== item.id) ||
+        existsInContainers
+      ) {
+        return res.status(409).json({ error: 'QR code already in use' });
+      }
+    } else if (item.qr_code && !shouldRegenerate) {
+      return res.json({
+        token: item.qr_code,
+        url: buildQrUrl(QR_TYPES.item, item.qr_code),
+        existing: true,
+      });
+    }
+
+    const tokenValue =
+      normalizedToken || (await generateUniqueToken(knex, 'items', 'it'));
+
+    await knex('items')
+      .where({ id })
+      .update({
+        qr_code: tokenValue,
+        qr_assigned_at: knex.fn.now(),
+      });
+
+    return res.json({
+      token: tokenValue,
+      url: buildQrUrl(QR_TYPES.item, tokenValue),
+      regenerated: shouldRegenerate || Boolean(normalizedToken),
+    });
+  } catch (error) {
+    console.error('Error creating item QR code:', error);
+    return res.status(500).json({ error: 'Failed to create QR code' });
   }
 });
 

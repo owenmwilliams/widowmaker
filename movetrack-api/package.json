@@ -4,7 +4,7 @@
   "description": "Moving and storage inventory management API",
   "private": true,
   "scripts": {
-    "start": "node ./app.js",
+    "start": "node ./bin/www.js",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
@@ -16,6 +16,7 @@
     "@google-cloud/storage": "^6.12.0",
     "@google-cloud/vision": "^4.0.0",
     "@google/generative-ai": "^0.24.1",
+    "@mapbox/polyline": "^1.2.1",
     "axios": "^1.6.2",
     "body-parser": "^1.20.0",
     "cookie-parser": "~1.4.4",
@@ -35,6 +36,7 @@
     "openai": "^4.104.0",
     "path": "^0.12.7",
     "pg": "^8.8.0",
-    "pg-promise": "^10.12.0"
+    "pg-promise": "^10.12.0",
+    "stripe": "^15.0.0"
   }
 }

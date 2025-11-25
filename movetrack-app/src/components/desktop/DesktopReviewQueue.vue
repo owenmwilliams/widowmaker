@@ -233,7 +233,6 @@ const handleInlineSave = async (itemId: number, issueKey: string, value: any) =>
         updateData.lengthIn = length;
         updateData.widthIn = width;
         updateData.heightIn = height;
-        updateData.dimensions = `${length} x ${width} x ${height} in`;
         break;
       }
       case 'container': {

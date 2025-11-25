@@ -1,12 +1,43 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useQuasar } from 'quasar';
 import { inventoryStore } from '../stores/InventoryStore';
+import QrCodeCard from './QrCodeCard.vue';
+
+declare global {
+  interface Window {
+    __forceItemQr?: (value: string) => void;
+  }
+}
 
 const store = inventoryStore();
 const $q = useQuasar();
 
 const editMode = ref(false);
+const resolveUserId = () => {
+  if (store.itemDetailsUser) {
+    return store.itemDetailsUser;
+  }
+  try {
+    const raw = localStorage.getItem('user_data');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.user_id) {
+        return parsed.user_id;
+      }
+      if (parsed?.id) {
+        return parsed.id;
+      }
+    }
+  } catch (error) {
+    console.warn('[ItemDetailsModal] Failed to parse user_data', error);
+  }
+  const sessionUser = localStorage.getItem('session_user_id');
+  if (sessionUser) {
+    return sessionUser;
+  }
+  return null;
+};
 
 const form = reactive({
   name: '',
@@ -36,11 +67,41 @@ const showModal = computed({
   }
 });
 
+watch(
+  () => showModal.value,
+  (open) => {
+    if (!open) {
+      pendingQrUrl.value = null;
+    }
+  },
+);
+
 const selectedItem = computed(() => store.activeItemDetails);
 const isCreateMode = computed(() => store.itemDetailsMode === 'create');
 const isDirectEditMode = computed(() => store.itemDetailsMode === 'edit');
 
 const tagList = computed(() => selectedItem.value?.tags ?? []);
+const pendingQrUrl = ref<string | null>(null);
+const actualItemQrUrl = computed(() => {
+  if (!selectedItem.value) return null;
+  return (
+    selectedItem.value.qr_url ||
+    (selectedItem.value.qr_code
+      ? store.getQrUrl('item', selectedItem.value.qr_code)
+      : null)
+  );
+});
+const itemQrUrl = computed(() => pendingQrUrl.value || actualItemQrUrl.value);
+
+watch(actualItemQrUrl, (url) => {
+  console.log('[ItemDetailsModal] actualItemQrUrl changed:', url);
+  if (url && pendingQrUrl.value === url) {
+    return;
+  }
+  if (url) {
+    pendingQrUrl.value = null;
+  }
+});
 
 const collectionOptions = computed(() =>
   store.collections.map((collection) => ({
@@ -351,6 +412,90 @@ const handleClose = () => {
   resetPhotoState();
   store.closeItemDetailsModal();
 };
+
+const qrGenerating = ref(false);
+
+const handleGenerateItemQr = async () => {
+  if (!selectedItem.value) {
+    return;
+  }
+  try {
+    qrGenerating.value = true;
+    const response = await store.generateItemQr(selectedItem.value.value);
+    console.log('[ItemDetailsModal] generate QR response:', response);
+  } catch (error) {
+    console.error('Failed to generate QR', error);
+    $q.notify({
+      type: 'negative',
+      message: 'Unable to generate QR code',
+      position: 'top'
+    });
+  } finally {
+    qrGenerating.value = false;
+  }
+};
+
+const handleAssignItemQr = async (payload: string) => {
+  const userId = resolveUserId();
+  if (!selectedItem.value || !userId) {
+    console.warn('[ItemDetailsModal] Missing item or user context for QR link', {
+      item: selectedItem.value?.value,
+      userId,
+      storeUser: store.itemDetailsUser
+    });
+    $q.notify({
+      type: 'negative',
+      message: 'Unable to determine user. Please reopen the item and try again.',
+      position: 'top'
+    });
+    return;
+  }
+  const scannedValue = payload.trim();
+  console.log("[ItemDetailsModal] Linking QR payload:", scannedValue, "for item:", selectedItem.value.value, "user:", userId);
+  if (scannedValue) {
+    pendingQrUrl.value = scannedValue;
+  }
+  try {
+    qrGenerating.value = true;
+    const response = await store.generateItemQr(selectedItem.value.value, userId, {
+      token: payload
+    });
+    console.log("[ItemDetailsModal] QR link response:", response);
+    if (response?.url) {
+      pendingQrUrl.value = response.url;
+      console.log("[ItemDetailsModal] Pending QR updated with response url:", response.url);
+    }
+    $q.notify({
+      type: 'positive',
+      message: 'QR linked to this item',
+      position: 'top'
+    });
+  } catch (error) {
+    console.error('Failed to assign QR', error);
+    $q.notify({
+      type: 'negative',
+      message: 'Unable to link that QR code',
+      position: 'top'
+    });
+  } finally {
+    qrGenerating.value = false;
+  }
+};
+
+onMounted(() => {
+  if (typeof window !== 'undefined') {
+    window.__forceItemQr = (value: string) => {
+      console.log('[ItemDetailsModal] window.__forceItemQr triggered with:', value);
+      handleAssignItemQr(String(value ?? ''));
+    };
+  }
+});
+
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined' && window.__forceItemQr) {
+    delete window.__forceItemQr;
+  }
+});
 </script>
 
 <template>
@@ -528,6 +673,17 @@ const handleClose = () => {
                 {{ form.notes || 'No notes yet' }}
               </div>
             </div>
+          </div>
+          <div class="q-mt-xl">
+            <QrCodeCard
+              v-if="selectedItem"
+              title="Item QR Code"
+              description="Print or place this code on the item to link helpers straight to its profile."
+              :qr-url="itemQrUrl"
+              :generating="qrGenerating"
+              @generate="handleGenerateItemQr"
+              @assign="handleAssignItemQr"
+            />
           </div>
         </div>
 

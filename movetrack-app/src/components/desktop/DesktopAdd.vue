@@ -28,7 +28,9 @@
     const fragile = ref(false);
     const priority = ref('normal');
     const weightLbs = ref<number | null>(null);
-    const dimensions = ref('');
+    const itemLength = ref<number | null>(null);
+    const itemWidth = ref<number | null>(null);
+    const itemHeight = ref<number | null>(null);
     const notes = ref('');
 
     // New MoveTrack fields for Containers
@@ -153,10 +155,9 @@
                 fragile.value,
                 priority.value,
                 weightLbs.value,
-                dimensions.value,
-                null,
-                null,
-                null,
+                itemLength.value,
+                itemWidth.value,
+                itemHeight.value,
                 notes.value || undefined
             )
         } else if (props.addType == 'Container') {
@@ -175,7 +176,10 @@
                 boxSize.value,
                 maxWeightCapacity.value,
                 maxVolumeCapacity.value,
-                description.value
+                description.value,
+                boxLength.value,
+                boxWidth.value,
+                boxHeight.value
             )
         } else if (props.addType == 'Collection') {
             // Collections now require a location
@@ -253,7 +257,39 @@
                 <q-checkbox dense v-model="fragile" label="Fragile Item" color="orange" />
                 <q-select dense v-model="priority" :options="priorityOptions" label="Priority" filled color="teal" />
                 <q-input dense v-model.number="weightLbs" type="number" label="Weight (lbs)" color="teal" suffix="lbs" step="0.1" />
-                <q-input dense v-model="dimensions" label="Dimensions (L x W x H)" color="teal" hint="e.g., 12x8x6" />
+                <div class="row q-col-gutter-sm">
+                    <div class="col-4">
+                        <q-input
+                            dense
+                            v-model.number="itemLength"
+                            type="number"
+                            label="Length (in)"
+                            color="teal"
+                            step="0.5"
+                            hint="Rough measurement"
+                        />
+                    </div>
+                    <div class="col-4">
+                        <q-input
+                            dense
+                            v-model.number="itemWidth"
+                            type="number"
+                            label="Width (in)"
+                            color="teal"
+                            step="0.5"
+                        />
+                    </div>
+                    <div class="col-4">
+                        <q-input
+                            dense
+                            v-model.number="itemHeight"
+                            type="number"
+                            label="Height (in)"
+                            color="teal"
+                            step="0.5"
+                        />
+                    </div>
+                </div>
                 <q-input dense v-model="notes" label="Notes" color="teal" autogrow type="textarea" />
             </template>
 

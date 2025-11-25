@@ -16,6 +16,7 @@
   import ReloPrepLogo from '../ReloPrepLogo.vue';
   import { storeToRefs } from 'pinia';
   import type { InventoryItem } from '../../data/inventoryItems';
+  import axios from 'axios';
 
 
   const pageItem = ref<'dashboard' | 'inventory' | 'move' | 'settings' | 'support'>('dashboard')
@@ -27,6 +28,23 @@
   const search = ref('')
   const showAddOptionsDialog = ref(false)
   const photoCaptureMode = ref<'single' | 'multi' | null>(null)
+  const userData = ref<any>({})
+  if (typeof window !== 'undefined') {
+    try {
+      userData.value = JSON.parse(localStorage.getItem('user_data') || '{}')
+    } catch (e) {
+      userData.value = {}
+    }
+  }
+
+  const basePlan = computed(() => (userData.value?.plan || 'basic').toLowerCase())
+  const isAdmin = computed(() => !!userData.value?.is_admin)
+  const planPreview = ref<'basic' | 'pro'>(basePlan.value === 'pro' ? 'pro' : 'basic')
+  const planPreviewToggle = ref(planPreview.value === 'pro')
+  const effectivePlan = computed(() => {
+    if (isAdmin.value) return planPreview.value
+    return basePlan.value
+  })
 
 //ALL PROPS & EMITS
   const props = defineProps({
@@ -62,7 +80,9 @@
   // })
 
   watch(() => props.user, (newUser, oldUser) => {
-    store.loadInventory(props.user!)
+    if (props.user) {
+      store.loadInventory(props.user!)
+    }
   });
 
   watch(collectionValues, (newCollection, oldCollection) => {
@@ -82,6 +102,26 @@
   const changePage = (newPage: typeof pageItem.value) => {
     pageItem.value = newPage
   }
+
+  const applyPlanHeader = () => {
+    if (isAdmin.value) {
+      axios.defaults.headers.common['x-plan-preview'] = planPreview.value
+    } else {
+      delete axios.defaults.headers.common['x-plan-preview']
+    }
+  }
+
+  watch(planPreview, (val) => {
+    planPreviewToggle.value = val === 'pro'
+    applyPlanHeader()
+    localStorage.setItem('plan_preview', val)
+    window.dispatchEvent(new CustomEvent('plan-preview-change', { detail: val }))
+  })
+  watch(planPreviewToggle, (val) => {
+    planPreview.value = val ? 'pro' : 'basic'
+    localStorage.setItem('plan_preview', planPreview.value)
+  })
+  applyPlanHeader()
 
 
 
@@ -173,7 +213,21 @@
             </q-btn-group>
           </div>
 
-          <q-toolbar-title />
+            <q-toolbar-title />
+
+            <div v-if="isAdmin" class="header-plan-toggle row items-center q-gutter-xs">
+              <q-chip dense color="primary" text-color="white" class="text-weight-bold">
+                Admin
+              </q-chip>
+              <q-toggle
+                v-model="planPreviewToggle"
+                color="primary"
+                size="sm"
+                dense
+                keep-color
+                aria-label="Admin plan preview"
+              />
+            </div>
 
           <div class="toolbar-actions">
             <q-btn unelevated color="primary" icon="add" label="Add Item" class="q-mr-sm" @click="openAddOptions" />
@@ -301,7 +355,9 @@
           <q-card class="add-options-card">
             <q-card-section>
               <div class="text-h6 text-primary">Add Items</div>
-              <div class="text-caption text-grey-7">Choose how you want to capture items.</div>
+              <div v-if="effectivePlan === 'basic'" class="text-caption text-grey-7">Choose how you want to capture items. Limits reset weekly. <a href="/pricing">Upgrade to pro</a> for unlimited scans.</div>
+              <div v-else class="text-caption text-grey-7">Choose how you want to capture items.</div>
+              <em></em>
             </q-card-section>
             <q-card-section class="column q-gutter-sm">
               <q-btn
@@ -312,6 +368,7 @@
                 :disable="store.collections.length === 0"
                 @click="handleScanOption('single')"
               />
+              <div class="limit-tag" v-if="effectivePlan === 'basic'"><em>(unlimited)</em></div>
               <q-btn
                 unelevated
                 color="primary"
@@ -320,6 +377,8 @@
                 :disable="store.collections.length === 0"
                 @click="handleScanOption('multi')"
               />
+              <div class="limit-tag" v-if="effectivePlan === 'basic'"><em>(3x / week)</em></div>
+              
               <q-btn
                 flat
                 color="grey-7"
@@ -415,6 +474,12 @@
   align-items: center;
 }
 
+.header-plan-toggle {
+  background: rgba(255, 255, 255, 0.18);
+  padding: 4px 8px;
+  border-radius: 10px;
+}
+
 .admin-btn {
   border-radius: 999px;
 }
@@ -456,5 +521,29 @@
 
 .add-options-card .q-btn {
   width: 100%;
+}
+
+.multi-scan-note {
+  font-size: 0.85rem;
+  color: #374151;
+  margin-top: 4px;
+}
+
+.limit-tag {
+  font-size: 0.8rem;
+  color: #4b5563;
+  margin-top: 2px;
+  text-align: center;
+}
+
+.multi-scan-footnote {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.multi-scan-footnote a {
+  color: #1d4ed8;
+  text-decoration: underline;
 }
 </style>

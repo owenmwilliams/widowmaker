@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
 import VisionProviderToggle from '../VisionProviderToggle.vue';
+import axios from 'axios';
 
 const props = defineProps<{
   user: string;
 }>();
+
+const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
 
 const currentVisionProvider = ref<string>('gemini');
 const locationDialogOpen = ref(false);
@@ -15,6 +18,62 @@ const editingLocationId = ref<number | null>(null);
 const store = inventoryStore();
 const { locations } = storeToRefs(store);
 const $q = useQuasar();
+
+// Truck management state
+interface Truck {
+  id: number;
+  name: string;
+  truck_identifier: string | null;
+  truck_sequence: number | null;
+  truck_size: string | null;
+  session_count: string;
+  zone_count: string;
+}
+
+const trucks = ref<Truck[]>([]);
+const loadingTrucks = ref(false);
+const truckDialogOpen = ref(false);
+const editingTruckId = ref<number | null>(null);
+const truckForm = reactive({
+  name: '',
+  truck_identifier: '',
+  truck_size: ''
+});
+
+const truckSizeOptions = [
+  { label: 'Van', value: 'van' },
+  { label: '10 ft', value: '10ft' },
+  { label: '12 ft', value: '12ft' },
+  { label: '15 ft', value: '15ft' },
+  { label: '17 ft', value: '17ft' },
+  { label: '20 ft', value: '20ft' },
+  { label: '22 ft', value: '22ft' },
+  { label: '24 ft', value: '24ft' },
+  { label: '26 ft', value: '26ft' }
+];
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('session_token');
+  return { Authorization: `Bearer ${token}` };
+};
+
+const fetchTrucks = async () => {
+  loadingTrucks.value = true;
+  try {
+    const response = await axios.get(`${core_url}/api/move-day/trucks`, {
+      headers: getAuthHeaders()
+    });
+    trucks.value = response.data;
+  } catch (error) {
+    console.error('Failed to fetch trucks:', error);
+  } finally {
+    loadingTrucks.value = false;
+  }
+};
+
+onMounted(() => {
+  fetchTrucks();
+});
 
 const locationForm = reactive({
   name: '',
@@ -187,6 +246,114 @@ const markPrimary = async (id: number | null) => {
     $q.loading.hide();
   }
 };
+
+// Truck management functions
+const resetTruckForm = () => {
+  truckForm.name = '';
+  truckForm.truck_identifier = '';
+  truckForm.truck_size = '';
+  editingTruckId.value = null;
+};
+
+const openEditTruck = (truck: Truck) => {
+  editingTruckId.value = truck.id;
+  truckForm.name = truck.name;
+  truckForm.truck_identifier = truck.truck_identifier || '';
+  truckForm.truck_size = truck.truck_size || '';
+  truckDialogOpen.value = true;
+};
+
+const saveTruck = async () => {
+  if (editingTruckId.value === null) {
+    return;
+  }
+
+  try {
+    $q.loading.show({ message: 'Updating truck...' });
+    await axios.put(`${core_url}/api/move-day/trucks/${editingTruckId.value}`, {
+      truck_identifier: truckForm.truck_identifier || null,
+      truck_size: truckForm.truck_size || null
+    }, {
+      headers: getAuthHeaders()
+    });
+
+    $q.notify({
+      type: 'positive',
+      message: 'Truck updated',
+      position: 'bottom'
+    });
+
+    truckDialogOpen.value = false;
+    resetTruckForm();
+    await fetchTrucks();
+  } catch (error) {
+    console.error('Failed to update truck:', error);
+    $q.notify({
+      type: 'negative',
+      message: 'Unable to update truck',
+      position: 'bottom'
+    });
+  } finally {
+    $q.loading.hide();
+  }
+};
+
+const deleteTruck = async (truck: Truck) => {
+  const sessionCount = parseInt(truck.session_count || '0');
+  const zoneCount = parseInt(truck.zone_count || '0');
+
+  let warningMessage = 'Are you sure you want to delete this truck?';
+  if (sessionCount > 0 || zoneCount > 0) {
+    warningMessage = `This truck has ${sessionCount} session(s) and ${zoneCount} zone(s) associated with it. Deleting will unlink these associations. Are you sure?`;
+  }
+
+  $q.dialog({
+    title: 'Delete Truck',
+    message: warningMessage,
+    cancel: true,
+    persistent: true
+  }).onOk(async () => {
+    try {
+      $q.loading.show({ message: 'Deleting truck...' });
+      await axios.delete(`${core_url}/api/move-day/trucks/${truck.id}`, {
+        headers: getAuthHeaders()
+      });
+
+      $q.notify({
+        type: 'positive',
+        message: 'Truck deleted',
+        position: 'bottom'
+      });
+
+      await fetchTrucks();
+    } catch (error) {
+      console.error('Failed to delete truck:', error);
+      $q.notify({
+        type: 'negative',
+        message: 'Unable to delete truck',
+        position: 'bottom'
+      });
+    } finally {
+      $q.loading.hide();
+    }
+  });
+};
+
+const getTruckDisplayName = (truck: Truck) => {
+  if (truck.truck_identifier) {
+    return truck.truck_identifier;
+  }
+  if (truck.truck_sequence) {
+    return `Truck ${truck.truck_sequence}`;
+  }
+  return truck.name;
+};
+
+const getTruckSizeLabel = (size: string | null) => {
+  if (!size) return null;
+  const option = truckSizeOptions.find(opt => opt.value === size);
+  return option ? option.label : size;
+};
 </script>
 
 <template>
@@ -268,6 +435,57 @@ const markPrimary = async (id: number | null) => {
           </q-list>
         </q-card-section>
       </q-card>
+
+      <!-- Trucks Section -->
+      <q-card class="settings-card">
+        <q-card-section>
+          <div class="section-header">
+            <q-icon name="local_shipping" size="md" color="primary" class="q-mr-md" />
+            <div class="text-h6">Manage Trucks</div>
+          </div>
+          <div class="text-caption text-grey-7 q-mt-sm">
+            View and manage trucks created during your move sessions. Trucks are created automatically when you start a new session with a truck.
+          </div>
+        </q-card-section>
+        <q-separator />
+        <q-card-section class="q-pt-none">
+          <div v-if="loadingTrucks" class="text-center q-pa-md">
+            <q-spinner color="primary" size="32px" />
+            <div class="text-caption text-grey-7 q-mt-sm">Loading trucks...</div>
+          </div>
+          <div v-else-if="trucks.length === 0" class="empty-locations text-grey-7">
+            <q-icon name="local_shipping" size="48px" color="grey-5" class="q-mb-sm" />
+            <div class="text-subtitle1">No trucks yet</div>
+            <div class="text-caption q-mt-xs">Trucks will appear here when you create move sessions that use trucks.</div>
+          </div>
+          <q-list v-else separator>
+            <q-item v-for="truck in trucks" :key="truck.id" class="location-row">
+              <q-item-section avatar>
+                <q-icon name="local_shipping" color="primary" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label class="text-weight-medium">
+                  {{ getTruckDisplayName(truck) }}
+                  <q-chip v-if="truck.truck_size" color="grey-3" text-color="grey-8" dense size="xs" class="q-ml-sm">
+                    {{ getTruckSizeLabel(truck.truck_size) }}
+                  </q-chip>
+                </q-item-label>
+                <q-item-label caption class="text-grey-7">
+                  {{ truck.session_count }} session(s), {{ truck.zone_count }} zone(s)
+                </q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <q-btn flat round dense icon="edit" color="primary" @click="openEditTruck(truck)">
+                  <q-tooltip>Edit truck</q-tooltip>
+                </q-btn>
+                <q-btn flat round dense icon="delete" color="negative" class="q-ml-sm" @click="deleteTruck(truck)">
+                  <q-tooltip>Delete truck</q-tooltip>
+                </q-btn>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-card-section>
+      </q-card>
     </div>
 
     <q-dialog v-model="locationDialogOpen" persistent @hide="resetLocationForm">
@@ -298,6 +516,40 @@ const markPrimary = async (id: number | null) => {
         <q-card-actions align="right">
           <q-btn flat label="Cancel" color="grey-7" v-close-popup />
           <q-btn unelevated color="primary" :label="editingLocationId === null ? 'Add location' : 'Save changes'" @click="saveLocation" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Truck Edit Dialog -->
+    <q-dialog v-model="truckDialogOpen" persistent @hide="resetTruckForm">
+      <q-card style="min-width: 450px;">
+        <q-card-section>
+          <div class="text-h6">Edit Truck</div>
+        </q-card-section>
+        <q-card-section class="location-form q-pt-none">
+          <q-input
+            v-model="truckForm.truck_identifier"
+            label="Truck Name"
+            outlined
+            dense
+            autofocus
+            hint="Give your truck a custom name (e.g., 'Big Blue', 'U-Haul #1')"
+          />
+          <q-select
+            v-model="truckForm.truck_size"
+            :options="truckSizeOptions"
+            label="Truck Size"
+            outlined
+            dense
+            emit-value
+            map-options
+            clearable
+            hint="Select the size of the truck"
+          />
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="grey-7" v-close-popup />
+          <q-btn unelevated color="primary" label="Save changes" @click="saveTruck" />
         </q-card-actions>
       </q-card>
     </q-dialog>

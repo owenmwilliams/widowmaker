@@ -78,8 +78,13 @@
     ];
 
     const selectedBoxPreset = computed(() => boxSizeOptions.find(option => option.value === boxSize.value));
+    const skipPresetUpdate = ref(props.addType === 'Container' && !!props.id);
 
     watch(boxSize, (newValue) => {
+        if (skipPresetUpdate.value) {
+            skipPresetUpdate.value = false;
+            return;
+        }
         if (newValue && newValue !== 'custom') {
             const preset = boxSizeOptions.find(option => option.value === newValue);
             maxWeightCapacity.value = preset?.weight ?? null;
@@ -184,15 +189,25 @@
                 description.value = container.description || ''
                 boxNumber.value = container.box_number || ''
                 boxType.value = container.box_type || 'medium'
-                boxSize.value = container.box_size || 'custom'
+                if (container.box_size) {
+                    skipPresetUpdate.value = true
+                    boxSize.value = container.box_size
+                } else {
+                    boxSize.value = 'custom'
+                }
                 sealed.value = Boolean(container.sealed)
                 fragileContents.value = Boolean(container.fragile_contents)
                 colorCode.value = container.color_code || ''
                 weightLbs.value = container.weight_lbs ?? null
                 maxWeightCapacity.value = container.max_weight_lbs ?? null
                 maxVolumeCapacity.value = container.max_volume_cuft ?? null
+                const hasInnerDimensions = container.inner_length_in && container.inner_width_in && container.inner_height_in
                 const preset = boxSizeOptions.find(option => option.value === container.box_size)
-                if (preset && preset.value !== 'custom') {
+                if (hasInnerDimensions) {
+                    boxLength.value = container.inner_length_in ?? null
+                    boxWidth.value = container.inner_width_in ?? null
+                    boxHeight.value = container.inner_height_in ?? null
+                } else if (preset && preset.value !== 'custom') {
                     boxLength.value = preset.dimensions?.length ?? null
                     boxWidth.value = preset.dimensions?.width ?? null
                     boxHeight.value = preset.dimensions?.height ?? null
@@ -256,7 +271,10 @@
                     boxSize: boxSize.value,
                     maxWeightLbs: maxWeightCapacity.value,
                     maxVolumeCuFt: maxVolumeCapacity.value,
-                    description: description.value
+                    description: description.value,
+                    innerLengthIn: boxLength.value,
+                    innerWidthIn: boxWidth.value,
+                    innerHeightIn: boxHeight.value
                 }
             )
         } else if (props.addType == 'Location') {

@@ -26,7 +26,11 @@ export const dataQualityDefinitions = [
     description: 'Items without length, width, and height',
     color: 'accent',
     predicate: (item: any) => {
-      return !(item.length_in && item.width_in && item.height_in);
+      const dims = [item.length_in, item.width_in, item.height_in].map((value) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed > 0;
+      });
+      return dims.some((isValid) => !isValid);
     }
   },
   {

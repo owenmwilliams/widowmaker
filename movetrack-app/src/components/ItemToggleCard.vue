@@ -3,7 +3,7 @@ import { defineProps, ref } from 'vue';
 
 const props = defineProps({
         id: { 
-            type: Number,
+            type: [Number, String],
             required: true
         },
         picture_url: {
@@ -24,7 +24,7 @@ const props = defineProps({
             default: null
         },
         weight_lbs: {
-            type: Number,
+            type: [Number, String],
             default: null
         },
         dimensions: {
@@ -34,8 +34,8 @@ const props = defineProps({
     })
 
 const emits = defineEmits<{
-  (e: 'edit', id: number): void;
-  (e: 'quickPhoto', id: number): void;
+  (e: 'edit', id: number | string): void;
+  (e: 'quickPhoto', id: number | string): void;
 }>();
 
 const isImgLoading = ref(true);
@@ -58,6 +58,9 @@ const truncateText = (text?: string, length = 18) => {
 <template>
     <div>
         <q-card bordered class="item-card q-ma-sm">
+            <div class="drag-handle" aria-label="Reorder">
+              <q-icon name="drag_indicator" size="20px" />
+            </div>
             <div class="item-thumb">
                 <q-skeleton
                   v-if="props.picture_url && isImgLoading"
@@ -127,11 +130,34 @@ const truncateText = (text?: string, length = 18) => {
   background: linear-gradient(135deg, #ffffff 0%, #f7f9ff 100%);
   box-shadow: 0 12px 30px rgba(31, 42, 68, 0.08);
   transition: transform 120ms ease, box-shadow 120ms ease;
+  touch-action: pan-y;
 }
 
 .item-card:active {
   transform: scale(0.99);
   box-shadow: 0 6px 18px rgba(31, 42, 68, 0.12);
+}
+
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 72px;
+  border-radius: 16px;
+  margin-right: 4px;
+  color: #9ba8c7;
+  touch-action: none;
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.drag-handle :deep(.q-icon) {
+  color: inherit;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .item-thumb {

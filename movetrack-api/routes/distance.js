@@ -1,9 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
+const { GOOGLE_MAPS_API_KEY, isGoogleMapsConfigured } = require('../config/google');
 
-// Google Maps API Key - should be in environment variables
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+// Helper function to format duration from seconds to human-readable string
+function formatDuration(seconds) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0 && minutes > 0) {
+    return `${hours} hr ${minutes} min`;
+  } else if (hours > 0) {
+    return `${hours} hr`;
+  } else {
+    return `${minutes} min`;
+  }
+}
 
 /**
  * POST /api/calculate-distance
@@ -144,14 +155,14 @@ function estimateDistance(origin, destination) {
 
 router.post('/calculate-distance', async (req, res) => {
   try {
-    const { origin, destination, avoidTolls = false, truckRoute = false } = req.body;
+    const { origin, destination, waypoints = [], avoidTolls = false, truckRoute = false } = req.body;
 
     if (!origin || !destination) {
       return res.status(400).json({ error: 'Origin and destination addresses are required' });
     }
 
     // Try Google Maps API if available
-    if (GOOGLE_MAPS_API_KEY) {
+    if (isGoogleMapsConfigured()) {
       try {
         // Use Directions API instead of Distance Matrix for route geometry
         const params = {
@@ -161,6 +172,13 @@ router.post('/calculate-distance', async (req, res) => {
           units: 'imperial',
           key: GOOGLE_MAPS_API_KEY
         };
+
+        // Add waypoints (intermediate stops) if provided
+        if (waypoints && waypoints.length > 0) {
+          // Format: "via:address1|via:address2" for pass-through or "address1|address2" for stops
+          // Using stops (not via) so they appear as distinct legs in the response
+          params.waypoints = waypoints.join('|');
+        }
 
         // Add avoid parameters
         const avoid = [];
@@ -183,10 +201,25 @@ router.post('/calculate-distance', async (req, res) => {
 
         if (data.status === 'OK' && data.routes && data.routes.length > 0) {
           const route = data.routes[0];
-          const leg = route.legs[0];
 
-          const distanceMeters = leg.distance.value;
-          const distanceMiles = Math.round(distanceMeters * 0.000621371);
+          // With waypoints, there are multiple legs
+          // Calculate total distance and duration across all legs
+          let totalDistanceMeters = 0;
+          let totalDurationSeconds = 0;
+          const legs = route.legs.map((leg, index) => {
+            totalDistanceMeters += leg.distance.value;
+            totalDurationSeconds += leg.duration.value;
+            return {
+              start_address: leg.start_address,
+              end_address: leg.end_address,
+              distance_miles: Math.round(leg.distance.value * 0.000621371),
+              distance_text: leg.distance.text,
+              duration_seconds: leg.duration.value,
+              duration_text: leg.duration.text
+            };
+          });
+
+          const distanceMiles = Math.round(totalDistanceMeters * 0.000621371);
 
           // Extract route overview polyline for map rendering
           const overviewPolyline = route.overview_polyline.points;
@@ -199,19 +232,20 @@ router.post('/calculate-distance', async (req, res) => {
           return res.json({
             success: true,
             distance_miles: distanceMiles,
-            distance_text: leg.distance.text,
-            duration_seconds: leg.duration.value,
-            duration_text: leg.duration.text,
-            origin_address: leg.start_address,
-            destination_address: leg.end_address,
+            distance_text: `${distanceMiles} mi`,
+            duration_seconds: totalDurationSeconds,
+            duration_text: formatDuration(totalDurationSeconds),
+            origin_address: route.legs[0].start_address,
+            destination_address: route.legs[route.legs.length - 1].end_address,
             source: 'google_maps',
             route_polyline: overviewPolyline,
             route_summary: route.summary || 'Route via highways',
             warnings: route.warnings || [],
             estimated_tolls: estimatedTolls,
             truck_friendly: truckRoute,
-            // Add waypoint/leg information for future multi-stop support
-            steps_count: leg.steps.length,
+            // Include leg details for multi-stop routes
+            legs: legs,
+            waypoints_count: waypoints.length,
             // Suggest overnight stops for long distances
             overnight_stops: distanceMiles > 500 ? Math.ceil(distanceMiles / 500) - 1 : 0
           });

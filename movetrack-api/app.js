@@ -9,6 +9,7 @@ var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 var cors = require('cors');
+var bodyParser = require('body-parser');
 // const { expressjwt: jwt } = require('express-jwt');
 
 var jwtLib = require('./bin/auth')
@@ -31,6 +32,10 @@ var emailRouter = require('./routes/email');
 var authRouter = require('./routes/auth');
 var distanceRouter = require('./routes/distance');
 var savedMovesRouter = require('./routes/savedMoves');
+var moveDayRouter = require('./routes/moveDay');
+var waypointsRouter = require('./routes/waypoints');
+var billingRouter = require('./routes/billing');
+var billingWebhook = require('./routes/billingWebhook');
 
 var app = express();
 app.set('trust proxy', 1);
@@ -40,6 +45,7 @@ app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'jade');
 
 app.use(logger('dev'));
+app.post('/billing/webhook', bodyParser.raw({ type: 'application/json' }), billingWebhook);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -93,6 +99,9 @@ app.use('/email', emailRouter)
 app.use('/auth', authRouter)
 app.use('/api', distanceRouter)
 app.use('/api/saved-moves', savedMovesRouter)
+app.use('/api/move-day', moveDayRouter)
+app.use('/api/waypoints', waypointsRouter)
+app.use('/billing', billingRouter)
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
@@ -110,8 +119,7 @@ app.use(function(err, req, res, next) {
   res.render('error');
 });
 
-// app.listen(3050, () => console.log('Server is up and running'))
-
-app.listen(process.env.PORT || 3050)
+// Server startup is handled by bin/www.js
+// Do not call app.listen() here as it will conflict with www.js
 
 module.exports = app;
