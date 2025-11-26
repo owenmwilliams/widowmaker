@@ -11,7 +11,7 @@
     }
 
     const props = defineProps({
-        collection_id: Number,
+        collection_id: String,
     })
     const emits = defineEmits<{
         (e: 'selected', id: [ObjectEnum, string]): void

@@ -70,6 +70,26 @@ const currentVisionProvider = ref<string>("gemini");
 const cameraInput = ref<HTMLInputElement | null>(null);
 const savedMoves = ref<any[]>([]);
 const savedMovesLoading = ref(false);
+const locationLocks = computed(() => {
+  const locks = new Map<string, { moveId: string; moveName: string | null }>();
+  savedMoves.value.forEach((move) => {
+    if (move?.status === "in_progress") {
+      const info = { moveId: String(move.id), moveName: move.name || null };
+      if (move.origin_location_id) {
+        locks.set(String(move.origin_location_id), info);
+      }
+      if (move.destination_location_id) {
+        locks.set(String(move.destination_location_id), info);
+      }
+    }
+  });
+  return locks;
+});
+const lockedLocationMessage = (locationId: string | number) => {
+  const lock = locationLocks.value.get(String(locationId));
+  if (!lock) return null;
+  return `Move "${lock.moveName || lock.moveId}" currently in progress`;
+};
 
 const containerItemLists = ref<Record<string, StoreInventoryItem[]>>({});
 const unassignedItems = ref<StoreInventoryItem[]>([]);
@@ -489,7 +509,7 @@ const onSelectThing = (item: string) => {
   showAdd.value = false;
 };
 
-const openItemDetails = (id: number) => {
+const openItemDetails = (id: string) => {
   store.openItemDetailsModal(id, props.user);
 };
 

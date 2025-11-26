@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { defineProps, ref } from 'vue';
+import { defineProps, ref, computed } from 'vue';
 
 const props = defineProps({
-        id: { 
+        id: {
             type: [Number, String],
             required: true
         },
@@ -34,11 +34,14 @@ const props = defineProps({
     })
 
 const emits = defineEmits<{
-  (e: 'edit', id: number | string): void;
-  (e: 'quickPhoto', id: number | string): void;
+  (e: 'edit', id: string): void;
+  (e: 'quickPhoto', id: string): void;
 }>();
 
 const isImgLoading = ref(true);
+
+// Convert id to string for emits
+const stringId = computed(() => String(props.id));
 
 const getPriorityColor = (priority: string | null) => {
   if (!priority) return 'grey';
@@ -86,7 +89,7 @@ const truncateText = (text?: string, length = 18) => {
                         color="primary"
                         icon="photo_camera"
                         class="add-photo-btn"
-                        @click.stop="emits('quickPhoto', props.id)"
+                        @click.stop="emits('quickPhoto', stringId)"
                       >
                         <q-tooltip>Add photo</q-tooltip>
                     </q-btn>
@@ -112,7 +115,7 @@ const truncateText = (text?: string, length = 18) => {
                 </div>
             </div>
             <div class="item-actions">
-              <q-btn dense flat round icon="chevron_right" aria-label="View details" @click.stop="emits('edit', props.id)" />
+              <q-btn dense flat round icon="chevron_right" aria-label="View details" @click.stop="emits('edit', stringId)" />
             </div>
         </q-card>
   </div>

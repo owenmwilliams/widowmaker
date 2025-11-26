@@ -96,10 +96,10 @@ export const inventoryStore = defineStore("inventory", () => {
 
   // var activeLocation: Ref<number | undefined> = ref()
   var activeCollection: Ref<
-    { label: string; value: number | string } | undefined
+    { label: string; value: string } | undefined
   > = ref();
   var activeContainer: Ref<
-    { label: string; value: number | string } | undefined
+    { label: string; value: string } | undefined
   > = ref();
 
   const BOX_SIZE_PRESETS: Record<
@@ -131,7 +131,7 @@ export const inventoryStore = defineStore("inventory", () => {
 
   async function loadInventory(user: string) {
     const headers = getHeaders();
-    axios({
+    return axios({
       method: "get",
       url: core_url + "/lists/",
       params: {
@@ -353,21 +353,25 @@ export const inventoryStore = defineStore("inventory", () => {
         ) {
           setActiveCollection({ value: collections.value[0].value });
         }
+      })
+      .catch((error) => {
+        console.error("[InventoryStore] Failed to load inventory", error);
+        throw error;
       });
   }
 
-  function resolveCollectionLabel(value: number | string) {
+  function resolveCollectionLabel(value: string) {
     return collections.value.find((i) => i.value == value)?.label;
   }
 
-  function resolveContainerLabel(value: number | undefined) {
+  function resolveContainerLabel(value: string | undefined) {
     if (value == null) return undefined;
     return containers.value.find((i) => i.value == value)?.label;
   }
 
   function setActiveCollection(newCollection: {
     label?: string;
-    value: number | string;
+    value: string;
   }) {
     const label =
       newCollection.label ?? resolveCollectionLabel(newCollection.value);
@@ -387,7 +391,7 @@ export const inventoryStore = defineStore("inventory", () => {
   }
 
   function setActiveContainer(
-    newContainer: { label?: string; value: number } | undefined,
+    newContainer: { label?: string; value: string } | undefined,
   ) {
     if (!newContainer) {
       activeContainer.value = undefined;
@@ -456,8 +460,8 @@ export const inventoryStore = defineStore("inventory", () => {
     name: string,
     description: string,
     quantity: number,
-    collection: number | string,
-    container?: number | string | undefined,
+    collection: string,
+    container?: string | undefined,
     image?: Blob,
     estimatedValue?: number | null,
     fragile?: boolean,
@@ -641,19 +645,18 @@ export const inventoryStore = defineStore("inventory", () => {
     name: string,
     description: string,
     quantity: number,
-    collection: number | string,
-    container?: number | string | undefined,
-    location?: number | string | undefined,
+    collection: string,
+    container?: string | undefined,
+    location?: string | undefined,
     picture_url?: string,
   ) {
-    const normalizedCollection = normalizeId(collection);
     const normalizedContainer =
       container !== undefined && container !== null
-        ? normalizeId(container)
+        ? container
         : null;
     const normalizedLocation =
       location !== undefined && location !== null
-        ? normalizeId(location)
+        ? location
         : null;
     let params: any = {
       user: user,
@@ -661,10 +664,9 @@ export const inventoryStore = defineStore("inventory", () => {
       description: description,
       quantity: quantity,
       collection: collection,
+      container: container ?? null,
+      location: location ?? null,
     };
-
-    params.container = container ?? null;
-    params.location = location ?? null;
 
     if (picture_url !== undefined) {
       params.picture_url = picture_url;
@@ -700,7 +702,7 @@ export const inventoryStore = defineStore("inventory", () => {
     }).finally(() => {
       params.value = normalizeId(id);
       params.label = name;
-      params.collection = normalizedCollection;
+      params.collection = collection;
       params.container = normalizedContainer;
       params.location = normalizedLocation;
       params.qr_code = null;
@@ -708,8 +710,8 @@ export const inventoryStore = defineStore("inventory", () => {
       delete params.name;
       items.value.push(params);
 
-      setActiveCollection({ value: normalizedCollection ?? collection });
-      if (normalizedContainer != undefined) {
+      setActiveCollection({ value: collection });
+      if (normalizedContainer) {
         setActiveContainer({ value: normalizedContainer });
       } else {
         setActiveContainer(undefined);
@@ -718,13 +720,13 @@ export const inventoryStore = defineStore("inventory", () => {
   }
 
   async function updateItem(
-    id: number | string,
+    id: string,
     user: string,
     name: string,
     description: string,
     quantity: number,
-    collection: number | string,
-    container?: number | string | undefined,
+    collection: string,
+    container?: string | undefined,
     picture_url?: string,
     extra?: ItemUpdateExtras,
     options?: ItemUpdateOptions,
@@ -942,7 +944,7 @@ export const inventoryStore = defineStore("inventory", () => {
   async function createContainer(
     user: string,
     name: string,
-    collection: number | string,
+    collection: string,
     boxNumber?: string,
     boxType?: string,
     sealed?: boolean,
@@ -1073,7 +1075,9 @@ export const inventoryStore = defineStore("inventory", () => {
 
       // Set the actives
       setActiveCollection({ value: normalizedCollectionId ?? collection });
-      setActiveContainer({ label: name, value: normalizedContainerId });
+      if (normalizedContainerId) {
+        setActiveContainer({ label: name, value: normalizedContainerId });
+      }
     });
     // .finally(() => {
     //     router.push('items')
@@ -1081,10 +1085,10 @@ export const inventoryStore = defineStore("inventory", () => {
   }
 
   async function updateContainer(
-    id: number | string,
+    id: string,
     user: string,
     name: string,
-    collection: number | string,
+    collection: string,
     options?: {
       boxNumber?: string;
       boxType?: string;
@@ -1301,7 +1305,7 @@ export const inventoryStore = defineStore("inventory", () => {
       },
       headers: headers,
     }).then(async (value) => {
-      const newId = value?.data?.[0]?.id ?? value?.id;
+      const newId = value?.data?.[0]?.id;
       const normalizedId = normalizeId(newId);
       let params = {
         value: normalizedId,
@@ -1314,11 +1318,13 @@ export const inventoryStore = defineStore("inventory", () => {
       // Update collections array
       collections.value.push(params);
 
-      collectionValues.value.push(params.value);
+      if (params.value) {
+        collectionValues.value.push(params.value);
 
-      // Update actives
-      setActiveCollection({ value: params.value });
-      setActiveContainer(undefined);
+        // Update actives
+        setActiveCollection({ value: params.value });
+        setActiveContainer(undefined);
+      }
     });
   }
 
@@ -1350,8 +1356,10 @@ export const inventoryStore = defineStore("inventory", () => {
         collections.value[index].description = description;
       })
       .then(() => {
-        setActiveCollection({ value: normalizedId });
-        setActiveContainer(undefined);
+        if (normalizedId) {
+          setActiveCollection({ value: normalizedId });
+          setActiveContainer(undefined);
+        }
       })
       .finally(() => {
         router.push("items");
@@ -1475,7 +1483,7 @@ export const inventoryStore = defineStore("inventory", () => {
   }
 
   async function updateLocation(
-    id: number | string,
+    id: string,
     user: string,
     name: string,
     description: string,
@@ -1633,6 +1641,9 @@ export const inventoryStore = defineStore("inventory", () => {
 
   async function markPrimaryLocation(id: number | string, user: string) {
     const normalizedId = normalizeId(id);
+    if (!normalizedId) {
+      return;
+    }
     const location = locations.value.find((i) => i.value === normalizedId);
     if (!location) {
       return;

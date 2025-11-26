@@ -32,9 +32,147 @@ const selectedLocationId = ref<string | number | null>(null);
 
 const selectedSession = ref<any>(null);
 const sessions = ref<any[]>([]);
+const allSessions = ref<any[]>([]);
+const containerZoneMap = ref<Map<string, string>>(new Map());
+const itemZoneMap = ref<Map<string, string>>(new Map());
 
 const boxInput = ref("");
+const pendingScanEntity = ref<{
+  type: "container" | "item";
+  id: string;
+  label: string;
+  collectionId?: string | null;
+  zoneLabel?: string | null;
+  containerId?: string | null;
+} | null>(null);
 const scanDisplayLabel = ref("");
+
+const TRUCK_ZONE_LABELS = [
+  "Zone A",
+  "Zone B",
+  "Zone C",
+  "Zone D",
+  "Zone E",
+  "Zone F",
+];
+
+const formatZoneLabel = (zoneValue?: number | null) => {
+  if (zoneValue === null || zoneValue === undefined) return null;
+  const numeric = Number(zoneValue);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  const preset = TRUCK_ZONE_LABELS[numeric - 1];
+  if (preset) return preset;
+  return `Zone ${numeric}`;
+};
+
+const clearZoneAssignments = () => {
+  containerZoneMap.value = new Map();
+  itemZoneMap.value = new Map();
+};
+
+const getContainerZoneLabel = (containerId?: string | number | null) => {
+  if (containerId === null || containerId === undefined) return null;
+  return containerZoneMap.value.get(String(containerId)) || null;
+};
+
+const getItemZoneLabel = (itemId?: string | number | null) => {
+  if (itemId === null || itemId === undefined) return null;
+  return itemZoneMap.value.get(String(itemId)) || null;
+};
+
+const resolveCollectionLabel = (collectionId?: string | number | null) => {
+  if (collectionId === null || collectionId === undefined) {
+    return null;
+  }
+  const normalized = String(collectionId);
+  const match = store.collections.find(
+    (collection: any) => String(collection.value) === normalized,
+  );
+  return match?.label || null;
+};
+
+const collectSessionLocationIds = (session: any | null | undefined) => {
+  if (!session) return [];
+  const ids = [
+    session.origin_location_id,
+    session.destination_location_id,
+    session.session_start_location_id,
+    session.session_end_location_id,
+  ];
+  return ids
+    .filter((id) => id !== null && id !== undefined)
+    .map((id) => String(id));
+};
+
+const collectMoveLocationIds = (move: any | null | undefined) => {
+  if (!move) return [];
+  const ids = [move.origin_location_id, move.destination_location_id];
+  return ids
+    .filter((id) => id !== null && id !== undefined)
+    .map((id) => String(id));
+};
+
+const locationLocks = computed(() => {
+  const locks = new Map<
+    string,
+    { moveId: string | null; moveName: string | null; sessionId: string | number }
+  >();
+  allSessions.value.forEach((session: any) => {
+    if (!session || session.status !== "in_progress") return;
+    const moveId = session.saved_move_id ? String(session.saved_move_id) : null;
+    const lockInfo = {
+      moveId,
+      moveName: session.move_name || session.session_name || null,
+      sessionId: session.id,
+    };
+    collectSessionLocationIds(session).forEach((locId) => {
+      if (!locks.has(locId)) {
+        locks.set(locId, lockInfo);
+      }
+    });
+  });
+  return locks;
+});
+
+const findLockForMove = (move: any | null | undefined) => {
+  if (!move) return null;
+  const moveId = move.id ? String(move.id) : null;
+  for (const locId of collectMoveLocationIds(move)) {
+    const lock = locationLocks.value.get(locId);
+    if (lock && (!moveId || lock.moveId !== moveId)) {
+      return { lock, locationId: locId };
+    }
+  }
+  return null;
+};
+
+const conflictingLocationLock = computed(() => {
+  const activeMoveId = selectedMove.value?.id
+    ? String(selectedMove.value.id)
+    : null;
+  const combined = new Set<string>();
+  collectMoveLocationIds(selectedMove.value).forEach((id) => combined.add(id));
+  collectSessionLocationIds(selectedSession.value).forEach((id) => combined.add(id));
+
+  for (const locId of combined) {
+    const lock = locationLocks.value.get(locId);
+    if (lock && (!activeMoveId || lock.moveId !== activeMoveId)) {
+      return lock;
+    }
+  }
+  return null;
+});
+const canSetSessionInProgress = computed(() => !conflictingLocationLock.value);
+const inProgressRestrictionMessage = computed(() => {
+  if (!conflictingLocationLock.value) return "";
+  const name = conflictingLocationLock.value.moveName || conflictingLocationLock.value.moveId;
+  return `Move "${name}" is already in progress at this location.`;
+});
+const canOpenStatusDialog = computed(() => {
+  if (!selectedSession.value) return false;
+  if (selectedSession.value.status === "in_progress") return true;
+  return !conflictingLocationLock.value;
+});
 const loading = ref(false);
 const showScanDialog = ref(false);
 const showShareDialog = ref(false);
@@ -58,9 +196,19 @@ type ManifestOption = {
 
 const handleSelectMoveFromDrawer = (moveId: string | number) => {
   const target = moves.value.find((move) => String(move.id) === String(moveId));
-  if (target) {
-    selectMove(target, false);
+  if (!target) return;
+  const conflict = findLockForMove(target);
+  if (conflict) {
+    $q.dialog({
+      title: "Move currently in progress",
+      message:
+        "Move \"" +
+        (conflict.lock.moveName || conflict.lock.moveId) +
+        "\" is already active at this location.",
+      ok: true,
+    });
   }
+  selectMove(target, false);
 };
 
 const sendInvite = () => {
@@ -128,8 +276,26 @@ const shareLink = computed(() => {
   return `${base}/mobile/moves/${selectedMove.value.id}`;
 });
 
-const canScan = computed(() => {
-  return selectedSession.value && boxInput.value.trim().length > 0;
+const isSessionReadyForScanning = computed(() => {
+  if (!selectedSession.value) return false;
+  if (selectedSession.value.status !== "in_progress") return false;
+  if (conflictingLocationLock.value) return false;
+  return true;
+});
+
+const canSubmitScan = computed(() => {
+  return isSessionReadyForScanning.value && pendingScanEntity.value !== null;
+});
+
+const scanRestrictionMessage = computed(() => {
+  if (!selectedSession.value) return "Select a session to begin scanning.";
+  if (conflictingLocationLock.value) {
+    return inProgressRestrictionMessage.value;
+  }
+  if (selectedSession.value.status !== "in_progress") {
+    return "Set this session to In Progress before scanning.";
+  }
+  return "";
 });
 
 const resolveScanPayload = (input: string) => {
@@ -144,7 +310,8 @@ const resolveScanPayload = (input: string) => {
   return { container_id: trimmed };
 };
 
-const scanSelectionLabel = computed(() => scanDisplayLabel.value);
+const scanSelectionLabel = computed(() => scanDisplayLabel.value || pendingScanEntity.value?.label || boxInput.value.trim());
+const scanZoneLabel = computed(() => pendingScanEntity.value?.zoneLabel || null);
 
 const activeTimelineIndex = computed(() => {
   if (!selectedSession.value) return null;
@@ -191,6 +358,51 @@ const manifestOptions = computed<ManifestOption[]>(() => {
   return options;
 });
 
+const loadSessionLoadingPlan = async (sessionId: number | null) => {
+  if (!sessionId) {
+    clearZoneAssignments();
+    return;
+  }
+  try {
+    const headers: Record<string, string> = {};
+    const token = localStorage.getItem("session_token");
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    const response = await axios.get(
+      `${API_BASE}/api/move-day/sessions/${sessionId}/loading-plan`,
+      { headers },
+    );
+    const containerAssignments = new Map<string, string>();
+    const itemAssignments = new Map<string, string>();
+    const planContainers = Array.isArray(response.data?.containers)
+      ? response.data.containers
+      : [];
+    planContainers.forEach((entry: any) => {
+      if (!entry?.id) return;
+      const zoneLabel = formatZoneLabel(entry.loading_zone);
+      if (zoneLabel) {
+        containerAssignments.set(String(entry.id), zoneLabel);
+      }
+    });
+    const planItems = Array.isArray(response.data?.loose_items)
+      ? response.data.loose_items
+      : [];
+    planItems.forEach((entry: any) => {
+      if (!entry?.id) return;
+      const zoneLabel = formatZoneLabel(entry.loading_zone);
+      if (zoneLabel) {
+        itemAssignments.set(String(entry.id), zoneLabel);
+      }
+    });
+    containerZoneMap.value = containerAssignments;
+    itemZoneMap.value = itemAssignments;
+  } catch (error) {
+    console.error("[MobileMoveSession] Failed to load loading plan", error);
+    clearZoneAssignments();
+  }
+};
+
 const extractTokenFromValue = (value: string) => {
   if (!value) return null;
   const trimmed = String(value).trim();
@@ -206,56 +418,90 @@ const extractTokenFromValue = (value: string) => {
 
 const setScanDisplayLabel = (raw: string | null, explicitLabel?: string | null) => {
   if (explicitLabel) {
+    console.log("[MobileMoveSession] Display label via explicit:", explicitLabel);
     scanDisplayLabel.value = explicitLabel;
-    return;
-  }
-  if (!raw) {
+  } else if (!raw) {
     scanDisplayLabel.value = "";
+  } else {
+    const trimmed = raw.trim();
+    scanDisplayLabel.value =
+      pendingScanEntity.value?.label || trimmed;
+    console.log("[MobileMoveSession] Display label via pending/raw:", scanDisplayLabel.value);
+  }
+};
+
+const resolveScanEntity = (rawValue: string | null, explicitType?: "container" | "item") => {
+  pendingScanEntity.value = null;
+  if (!rawValue) {
+    console.log("[MobileMoveSession] resolveScanEntity called with empty value");
     return;
   }
-  const trimmed = raw.trim();
+  const trimmed = rawValue.trim();
   const token = extractTokenFromValue(trimmed);
 
-  const containerMatch = store.containers.find(
+  const matchContainer = store.containers.find(
     (c) =>
       String(c.value) === trimmed ||
       c.qr_code === trimmed ||
       (token && c.qr_code === token),
   );
-  if (containerMatch) {
-    scanDisplayLabel.value =
-      containerMatch.label ||
-      (containerMatch.box_number
-        ? `Box ${containerMatch.box_number}`
-        : `Container ${containerMatch.value}`);
+  if (matchContainer && (explicitType === undefined || explicitType === "container")) {
+    const collectionId =
+      matchContainer.collection !== undefined && matchContainer.collection !== null
+        ? String(matchContainer.collection)
+        : null;
+    const explicitZoneLabel = getContainerZoneLabel(matchContainer.value);
+    pendingScanEntity.value = {
+      type: "container",
+      id: String(matchContainer.value),
+      label:
+        matchContainer.label ||
+        (matchContainer.box_number
+          ? `Box ${matchContainer.box_number}`
+          : `Container ${matchContainer.value}`),
+      collectionId,
+      zoneLabel: explicitZoneLabel || resolveCollectionLabel(collectionId),
+    };
+    console.log("[MobileMoveSession] Resolved container entity:", pendingScanEntity.value);
     return;
   }
 
-  const itemMatch = store.items.find(
+  const matchItem = store.items.find(
     (i) =>
       String(i.value) === trimmed ||
       i.qr_code === trimmed ||
       (token && i.qr_code === token),
   );
-  if (itemMatch) {
-    scanDisplayLabel.value = itemMatch.label || `Item ${itemMatch.value}`;
-    return;
-  }
-
-  const manifestMatch = manifestOptions.value.find((option) => {
-    const scanValue = option.scanValue != null ? String(option.scanValue) : null;
-    return (
-      option.value === trimmed ||
-      (scanValue && scanValue === trimmed) ||
-      (token && scanValue === token)
+  if (matchItem && matchItem.container) {
+    console.log(
+      "[MobileMoveSession] Ignoring QR match for nested item",
+      matchItem.value,
+      "inside container",
+      matchItem.container,
     );
-  });
-  if (manifestMatch) {
-    scanDisplayLabel.value = manifestMatch.label;
+  }
+  if (
+    matchItem &&
+    !matchItem.container &&
+    (explicitType === undefined || explicitType === "item")
+  ) {
+    const collectionId =
+      matchItem.collection !== undefined && matchItem.collection !== null
+        ? String(matchItem.collection)
+        : null;
+    const explicitZoneLabel = getItemZoneLabel(matchItem.value);
+    pendingScanEntity.value = {
+      type: "item",
+      id: String(matchItem.value),
+      label: matchItem.label || `Item ${matchItem.value}`,
+      collectionId,
+      zoneLabel: explicitZoneLabel || resolveCollectionLabel(collectionId),
+    };
+    console.log("[MobileMoveSession] Resolved item entity:", pendingScanEntity.value);
     return;
   }
 
-  scanDisplayLabel.value = trimmed;
+  console.log("[MobileMoveSession] Failed to resolve entity for value:", rawValue);
 };
 
 const goToItemsFromDrawer = (locationId: string | number) => {
@@ -301,8 +547,10 @@ const fetchSessions = async (moveId: number) => {
     const response = await axios.get(`${API_BASE}/api/move-day/sessions`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    const data = Array.isArray(response.data) ? response.data : [];
+    allSessions.value = data;
     // Filter sessions by selected move
-    const list = response.data.filter((s: any) => s.saved_move_id === moveId);
+    const list = data.filter((s: any) => s.saved_move_id === moveId);
     sessions.value = list;
     if (list.length) {
       const first = list.sort((a: any, b: any) => {
@@ -315,8 +563,10 @@ const fetchSessions = async (moveId: number) => {
         return aTime - bTime;
       })[0];
       selectedSession.value = first;
+      await loadSessionLoadingPlan(first?.id ?? null);
     } else {
       selectedSession.value = null;
+      clearZoneAssignments();
     }
   } catch (error) {
     console.error("Error fetching sessions:", error);
@@ -325,6 +575,7 @@ const fetchSessions = async (moveId: number) => {
       message: "Failed to load sessions",
       position: "top",
     });
+    clearZoneAssignments();
   } finally {
     loading.value = false;
   }
@@ -378,6 +629,7 @@ const selectMove = async (move: any, notify = true) => {
   selectedSession.value = null;
   sessions.value = [];
   showLeft.value = false;
+  clearZoneAssignments();
 
   if (move?.id) {
     const currentParam = Array.isArray(route.params.moveId)
@@ -402,22 +654,36 @@ const selectMove = async (move: any, notify = true) => {
   await fetchSessions(move.id);
 };
 
-const onSessionChange = (sessionId: number) => {
+const onSessionChange = async (sessionId: number) => {
   selectedSession.value = sessions.value.find((s) => s.id === sessionId);
+  await loadSessionLoadingPlan(selectedSession.value?.id ?? null);
 };
 
 const changeStatus = () => {
   if (!selectedSession.value) return;
+  if (
+    selectedSession.value.status !== "in_progress" &&
+    conflictingLocationLock.value
+  ) {
+    return;
+  }
 
   const statuses = [
     { label: "Not Started", value: "not_started" },
-    { label: "In Progress", value: "in_progress" },
+    {
+      label: "In Progress",
+      value: "in_progress",
+      disable: !canSetSessionInProgress.value,
+    },
     { label: "Complete", value: "complete" },
   ];
 
   $q.dialog({
     title: "Change Status",
-    message: "Select new status:",
+    message:
+      !canSetSessionInProgress.value && inProgressRestrictionMessage.value
+        ? inProgressRestrictionMessage.value
+        : "Select new status:",
     options: {
       type: "radio",
       model: selectedSession.value.status,
@@ -455,7 +721,7 @@ const changeStatus = () => {
 };
 
 const handleScan = async (scanType: "loaded" | "unloaded") => {
-  if (!canScan.value) return;
+  if (!canSubmitScan.value || !pendingScanEntity.value) return;
 
   try {
     loading.value = true;
@@ -470,22 +736,41 @@ const handleScan = async (scanType: "loaded" | "unloaded") => {
       return;
     }
 
-    await axios.post(
-      `${API_BASE}/api/move-day/scans`,
-      {
-        move_session_id: selectedSession.value.id,
-        scan_type: scanType,
-        scanned_by: props.user,
-        ...(payload.qr_token
+    if (pendingScanEntity.value.type === "container") {
+      const resolvedPayload =
+        payload && ("qr_token" in payload)
           ? { qr_token: payload.qr_token }
-          : { container_id: payload.container_id }),
-      },
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
+          : { container_id: Number(pendingScanEntity.value.id) };
 
-    const selectionLabel = payload.qr_token
-      ? "QR code"
-      : payload.container_id;
+      await axios.post(
+        `${API_BASE}/api/move-day/scans`,
+        {
+          move_session_id: selectedSession.value.id,
+          scan_type: scanType,
+          scanned_by: props.user,
+          ...resolvedPayload,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+    } else if (pendingScanEntity.value.type === "item") {
+      const resolvedPayload =
+        payload && ("qr_token" in payload)
+          ? { qr_token: payload.qr_token }
+          : { item_id: Number(pendingScanEntity.value.id) };
+
+      await axios.post(
+        `${API_BASE}/api/move-day/scans/item`,
+        {
+          move_session_id: selectedSession.value.id,
+          scan_type: scanType,
+          scanned_by: props.user,
+          ...resolvedPayload,
+        },
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+    }
+
+    const selectionLabel = pendingScanEntity.value?.label || "QR code";
 
     $q.notify({
       type: "positive",
@@ -496,6 +781,7 @@ const handleScan = async (scanType: "loaded" | "unloaded") => {
 
     boxInput.value = "";
     setScanDisplayLabel(null);
+    pendingScanEntity.value = null;
   } catch (error: any) {
     console.error("Error recording scan:", error);
     $q.notify({
@@ -513,13 +799,6 @@ const openQRScanner = () => {
 };
 
 const stopQrScanner = () => {
-  if (qrReader.value && typeof qrReader.value.reset === "function") {
-    try {
-      qrReader.value.reset();
-    } catch (e) {
-      console.warn("QR scanner reset failed", e);
-    }
-  }
   if (qrReaderControls.value?.stop) {
     try {
       qrReaderControls.value.stop();
@@ -541,7 +820,9 @@ const handleQrCapture = (text: string) => {
   }
   lastScannedValue.value = normalized;
   boxInput.value = normalized;
-  setScanDisplayLabel(normalized);
+  resolveScanEntity(normalized);
+  const label = pendingScanEntity.value?.label;
+  setScanDisplayLabel(normalized, label);
   qrScanError.value = null;
   stopQrScanner();
   $q.notify({
@@ -584,7 +865,6 @@ const startQrScanner = async () => {
     );
   } catch (error: any) {
     qrScannerActive.value = false;
-    qrReader.value?.reset();
     if (error?.name === "NotAllowedError") {
       qrScanError.value = "Camera access denied. Please enable camera permissions.";
     } else if (error?.name === "NotFoundException") {
@@ -610,7 +890,12 @@ watch(manifestSelection, (newValue) => {
   if (!match) return;
   boxInput.value = String(match.scanValue ?? "");
   showManifestPicker.value = false;
-  setScanDisplayLabel(String(match.scanValue ?? ""), match.label);
+  resolveScanEntity(String(match.scanValue ?? ""), match.type);
+  const label =
+    match.label ||
+    pendingScanEntity.value?.label ||
+    String(match.scanValue ?? "");
+  setScanDisplayLabel(String(match.scanValue ?? ""), label);
 });
 
 watch(showScanDialog, (isOpen) => {
@@ -632,6 +917,36 @@ watch(showScanDialog, (isOpen) => {
 
 onMounted(() => {
   fetchMoves();
+  if (props.user) {
+    if (store.items.length || store.containers.length) {
+      console.log(
+        "[MobileMoveSession] Inventory already loaded",
+        store.items.length,
+        "items /",
+        store.containers.length,
+        "containers",
+      );
+    } else {
+      console.log(
+        "[MobileMoveSession] Loading inventory for QR resolution. user:",
+        props.user,
+      );
+      store
+        .loadInventory(props.user)
+        .then(() => {
+          console.log(
+            "[MobileMoveSession] Inventory loaded",
+            store.items.length,
+            "items /",
+            store.containers.length,
+            "containers",
+          );
+        })
+        .catch((error) => {
+          console.error("[MobileMoveSession] Unable to load inventory", error);
+        });
+    }
+  }
 });
 
 watch(
@@ -796,14 +1111,23 @@ watch(
               <q-chip
                 :color="sessionStatusColor"
                 text-color="white"
-                clickable
-                @click="changeStatus"
+                :clickable="canOpenStatusDialog"
+                @click="canOpenStatusDialog && changeStatus()"
               >
                 {{ sessionStatusLabel }}
                 <q-tooltip>Tap to change status</q-tooltip>
               </q-chip>
             </q-card-section>
           </q-card>
+
+          <q-banner
+            v-if="selectedSession && !isSessionReadyForScanning"
+            class="bg-orange-1 text-orange-10 q-mb-md"
+            dense
+            rounded
+          >
+            {{ scanRestrictionMessage }}
+          </q-banner>
 
           <q-page-sticky
             v-if="selectedSession"
@@ -817,6 +1141,7 @@ watch(
                 icon="qr_code_scanner"
                 label="Scan box / item"
                 @click="openQRScanner"
+                :disable="!isSessionReadyForScanning"
               />
             </div>
           </q-page-sticky>
@@ -969,6 +1294,12 @@ watch(
         <div v-if="boxInput" class="scan-selection">
           <div class="selection-label">Selected</div>
           <div class="selection-value">{{ scanSelectionLabel }}</div>
+          <div
+            v-if="scanZoneLabel"
+            class="selection-zone"
+          >
+            Assigned zone: <strong>{{ scanZoneLabel }}</strong>
+          </div>
         </div>
 
         <div class="scan-toast__actions">
@@ -976,13 +1307,15 @@ watch(
             class="scan-action scan-action--primary"
             label="Loaded"
             icon="inventory_2"
-            :disable="!boxInput"
+            :disable="!canSubmitScan"
+            @click="handleScan('loaded')"
           />
           <q-btn
             class="scan-action scan-action--secondary"
             label="Report Damage"
             icon="report"
-            :disable="!boxInput"
+            :disable="!canSubmitScan"
+            @click="handleScan('unloaded')"
           />
         </div>
 
@@ -1397,6 +1730,15 @@ watch(
 .selection-value {
   font-size: 1.1rem;
   font-weight: 600;
+}
+
+.selection-zone {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.selection-zone strong {
+  color: #1b2a5b;
 }
 
 .scan-manifest-picker {
