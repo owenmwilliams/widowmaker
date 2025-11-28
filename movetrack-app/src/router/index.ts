@@ -19,7 +19,6 @@ import OnboardingFirstItem from '../views/onboarding/OnboardingFirstItem.vue'
 import OnboardingNextSteps from '../views/onboarding/OnboardingNextSteps.vue'
 import OnboardingMobileCapture from '../views/onboarding/OnboardingMobileCapture.vue'
 import DesktopInventoryUpload from '../views/onboarding/DesktopInventoryUpload.vue'
-import VisionLab from '../views/VisionLab.vue'
 import { hasCompletedOnboarding } from '../utils/onboarding'
 
 // Custom auth guard using session tokens
@@ -116,12 +115,6 @@ const router = createRouter({
       path: "/onboarding/capture",
       name: "onboarding-capture-mobile",
       component: OnboardingMobileCapture
-    },
-    {
-      path: "/vision-lab",
-      name: "vision-lab",
-      component: VisionLab,
-      beforeEnter: adminGuard,
     },
     {
       path: "/onboarding/import",
