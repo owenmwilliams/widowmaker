@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
@@ -73,6 +73,11 @@ const fetchTrucks = async () => {
 
 onMounted(() => {
   fetchTrucks();
+  applyOnboardingLocation();
+});
+
+watch(locations, () => {
+  applyOnboardingLocation();
 });
 
 const locationForm = reactive({
@@ -109,6 +114,18 @@ const resetLocationForm = () => {
 const openAddLocation = () => {
   resetLocationForm();
   locationDialogOpen.value = true;
+};
+
+const applyOnboardingLocation = () => {
+  if (typeof window === 'undefined') return;
+  const storedId = localStorage.getItem('desktop_onboarding_location_id');
+  if (!storedId) return;
+  const numericId = parseInt(storedId, 10);
+  const target = locations.value.find(loc => String(loc.value) === storedId || Number(loc.value) === numericId);
+  if (target) {
+    openEditLocation(Number(target.value));
+    localStorage.removeItem('desktop_onboarding_location_id');
+  }
 };
 
 const openEditLocation = (id: number) => {

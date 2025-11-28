@@ -58,10 +58,6 @@ export default defineConfig({
         target: 'http://localhost:3050',
         changeOrigin: true,
       },
-      '/items': {
-        target: 'http://localhost:3050',
-        changeOrigin: true,
-      },
       '/lists': {
         target: 'http://localhost:3050',
         changeOrigin: true,
@@ -70,7 +66,7 @@ export default defineConfig({
         target: 'http://localhost:3050',
         changeOrigin: true,
       },
-      '/vision': {
+      '^/vision(?=/)': {
         target: 'http://localhost:3050',
         changeOrigin: true,
       },

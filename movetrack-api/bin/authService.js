@@ -22,6 +22,13 @@ const knex = knexLib({
 });
 
 const planTableReady = ensurePlanStatusTable();
+let onboardingColumnPromise = null;
+const hasOnboardingColumn = async () => {
+    if (!onboardingColumnPromise) {
+        onboardingColumnPromise = knex.schema.hasColumn('users', 'onboarding_completed').catch(() => false);
+    }
+    return onboardingColumnPromise;
+};
 
 // --- Configuration Guards ----------------------------------------------------
 const isProduction = process.env.NODE_ENV === 'production';
@@ -152,8 +159,10 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
         );
 
         // Find valid magic link token
+        const hasOnboarding = await hasOnboardingColumn();
+        const onboardingSelect = hasOnboarding ? ', u.onboarding_completed' : ', NULL::boolean AS onboarding_completed';
         const authToken = await db.oneOrNone(
-            `SELECT at.*, u.email
+            `SELECT at.*, u.email, u.first_name, u.last_name${onboardingSelect}
              FROM auth_tokens at
              JOIN users u ON at.user_id = u.user_id
              WHERE at.token = $1
@@ -198,6 +207,9 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
             user: {
                 userId: authToken.user_id,
                 email: authToken.email,
+                firstName: authToken.first_name,
+                lastName: authToken.last_name,
+                onboarding_completed: !!authToken.onboarding_completed,
                 plan: flags.plan,
                 is_admin: flags.is_admin
             }
@@ -317,8 +329,10 @@ async function getUserFromToken(sessionToken) {
         }
 
         // Check if session token exists in database and is valid
+        const hasOnboarding = await hasOnboardingColumn();
+        const onboardingSelect = hasOnboarding ? ', u.onboarding_completed' : ', NULL::boolean AS onboarding_completed';
         const authToken = await db.oneOrNone(
-            `SELECT at.*, u.email, u.first_name, u.last_name
+            `SELECT at.*, u.email, u.first_name, u.last_name${onboardingSelect}
              FROM auth_tokens at
              JOIN users u ON at.user_id = u.user_id
              WHERE at.token = $1
@@ -339,6 +353,7 @@ async function getUserFromToken(sessionToken) {
             email: authToken.email,
             firstName: authToken.first_name,
             lastName: authToken.last_name,
+            onboarding_completed: !!authToken.onboarding_completed,
             plan: flags.plan,
             is_admin: flags.is_admin
         };

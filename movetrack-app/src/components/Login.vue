@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import ReloPrepLogo from './ReloPrepLogo.vue';
 import { useQuasar } from 'quasar';
+import { hasCompletedOnboarding } from '../utils/onboarding';
 
 const route = useRoute();
 const router = useRouter();
@@ -48,8 +49,10 @@ onMounted(async () => {
       });
 
       if (response.data.success) {
-        // User is already logged in, redirect to items
-        router.push('/items');
+        if (response.data.user) {
+          localStorage.setItem('user_data', JSON.stringify(response.data.user));
+        }
+        redirectAfterLogin(response.data.user);
       }
     } catch (error) {
       // Session expired or invalid, clear it
@@ -141,8 +144,7 @@ const verifyMagicLink = async (token: string) => {
       });
 
       // Keep loading screen visible and redirect immediately
-      // Don't hide loading in finally block since we're navigating away
-      router.push('/items');
+      redirectAfterLogin(response.data.user);
     } else {
       // Only on error: show error and hide loading
       verificationError.value = response.data.error || 'Invalid or expired magic link';
@@ -169,6 +171,11 @@ const tryAgain = () => {
   emailSent.value = false;
   verificationError.value = '';
   email.value = '';
+};
+
+const redirectAfterLogin = (user: any) => {
+  const shouldOnboard = !hasCompletedOnboarding(user);
+  router.push(shouldOnboard ? '/onboarding' : '/items');
 };
 </script>
 

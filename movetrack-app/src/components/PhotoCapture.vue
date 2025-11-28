@@ -15,7 +15,7 @@ const core_url =
     : "https://movetrack-api-7hwn7ggbiq-uc.a.run.app";
 
 const emit = defineEmits<{
-  (e: "item-added", item: InventoryItem): void;
+  (e: "item-added", item: InventoryItem, context?: { onboarding?: boolean }): void;
   (e: "close"): void;
 }>();
 
@@ -25,12 +25,18 @@ const props = defineProps<{
   user?: string;
   autoOpen?: boolean;
   defaultCaptureMode?: "single" | "multi";
+  collectionOptions?: { label: string; value: string }[];
+  defaultCollectionId?: string | null;
+  createInInventory?: boolean;
+  suppressDirectPrompt?: boolean;
 }>();
 
 // Camera/Photo state
 const showCamera = ref(false);
 const capturedImage = ref<string | null>(null);
 const isProcessing = ref(false);
+const shouldCreateInInventory = computed(() => props.createInInventory !== false);
+const showPrompt = ref(!props.suppressDirectPrompt);
 
 const multiScanLimit = ref<number | null>(null);
 const multiScanRemaining = ref<number | null>(null);
@@ -140,12 +146,20 @@ const showNewCollectionDialog = ref(false);
 const newCollectionName = ref("");
 const newCollectionLocation = ref<string | null>(null);
 
-// Initialize selectedCollectionId with activeCollectionId
-watch(activeCollectionId, (newValue) => {
-  if (newValue && !selectedCollectionId.value) {
-    selectedCollectionId.value = newValue;
-  }
-}, { immediate: true });
+// Initialize selectedCollectionId with activeCollectionId or default
+watch(
+  [activeCollectionId, () => props.defaultCollectionId],
+  ([activeValue, defaultValue]) => {
+    if (defaultValue) {
+      selectedCollectionId.value = defaultValue;
+      return;
+    }
+    if (activeValue && !selectedCollectionId.value) {
+      selectedCollectionId.value = activeValue;
+    }
+  },
+  { immediate: true },
+);
 
 // Create new collection
 const createNewCollection = async () => {
@@ -210,7 +224,7 @@ const createNewCollection = async () => {
   }
 };
 
-const analyzeItemBlob = async (blob: Blob) => {
+const analyzeItemBlob = async (blob: Blob, attempt = 1): Promise<any> => {
   const sessionToken = localStorage.getItem("session_token");
   if (!sessionToken) {
     throw new Error("Please log in to analyze items");
@@ -222,22 +236,35 @@ const analyzeItemBlob = async (blob: Blob) => {
     ? `?provider=${props.visionProvider}`
     : "";
 
-  const response = await axios.post(
-    `${core_url}/vision/analyze-item${providerParam}`,
-    formData,
-    {
-      headers: {
-        "Content-Type": "multipart/form-data",
-        Authorization: `Bearer ${sessionToken}`,
+  try {
+    const response = await axios.post(
+      `${core_url}/vision/analyze-item${providerParam}`,
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        timeout: 15000,
       },
-    },
-  );
+    );
 
-  if (response.data?.success) {
-    return response.data.data;
+    if (response.data?.success) {
+      return response.data.data;
+    }
+
+    throw new Error(response.data?.error || "Vision analysis failed");
+  } catch (error) {
+    if (attempt < 3) {
+      console.warn(
+        `[PhotoCapture] Vision analyze failed (attempt ${attempt}), retrying...`,
+        error,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
+      return analyzeItemBlob(blob, attempt + 1);
+    }
+    throw error;
   }
-
-  throw new Error(response.data?.error || "Vision analysis failed");
 };
 
 const boundingBoxStyle = (box: DetectedItem["boundingBox"]) => {
@@ -534,26 +561,50 @@ const handleSingleItemCapture = async (file: File) => {
       throw new Error("Please log in to use AI-powered photo analysis");
     }
 
-    // Call vision API
+    // Call vision API with retries
     const formData = new FormData();
     formData.append("image", file);
 
     const providerParam = props.visionProvider
       ? `?provider=${props.visionProvider}`
       : "";
-    const response = await axios.post(
-      `${core_url}/vision/analyze-item${providerParam}`,
-      formData,
-      {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          Authorization: `Bearer ${sessionToken}`,
-        },
-      },
-    );
 
-    if (response.data.success) {
-      const aiData = response.data.data;
+    const callVision = async (attempt = 1): Promise<any> => {
+      try {
+        const response = await axios.post(
+          `${core_url}/vision/analyze-item${providerParam}`,
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+              Authorization: `Bearer ${sessionToken}`,
+            },
+            timeout: 15000,
+          },
+        );
+
+        if (!response.data.success) {
+          throw new Error(response.data.error || "Failed to analyze image");
+        }
+
+        return response.data;
+      } catch (error) {
+        if (attempt < 3) {
+          console.warn(
+            `[PhotoCapture] Vision analyze failed (attempt ${attempt}), retrying...`,
+            error,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
+          return callVision(attempt + 1);
+        }
+        throw error;
+      }
+    };
+
+    const response = await callVision();
+
+    if (response.data) {
+      const aiData = response.data;
 
       // Safely extract dimensions with fallback values
       const dimensions = aiData.estimatedDimensions || {
@@ -768,6 +819,44 @@ const saveItem = async () => {
       caption: "Items must be added to a collection",
       position: "bottom",
     });
+    return;
+  }
+
+  if (!shouldCreateInInventory.value) {
+    const payload: InventoryItem = {
+      value: "",
+      label: newItem.value.name,
+      collection: selectedCollectionId.value,
+      container: store.activeContainer?.value || null,
+      location: null,
+      quantity: newItem.value.qty || 1,
+      description: newItem.value.description || "",
+      picture_url: capturedImage.value || null,
+      material: newItem.value.material || "",
+      primary_color: newItem.value.primaryColor || "",
+      tags: newItem.value.tags || [],
+      fragile: editFragile.value,
+      priority: null,
+      weight_lbs: editWeight.value || null,
+      dimensions: `${editDimensions.value.length || 0}"×${editDimensions.value.width || 0}"×${editDimensions.value.height || 0}"`,
+      length_in: editDimensions.value.length || null,
+      width_in: editDimensions.value.width || null,
+      height_in: editDimensions.value.height || null,
+      estimated_value: null,
+      notes: newItem.value.notes || "",
+      created_at: null,
+      qr_code: null,
+      qr_url: null,
+    };
+
+    emit("item-added", payload, { onboarding: true });
+    $q.notify({
+      type: "positive",
+      message: `${payload.label} ready to be saved with onboarding.`,
+      position: "bottom",
+      timeout: 2000,
+    });
+    resetForm();
     return;
   }
 
@@ -1069,6 +1158,7 @@ const resetForm = () => {
 // Cancel and close
 const cancel = () => {
   resetForm();
+  showPrompt.value = true;
   emit("close");
 };
 
@@ -1157,7 +1247,7 @@ onMounted(() => {
       </div>
 
       <!-- Direct camera button (when mode already selected) -->
-      <div v-else>
+      <div v-else-if="showPrompt">
         <q-icon
           name="photo_camera"
           size="80px"
@@ -1211,7 +1301,7 @@ onMounted(() => {
 
         <!-- Bounding boxes -->
         <div
-          v-for="(item, index) in detectedItems"
+          v-for="(item, index) in detectedItems.filter(item => item && item.id)"
           :key="item.id"
           class="bounding-box"
           :class="{ selected: selectedItemIndex === index }"
@@ -1224,11 +1314,41 @@ onMounted(() => {
 
       <div class="multi-item-info">
         <h4 class="form-title">{{ detectedItems.length }} Items Detected</h4>
-        <p class="info-text">Tap an item below to add it to your inventory.</p>
+        <p class="info-text">Select a collection, then tap items to add them to your inventory.</p>
+
+        <!-- Collection selector for multi-item -->
+        <div class="collection-selector q-mb-md">
+          <q-select
+            v-model="selectedCollectionId"
+            :options="props.collectionOptions?.length ? props.collectionOptions : store.collections"
+            label="Collection *"
+            outlined
+            dense
+            emit-value
+            map-options
+            option-value="value"
+            option-label="label"
+            class="form-field"
+          >
+            <template v-if="!props.collectionOptions?.length" v-slot:append>
+              <q-btn
+                flat
+                dense
+                round
+                icon="add"
+                size="sm"
+                color="primary"
+                @click.stop="showNewCollectionDialog = true"
+              >
+                <q-tooltip>Create new collection</q-tooltip>
+              </q-btn>
+            </template>
+          </q-select>
+        </div>
 
         <q-list bordered separator class="detected-items-list">
           <q-item
-            v-for="(item, index) in detectedItems"
+            v-for="(item, index) in detectedItems.filter(item => item && item.id)"
             :key="item.id"
             clickable
             :disable="isProcessingMultiItem(item.id)"
@@ -1273,7 +1393,7 @@ onMounted(() => {
     </div>
 
     <!-- Photo captured - show quick edit -->
-    <div v-else class="photo-preview-container">
+    <div v-else class="photo-preview-container expanded">
       <!-- Image preview -->
       <div class="image-preview">
         <img
@@ -1307,7 +1427,7 @@ onMounted(() => {
         <div class="collection-selector">
           <q-select
             v-model="selectedCollectionId"
-            :options="store.collections"
+            :options="props.collectionOptions?.length ? props.collectionOptions : store.collections"
             label="Collection *"
             outlined
             dense
@@ -1317,7 +1437,7 @@ onMounted(() => {
             option-label="label"
             class="form-field"
           >
-            <template v-slot:append>
+            <template v-if="!props.collectionOptions?.length" v-slot:append>
               <q-btn
                 flat
                 dense
@@ -1650,6 +1770,10 @@ onMounted(() => {
   overflow: hidden;
 }
 
+.photo-preview-container.expanded {
+  min-height: 90vh;
+}
+
 .image-preview {
   position: relative;
   width: 100%;
@@ -1778,14 +1902,14 @@ onMounted(() => {
 .multi-item-container {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  max-height: 75vh; /* Reduced from 90vh to ensure ample room */
   overflow: hidden;
 }
 
 .multi-item-container .image-preview {
-  flex: 0 0 50vh; /* Fixed 50% of viewport height */
-  max-height: 50vh;
-  min-height: 50vh;
+  flex: 0 0 30vh; /* Reduced from 40vh to make more compact */
+  max-height: 30vh;
+  min-height: 30vh;
 }
 
 .multi-item-container .preview-img {
@@ -1793,14 +1917,14 @@ onMounted(() => {
   height: 100%;
   object-fit: contain;
   max-width: 100%;
-  max-height: 50vh;
+  max-height: 30vh;
 }
 
 .multi-item-info {
   flex: 1;
-  padding: 20px;
+  padding: 16px; /* Reduced padding from 20px */
   overflow-y: auto;
-  max-height: 50vh; /* Fixed 50% of viewport height with scroll */
+  max-height: 45vh; /* Adjusted for new image height */
 }
 
 .info-text {
@@ -1875,3 +1999,13 @@ onMounted(() => {
   }
 }
 </style>
+.photo-preview-container.expanded .image-preview {
+  min-height: 60vh;
+  max-height: 60vh;
+}
+
+.photo-preview-container.expanded .preview-img {
+  max-height: 100%;
+  height: 100%;
+  width: auto;
+}

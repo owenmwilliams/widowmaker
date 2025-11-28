@@ -66,6 +66,8 @@ const activeId: Ref<string | undefined> = ref(undefined);
 const activeObjectType = ref(ObjectEnum.item);
 const activeEditBool = ref(false);
 const showPhotoCapture = ref(false);
+const autoOpenCamera = ref(false);
+const pendingCaptureMode = ref<"single" | "multi" | null>(null);
 const currentVisionProvider = ref<string>("gemini");
 const cameraInput = ref<HTMLInputElement | null>(null);
 const savedMoves = ref<any[]>([]);
@@ -107,6 +109,26 @@ const getRouteLocationParam = (): string | null => {
     return param[0] ? String(param[0]) : null;
   }
   return typeof param === "string" && param.length > 0 ? param : null;
+};
+
+const openPhotoCapture = (
+  mode?: "single" | "multi",
+  options?: { autoOpen?: boolean },
+) => {
+  pendingCaptureMode.value = mode ?? null;
+  autoOpenCamera.value = options?.autoOpen ?? false;
+  showPhotoCapture.value = true;
+};
+
+const maybeLaunchCaptureFromStorage = () => {
+  if (typeof window === "undefined") return;
+  const stored = localStorage.getItem("launch_capture_mode");
+  if (stored === "single" || stored === "multi") {
+    const autoLaunch = localStorage.getItem("launch_capture_auto") === "true";
+    openPhotoCapture(stored, { autoOpen: autoLaunch });
+    localStorage.removeItem("launch_capture_mode");
+    localStorage.removeItem("launch_capture_auto");
+  }
 };
 
 const rebuildDragLists = () => {
@@ -641,6 +663,7 @@ watch(
 onMounted(() => {
   store.loadInventory(props.user);
   loadSavedMoves();
+  maybeLaunchCaptureFromStorage();
 });
 
 // const consoleLog = () => {
@@ -800,6 +823,8 @@ const handleContainerHide = (containerId: string) => {
         <PhotoCapture
           :vision-provider="currentVisionProvider"
           :user="props.user"
+          :default-capture-mode="pendingCaptureMode || undefined"
+          :auto-open="autoOpenCamera"
           @item-added="handlePhotoItemAdded"
           @close="showPhotoCapture = false"
         />
@@ -1122,7 +1147,7 @@ const handleContainerHide = (containerId: string) => {
               label="Take Photo"
               class="fab-button fab-pill"
               :disable="store.collections.length == 0"
-              @click="showPhotoCapture = true"
+              @click="openPhotoCapture('single')"
             />
 
             <div class="cta-secondary-actions">
@@ -1164,7 +1189,7 @@ const handleContainerHide = (containerId: string) => {
         label="Add photo"
         class="fab-button fab-pill"
         :disable="store.collections.length == 0"
-        @click="showPhotoCapture = true"
+        @click="openPhotoCapture('single')"
       >
         <q-tooltip>Add item with AI</q-tooltip>
       </q-btn>

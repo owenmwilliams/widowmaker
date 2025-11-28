@@ -28,6 +28,7 @@ interface Waypoint {
   distance_source?: 'estimated' | 'calculated' | 'polyline';
   notes?: string;
   overnight_recommended: boolean;
+  is_dropoff: boolean;
   sequence_order: number;
 }
 
@@ -65,14 +66,14 @@ const isCollapsed = ref(false);
 const finalLegDistanceMiles = ref<number | null>(null);
 const finalLegDurationHours = ref<number | null>(null);
 
-// Check if we can suggest stops (need route data and distance > 500 miles)
+// Check if we can suggest stops (need route data and distance > 600 miles)
 const canSuggestStops = computed(() => {
-  return props.routePolyline && props.totalDistanceMiles && props.totalDistanceMiles > 500;
+  return props.routePolyline && props.totalDistanceMiles && props.totalDistanceMiles > 600;
 });
 
 const suggestedStopsCount = computed(() => {
   if (!props.totalDistanceMiles) return 0;
-  return Math.ceil(props.totalDistanceMiles / 500) - 1;
+  return Math.ceil(props.totalDistanceMiles / 600) - 1;
 });
 
 // Form fields
@@ -80,6 +81,7 @@ const newCity = ref('');
 const newState = ref('');
 const newNotes = ref('');
 const newOvernightRecommended = ref(false);
+const newIsDropoff = ref(false);
 
 const stateOptions = [
   'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'FL', 'GA',
@@ -119,6 +121,7 @@ const resetForm = () => {
   newState.value = '';
   newNotes.value = '';
   newOvernightRecommended.value = false;
+  newIsDropoff.value = false;
   editingWaypoint.value = null;
 };
 
@@ -133,6 +136,7 @@ const openEditDialog = (waypoint: Waypoint) => {
   newState.value = waypoint.state || '';
   newNotes.value = waypoint.notes || '';
   newOvernightRecommended.value = waypoint.overnight_recommended;
+  newIsDropoff.value = waypoint.is_dropoff || false;
   showAddDialog.value = true;
 };
 
@@ -146,7 +150,8 @@ const saveWaypoint = async () => {
         city: newCity.value,
         state: newState.value || null,
         notes: newNotes.value || null,
-        overnightRecommended: newOvernightRecommended.value
+        overnightRecommended: newOvernightRecommended.value,
+        isDropoff: newIsDropoff.value
       }, {
         headers: getAuthHeaders()
       });
@@ -160,7 +165,8 @@ const saveWaypoint = async () => {
         city: newCity.value,
         state: newState.value || null,
         notes: newNotes.value || null,
-        overnightRecommended: newOvernightRecommended.value
+        overnightRecommended: newOvernightRecommended.value,
+        isDropoff: newIsDropoff.value
       }, {
         headers: getAuthHeaders()
       });
@@ -185,18 +191,39 @@ const saveWaypoint = async () => {
 const deleteWaypoint = async (waypoint: Waypoint) => {
   $q.dialog({
     title: 'Delete Waypoint',
-    message: `Are you sure you want to delete ${waypoint.city}, ${waypoint.state}?`,
+    message: `Are you sure you want to delete ${waypoint.city}, ${waypoint.state}?\n\nDeleting this waypoint will also remove any move sessions that reference it. Consider regenerating your move schedule afterward to ensure your plan stays up to date.`,
     cancel: true,
-    persistent: true
+    persistent: true,
+    html: false
   }).onOk(async () => {
     try {
-      await axios.delete(`${core_url}/api/waypoints/${waypoint.id}`, {
+      const response = await axios.delete(`${core_url}/api/waypoints/${waypoint.id}`, {
         headers: getAuthHeaders()
       });
+
+      const sessionsDeleted = response.data?.sessionsDeleted || 0;
+      let notificationMessage = 'Waypoint deleted';
+      if (sessionsDeleted > 0) {
+        notificationMessage += ` (${sessionsDeleted} session${sessionsDeleted !== 1 ? 's' : ''} removed)`;
+      }
+
       $q.notify({
         type: 'positive',
-        message: 'Waypoint deleted'
+        message: notificationMessage
       });
+
+      // Suggest regenerating schedule if sessions were affected
+      if (sessionsDeleted > 0) {
+        setTimeout(() => {
+          $q.notify({
+            type: 'info',
+            message: 'Tip: Regenerate your move schedule to update your plan',
+            timeout: 5000,
+            position: 'top'
+          });
+        }, 1000);
+      }
+
       await fetchWaypoints();
     } catch (error: any) {
       console.error('Error deleting waypoint:', error);
@@ -285,7 +312,7 @@ const performSuggestStops = async (clearExisting: boolean) => {
     const response = await axios.post(`${core_url}/api/waypoints/${props.moveId}/suggest-and-save`, {
       routePolyline: props.routePolyline,
       totalDistanceMiles: props.totalDistanceMiles,
-      maxDailyMiles: 500,
+      maxDailyMiles: 600,
       clearExisting
     }, {
       headers: getAuthHeaders()
@@ -449,7 +476,7 @@ defineExpose({
             {{ waypoint.city }}<span v-if="waypoint.state">, {{ waypoint.state }}</span>
           </span>
           <span v-if="waypoint.segment_distance_miles" class="waypoint-dist text-grey-6">
-            {{ Math.round(waypoint.segment_distance_miles) }} mi, {{ waypoint.segment_duration_hours }}h
+            {{ Math.round(waypoint.segment_distance_miles / 10) * 10 }} mi, {{ Number(waypoint.segment_duration_hours || 0).toFixed(1) }}h
             <q-tooltip>Distance from {{ index === 0 ? 'origin' : 'previous stop' }}</q-tooltip>
           </span>
           <span v-else-if="waypoint.distance_from_origin_miles" class="waypoint-dist text-grey-6">
@@ -468,7 +495,7 @@ defineExpose({
             <q-icon name="flag" size="xs" class="q-mr-xs text-red" />{{ destinationName || 'Destination' }}
           </span>
           <span class="waypoint-dist text-grey-6">
-            {{ finalLegDistanceMiles }} mi, {{ finalLegDurationHours }}h
+            {{ Math.round(finalLegDistanceMiles / 10) * 10 }} mi, {{ Number(finalLegDurationHours || 0).toFixed(1) }}h
             <q-tooltip>Distance from last stop to destination</q-tooltip>
           </span>
           <div class="waypoint-actions"></div>
@@ -516,6 +543,11 @@ defineExpose({
           <q-toggle
             v-model="newOvernightRecommended"
             label="Overnight stop recommended"
+          />
+
+          <q-toggle
+            v-model="newIsDropoff"
+            label="Drop-off location (unload items here)"
           />
         </q-card-section>
 

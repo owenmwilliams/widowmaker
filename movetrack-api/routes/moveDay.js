@@ -536,6 +536,62 @@ router.post('/sessions', async (req, res) => {
   }
 });
 
+// Update move session date
+router.put('/sessions/:id/date', async (req, res) => {
+  const { id } = req.params;
+  const { session_date } = req.body;
+  const userId = req.user?.user_id;
+
+  if (!userId || !session_date) {
+    return res.status(400).json({ error: 'User and session_date are required' });
+  }
+
+  try {
+    const normalizedSessionDate = normalizeDateOnly(session_date);
+    if (!normalizedSessionDate) {
+      return res.status(400).json({ error: 'Invalid session date' });
+    }
+
+    // Verify ownership
+    const sessionCheck = await knex.raw(`
+      SELECT ms.id, ms.saved_move_id, sm.desired_start_date, sm.desired_end_date, sm.move_date
+      FROM move_sessions ms
+      LEFT JOIN saved_moves sm ON ms.saved_move_id = sm.id
+      WHERE ms.id = ? AND ms.user_id = ?
+    `, [id, userId]);
+
+    if (sessionCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Move session not found' });
+    }
+
+    const session = sessionCheck.rows[0];
+    const desiredStart = normalizeDateOnly(session.desired_start_date || session.move_date);
+    const desiredEnd = normalizeDateOnly(session.desired_end_date || desiredStart);
+
+    if (desiredStart && desiredEnd) {
+      if (normalizedSessionDate < desiredStart || normalizedSessionDate > desiredEnd) {
+        return res.status(400).json({ error: 'Session date must be within the move window' });
+      }
+    }
+
+    const result = await knex.raw(`
+      UPDATE move_sessions
+      SET session_date = ?, move_date = ?, updated_at = NOW()
+      WHERE id = ? AND user_id = ?
+      RETURNING *
+    `, [normalizedSessionDate, normalizedSessionDate, id, userId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Move session not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating move session date:', error);
+    res.status(500).json({ error: 'Failed to update move session date' });
+  }
+});
+
 // Update move session status
 router.put('/sessions/:id/status', async (req, res) => {
   const { id } = req.params;
@@ -552,6 +608,94 @@ router.put('/sessions/:id/status', async (req, res) => {
   }
 
   try {
+    const sessionInfo = await knex('move_sessions as ms')
+      .select(
+        'ms.status as current_status',
+        'ms.session_start_location_id',
+        'ms.session_end_location_id',
+        'ms.origin_location_id as session_origin_location_id',
+        'ms.destination_location_id as session_destination_location_id',
+        'sm.origin_location_id',
+        'sm.destination_location_id',
+        'sm.name as move_name',
+        'sm.id as saved_move_id'
+      )
+      .leftJoin('saved_moves as sm', 'ms.saved_move_id', 'sm.id')
+      .where('ms.id', id)
+      .andWhere('ms.user_id', userId)
+      .first();
+
+    if (!sessionInfo) {
+      return res.status(404).json({ error: 'Move session not found' });
+    }
+
+    if (status === 'in_progress') {
+      const normalizedLocationIds = new Set();
+      [
+        sessionInfo.origin_location_id,
+        sessionInfo.destination_location_id,
+        sessionInfo.session_start_location_id,
+        sessionInfo.session_end_location_id,
+        sessionInfo.session_origin_location_id,
+        sessionInfo.session_destination_location_id
+      ]
+        .filter(Boolean)
+        .forEach((loc) => normalizedLocationIds.add(String(loc)));
+
+      if (sessionInfo.saved_move_id) {
+        const multiLocationRows = await knex('move_locations')
+          .select('location_id')
+          .where('move_id', sessionInfo.saved_move_id);
+        multiLocationRows.forEach((row) => {
+          if (row.location_id) {
+            normalizedLocationIds.add(String(row.location_id));
+          }
+        });
+      }
+
+      if (normalizedLocationIds.size > 0) {
+        const activeSessions = await knex('move_sessions as ms')
+          .leftJoin('saved_moves as sm', 'ms.saved_move_id', 'sm.id')
+          .leftJoin('move_locations as ml', 'ml.move_id', 'sm.id')
+          .select(
+            'ms.id',
+            'ms.session_start_location_id',
+            'ms.session_end_location_id',
+            'ms.origin_location_id as session_origin_location_id',
+            'ms.destination_location_id as session_destination_location_id',
+            'sm.origin_location_id',
+            'sm.destination_location_id',
+            'sm.name as move_name',
+            'ml.location_id as multi_location_id'
+          )
+          .where('ms.user_id', userId)
+          .where('ms.status', 'in_progress')
+          .whereNot('ms.id', id);
+
+        const conflictSession = activeSessions.find((session) => {
+          const otherLocations = [
+            session.origin_location_id,
+            session.destination_location_id,
+            session.session_start_location_id,
+            session.session_end_location_id,
+            session.session_origin_location_id,
+            session.session_destination_location_id,
+            session.multi_location_id
+          ]
+            .filter(Boolean)
+            .map((loc) => String(loc));
+          return otherLocations.some((loc) => normalizedLocationIds.has(loc));
+        });
+
+        if (conflictSession) {
+          return res.status(409).json({
+            error: `Location already active under move "${conflictSession.move_name || conflictSession.id}". Finish that move before starting another.`,
+            conflict_move_id: conflictSession.id
+          });
+        }
+      }
+    }
+
     const result = await knex.raw(`
       UPDATE move_sessions
        SET status = ?,
@@ -1519,6 +1663,317 @@ router.delete('/trucks/:id', async (req, res) => {
   } catch (error) {
     console.error('Error deleting truck:', error);
     res.status(500).json({ error: 'Failed to delete truck' });
+  }
+});
+
+/**
+ * POST /api/move-day/generate-from-route
+ * Generate a complete move schedule (loading, driving, unloading sessions) from calculated route
+ */
+router.post('/generate-from-route', async (req, res) => {
+  const correlationId = `gen-schedule-${Date.now()}`;
+  console.log(`[MoveDay] ${correlationId}: Starting schedule generation from route`);
+
+  try {
+    const userId = req.user?.user_id;
+    const { savedMoveId, clearExisting = true, anchorType = 'move-out', anchorDate } = req.body;
+
+    if (!userId || !savedMoveId) {
+      return res.status(400).json({ error: 'User ID and saved move ID are required' });
+    }
+
+    if (!anchorDate) {
+      return res.status(400).json({ error: 'Anchor date is required' });
+    }
+
+    if (anchorType !== 'move-out' && anchorType !== 'move-in') {
+      return res.status(400).json({ error: 'Anchor type must be "move-out" or "move-in"' });
+    }
+
+    // Verify user owns the move
+    const move = await knex('saved_moves')
+      .where('id', savedMoveId)
+      .andWhere('user_id', userId)
+      .first();
+
+    if (!move) {
+      return res.status(404).json({ error: 'Saved move not found' });
+    }
+
+    // Parse route_data to get origin and destination
+    const routeData = move.route_data ? (typeof move.route_data === 'string' ? JSON.parse(move.route_data) : move.route_data) : null;
+    if (!routeData) {
+      return res.status(400).json({ error: 'Move does not have route data. Please calculate route first.' });
+    }
+
+    // Get all waypoints in sequence order
+    const waypoints = await knex('move_waypoints')
+      .where('saved_move_id', savedMoveId)
+      .orderBy('sequence_order', 'asc');
+
+    if (waypoints.length === 0) {
+      return res.status(400).json({ error: 'No waypoints found. Please add waypoints and calculate route first.' });
+    }
+
+    // Check if waypoints have been optimized (have calculated distances)
+    const hasCalculatedDistances = waypoints.every(w => w.distance_source === 'calculated');
+    if (!hasCalculatedDistances) {
+      return res.status(400).json({ error: 'Route not calculated. Please click "Calculate Route" first.' });
+    }
+
+    // Clear existing sessions if requested
+    if (clearExisting) {
+      await knex('move_sessions')
+        .where('saved_move_id', savedMoveId)
+        .andWhere('user_id', userId)
+        .del();
+      console.log(`[MoveDay] ${correlationId}: Cleared existing sessions`);
+    }
+
+    const createdSessions = [];
+
+    // Build segments first to calculate total trip duration
+    // Segments: origin -> waypoint1, waypoint1 -> waypoint2, ..., lastWaypoint -> destination
+    const segments = [];
+
+    // Origin to first waypoint
+    segments.push({
+      start: { type: 'origin', name: routeData.origin_address || 'Origin' },
+      end: { type: 'waypoint', id: waypoints[0].id, name: `${waypoints[0].city}${waypoints[0].state ? ', ' + waypoints[0].state : ''}`, isDropoff: waypoints[0].is_dropoff || false },
+      distance: waypoints[0].segment_distance_miles,
+      duration: waypoints[0].segment_duration_hours,
+      overnight: waypoints[0].overnight_recommended
+    });
+
+    console.log(`[MoveDay] ${correlationId}: Waypoint ${waypoints[0].city} - is_dropoff: ${waypoints[0].is_dropoff}`);
+
+    // Waypoint to waypoint
+    for (let i = 1; i < waypoints.length; i++) {
+      console.log(`[MoveDay] ${correlationId}: Waypoint ${waypoints[i].city} - is_dropoff: ${waypoints[i].is_dropoff}`);
+      segments.push({
+        start: { type: 'waypoint', id: waypoints[i - 1].id, name: `${waypoints[i - 1].city}${waypoints[i - 1].state ? ', ' + waypoints[i - 1].state : ''}`, isDropoff: waypoints[i - 1].is_dropoff || false },
+        end: { type: 'waypoint', id: waypoints[i].id, name: `${waypoints[i].city}${waypoints[i].state ? ', ' + waypoints[i].state : ''}`, isDropoff: waypoints[i].is_dropoff || false },
+        distance: waypoints[i].segment_distance_miles,
+        duration: waypoints[i].segment_duration_hours,
+        overnight: waypoints[i].overnight_recommended
+      });
+    }
+
+    // Last waypoint to destination
+    // Get final leg distance from route_data if available
+    const finalLegDistance = routeData.finalLegDistanceMiles || routeData.total_distance_miles - waypoints[waypoints.length - 1].distance_from_origin_miles;
+    const finalLegDuration = routeData.finalLegDurationHours || (finalLegDistance / 60); // Estimate if not available
+
+    segments.push({
+      start: { type: 'waypoint', id: waypoints[waypoints.length - 1].id, name: `${waypoints[waypoints.length - 1].city}${waypoints[waypoints.length - 1].state ? ', ' + waypoints[waypoints.length - 1].state : ''}` },
+      end: { type: 'destination', name: routeData.destination_address || 'Destination' },
+      distance: finalLegDistance,
+      duration: finalLegDuration,
+      overnight: false // Arrive at destination
+    });
+
+    // Calculate total trip duration (number of days needed)
+    // Start with 1 day for loading
+    let totalDays = 1;
+
+    // Add days for driving segments based on overnight stops
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      // Each segment takes 1 day, plus additional day if overnight recommended
+      totalDays += 1;
+      if (segment.overnight && i < segments.length - 1) {
+        // Overnight stop adds an extra day (except for the last segment)
+        totalDays += 1;
+      }
+    }
+
+    // Add 1 day for unloading
+    totalDays += 1;
+
+    console.log(`[MoveDay] ${correlationId}: Total trip duration: ${totalDays} days`);
+
+    // Calculate session dates based on anchor type
+    let sessionDates = [];
+
+    if (anchorType === 'move-out') {
+      // Forward calculation: anchor date is the loading date (Day 1)
+      const loadingDate = new Date(anchorDate);
+      loadingDate.setHours(0, 0, 0, 0);
+
+      let currentDate = new Date(loadingDate);
+      sessionDates.push({
+        type: 'loading',
+        date: new Date(currentDate)
+      });
+
+      // Calculate driving session dates
+      for (let i = 0; i < segments.length; i++) {
+        currentDate.setDate(currentDate.getDate() + 1);
+        sessionDates.push({
+          type: 'driving',
+          date: new Date(currentDate),
+          segmentIndex: i
+        });
+
+        // If overnight recommended and not the last segment, add an extra day
+        if (segments[i].overnight && i < segments.length - 1) {
+          currentDate.setDate(currentDate.getDate() + 1);
+        }
+      }
+
+      // Unloading happens the day after the last driving segment
+      currentDate.setDate(currentDate.getDate() + 1);
+      sessionDates.push({
+        type: 'unloading',
+        date: new Date(currentDate)
+      });
+
+    } else {
+      // Backward calculation: anchor date is the unloading date (final day)
+      const unloadingDate = new Date(anchorDate);
+      unloadingDate.setHours(0, 0, 0, 0);
+
+      // Work backward from unloading date
+      let currentDate = new Date(unloadingDate);
+
+      // Unloading is on the anchor date
+      sessionDates.unshift({
+        type: 'unloading',
+        date: new Date(currentDate)
+      });
+
+      // Calculate driving session dates in reverse
+      for (let i = segments.length - 1; i >= 0; i--) {
+        currentDate.setDate(currentDate.getDate() - 1);
+        sessionDates.unshift({
+          type: 'driving',
+          date: new Date(currentDate),
+          segmentIndex: i
+        });
+
+        // If overnight recommended and not the first segment, subtract an extra day
+        if (segments[i].overnight && i > 0) {
+          currentDate.setDate(currentDate.getDate() - 1);
+        }
+      }
+
+      // Loading happens the day before the first driving segment
+      currentDate.setDate(currentDate.getDate() - 1);
+      sessionDates.unshift({
+        type: 'loading',
+        date: new Date(currentDate)
+      });
+    }
+
+    console.log(`[MoveDay] ${correlationId}: Calculated ${sessionDates.length} session dates from ${sessionDates[0].date.toISOString().split('T')[0]} to ${sessionDates[sessionDates.length - 1].date.toISOString().split('T')[0]}`);
+
+    // Create sessions in chronological order
+    for (const sessionDate of sessionDates) {
+      const dateStr = sessionDate.date.toISOString().split('T')[0];
+
+      if (sessionDate.type === 'loading') {
+        const loadingSession = await knex('move_sessions')
+          .insert({
+            user_id: userId,
+            saved_move_id: savedMoveId,
+            session_type: 'loading',
+            session_name: 'Load at Origin',
+            session_date: dateStr,
+            move_date: dateStr,
+            status: 'pending',
+            notes: `Loading session at ${routeData.origin_address || 'origin'}`,
+            created_at: knex.fn.now(),
+            updated_at: knex.fn.now()
+          })
+          .returning('*');
+
+        createdSessions.push(loadingSession[0]);
+        console.log(`[MoveDay] ${correlationId}: Created loading session for ${dateStr}`);
+
+      } else if (sessionDate.type === 'driving') {
+        const segment = segments[sessionDate.segmentIndex];
+        const drivingSession = await knex('move_sessions')
+          .insert({
+            user_id: userId,
+            saved_move_id: savedMoveId,
+            session_type: 'driving',
+            session_name: `${segment.start.name} → ${segment.end.name}`,
+            session_date: dateStr,
+            move_date: dateStr,
+            status: 'pending',
+            start_waypoint_id: segment.start.type === 'waypoint' ? segment.start.id : null,
+            end_waypoint_id: segment.end.type === 'waypoint' ? segment.end.id : null,
+            notes: `${Math.round(segment.distance)} miles, ~${Math.round(segment.duration * 10) / 10} hours`,
+            created_at: knex.fn.now(),
+            updated_at: knex.fn.now()
+          })
+          .returning('*');
+
+        createdSessions.push(drivingSession[0]);
+        console.log(`[MoveDay] ${correlationId}: Created driving session ${segment.start.name} → ${segment.end.name} for ${dateStr}`);
+
+        // If this segment ends at a dropoff waypoint, create an unloading session on the same day
+        console.log(`[MoveDay] ${correlationId}: Checking segment end - type: ${segment.end.type}, isDropoff: ${segment.end.isDropoff}, name: ${segment.end.name}`);
+        if (segment.end.type === 'waypoint' && segment.end.isDropoff) {
+          const unloadSession = await knex('move_sessions')
+            .insert({
+              user_id: userId,
+              saved_move_id: savedMoveId,
+              session_type: 'unloading',
+              session_name: `Unload at ${segment.end.name}`,
+              session_date: dateStr,
+              move_date: dateStr,
+              status: 'pending',
+              notes: `Unloading session at ${segment.end.name}`,
+              created_at: knex.fn.now(),
+              updated_at: knex.fn.now()
+            })
+            .returning('*');
+
+          createdSessions.push(unloadSession[0]);
+          console.log(`[MoveDay] ${correlationId}: Created dropoff unloading session at ${segment.end.name} for ${dateStr}`);
+        }
+
+      } else if (sessionDate.type === 'unloading') {
+        const unloadingSession = await knex('move_sessions')
+          .insert({
+            user_id: userId,
+            saved_move_id: savedMoveId,
+            session_type: 'unloading',
+            session_name: 'Unload at Destination',
+            session_date: dateStr,
+            move_date: dateStr,
+            status: 'pending',
+            notes: `Unloading session at ${routeData.destination_address || 'destination'}`,
+            created_at: knex.fn.now(),
+            updated_at: knex.fn.now()
+          })
+          .returning('*');
+
+        createdSessions.push(unloadingSession[0]);
+        console.log(`[MoveDay] ${correlationId}: Created unloading session for ${dateStr}`);
+      }
+    }
+
+    console.log(`[MoveDay] ${correlationId}: Schedule generation complete. Created ${createdSessions.length} sessions`);
+
+    res.status(201).json({
+      success: true,
+      sessions: createdSessions,
+      summary: {
+        total_sessions: createdSessions.length,
+        loading_sessions: createdSessions.filter(s => s.session_type === 'loading').length,
+        driving_sessions: createdSessions.filter(s => s.session_type === 'driving').length,
+        unloading_sessions: createdSessions.filter(s => s.session_type === 'unloading').length,
+        start_date: createdSessions[0].session_date,
+        end_date: createdSessions[createdSessions.length - 1].session_date,
+        duration_days: Math.ceil((new Date(createdSessions[createdSessions.length - 1].session_date) - new Date(createdSessions[0].session_date)) / (1000 * 60 * 60 * 24)) + 1
+      }
+    });
+
+  } catch (error) {
+    console.error(`[MoveDay] ${correlationId}: Error generating schedule:`, error);
+    res.status(500).json({ error: 'Failed to generate schedule from route', details: error.message });
   }
 });
 
