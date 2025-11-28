@@ -103,6 +103,16 @@
     pageItem.value = newPage
   }
 
+  const applyOnboardingTarget = () => {
+    if (typeof window === 'undefined') return
+    const target = localStorage.getItem('desktop_onboarding_target')
+    if (!target) return
+    localStorage.removeItem('desktop_onboarding_target')
+    if (target === 'settings') {
+      changePage('settings')
+    }
+  }
+
   const applyPlanHeader = () => {
     if (isAdmin.value) {
       axios.defaults.headers.common['x-plan-preview'] = planPreview.value
@@ -122,6 +132,13 @@
     localStorage.setItem('plan_preview', planPreview.value)
   })
   applyPlanHeader()
+
+  onMounted(() => {
+    if (props.user) {
+      store.loadInventory(props.user)
+    }
+    applyOnboardingTarget()
+  })
 
 
 

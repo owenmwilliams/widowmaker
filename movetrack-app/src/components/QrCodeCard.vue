@@ -214,13 +214,6 @@ const handleAssignManual = () => {
       </div>
       <q-btn
         color="primary"
-        outline
-        :label="buttonLabel"
-        :loading="generating"
-        @click="emit('generate')"
-      />
-      <q-btn
-        color="primary"
         flat
         dense
         label="Link existing QR"

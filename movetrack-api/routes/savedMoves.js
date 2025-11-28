@@ -491,13 +491,41 @@ router.put('/:id', authenticate, async (req, res) => {
 
 /**
  * DELETE /api/saved-moves/:id
- * Delete a saved move
+ * Delete a saved move and all related data
  */
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     const userId = req.user.user_id;
     const moveId = req.params.id;
 
+    // Verify the move exists and belongs to the user
+    const move = await knex('saved_moves')
+      .where('id', moveId)
+      .andWhere('user_id', userId)
+      .first();
+
+    if (!move) {
+      return res.status(404).json({ error: 'Saved move not found' });
+    }
+
+    // Delete related records in correct order (child tables first)
+    // 1. Delete move_waypoints
+    await knex('move_waypoints')
+      .where('saved_move_id', moveId)
+      .del();
+
+    // 2. Delete move_locations
+    await knex('move_locations')
+      .where('move_id', moveId)
+      .del();
+
+    // 3. Delete move_sessions (which will cascade to move_timeline, move_crew, etc.)
+    await knex('move_sessions')
+      .where('saved_move_id', moveId)
+      .andWhere('user_id', userId)
+      .del();
+
+    // 4. Finally delete the saved_move itself
     const result = await knex('saved_moves')
       .where('id', moveId)
       .andWhere('user_id', userId)
@@ -511,7 +539,7 @@ router.delete('/:id', authenticate, async (req, res) => {
     res.json({ success: true, message: 'Move deleted successfully' });
   } catch (error) {
     console.error('Error deleting saved move:', error);
-    res.status(500).json({ error: 'Failed to delete saved move' });
+    res.status(500).json({ error: 'Failed to delete saved move', details: error.message });
   }
 });
 

@@ -92,6 +92,7 @@ const actualItemQrUrl = computed(() => {
   );
 });
 const itemQrUrl = computed(() => pendingQrUrl.value || actualItemQrUrl.value);
+const canUseItemQr = computed(() => !selectedItem.value?.container);
 
 watch(actualItemQrUrl, (url) => {
   console.log('[ItemDetailsModal] actualItemQrUrl changed:', url);
@@ -415,8 +416,20 @@ const handleClose = () => {
 
 const qrGenerating = ref(false);
 
+const warnNestedQrRestriction = () => {
+  $q.notify({
+    type: 'warning',
+    message: 'Only loose items can have QR codes. Remove this item from its box first.',
+    position: 'top'
+  });
+};
+
 const handleGenerateItemQr = async () => {
   if (!selectedItem.value) {
+    return;
+  }
+  if (selectedItem.value.container) {
+    warnNestedQrRestriction();
     return;
   }
   try {
@@ -452,6 +465,10 @@ const handleAssignItemQr = async (payload: string) => {
   }
   const scannedValue = payload.trim();
   console.log("[ItemDetailsModal] Linking QR payload:", scannedValue, "for item:", selectedItem.value.value, "user:", userId);
+  if (selectedItem.value.container) {
+    warnNestedQrRestriction();
+    return;
+  }
   if (scannedValue) {
     pendingQrUrl.value = scannedValue;
   }
@@ -674,9 +691,9 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <div class="q-mt-xl">
+          <div class="q-mt-xl" v-if="selectedItem">
             <QrCodeCard
-              v-if="selectedItem"
+              v-if="canUseItemQr"
               title="Item QR Code"
               description="Print or place this code on the item to link helpers straight to its profile."
               :qr-url="itemQrUrl"
@@ -684,6 +701,14 @@ onBeforeUnmount(() => {
               @generate="handleGenerateItemQr"
               @assign="handleAssignItemQr"
             />
+            <q-banner
+              v-else
+              dense
+              rounded
+              class="bg-grey-2 text-grey-8"
+            >
+              QR codes can only be linked to loose items. Remove this item from its box to enable linking.
+            </q-banner>
           </div>
         </div>
 

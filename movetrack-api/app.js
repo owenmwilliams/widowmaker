@@ -36,6 +36,9 @@ var moveDayRouter = require('./routes/moveDay');
 var waypointsRouter = require('./routes/waypoints');
 var billingRouter = require('./routes/billing');
 var billingWebhook = require('./routes/billingWebhook');
+var onboardingRouter = require('./routes/onboarding');
+var importsRouter = require('./routes/imports');
+var visionLabRouter = require('./routes/visionLab');
 
 var app = express();
 app.set('trust proxy', 1);
@@ -87,6 +90,8 @@ app.use('/locations', locationsRouter);
 app.use('/collections', collectionsRouter);
 app.use('/containers', containersRouter);
 app.use('/items', verifyToken, itemsRouter);
+app.use('/imports', verifyToken, importsRouter);
+app.use('/onboarding', verifyToken, onboardingRouter);
 app.use('/public', publicRouter)
 app.use('/file', fileRouter);
 app.use('/lists', listsRouter);

@@ -12,6 +12,15 @@ import MobileLocations from '../views/MobileLocations.vue'
 import MobileMoves from '../views/MobileMoves.vue'
 import MobileSettingsPage from '../views/MobileSettingsPage.vue'
 import NotFound from '../views/NotFound.vue'
+import OnboardingWelcome from '../views/onboarding/OnboardingWelcome.vue'
+import OnboardingProfile from '../views/onboarding/OnboardingProfile.vue'
+import OnboardingSpaces from '../views/onboarding/OnboardingSpaces.vue'
+import OnboardingFirstItem from '../views/onboarding/OnboardingFirstItem.vue'
+import OnboardingNextSteps from '../views/onboarding/OnboardingNextSteps.vue'
+import OnboardingMobileCapture from '../views/onboarding/OnboardingMobileCapture.vue'
+import DesktopInventoryUpload from '../views/onboarding/DesktopInventoryUpload.vue'
+import VisionLab from '../views/VisionLab.vue'
+import { hasCompletedOnboarding } from '../utils/onboarding'
 
 // Custom auth guard using session tokens
 const authGuard = (to: RouteLocationNormalized, from: RouteLocationNormalized, next: NavigationGuardNext) => {
@@ -30,6 +39,24 @@ const authGuard = (to: RouteLocationNormalized, from: RouteLocationNormalized, n
     // User is not logged in, redirect to login page
     next('/login');
   }
+};
+
+const adminGuard = (to: RouteLocationNormalized, from: RouteLocationNormalized, next: NavigationGuardNext) => {
+  const sessionToken = localStorage.getItem('session_token');
+  if (!sessionToken) {
+    return next('/login');
+  }
+  try {
+    const raw = localStorage.getItem('user_data');
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed?.is_admin) {
+      return next();
+    }
+  } catch (error) {
+    console.warn('[Admin Guard] Failed to parse user_data', error);
+  }
+  console.warn('[Admin Guard] Non-admin attempted to access admin route');
+  return next({ name: 'items' });
 };
 
 const BASE_URL = import.meta.env.BASE_URL;
@@ -64,6 +91,47 @@ const router = createRouter({
       name: "mobile-settings",
       component: MobileSettingsPage,
       beforeEnter: authGuard
+    },
+    {
+      path: "/onboarding",
+      name: "onboarding-welcome",
+      component: OnboardingWelcome
+    },
+    {
+      path: "/onboarding/profile",
+      name: "onboarding-profile",
+      component: OnboardingProfile
+    },
+    {
+      path: "/onboarding/spaces",
+      name: "onboarding-spaces",
+      component: OnboardingSpaces
+    },
+    {
+      path: "/onboarding/first-item",
+      name: "onboarding-first-item",
+      component: OnboardingFirstItem
+    },
+    {
+      path: "/onboarding/capture",
+      name: "onboarding-capture-mobile",
+      component: OnboardingMobileCapture
+    },
+    {
+      path: "/vision-lab",
+      name: "vision-lab",
+      component: VisionLab,
+      beforeEnter: adminGuard,
+    },
+    {
+      path: "/onboarding/import",
+      name: "onboarding-import",
+      component: DesktopInventoryUpload
+    },
+    {
+      path: "/onboarding/next",
+      name: "onboarding-next",
+      component: OnboardingNextSteps
     },
     {
       path: "/move-session",
@@ -112,6 +180,26 @@ const router = createRouter({
       component: NotFound
     }
   ],
+});
+
+router.beforeEach((to, from, next) => {
+  const sessionToken = localStorage.getItem('session_token');
+  const isOnboardingRoute = to.path.startsWith('/onboarding');
+  if (!sessionToken) {
+    return next();
+  }
+
+  const completed = hasCompletedOnboarding();
+  if (!completed && !isOnboardingRoute) {
+    return next({ name: 'onboarding-welcome' });
+  }
+
+  if (completed && to.name === 'onboarding-welcome' && from.name && !from.path.startsWith('/onboarding')) {
+    // allow onboarding revisit, but if navigating from elsewhere and already complete, continue
+    return next();
+  }
+
+  return next();
 });
 
 export default router;

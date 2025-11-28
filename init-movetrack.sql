@@ -24,6 +24,7 @@ CREATE TABLE users (
     phone VARCHAR(50),
     last_login_at TIMESTAMPTZ,
     email_verified_at TIMESTAMPTZ,
+    onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -1480,6 +1480,7 @@ export const inventoryStore = defineStore("inventory", () => {
     }
 
     console.log("locations is: ", locations.value);
+    return newId;
   }
 
   async function updateLocation(

@@ -47,6 +47,9 @@
         });
 
         if (response.data.success) {
+          if (response.data.user) {
+            localStorage.setItem('user_data', JSON.stringify(response.data.user));
+          }
           username.value = response.data.user.username || response.data.user.email;
           userId.value = response.data.user.userId;
           emits('app:loading', false);

@@ -32,6 +32,15 @@ const moveDayTab = ref<'overview' | 'timeline' | 'checklist' | 'crew'>('overview
 // Move sessions
 const moveSessions = ref<any[]>([])
 const activeSession = ref<any | null>(null)
+
+// Sorted sessions by date
+const sortedSessions = computed(() => {
+  return [...moveSessions.value].sort((a, b) => {
+    const dateA = new Date(a.session_date || a.move_date).getTime()
+    const dateB = new Date(b.session_date || b.move_date).getTime()
+    return dateA - dateB
+  })
+})
 const sessionDetails = ref<any | null>(null)
 const loadingSessions = ref(false)
 const loadingDetails = ref(false)
@@ -538,8 +547,44 @@ const loadMoveSessions = async () => {
 
 const selectSession = async (session: any) => {
   activeSession.value = session
-  await loadSessionDetails(session.id)
-  await loadProgressStats(session.id)
+  // Only load details for loading/unloading sessions
+  // Driving sessions just show basic info (status)
+  if (session.session_type !== 'driving') {
+    await loadSessionDetails(session.id)
+    await loadProgressStats(session.id)
+  }
+}
+
+// Helper function to get icon for session type
+const getSessionIcon = (sessionType: string) => {
+  switch (sessionType) {
+    case 'loading':
+      return 'inventory_2' // Box icon
+    case 'unloading':
+      return 'unarchive' // Box open icon
+    case 'driving':
+      return 'local_shipping' // Truck icon
+    case 'transfer':
+      return 'swap_horiz' // Transfer icon
+    default:
+      return 'event' // Default calendar icon
+  }
+}
+
+// Helper function to get color class for session type
+const getSessionColorClass = (sessionType: string) => {
+  switch (sessionType) {
+    case 'loading':
+      return 'session-type-loading'
+    case 'unloading':
+      return 'session-type-unloading'
+    case 'driving':
+      return 'session-type-driving'
+    case 'transfer':
+      return 'session-type-transfer'
+    default:
+      return ''
+  }
 }
 
 const loadSessionDetails = async (sessionId: number) => {
@@ -961,6 +1006,43 @@ const updateSessionStatus = async (status: string) => {
   }
 }
 
+const updateSessionDate = async (sessionId: number, newDate: string) => {
+  if (!props.user) return
+
+  try {
+    const headers: Record<string, string> = {}
+    const sessionToken = localStorage.getItem('session_token')
+    if (sessionToken) {
+      headers.Authorization = 'Bearer ' + sessionToken
+    }
+
+    await axios.put(`${core_url}/api/move-day/sessions/${sessionId}/date`, {
+      session_date: newDate
+    }, { headers })
+
+    $q.notify({ type: 'positive', message: 'Session date updated' })
+    await loadMoveSessions()
+    // If this is the active session, reload its details
+    if (activeSession.value?.id === sessionId) {
+      await loadSessionDetails(sessionId)
+    }
+  } catch (error: any) {
+    console.error('Error updating session date:', error)
+    const errorMessage = error.response?.data?.error || 'Failed to update session date'
+    $q.notify({ type: 'negative', message: errorMessage })
+  }
+}
+
+const formatSessionDate = (dateValue: string | null | undefined): string => {
+  if (!dateValue) return ''
+  try {
+    const date = new Date(dateValue)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch {
+    return ''
+  }
+}
+
 const recordScan = async () => {
   if (!activeSession.value) return
 
@@ -1271,22 +1353,10 @@ defineExpose({
 
 <template>
   <div class="moveday-container">
-    <!-- Empty State -->
-    <div v-if="!activeSession" class="q-pa-xl text-center">
-      <q-icon name="moving" size="80px" color="grey-5" />
-      <h6 class="text-h6 text-grey-7 q-mt-md">No Active Move Session</h6>
-      <p class="text-grey-6">
-        Load a move and use the session controls above to start planning Move Day.
-      </p>
-      <div v-if="!hasLoadedMove" class="text-caption text-grey-5">
-        Hint: tap “Load Move” in the header first.
-      </div>
-    </div>
-
-    <!-- Active Session View -->
-    <div v-else class="q-pa-md">
-      <!-- Breadcrumb Header -->
-      <div class="q-mb-md q-pa-md bg-grey-2 rounded-borders">
+    <!-- Session Selector (always visible when move is loaded) -->
+    <div v-if="props.currentSavedMoveId" class="q-pa-md q-mb-md bg-grey-2 rounded-borders">
+      <!-- Breadcrumb Header (only show when session is active) -->
+      <div v-if="activeSession" class="q-mb-md q-pa-md bg-grey-2 rounded-borders">
         <div class="row items-center justify-between">
           <div class="col-auto">
             <div class="text-h5">
@@ -1323,6 +1393,100 @@ defineExpose({
             >
               <q-tooltip>Delete Session</q-tooltip>
             </q-btn>
+          </div>
+        </div>
+      </div>
+
+      <!-- Session Selector Pills - Progress Line Design (always visible) -->
+      <div class="q-mt-md">
+        <div class="text-caption text-grey-7 q-mb-sm">Sessions</div>
+        <div class="session-progress-wrapper">
+          <div class="session-progress-container">
+            <div
+              v-for="(session, index) in sortedSessions"
+              :key="session.id"
+              class="session-progress-item"
+            >
+              <!-- Session Pill -->
+              <div
+                class="session-pill"
+                :class="[
+                  { 'session-pill-active': activeSession?.id === session.id },
+                  getSessionColorClass(session.session_type)
+                ]"
+                @click="selectSession(session)"
+              >
+                <!-- Icon Circle (for session type) -->
+                <div class="session-icon-circle" :class="getSessionColorClass(session.session_type)">
+                  <q-icon :name="getSessionIcon(session.session_type)" size="18px" />
+                </div>
+
+                <!-- Session Info - Full details when selected -->
+                <div v-if="activeSession?.id === session.id" class="session-pill-content">
+                  <div class="session-name text-weight-medium">
+                    {{ session.session_name || 'Session' }}
+                    <span class="session-type-badge text-caption">{{ session.session_type }}</span>
+                  </div>
+                  <div
+                    class="session-date text-caption"
+                    style="cursor: pointer"
+                    @click.stop
+                  >
+                    <q-popup-edit
+                      v-model="session.session_date"
+                      buttons
+                      label-set="Save"
+                      label-cancel="Cancel"
+                      @save="(val) => updateSessionDate(session.id, val)"
+                    >
+                      <template v-slot="scope">
+                        <q-input
+                          type="date"
+                          v-model="scope.value"
+                          dense
+                          autofocus
+                          @keyup.enter="scope.set"
+                        />
+                      </template>
+                    </q-popup-edit>
+                    {{ formatSessionDate(session.session_date || session.move_date) }}
+                    <q-icon name="edit" size="12px" class="q-ml-xs" />
+                  </div>
+                </div>
+                <!-- Compact view when not selected - just date -->
+                <div v-else class="session-pill-content-compact">
+                  <div class="session-date-compact text-caption">
+                    {{ formatSessionDate(session.session_date || session.move_date) }}
+                  </div>
+                </div>
+              </div>
+
+              <!-- Connecting Line -->
+              <div
+                v-if="index < sortedSessions.length - 1"
+                class="session-progress-line"
+                :class="{ 'session-progress-line-active': activeSession && sortedSessions.findIndex(s => s.id === activeSession.id) > index }"
+              ></div>
+            </div>
+
+            <!-- Add Session Button -->
+            <div class="session-progress-item">
+              <div
+                v-if="sortedSessions.length > 0"
+                class="session-progress-line"
+              ></div>
+              <div
+                class="session-pill session-pill-add"
+                @click="showCreateSession = true"
+              >
+                <div class="session-number-circle session-add-circle">
+                  <q-icon name="add" size="20px" />
+                </div>
+                <div class="session-pill-content">
+                  <div class="session-name text-weight-medium">Add Session</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -2232,6 +2396,197 @@ defineExpose({
   background: white !important;
   color: #1976D2 !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+/* Session Progress Line styles */
+.session-progress-wrapper {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 8px;
+}
+
+.session-progress-container {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px;
+  min-width: max-content;
+}
+
+.session-progress-item {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.session-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #F5F5F5;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 140px;
+  position: relative;
+}
+
+.session-pill:hover {
+  background: #E8E8E8;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.session-pill-active {
+  background: #E3F2FD;
+  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.2);
+}
+
+.session-pill-active:hover {
+  background: #BBDEFB;
+}
+
+.session-icon-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #9E9E9E;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
+}
+
+.session-pill-active .session-icon-circle {
+  box-shadow: 0 0 0 4px rgba(25, 118, 210, 0.2);
+}
+
+/* Session Type Colors for Icons */
+.session-type-loading .session-icon-circle {
+  background: #1976D2; /* Blue for loading */
+}
+
+.session-type-unloading .session-icon-circle {
+  background: #388E3C; /* Green for unloading */
+}
+
+.session-type-driving .session-icon-circle {
+  background: #7B1FA2; /* Purple for driving */
+}
+
+.session-type-transfer .session-icon-circle {
+  background: #F57C00; /* Orange for transfer */
+}
+
+/* Session Type Border Colors */
+.session-type-loading {
+  border-left: 4px solid #1976D2;
+}
+
+.session-type-unloading {
+  border-left: 4px solid #388E3C;
+}
+
+.session-type-driving {
+  border-left: 4px solid #7B1FA2;
+}
+
+.session-type-transfer {
+  border-left: 4px solid #F57C00;
+}
+
+/* Session type badge */
+.session-type-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 4px;
+  font-size: 11px;
+  text-transform: capitalize;
+  color: #616161;
+}
+
+.session-pill-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-pill-content-compact {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.session-date-compact {
+  font-size: 11px;
+  color: #757575;
+  white-space: nowrap;
+}
+
+.session-name {
+  font-size: 14px;
+  white-space: nowrap;
+  color: #424242;
+  font-weight: 500;
+}
+
+.session-pill-active .session-name {
+  color: #1976D2;
+  font-weight: 600;
+}
+
+.session-date {
+  font-size: 12px;
+  color: #757575;
+  display: flex;
+  align-items: center;
+}
+
+.session-pill-active .session-date {
+  color: #1565C0;
+}
+
+.session-progress-line {
+  width: 40px;
+  height: 3px;
+  background: #E0E0E0;
+  margin: 0 4px;
+  align-self: center;
+  margin-top: -30px;
+  transition: all 0.3s ease;
+}
+
+.session-progress-line-active {
+  background: #1976D2;
+}
+
+/* Add Session Button styles */
+.session-pill-add {
+  background: #F0F4F8;
+  border: 2px dashed #B0BEC5;
+}
+
+.session-pill-add:hover {
+  background: #E3F2FD;
+  border-color: #1976D2;
+  transform: translateY(-2px);
+}
+
+.session-add-circle {
+  background: #B0BEC5;
+}
+
+.session-pill-add:hover .session-add-circle {
+  background: #1976D2;
 }
 
 /* Loading plan drag and drop styles */

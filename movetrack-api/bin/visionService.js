@@ -126,7 +126,7 @@ Return ONLY the JSON object, nothing else.`;
 /**
  * Analyze photo using Claude 3.5 Sonnet Vision
  */
-async function analyzeWithClaude(base64Image, mimeType) {
+async function analyzeWithClaude(base64Image, mimeType, prompt = VISION_PROMPT) {
     if (!anthropicClient) {
         throw new Error('Anthropic API key not configured');
     }
@@ -148,7 +148,7 @@ async function analyzeWithClaude(base64Image, mimeType) {
                     },
                     {
                         type: "text",
-                        text: VISION_PROMPT
+                        text: prompt
                     }
                 ]
             }]
@@ -178,7 +178,7 @@ async function analyzeWithClaude(base64Image, mimeType) {
 /**
  * Analyze photo using GPT-4 Vision
  */
-async function analyzeWithGPT4(base64Image, mimeType) {
+async function analyzeWithGPT4(base64Image, mimeType, prompt = VISION_PROMPT) {
     if (!openaiClient) {
         throw new Error('OpenAI API key not configured');
     }
@@ -191,7 +191,7 @@ async function analyzeWithGPT4(base64Image, mimeType) {
                 content: [
                     {
                         type: "text",
-                        text: VISION_PROMPT
+                        text: prompt
                     },
                     {
                         type: "image_url",
@@ -226,7 +226,7 @@ async function analyzeWithGPT4(base64Image, mimeType) {
 /**
  * Analyze photo using Google Gemini
  */
-async function analyzeWithGemini(base64Image, mimeType) {
+async function analyzeWithGemini(base64Image, mimeType, prompt = VISION_PROMPT) {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
@@ -247,7 +247,7 @@ async function analyzeWithGemini(base64Image, mimeType) {
                 }
             },
             {
-                text: VISION_PROMPT
+                text: prompt
             }
         ]);
 
@@ -344,8 +344,8 @@ async function callTogetherVision(modelId, base64Image, mimeType, prompt, maxTok
 /**
  * Analyze photo using Together.ai Scout (Free tier)
  */
-async function analyzeWithTogetherScout(base64Image, mimeType) {
-    const result = await callTogetherVision(togetherScoutModel, base64Image, mimeType, VISION_PROMPT);
+async function analyzeWithTogetherScout(base64Image, mimeType, prompt = VISION_PROMPT) {
+    const result = await callTogetherVision(togetherScoutModel, base64Image, mimeType, prompt);
     if (result.success) {
         result.provider = 'together-scout';
     }
@@ -355,8 +355,8 @@ async function analyzeWithTogetherScout(base64Image, mimeType) {
 /**
  * Analyze photo using Together.ai Qwen (Paid tier)
  */
-async function analyzeWithTogetherQwen(base64Image, mimeType) {
-    const result = await callTogetherVision(togetherQwenModel, base64Image, mimeType, VISION_PROMPT);
+async function analyzeWithTogetherQwen(base64Image, mimeType, prompt = VISION_PROMPT) {
+    const result = await callTogetherVision(togetherQwenModel, base64Image, mimeType, prompt);
     if (result.success) {
         result.provider = 'together-qwen';
     }
@@ -457,9 +457,9 @@ async function callHuggingFaceVision(modelId, base64Image, mimeType, prompt, max
 /**
  * Analyze photo using Florence-2 (Hugging Face)
  */
-async function analyzeWithFlorence(base64Image, mimeType) {
+async function analyzeWithFlorence(base64Image, mimeType, prompt = VISION_PROMPT) {
     try {
-        const jsonText = await callHuggingFaceVision(florenceModelId, base64Image, mimeType, VISION_PROMPT, 512);
+        const jsonText = await callHuggingFaceVision(florenceModelId, base64Image, mimeType, prompt, 512);
         const result = JSON.parse(jsonText);
         return {
             success: true,
@@ -480,9 +480,9 @@ async function analyzeWithFlorence(base64Image, mimeType) {
 /**
  * Analyze photo using Nemotron Vision (Hugging Face)
  */
-async function analyzeWithNemotron(base64Image, mimeType) {
+async function analyzeWithNemotron(base64Image, mimeType, prompt = VISION_PROMPT) {
     try {
-        const jsonText = await callHuggingFaceVision(nemotronModelId, base64Image, mimeType, VISION_PROMPT, 512);
+        const jsonText = await callHuggingFaceVision(nemotronModelId, base64Image, mimeType, prompt, 512);
         const result = JSON.parse(jsonText);
         return {
             success: true,
@@ -802,29 +802,29 @@ async function analyzeMultiItemWithNemotron(base64Image, mimeType) {
 /**
  * Main function to analyze photo with current provider
  */
-async function analyzeItemPhoto(base64Image, mimeType, provider = null) {
+async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt = VISION_PROMPT) {
     const providerToUse = provider || currentProvider;
 
     console.log(`Analyzing photo with provider: ${providerToUse}`);
 
     switch (providerToUse.toLowerCase()) {
         case 'claude':
-            return await analyzeWithClaude(base64Image, mimeType);
+            return await analyzeWithClaude(base64Image, mimeType, prompt);
         case 'gpt4':
         case 'openai':
-            return await analyzeWithGPT4(base64Image, mimeType);
+            return await analyzeWithGPT4(base64Image, mimeType, prompt);
         case 'gemini':
         case 'google':
-            return await analyzeWithGemini(base64Image, mimeType);
+            return await analyzeWithGemini(base64Image, mimeType, prompt);
         case 'together':
         case 'scout':
-            return await analyzeWithTogetherScout(base64Image, mimeType);
+            return await analyzeWithTogetherScout(base64Image, mimeType, prompt);
         case 'qwen':
-            return await analyzeWithTogetherQwen(base64Image, mimeType);
+            return await analyzeWithTogetherQwen(base64Image, mimeType, prompt);
         case 'florence':
-            return await analyzeWithFlorence(base64Image, mimeType);
+            return await analyzeWithFlorence(base64Image, mimeType, prompt);
         case 'nemotron':
-            return await analyzeWithNemotron(base64Image, mimeType);
+            return await analyzeWithNemotron(base64Image, mimeType, prompt);
         default:
             return {
                 success: false,
@@ -909,5 +909,6 @@ module.exports = {
     analyzeMultiItemPhoto,
     setProvider,
     getCurrentProvider,
-    getAvailableProviders
+    getAvailableProviders,
+    VISION_PROMPT,
 };

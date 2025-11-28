@@ -67,6 +67,7 @@ router.post('/:moveId', authenticate, async (req, res) => {
       typicalDriveHoursFromOrigin,
       notes,
       overnightRecommended = false,
+      isDropoff = false,
       sequenceOrder
     } = req.body;
 
@@ -129,6 +130,7 @@ router.post('/:moveId', authenticate, async (req, res) => {
         distance_source: distanceFromOriginMiles ? 'calculated' : null,
         notes,
         overnight_recommended: overnightRecommended,
+        is_dropoff: isDropoff,
         sequence_order: order
       })
       .returning('*');
@@ -159,6 +161,7 @@ router.put('/:waypointId', authenticate, async (req, res) => {
       typicalDriveHoursFromOrigin,
       notes,
       overnightRecommended,
+      isDropoff,
       sequenceOrder
     } = req.body;
 
@@ -183,6 +186,7 @@ router.put('/:waypointId', authenticate, async (req, res) => {
     if (typicalDriveHoursFromOrigin !== undefined) updateData.typical_drive_hours_from_origin = typicalDriveHoursFromOrigin;
     if (notes !== undefined) updateData.notes = notes;
     if (overnightRecommended !== undefined) updateData.overnight_recommended = overnightRecommended;
+    if (isDropoff !== undefined) updateData.is_dropoff = isDropoff;
     if (sequenceOrder !== undefined) updateData.sequence_order = sequenceOrder;
 
     // If city or state changed but lat/lng not provided, forward geocode
@@ -240,24 +244,37 @@ router.delete('/:waypointId', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Waypoint not found' });
     }
 
-    // Check if any sessions reference this waypoint
-    const sessions = await knex('move_sessions')
-      .where('start_waypoint_id', waypointId)
-      .orWhere('end_waypoint_id', waypointId)
-      .first();
+    // Count sessions that will be affected by this deletion
+    const affectedSessions = await knex('move_sessions')
+      .where(function() {
+        this.where('start_waypoint_id', waypointId)
+          .orWhere('end_waypoint_id', waypointId);
+      })
+      .select('id');
 
-    if (sessions) {
-      return res.status(400).json({
-        error: 'Cannot delete waypoint that is referenced by sessions. Delete or update the sessions first.'
-      });
+    // Delete affected sessions first (cascade delete)
+    if (affectedSessions.length > 0) {
+      await knex('move_sessions')
+        .where(function() {
+          this.where('start_waypoint_id', waypointId)
+            .orWhere('end_waypoint_id', waypointId);
+        })
+        .del();
+
+      console.log(`[Waypoints] Deleted ${affectedSessions.length} sessions referencing waypoint ${waypointId}`);
     }
 
+    // Delete the waypoint
     await knex('move_waypoints')
       .where('id', waypointId)
       .andWhere('user_id', userId)
       .del();
 
-    res.json({ success: true, message: 'Waypoint deleted successfully' });
+    res.json({
+      success: true,
+      message: 'Waypoint deleted successfully',
+      sessionsDeleted: affectedSessions.length
+    });
   } catch (error) {
     console.error('Error deleting waypoint:', error);
     res.status(500).json({ error: 'Failed to delete waypoint' });
@@ -318,7 +335,7 @@ router.post('/:moveId/reorder', authenticate, async (req, res) => {
  */
 router.post('/suggest', authenticate, async (req, res) => {
   try {
-    const { routePolyline, totalDistanceMiles, maxDailyMiles = 500 } = req.body;
+    const { routePolyline, totalDistanceMiles, maxDailyMiles = 600 } = req.body;
 
     if (!routePolyline) {
       return res.status(400).json({ error: 'routePolyline is required' });
@@ -417,7 +434,7 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
   try {
     const userId = req.user.user_id;
     const moveId = req.params.moveId;
-    const { routePolyline, totalDistanceMiles, maxDailyMiles = 500, clearExisting = false } = req.body;
+    const { routePolyline, totalDistanceMiles, maxDailyMiles = 600, clearExisting = false } = req.body;
 
     // Verify user owns the move
     const move = await knex('saved_moves')
@@ -566,6 +583,42 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'No waypoints to calculate' });
     }
 
+    // Get all intermediate (dropoff) locations from move_locations for this move
+    // These are the source of truth for which locations should have unloading sessions
+    // Join with locations table to get city names and addresses for matching
+    const intermediateLocations = await knex('move_locations')
+      .join('locations', 'move_locations.location_id', 'locations.id')
+      .where('move_locations.move_id', moveId)
+      .where('move_locations.location_role', 'intermediate')
+      .select('locations.id', 'locations.city', 'locations.state', 'locations.address', 'locations.name');
+
+    // Build a Set of possible matches (city|state, city from address, city from name)
+    const dropoffMatches = new Set();
+    for (const loc of intermediateLocations) {
+      // Add city|state if available
+      if (loc.city && loc.state) {
+        dropoffMatches.add(`${loc.city}|${loc.state}`.toLowerCase());
+      }
+      // Extract city from address using regex (e.g., "Dallas, TX" from "123 Main St, Dallas, TX 75211")
+      if (loc.address) {
+        const addressMatch = loc.address.match(/,\s*([^,]+),\s*([A-Z]{2})\s*\d{5}/);
+        if (addressMatch) {
+          const city = addressMatch[1].trim();
+          const state = addressMatch[2].trim();
+          dropoffMatches.add(`${city}|${state}`.toLowerCase());
+        }
+      }
+      // Extract city from name if it contains common city patterns (e.g., "Dallas House" -> "Dallas")
+      if (loc.name) {
+        const nameWords = loc.name.split(' ');
+        if (nameWords.length > 0) {
+          // Try first word as potential city name
+          dropoffMatches.add(nameWords[0].toLowerCase());
+        }
+      }
+    }
+    console.log(`[Waypoints] ${correlationId}: Found ${intermediateLocations.length} intermediate dropoff locations with ${dropoffMatches.size} match patterns:`, Array.from(dropoffMatches));
+
     // Check that all waypoints have coordinates
     const waypointsWithCoords = waypoints.filter(w => w.lat != null && w.lng != null);
     if (waypointsWithCoords.length !== waypoints.length) {
@@ -635,7 +688,14 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
       const segmentDistanceMiles = Math.round(leg.distance.value / 1609.34);
       const segmentDurationHours = Math.round((leg.duration.value / 3600) * 10) / 10;
 
+      // Check if this waypoint is a dropoff location based on move_locations
+      // Match by city|state name or just city name (normalized to lowercase)
+      const waypointKeyFull = `${waypoint.city}|${waypoint.state || ''}`.toLowerCase();
+      const waypointKeyCity = waypoint.city ? waypoint.city.toLowerCase() : '';
+      const isDropoff = dropoffMatches.has(waypointKeyFull) || dropoffMatches.has(waypointKeyCity);
+
       // Update waypoint in database with new sequence_order and distances (including segment data)
+      // Also sync is_dropoff from move_locations (source of truth)
       await knex('move_waypoints')
         .where('id', waypoint.id)
         .update({
@@ -645,6 +705,7 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
           segment_distance_miles: segmentDistanceMiles,
           segment_duration_hours: segmentDurationHours,
           distance_source: 'calculated',
+          is_dropoff: isDropoff, // Sync from move_locations
           updated_at: knex.fn.now()
         });
 
@@ -660,10 +721,11 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
         segment_distance_miles: segmentDistanceMiles,
         segment_duration_hours: segmentDurationHours,
         distance_source: 'calculated',
-        overnight_recommended: waypoint.overnight_recommended
+        overnight_recommended: waypoint.overnight_recommended,
+        is_dropoff: isDropoff
       });
 
-      console.log(`[Waypoints] ${correlationId}: ${i + 1}. ${waypoint.city}, ${waypoint.state}: ${distanceMiles} mi cumulative (${segmentDistanceMiles} mi segment)`);
+      console.log(`[Waypoints] ${correlationId}: ${i + 1}. ${waypoint.city}, ${waypoint.state}: ${distanceMiles} mi cumulative (${segmentDistanceMiles} mi segment)${isDropoff ? ' [DROPOFF LOCATION]' : ''}`);
     }
 
     // Calculate total route distance including final leg to destination

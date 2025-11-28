@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
-import { Notify } from 'quasar';
+import { useQuasar, Notify } from 'quasar';
+import axios, { type AxiosRequestHeaders } from 'axios';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import RouteMap from '../RouteMap.vue';
@@ -13,8 +14,18 @@ const props = defineProps({
   user: String
 });
 
+const $q = useQuasar();
 const store = inventoryStore();
 const { locationValues, collectionValues, containerValues } = storeToRefs(store);
+
+// API URL based on environment
+const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+
+// Get auth headers
+const getAuthHeaders = (): AxiosRequestHeaders | undefined => {
+  const sessionToken = localStorage.getItem('session_token');
+  return sessionToken ? { Authorization: `Bearer ${sessionToken}` } : undefined;
+};
 
 // Move configuration
 const originLocation = ref<string | null>(null);
@@ -824,6 +835,83 @@ const handleRouteUpdated = (data: RouteUpdateData) => {
   }
 };
 
+// Generate move schedule from calculated route
+const waypointManagerRef = ref<any>(null);
+const generatingSchedule = ref(false);
+const showScheduleDialog = ref(false);
+const anchorDateType = ref<'move-out' | 'move-in'>('move-out');
+const anchorDate = ref<string | null>(null);
+
+const generateMoveSchedule = async (clearExisting: boolean = false) => {
+  if (!currentSavedMoveId.value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please select a saved move first'
+    });
+    return;
+  }
+
+  // Check if waypoints exist and route is calculated
+  if (!journeyWaypoints.value || journeyWaypoints.value.length === 0) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please add waypoints and calculate route first',
+      caption: 'Use the waypoint manager to add stops and optimize your route'
+    });
+    return;
+  }
+
+  generatingSchedule.value = true;
+
+  try {
+    const response = await axios.post(
+      `${core_url}/api/move-day/generate-from-route`,
+      {
+        savedMoveId: currentSavedMoveId.value,
+        clearExisting,
+        anchorType: anchorDateType.value,
+        anchorDate: anchorDate.value
+      },
+      { headers: getAuthHeaders() }
+    );
+
+    const { summary } = response.data;
+
+    // Close the dialog
+    showScheduleDialog.value = false;
+
+    $q.notify({
+      type: 'positive',
+      message: `Created ${summary.total_sessions} sessions!`,
+      caption: `${summary.loading_sessions} loading, ${summary.driving_sessions} driving, ${summary.unloading_sessions} unloading (${summary.start_date} - ${summary.end_date})`,
+      timeout: 5000,
+      actions: [
+        {
+          label: 'View Schedule',
+          color: 'white',
+          handler: () => {
+            movePlanningTab.value = 'moveday';
+          }
+        }
+      ]
+    });
+
+  } catch (error: any) {
+    console.error('Error generating schedule:', error);
+    $q.notify({
+      type: 'negative',
+      message: error.response?.data?.error || 'Failed to generate schedule',
+      caption: error.response?.data?.details
+    });
+  } finally {
+    generatingSchedule.value = false;
+  }
+};
+
+const promptGenerateSchedule = () => {
+  showScheduleDialog.value = true;
+};
+
 const calculateDistance = async () => {
   if (!originLocation.value || !destinationLocation.value) {
     estimatedDistance.value = null;
@@ -1547,6 +1635,7 @@ const downloadInventoryPdf = async () => {
 // Saved moves functionality
 const savedMoves = ref<any[]>([]);
 const currentSavedMoveId = ref<number | null>(null);
+const showNewMoveDialog = ref(false);
 const showSaveMoveDialog = ref(false);
 const showLoadMoveDialog = ref(false);
 const saveMoveFormModel = ref({
@@ -1659,6 +1748,26 @@ const intermediateDropoffLocations = computed(() => {
     });
 });
 
+// Smart rounding for route display
+const roundedMiles = computed(() => {
+  if (!estimatedDistance.value) return null;
+  // Round to nearest 10
+  return Math.round(estimatedDistance.value / 10) * 10;
+});
+
+const decimalHours = computed(() => {
+  if (!routeData.value || !routeData.value.duration_seconds) return null;
+  // Convert seconds to hours with 1 decimal place
+  const hours = routeData.value.duration_seconds / 3600;
+  return hours.toFixed(1);
+});
+
+const roundedTolls = computed(() => {
+  if (!routeData.value || !routeData.value.estimated_tolls) return null;
+  // Round to nearest 10
+  return Math.round(routeData.value.estimated_tolls / 10) * 10;
+});
+
 const addMoveLocation = () => {
   if (moveLocations.value.length >= 5) {
     Notify.create({
@@ -1729,6 +1838,10 @@ watch(moveLocations, () => {
 
 // Reset form for new move
 const resetMoveForm = () => {
+  showNewMoveDialog.value = true;
+};
+
+const confirmNewMove = () => {
   // Clear current move ID
   currentSavedMoveId.value = null;
   saveMoveFormModel.value.name = '';
@@ -1775,6 +1888,8 @@ const resetMoveForm = () => {
   // Clear other fields
   specialRequirements.value = '';
   estimatedSquareFootage.value = null;
+
+  showNewMoveDialog.value = false;
 
   Notify.create({
     type: 'info',
@@ -1908,7 +2023,7 @@ const saveMove = async () => {
     if (!response.ok) throw new Error('Failed to save move');
 
     const savedMove = await response.json();
-    currentSavedMoveId.value = savedMove.id;
+    currentSavedMoveId.value = Number(savedMove.id);
 
     Notify.create({
       type: 'positive',
@@ -2070,8 +2185,8 @@ const loadMove = async (moveId: number) => {
     useTruckRoute.value = move.use_truck_route;
     avoidTolls.value = move.avoid_tolls;
 
-    // Set current saved move ID
-    currentSavedMoveId.value = moveId;
+    // Set current saved move ID (convert to number for prop type matching)
+    currentSavedMoveId.value = Number(moveId);
     saveMoveFormModel.value.name = move.name;
 
     // Check if costs are stale (older than 2 weeks)
@@ -2746,49 +2861,6 @@ const downloadPdfEstimate = async () => {
       </div>
     </div>
 
-    <div v-if="movePlanningTab === 'moveday'" class="q-pa-md q-pt-none">
-      <q-card flat bordered class="bg-grey-1">
-        <q-card-section>
-          <div class="row items-center q-col-gutter-md">
-            <div class="col-12 col-md">
-              <q-select
-                :model-value="activeMoveDaySessionId"
-                @update:model-value="handleMoveDaySessionSelect"
-                :options="moveDaySessionOptions"
-                option-label="label"
-                option-value="value"
-                label="Select Move Session"
-                outlined
-                dense
-                emit-value
-                map-options
-                :disable="!currentSavedMoveId || moveDaySessionOptions.length === 0"
-                placeholder="Load a move to view sessions"
-              >
-              </q-select>
-            </div>
-            <div class="col-auto">
-              <q-btn
-                color="primary"
-                label="New Session"
-                icon="add"
-                @click="moveDayRef && (moveDayRef.showCreateSession = true)"
-                unelevated
-                dense
-                :disable="!currentSavedMoveId"
-              />
-            </div>
-            <div class="col-12 text-caption text-grey-7" v-if="!currentSavedMoveId">
-              Load a move to plan and track Move Day sessions.
-            </div>
-            <div class="col-12 text-caption text-grey-7" v-else-if="moveDaySessionOptions.length === 0">
-              No sessions yet for this move. Use “New Session” to get started.
-            </div>
-          </div>
-        </q-card-section>
-      </q-card>
-    </div>
-
     <!-- Planning Tab -->
     <div v-if="movePlanningTab === 'planning'">
     <!-- Row 1: Move Details Card -->
@@ -2801,20 +2873,13 @@ const downloadPdfEstimate = async () => {
               <q-input
                 v-model="moveDate"
                 type="date"
-                label="Start Date"
+                label="Desired Start Date"
                 outlined
                 dense
+                hint="Earliest date you can start loading"
               >
                 <template v-slot:prepend>
-                  <q-icon name="event" class="cursor-pointer">
-                    <q-popup-proxy cover transition-show="scale" transition-hide="scale">
-                      <q-date v-model="moveDate" mask="YYYY-MM-DD">
-                        <div class="row items-center justify-end">
-                          <q-btn v-close-popup label="Close" color="primary" flat />
-                        </div>
-                      </q-date>
-                    </q-popup-proxy>
-                  </q-icon>
+                  <q-icon name="event" />
                 </template>
               </q-input>
             </div>
@@ -2822,20 +2887,13 @@ const downloadPdfEstimate = async () => {
               <q-input
                 v-model="moveEndDate"
                 type="date"
-                label="End Date"
+                label="Desired End Date"
                 outlined
                 dense
+                hint="Latest date you need to finish unloading"
               >
                 <template v-slot:prepend>
-                  <q-icon name="event_available" class="cursor-pointer">
-                    <q-popup-proxy cover transition-show="scale" transition-hide="scale">
-                      <q-date v-model="moveEndDate" mask="YYYY-MM-DD">
-                        <div class="row items-center justify-end">
-                          <q-btn v-close-popup label="Close" color="primary" flat />
-                        </div>
-                      </q-date>
-                    </q-popup-proxy>
-                  </q-icon>
+                  <q-icon name="event_available" />
                 </template>
               </q-input>
             </div>
@@ -3386,118 +3444,6 @@ const downloadPdfEstimate = async () => {
 
     <!-- Costs & Route Tab -->
     <div v-else-if="movePlanningTab === 'costs'">
-      <!-- Move Configuration -->
-      <div class="q-pa-md">
-        <q-card flat bordered>
-          <q-card-section>
-            <div class="text-h6 text-primary q-mb-md">Move Details</div>
-            <div class="row q-col-gutter-md">
-              <div class="col-12 col-md-3">
-                <q-select
-                  v-model="originLocation"
-                  :options="locationsWithDetails"
-                  option-value="value"
-                  option-label="label"
-                  emit-value
-                  map-options
-                  label="Origin Location"
-                  outlined
-                  dense
-                  :loading="isCalculatingDistance"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="location_on" />
-                  </template>
-                  <template v-slot:after>
-                    <q-btn
-                      round
-                      dense
-                      flat
-                      icon="add"
-                      color="primary"
-                      @click="showAddLocationDialog = true"
-                    >
-                      <q-tooltip>Add new location</q-tooltip>
-                    </q-btn>
-                  </template>
-                </q-select>
-              </div>
-              <div class="col-12 col-md-3">
-                <q-select
-                  v-model="destinationLocation"
-                  :options="locationsWithDetails"
-                  option-value="value"
-                  option-label="label"
-                  emit-value
-                  map-options
-                  label="Destination Location"
-                  outlined
-                  dense
-                  :loading="isCalculatingDistance"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="place" />
-                  </template>
-                  <template v-slot:after>
-                    <q-btn
-                      round
-                      dense
-                      flat
-                      icon="add"
-                      color="primary"
-                      @click="showAddLocationDialog = true"
-                    >
-                      <q-tooltip>Add new location</q-tooltip>
-                    </q-btn>
-                  </template>
-                </q-select>
-              </div>
-              <div class="col-12 col-md-3">
-                <q-input
-                  v-model="moveDate"
-                  type="date"
-                  label="Desired Start Date"
-                  outlined
-                  dense
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="event" />
-                  </template>
-                </q-input>
-              </div>
-              <div class="col-12 col-md-3">
-                <q-input
-                  v-model="moveEndDate"
-                  type="date"
-                  label="Target Completion Date"
-                  outlined
-                  dense
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="event_available" />
-                  </template>
-                </q-input>
-              </div>
-              <div class="col-12 col-md-3">
-                <q-input
-                  v-model.number="numHelpers"
-                  type="number"
-                  label="Number of Helpers"
-                  outlined
-                  dense
-                  :min="1"
-                  :max="10"
-                >
-                  <template v-slot:prepend>
-                    <q-icon name="group" />
-                  </template>
-                </q-input>
-              </div>
-            </div>
-          </q-card-section>
-        </q-card>
-      </div>
-
       <div class="costs-route-grid q-pa-md">
       <!-- Cost Estimates -->
       <q-card flat bordered class="content-card">
@@ -3690,17 +3636,17 @@ const downloadPdfEstimate = async () => {
           <div class="route-stats-row q-mt-md">
             <div class="stat-card">
               <q-icon name="straighten" size="sm" color="primary" />
-              <div class="stat-value text-primary">{{ estimatedDistance.toLocaleString() }}</div>
+              <div class="stat-value text-primary">{{ roundedMiles?.toLocaleString() || estimatedDistance?.toLocaleString() || 0 }}</div>
               <div class="stat-label">miles</div>
             </div>
             <div class="stat-card">
               <q-icon name="schedule" size="sm" color="secondary" />
-              <div class="stat-value text-secondary">{{ routeData.duration_text }}</div>
-              <div class="stat-label">drive time</div>
+              <div class="stat-value text-secondary">{{ decimalHours || (routeData.duration_seconds ? (routeData.duration_seconds / 3600).toFixed(1) : '0.0') }}</div>
+              <div class="stat-label">drive hrs</div>
             </div>
             <div v-if="routeData.estimated_tolls > 0" class="stat-card">
               <q-icon name="toll" size="sm" color="warning" />
-              <div class="stat-value text-warning">${{ routeData.estimated_tolls }}</div>
+              <div class="stat-value text-warning">${{ roundedTolls || routeData.estimated_tolls }}</div>
               <div class="stat-label">est. tolls</div>
             </div>
             <div v-if="routeData.overnight_stops > 0" class="stat-card">
@@ -3710,11 +3656,6 @@ const downloadPdfEstimate = async () => {
             </div>
           </div>
 
-          <!-- Route Summary -->
-          <div class="text-caption text-grey-7 q-mt-sm">
-            <q-icon name="route" size="xs" class="q-mr-xs" />
-            {{ routeData.route_summary }}
-          </div>
 
           <!-- Warnings -->
           <div v-if="routeData.warnings && routeData.warnings.length > 0" class="q-mt-md">
@@ -3727,10 +3668,102 @@ const downloadPdfEstimate = async () => {
               </div>
             </q-banner>
           </div>
+
+          <!-- Route Planning Actions - Outside Map -->
+          <div v-if="currentSavedMoveId" class="route-actions-section q-mt-md">
+            <!-- Generate Move Schedule Button -->
+            <q-btn
+              unelevated
+              color="positive"
+              icon="event_note"
+              label="Generate Move Schedule"
+              :loading="generatingSchedule"
+              :disable="!journeyWaypoints || journeyWaypoints.length === 0"
+              @click="promptGenerateSchedule"
+              class="full-width"
+            >
+              <q-tooltip v-if="!journeyWaypoints || journeyWaypoints.length === 0">
+                Add waypoints and calculate route first
+              </q-tooltip>
+              <q-tooltip v-else>
+                Create loading, driving, and unloading sessions from your planned route
+              </q-tooltip>
+            </q-btn>
+            <div class="text-caption text-grey-7 q-mt-xs">
+              Use the Waypoint Manager (on the map) to add stops, suggest waypoints, and calculate your optimized route.
+              Then click "Generate Move Schedule" to create sessions.
+            </div>
+          </div>
         </q-card-section>
 
+        <!-- Generate Schedule Confirmation Dialog -->
+        <q-dialog v-model="showScheduleDialog">
+          <q-card style="min-width: 500px">
+            <q-card-section>
+              <div class="text-h6">Generate Move Schedule</div>
+            </q-card-section>
+
+            <q-card-section class="q-pt-none">
+              <p>This will create a complete move schedule with:</p>
+              <ul class="q-ml-md">
+                <li>1 loading session at origin</li>
+                <li>{{ journeyWaypoints?.length || 0 }} driving session(s) between waypoints</li>
+                <li>1 unloading session at destination</li>
+              </ul>
+
+              <!-- Anchor Date Selection -->
+              <div class="q-mt-md">
+                <div class="text-subtitle2 q-mb-sm">When do you need to move?</div>
+                <q-option-group
+                  v-model="anchorDateType"
+                  :options="[
+                    { label: 'I need to be moved out by (anchor to start)', value: 'move-out' },
+                    { label: 'I need to be moved in by (anchor to end)', value: 'move-in' }
+                  ]"
+                  color="primary"
+                  dense
+                  class="q-mb-md"
+                />
+
+                <q-input
+                  v-model="anchorDate"
+                  type="date"
+                  :label="anchorDateType === 'move-out' ? 'Move-Out Date' : 'Move-In Date'"
+                  outlined
+                  dense
+                  :hint="anchorDateType === 'move-out' ? 'Loading will start on this date' : 'Unloading will complete by this date'"
+                >
+                  <template v-slot:prepend>
+                    <q-icon :name="anchorDateType === 'move-out' ? 'event' : 'event_available'" />
+                  </template>
+                </q-input>
+              </div>
+
+              <p class="text-caption text-grey-7 q-mt-md">
+                Sessions will be automatically scheduled with realistic spacing based on driving time and overnight stops.
+                You can adjust individual session dates after generation.
+              </p>
+            </q-card-section>
+
+            <q-card-actions align="right">
+              <q-btn flat label="Cancel" color="grey" @click="showScheduleDialog = false" />
+              <q-btn
+                flat
+                label="Generate Schedule"
+                color="positive"
+                :loading="generatingSchedule"
+                :disable="!anchorDate"
+                @click="generateMoveSchedule(true)"
+              />
+            </q-card-actions>
+          </q-card>
+        </q-dialog>
+
         <!-- Placeholder when no locations selected -->
-        <q-card-section v-else class="text-center text-grey-5 q-py-lg">
+        <q-card-section
+          v-if="!originLocation || !destinationLocation"
+          class="text-center text-grey-5 q-py-lg"
+        >
           <q-icon name="map" size="xl" />
           <div class="text-body2 q-mt-md">Select origin and destination locations</div>
           <div class="text-caption">to view route and distance</div>
@@ -3796,6 +3829,29 @@ const downloadPdfEstimate = async () => {
         <q-card-actions align="right">
           <q-btn flat label="Cancel" color="grey-7" v-close-popup />
           <q-btn flat label="Add Location" color="primary" @click="addLocation" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- New Move Dialog -->
+    <q-dialog v-model="showNewMoveDialog">
+      <q-card style="min-width: 400px">
+        <q-card-section>
+          <div class="text-h6">Start New Move</div>
+          <div class="text-caption text-grey-7 q-mt-sm">
+            This will clear all current move details and start fresh
+          </div>
+        </q-card-section>
+
+        <q-card-section class="q-pt-none">
+          <p class="text-body2">
+            Are you sure you want to start a new move? Any unsaved changes to the current move will be lost.
+          </p>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="grey-7" v-close-popup />
+          <q-btn flat label="Start New Move" color="primary" @click="confirmNewMove" />
         </q-card-actions>
       </q-card>
     </q-dialog>
