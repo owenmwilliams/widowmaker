@@ -627,8 +627,38 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
       });
     }
 
-    // Get origin and destination from saved move
-    const routeData = move.route_data ? (typeof move.route_data === 'string' ? JSON.parse(move.route_data) : move.route_data) : null;
+    // Get origin and destination from saved move (fall back to location records if route_data missing)
+    let routeData = move.route_data ? (typeof move.route_data === 'string' ? JSON.parse(move.route_data) : move.route_data) : null;
+    if (!routeData) {
+      routeData = {};
+    }
+
+    const ensureAddressForRole = async (role, locationId) => {
+      if (!locationId || routeData[`${role}_address`]) {
+        return;
+      }
+      const location = await knex('locations').where('id', locationId).first();
+      if (!location) {
+        return;
+      }
+      const components = [
+        location.address || location.name,
+        location.city,
+        location.state,
+        location.zip
+      ].filter(Boolean);
+      if (components.length) {
+        routeData[`${role}_address`] = components.join(', ');
+      }
+      if (location.lat != null && location.lng != null) {
+        routeData[`${role}_lat`] = location.lat;
+        routeData[`${role}_lng`] = location.lng;
+      }
+    };
+
+    await ensureAddressForRole('origin', move.origin_location_id);
+    await ensureAddressForRole('destination', move.destination_location_id);
+
     if (!routeData?.origin_address || !routeData?.destination_address) {
       return res.status(400).json({ error: 'Saved move is missing origin or destination address' });
     }
