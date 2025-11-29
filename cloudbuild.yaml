@@ -20,7 +20,7 @@ steps:
       - '--build-arg'
       - 'VITE_API_BASE_URL=https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
       - '--build-arg'
-      - 'VITE_GOOGLE_MAPS_API_KEY=$$GOOGLE_MAPS_API_KEY'
+      - 'VITE_GOOGLE_MAPS_API_KEY=$GOOGLE_MAPS_API_KEY'
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA'
       - '-t'
