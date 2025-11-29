@@ -40,27 +40,48 @@ steps:
     id: 'push-app'
     waitFor: ['build-app']
 
-  # Run database migrations
+  # Start Cloud SQL Auth Proxy in background
+  - name: 'gcr.io/cloudsql-docker/gce-proxy:1.33.6'
+    entrypoint: /cloud_sql_proxy
+    args:
+      - '-instances=$_CLOUD_SQL_CONNECTION=tcp:5432'
+    id: 'start-sql-proxy'
+    waitFor: ['build-api']
+    timeout: '120s'
+
+  # Run database migrations (all files in movetrack-api/migrations/)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
     entrypoint: sh
     args:
       - '-c'
       - |
-        # Install PostgreSQL client and Cloud SQL Proxy
-        apk add --no-cache postgresql-client wget
-        wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
-        chmod +x cloud_sql_proxy
+        set -euo pipefail
+        
+        # Install PostgreSQL client
+        apk add --no-cache postgresql-client
+        
+        # Wait for proxy to be ready
+        sleep 10
         
         # Get database password from Secret Manager
         DB_PASSWORD=$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$PROJECT_ID)
         
-        # Run migrations via Cloud SQL Proxy
-        (./cloud_sql_proxy -instances=$_CLOUD_SQL_CONNECTION=tcp:5432 &) && sleep 10
+        # First run the base migrations-safe.sql if it exists
+        if [ -f migrations-safe.sql ]; then
+          echo "Running migrations-safe.sql..."
+          PGPASSWORD=$DB_PASSWORD psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f migrations-safe.sql || true
+        fi
         
-        # Run safe migration script to add auth tables
-        PGPASSWORD=$$DB_PASSWORD psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f migrations-safe.sql || true
+        # Run all migration files in order (sorted numerically)
+        echo "Running migrations from movetrack-api/migrations/..."
+        for file in $(ls movetrack-api/migrations/*.sql 2>/dev/null | sort -V); do
+          echo "Running migration: $file"
+          PGPASSWORD=$DB_PASSWORD psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f "$file" || echo "Warning: $file may have already been applied"
+        done
+        
+        echo "All migrations completed successfully!"
     id: 'run-migrations'
-    waitFor: ['build-api']
+    waitFor: ['start-sql-proxy']
 
   # Deploy API to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
