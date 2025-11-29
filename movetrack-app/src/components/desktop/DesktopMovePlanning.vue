@@ -963,7 +963,7 @@ const calculateDistance = async () => {
     isCalculatingDistance.value = true;
 
     // Call backend API to calculate distance with route geometry
-    const response = await fetch('/api/calculate-distance', {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/calculate-distance`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

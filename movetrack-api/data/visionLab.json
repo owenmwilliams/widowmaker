@@ -1,0 +1,44 @@
+{
+  "pipelines": [
+    {
+      "id": "single-item-baseline",
+      "name": "Single Item Baseline",
+      "description": "Single-shot baseline prompt using the current default provider.",
+      "provider": "gemini",
+      "steps": [
+        {
+          "id": "baseline",
+          "label": "Baseline Prompt",
+          "provider": "gemini",
+          "prompt": "$VISION_PROMPT"
+        }
+      ]
+    }
+  ],
+  "datasets": [
+    {
+      "id": "sample-furniture",
+      "name": "Sample Furniture",
+      "notes": "A very small dataset with sample images for quick smoke testing.",
+      "entries": [
+        {
+          "id": "stool-demo",
+          "imageUrl": "https://storage.googleapis.com/widowmaker-site-images/demo/stool.jpg",
+          "truth": {
+            "name": "Wooden stool",
+            "material": "wood",
+            "color": "natural",
+            "room": "Kitchen",
+            "dimensions": {
+              "length": 18,
+              "width": 18,
+              "height": 24
+            },
+            "weightLbs": 15,
+            "tags": ["loose", "furniture"]
+          }
+        }
+      ]
+    }
+  ]
+}
