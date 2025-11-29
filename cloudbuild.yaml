@@ -64,19 +64,19 @@ steps:
         sleep 10
         
         # Get database password from Secret Manager
-        DB_PASSWORD=$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$PROJECT_ID)
+        DB_PASS=$$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$$PROJECT_ID)
         
         # First run the base migrations-safe.sql if it exists
         if [ -f migrations-safe.sql ]; then
           echo "Running migrations-safe.sql..."
-          PGPASSWORD=$DB_PASSWORD psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f migrations-safe.sql || true
+          PGPASSWORD=$$DB_PASS psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f migrations-safe.sql || true
         fi
         
         # Run all migration files in order (sorted numerically)
         echo "Running migrations from movetrack-api/migrations/..."
-        for file in $(ls movetrack-api/migrations/*.sql 2>/dev/null | sort -V); do
-          echo "Running migration: $file"
-          PGPASSWORD=$DB_PASSWORD psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f "$file" || echo "Warning: $file may have already been applied"
+        for file in $$(ls movetrack-api/migrations/*.sql 2>/dev/null | sort -V); do
+          echo "Running migration: $$file"
+          PGPASSWORD=$$DB_PASS psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f "$$file" || echo "Warning: $$file may have already been applied"
         done
         
         echo "All migrations completed successfully!"
