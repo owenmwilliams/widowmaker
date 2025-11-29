@@ -20,11 +20,11 @@ steps:
     args:
       - '-c'
       - |
-        if [ -z "$GOOGLE_MAPS_API_KEY" ]; then
+        if [ -z "$$GOOGLE_MAPS_API_KEY" ]; then
           echo "ERROR: GOOGLE_MAPS_API_KEY is NOT set in this debug step"
           exit 1
         else
-          echo "DEBUG: GOOGLE_MAPS_API_KEY is present (value redacted), length=${#GOOGLE_MAPS_API_KEY}"
+          echo "DEBUG: GOOGLE_MAPS_API_KEY is present (value redacted), length=$${#GOOGLE_MAPS_API_KEY}"
         fi
 
   # Build Frontend Docker image
@@ -36,11 +36,11 @@ steps:
       - '-c'
       - |
         echo "Building movetrack-app image..."
-        if [ -z "$GOOGLE_MAPS_API_KEY" ]; then
+        if [ -z "$$GOOGLE_MAPS_API_KEY" ]; then
           echo "ERROR: GOOGLE_MAPS_API_KEY is NOT set in this build step"
           exit 1
         else
-          echo "GOOGLE_MAPS_API_KEY is present (value redacted), length=${#GOOGLE_MAPS_API_KEY}"
+          echo "GOOGLE_MAPS_API_KEY is present (value redacted), length=$${#GOOGLE_MAPS_API_KEY}"
         fi
 
         docker build \
@@ -90,12 +90,6 @@ steps:
         
         # Get database password from Secret Manager
         DB_PASS=$$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$PROJECT_ID)
-        
-        # First run the base migrations-safe.sql if it exists
-        if [ -f migrations-safe.sql ]; then
-          echo "Running migrations-safe.sql..."
-          PGPASSWORD=$$DB_PASS psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f migrations-safe.sql || true
-        fi
         
         # Run all migration files in order (sorted numerically)
         echo "Running migrations from movetrack-api/migrations/..."
