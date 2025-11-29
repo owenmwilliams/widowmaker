@@ -342,3 +342,4 @@ Built from the TakeStock project, reimagined for the moving and storage use case
 **Need Help?** Open an issue or contact the maintainer.
 
 **Happy Moving!** 📦✨
+# Trigger rebuild with Google Maps API key secret access
