@@ -4,6 +4,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--no-cache'
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-api:$COMMIT_SHA'
       - '-t'
@@ -15,6 +16,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--no-cache'
       - '-t'
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA'
       - '-t'
