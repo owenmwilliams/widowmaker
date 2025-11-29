@@ -40,16 +40,7 @@ steps:
     id: 'push-app'
     waitFor: ['build-app']
 
-  # Start Cloud SQL Auth Proxy in background
-  - name: 'gcr.io/cloudsql-docker/gce-proxy:1.33.6'
-    entrypoint: /cloud_sql_proxy
-    args:
-      - '-instances=$_CLOUD_SQL_CONNECTION=tcp:5432'
-    id: 'start-sql-proxy'
-    waitFor: ['build-api']
-    timeout: '120s'
-
-  # Run database migrations (all files in movetrack-api/migrations/)
+  # Run database migrations (with Cloud SQL Proxy started in-process)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
     entrypoint: sh
     args:
@@ -57,14 +48,21 @@ steps:
       - |
         set -euo pipefail
         
-        # Install PostgreSQL client
-        apk add --no-cache postgresql-client
+        # Install PostgreSQL client and download Cloud SQL Proxy
+        apk add --no-cache postgresql-client wget
+        wget -q https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.2/cloud-sql-proxy.linux.amd64 -O /cloud-sql-proxy
+        chmod +x /cloud-sql-proxy
+        
+        # Start Cloud SQL Proxy in background
+        /cloud-sql-proxy --port 5432 $_CLOUD_SQL_CONNECTION &
+        PROXY_PID=$$!
         
         # Wait for proxy to be ready
+        echo "Waiting for Cloud SQL Proxy to start..."
         sleep 10
         
         # Get database password from Secret Manager
-        DB_PASS=$$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$$PROJECT_ID)
+        DB_PASS=$$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$PROJECT_ID)
         
         # First run the base migrations-safe.sql if it exists
         if [ -f migrations-safe.sql ]; then
@@ -79,9 +77,12 @@ steps:
           PGPASSWORD=$$DB_PASS psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f "$$file" || echo "Warning: $$file may have already been applied"
         done
         
+        # Stop the proxy
+        kill $$PROXY_PID 2>/dev/null || true
+        
         echo "All migrations completed successfully!"
     id: 'run-migrations'
-    waitFor: ['start-sql-proxy']
+    waitFor: ['build-api']
 
   # Deploy API to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
