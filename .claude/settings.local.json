@@ -16,7 +16,9 @@
       "Bash(gcloud secrets get-iam-policy:*)",
       "Bash(gcloud projects get-iam-policy:*)",
       "Bash(gcloud projects describe:*)",
-      "Bash(gcloud secrets add-iam-policy-binding:*)"
+      "Bash(gcloud secrets add-iam-policy-binding:*)",
+      "Bash(README.md)",
+      "Bash(xargs -I {} gcloud builds log {} --stream)"
     ],
     "deny": [],
     "ask": []

@@ -12,22 +12,44 @@ steps:
       - './movetrack-api'
     id: 'build-api'
 
+  # Debug secret visibility (optional safety net)
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'debug-google-maps-secret'
+    entrypoint: 'sh'
+    secretEnv: ['GOOGLE_MAPS_API_KEY']
+    args:
+      - '-c'
+      - |
+        if [ -z "$GOOGLE_MAPS_API_KEY" ]; then
+          echo "ERROR: GOOGLE_MAPS_API_KEY is NOT set in this debug step"
+          exit 1
+        else
+          echo "DEBUG: GOOGLE_MAPS_API_KEY is present (value redacted), length=${#GOOGLE_MAPS_API_KEY}"
+        fi
+
   # Build Frontend Docker image
   - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '--no-cache'
-      - '--build-arg'
-      - 'VITE_API_BASE_URL=https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
-      - '--build-arg'
-      - 'VITE_GOOGLE_MAPS_API_KEY=$$GOOGLE_MAPS_API_KEY'
-      - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA'
-      - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:latest'
-      - './movetrack-app'
-    secretEnv: ['GOOGLE_MAPS_API_KEY']
     id: 'build-app'
+    entrypoint: 'sh'
+    secretEnv: ['GOOGLE_MAPS_API_KEY']
+    args:
+      - '-c'
+      - |
+        echo "Building movetrack-app image..."
+        if [ -z "$GOOGLE_MAPS_API_KEY" ]; then
+          echo "ERROR: GOOGLE_MAPS_API_KEY is NOT set in this build step"
+          exit 1
+        else
+          echo "GOOGLE_MAPS_API_KEY is present (value redacted), length=${#GOOGLE_MAPS_API_KEY}"
+        fi
+
+        docker build \
+          --no-cache \
+          --build-arg VITE_API_BASE_URL="https://movetrack-api-7hwn7ggbiq-uc.a.run.app" \
+          --build-arg VITE_GOOGLE_MAPS_API_KEY="$$GOOGLE_MAPS_API_KEY" \
+          -t "us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA" \
+          -t "us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:latest" \
+          ./movetrack-app
 
   # Push API image
   - name: 'gcr.io/cloud-builders/docker'

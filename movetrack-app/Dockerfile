@@ -20,8 +20,9 @@ ARG VITE_GOOGLE_MAPS_API_KEY
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 ENV VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY
 
-# Build the application
-RUN npm run build
+# Build the application (temporary debug to confirm key value length)
+RUN echo "VITE_GOOGLE_MAPS_API_KEY length during build: ${#VITE_GOOGLE_MAPS_API_KEY}" && \
+    npm run build
 
 # Production stage
 FROM nginx:alpine
