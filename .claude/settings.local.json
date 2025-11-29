@@ -10,7 +10,13 @@
       "Bash(git pull:*)",
       "Bash(git cherry-pick:*)",
       "Bash(git log:*)",
-      "Bash(gcloud artifacts docker images describe:*)"
+      "Bash(gcloud artifacts docker images describe:*)",
+      "Bash(gcloud secrets describe:*)",
+      "Bash(gcloud secrets versions access:*)",
+      "Bash(gcloud secrets get-iam-policy:*)",
+      "Bash(gcloud projects get-iam-policy:*)",
+      "Bash(gcloud projects describe:*)",
+      "Bash(gcloud secrets add-iam-policy-binding:*)"
     ],
     "deny": [],
     "ask": []
