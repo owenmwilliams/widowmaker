@@ -483,7 +483,15 @@ defineExpose({
               <q-tooltip>Drop-off location (unloading stop)</q-tooltip>
             </q-icon>
             <q-icon
-              v-else-if="waypoint.overnight_recommended"
+              v-else-if="waypoint.source === 'manual'"
+              name="place"
+              size="xs"
+              class="q-mr-xs text-purple-6"
+            >
+              <q-tooltip>Manual waypoint (won't be reordered)</q-tooltip>
+            </q-icon>
+            <q-icon
+              v-else-if="waypoint.overnight_recommended || waypoint.source === 'suggested'"
               name="hotel"
               size="xs"
               class="q-mr-xs text-blue-6"
@@ -501,11 +509,13 @@ defineExpose({
             <q-tooltip v-if="waypoint.distance_source === 'estimated'">Estimated distance from origin (straight-line calculation)</q-tooltip>
           </span>
           <div class="waypoint-actions">
-            <q-btn flat dense round icon="arrow_upward" size="xs" :disable="index === 0 || waypoint.is_dropoff" @click="moveWaypointUp(index)">
+            <q-btn flat dense round icon="arrow_upward" size="xs" :disable="index === 0 || waypoint.is_dropoff || waypoint.source === 'manual'" @click="moveWaypointUp(index)">
               <q-tooltip v-if="waypoint.is_dropoff">Cannot reorder drop-off locations</q-tooltip>
+              <q-tooltip v-else-if="waypoint.source === 'manual'">Cannot reorder manual waypoints (use Optimize to adjust suggested stops)</q-tooltip>
             </q-btn>
-            <q-btn flat dense round icon="arrow_downward" size="xs" :disable="index === sortedWaypoints.length - 1 || waypoint.is_dropoff" @click="moveWaypointDown(index)">
+            <q-btn flat dense round icon="arrow_downward" size="xs" :disable="index === sortedWaypoints.length - 1 || waypoint.is_dropoff || waypoint.source === 'manual'" @click="moveWaypointDown(index)">
               <q-tooltip v-if="waypoint.is_dropoff">Cannot reorder drop-off locations</q-tooltip>
+              <q-tooltip v-else-if="waypoint.source === 'manual'">Cannot reorder manual waypoints (use Optimize to adjust suggested stops)</q-tooltip>
             </q-btn>
             <q-btn flat dense round icon="delete" size="xs" color="negative" :disable="waypoint.is_dropoff" @click="deleteWaypoint(waypoint)">
               <q-tooltip v-if="waypoint.is_dropoff">Cannot delete drop-off locations (remove from move plan instead)</q-tooltip>

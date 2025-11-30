@@ -1,24 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gcloud auth login:*)",
-      "Bash(gcloud builds describe:*)",
-      "Bash(gcloud builds log:*)",
-      "Bash(gcloud builds triggers describe:*)",
-      "Bash(gcloud builds triggers delete:*)",
-      "Bash(git checkout:*)",
-      "Bash(git pull:*)",
-      "Bash(git cherry-pick:*)",
-      "Bash(git log:*)",
-      "Bash(gcloud artifacts docker images describe:*)",
-      "Bash(gcloud secrets describe:*)",
-      "Bash(gcloud secrets versions access:*)",
-      "Bash(gcloud secrets get-iam-policy:*)",
-      "Bash(gcloud projects get-iam-policy:*)",
-      "Bash(gcloud projects describe:*)",
-      "Bash(gcloud secrets add-iam-policy-binding:*)",
-      "Bash(README.md)",
-      "Bash(xargs -I {} gcloud builds log {} --stream)"
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

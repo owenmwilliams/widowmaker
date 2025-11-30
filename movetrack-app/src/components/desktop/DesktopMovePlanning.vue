@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
 import { useQuasar, Notify } from 'quasar';
@@ -9,6 +9,7 @@ import autoTable from 'jspdf-autotable';
 import RouteMap from '../RouteMap.vue';
 import DesktopMoveDay from './DesktopMoveDay.vue';
 import WaypointManager from '../WaypointManager.vue';
+import LocationEditorDialog from '../location/LocationEditorDialog.vue';
 
 const props = defineProps({
   user: String
@@ -165,10 +166,28 @@ const pageSubtitle = computed(() => {
   }
 });
 
-// Dialog states
-const showAddLocationDialog = ref(false);
-const newLocationName = ref('');
-const newLocationAddress = ref('');
+// Location editor dialog
+const showLocationDialog = ref(false);
+interface LocationEditorResult {
+  name: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  lat: number | null;
+  lng: number | null;
+  formattedAddress?: string | null;
+}
+
+const openLocationDialog = () => {
+  showLocationDialog.value = true;
+};
+const moveDatePopup = ref<any>(null);
+const moveEndDatePopup = ref<any>(null);
+const newMoveOutPopup = ref<any>(null);
+const newMoveInPopup = ref<any>(null);
 
 // Ref for DesktopMoveDay component
 const moveDayRef = ref<InstanceType<typeof DesktopMoveDay> | null>(null);
@@ -626,41 +645,6 @@ const timeEstimates = computed(() => {
   };
 });
 
-// Collection breakdown for move planning
-// Only show collections in the origin/starting location
-const collectionBreakdown = computed(() => {
-  return store.collections
-    .filter(collection => {
-      // Only include collections in the origin location
-      if (!originLocation.value) return true; // Show all if no origin selected
-      return collection.location === originLocation.value;
-    })
-    .map(collection => {
-      const items = store.items.filter(item => item.collection === collection.value);
-      const volume = items.reduce((sum, item) => {
-        const dims = parseItemDimensions(item);
-        if (!dims) return sum;
-        const quantity = Number(item.quantity) || 1;
-        return sum + (dims.length * dims.width * dims.height / 1728 * quantity);
-      }, 0);
-
-      const weight = items.reduce((sum, item) => {
-        const itemWeight = Number(item.weight_lbs) || 0;
-        const quantity = Number(item.quantity) || 1;
-        return sum + (itemWeight * quantity);
-      }, 0);
-
-      return {
-        name: collection.label,
-        itemCount: items.length,
-        volume: volume,
-        weight: weight,
-        percentage: totalVolumeCuFt.value > 0 ? (volume / totalVolumeCuFt.value) * 100 : 0,
-        weightPercentage: totalWeightLbs.value > 0 ? (weight / totalWeightLbs.value) * 100 : 0
-      };
-    }).filter(c => c.itemCount > 0).sort((a, b) => b.volume - a.volume);
-});
-
 // Get locations with address details
 const locationsWithDetails = computed(() => {
   return store.locations.map(loc => {
@@ -689,10 +673,16 @@ const locationsWithDetails = computed(() => {
       city: loc.city,
       state: loc.state,
       zip: loc.zip,
+      lat: loc.lat ?? null,
+      lng: loc.lng ?? null,
       fullAddress: fullAddress
     };
   });
 });
+
+watch(locationsWithDetails, () => {
+  moveLocations.value.forEach(applyLocationDetailsToMoveLocation);
+}, { deep: true });
 
 // Get destination location name for waypoint display
 const destinationDisplayName = computed(() => {
@@ -788,10 +778,12 @@ interface MapWaypoint {
   id: number;
   city: string;
   state?: string;
-  lat?: number;
-  lng?: number;
+  lat?: number | string;
+  lng?: number | string;
   overnight_recommended?: boolean;
   sequence_order: number;
+  location_id?: number | string | null;
+  is_dropoff?: boolean;
 }
 const journeyWaypoints = ref<MapWaypoint[]>([]);
 
@@ -842,6 +834,7 @@ const showScheduleDialog = ref(false);
 const anchorDateType = ref<'move-out' | 'move-in'>('move-out');
 const anchorDate = ref<string | null>(null);
 
+const hasScheduleAnchorDate = computed(() => !!(moveDate.value || moveEndDate.value));
 const generateMoveSchedule = async (clearExisting: boolean = false) => {
   if (!currentSavedMoveId.value) {
     $q.notify({
@@ -857,6 +850,14 @@ const generateMoveSchedule = async (clearExisting: boolean = false) => {
       type: 'warning',
       message: 'Please add waypoints and calculate route first',
       caption: 'Use the waypoint manager to add stops and optimize your route'
+    });
+    return;
+  }
+
+  if (!anchorDate.value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Please set a move-out or move-in date in Move Details first'
     });
     return;
   }
@@ -909,8 +910,27 @@ const generateMoveSchedule = async (clearExisting: boolean = false) => {
 };
 
 const promptGenerateSchedule = () => {
+  if (!hasScheduleAnchorDate.value) {
+    $q.notify({
+      type: 'warning',
+      message: 'Set your move-out or move-in date in the Move Details section before generating a schedule.'
+    });
+    return;
+  }
+
+  anchorDateType.value = moveDate.value ? 'move-out' : 'move-in';
+  anchorDate.value = moveDate.value || moveEndDate.value;
   showScheduleDialog.value = true;
 };
+const canGenerateSchedule = computed(() => {
+  return !!journeyWaypoints.value &&
+    journeyWaypoints.value.length > 0 &&
+    hasScheduleAnchorDate.value;
+});
+const anchorDateDisplay = computed(() => {
+  if (!anchorDate.value) return null;
+  return formatDateLabel(anchorDate.value);
+});
 
 const calculateDistance = async () => {
   if (!originLocation.value || !destinationLocation.value) {
@@ -1220,54 +1240,6 @@ const costEstimates = computed(() => {
     packingLevel: packingServicesRequired.value
   };
 });
-
-// Add new location
-const addLocation = async () => {
-  if (!newLocationName.value.trim()) {
-    Notify.create({
-      type: 'warning',
-      message: 'Please enter a location name'
-    });
-    return;
-  }
-
-  if (!props.user) {
-    Notify.create({
-      type: 'negative',
-      message: 'Please log in again.'
-    });
-    return;
-  }
-
-  try {
-    await store.createLocation(
-      props.user,
-      newLocationName.value.trim(),
-      '',
-      newLocationAddress.value.trim(),
-      '',
-      '',
-      '',
-      ''
-    );
-
-    await store.loadInventory(props.user);
-
-    Notify.create({
-      type: 'positive',
-      message: `Location "${newLocationName.value}" added successfully`
-    });
-
-    newLocationName.value = '';
-    newLocationAddress.value = '';
-    showAddLocationDialog.value = false;
-  } catch (error) {
-    Notify.create({
-      type: 'negative',
-      message: 'Failed to add location'
-    });
-  }
-};
 
 // Helper function to load image as base64
 const loadImageAsBase64 = async (url: string): Promise<string | null> => {
@@ -1636,6 +1608,12 @@ const downloadInventoryPdf = async () => {
 const savedMoves = ref<any[]>([]);
 const currentSavedMoveId = ref<number | null>(null);
 const showNewMoveDialog = ref(false);
+const newMoveForm = ref({
+  origin: null as string | null,
+  destination: null as string | null,
+  moveOut: null as string | null,
+  moveIn: null as string | null
+});
 const showSaveMoveDialog = ref(false);
 const showLoadMoveDialog = ref(false);
 const saveMoveFormModel = ref({
@@ -1647,6 +1625,8 @@ interface MoveLocation {
   id: number;
   role: 'origin' | 'intermediate' | 'destination';
   location: any | null;
+  lat: number | null;
+  lng: number | null;
   // Access details
   entryType: string | null;
   numberOfFlights: number | null;
@@ -1666,6 +1646,8 @@ const createEmptyMoveLocation = (role: 'origin' | 'intermediate' | 'destination'
   id: moveLocationIdCounter++,
   role,
   location: null,
+  lat: null,
+  lng: null,
   entryType: null,
   numberOfFlights: null,
   hasElevator: false,
@@ -1679,6 +1661,28 @@ const createEmptyMoveLocation = (role: 'origin' | 'intermediate' | 'destination'
 });
 
 const moveLocations = ref<MoveLocation[]>([]);
+
+const normalizeCoordinate = (value: unknown): number | null => {
+  if (value === null || value === undefined) return null;
+  const numeric = typeof value === 'string' ? parseFloat(value) : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const applyLocationDetailsToMoveLocation = (moveLoc: MoveLocation) => {
+  if (!moveLoc) return;
+  if (!moveLoc.location) {
+    moveLoc.lat = null;
+    moveLoc.lng = null;
+    return;
+  }
+
+  const record = store.locations.find(l => String(l.value) === String(moveLoc.location));
+  const latSource = record?.lat ?? moveLoc.lat;
+  const lngSource = record?.lng ?? moveLoc.lng;
+
+  moveLoc.lat = normalizeCoordinate(latSource);
+  moveLoc.lng = normalizeCoordinate(lngSource);
+};
 
 // Watch for intermediate location changes and recalculate distance
 watch(
@@ -1736,14 +1740,34 @@ const fullTimeEstimates = computed(() => {
 
 // Computed property for intermediate drop-off locations to pass to RouteMap
 const intermediateDropoffLocations = computed(() => {
+  const dropoffWaypoints = (journeyWaypoints.value || []).filter(wp => wp?.is_dropoff);
+
   return moveLocations.value
     .filter(loc => loc.role === 'intermediate' && loc.location)
     .map((loc, index) => {
       const locationData = store.locations.find(l => l.value === loc.location);
+
+      const waypointMatchById = dropoffWaypoints.find(wp =>
+        wp.location_id != null &&
+        loc.location != null &&
+        String(wp.location_id) === String(loc.location)
+      );
+
+      const waypointMatchByCity = !waypointMatchById && locationData?.city
+        ? dropoffWaypoints.find(wp => wp.city?.toLowerCase() === locationData.city.toLowerCase())
+        : undefined;
+
+      const waypoint = waypointMatchById || waypointMatchByCity;
+
+      const lat = normalizeCoordinate(waypoint?.lat ?? loc.lat ?? locationData?.lat ?? null);
+      const lng = normalizeCoordinate(waypoint?.lng ?? loc.lng ?? locationData?.lng ?? null);
+
       return {
         id: loc.id,
         name: locationData?.label || `Drop-off ${index + 1}`,
-        address: locationData ? formatAddress(locationData) : undefined
+        address: locationData ? formatAddress(locationData) : undefined,
+        lat: lat ?? undefined,
+        lng: lng ?? undefined
       };
     });
 });
@@ -1768,8 +1792,8 @@ const roundedTolls = computed(() => {
   return Math.round(routeData.value.estimated_tolls / 10) * 10;
 });
 
-const addMoveLocation = () => {
-  if (moveLocations.value.length >= 5) {
+const addMoveLocation = (role: 'origin' | 'intermediate' | 'destination' = 'intermediate') => {
+  if (role === 'intermediate' && moveLocations.value.length >= 5) {
     Notify.create({
       type: 'warning',
       message: 'Maximum of 5 locations allowed',
@@ -1777,15 +1801,64 @@ const addMoveLocation = () => {
     });
     return;
   }
-  moveLocations.value.push(createEmptyMoveLocation());
+  moveLocations.value.push(createEmptyMoveLocation(role));
   syncLegacyLocations();
 };
 
+const handleLocationDialogSave = async (payload: LocationEditorResult) => {
+  if (!props.user) {
+    Notify.create({
+      type: 'negative',
+      message: 'Please log in again.'
+    });
+    return;
+  }
+
+  try {
+    await store.createLocation(
+      props.user,
+      payload.name.trim(),
+      payload.formattedAddress || '',
+      payload.address1.trim(),
+      payload.address2.trim(),
+      payload.city.trim(),
+      payload.state.trim(),
+      payload.zip.trim(),
+      false,
+      payload.lat ?? null,
+      payload.lng ?? null,
+      payload.country
+    );
+
+    await store.loadInventory(props.user);
+
+    Notify.create({
+      type: 'positive',
+      message: `Location "${payload.name}" added successfully`
+    });
+  } catch (error) {
+    console.error('[MovePlanning] Failed to add location', error);
+    Notify.create({
+      type: 'negative',
+      message: 'Failed to add location'
+    });
+  }
+};
+
 const removeMoveLocation = (index: number) => {
-  if (moveLocations.value.length <= 1) {
+  const target = moveLocations.value[index]
+  if (target?.role === 'origin' || target?.role === 'destination') {
     Notify.create({
       type: 'warning',
-      message: 'At least one location is required',
+      message: 'Cannot remove the starting or ending location',
+      timeout: 2000
+    });
+    return;
+  }
+  if (moveLocations.value.filter(loc => loc.role === 'intermediate').length <= 1) {
+    Notify.create({
+      type: 'warning',
+      message: 'Add another drop-off before removing this one',
       timeout: 2000
     });
     return;
@@ -1829,6 +1902,8 @@ const syncLegacyLocations = () => {
     destEntryChallenges.value = destination.entryChallenges;
     destAccessNotes.value = destination.accessNotes;
   }
+
+  moveLocations.value.forEach(applyLocationDetailsToMoveLocation);
 };
 
 // Watch moveLocations for changes and sync
@@ -1836,25 +1911,102 @@ watch(moveLocations, () => {
   syncLegacyLocations();
 }, { deep: true });
 
+const getAlternateLocationId = (excludeId?: string | null) => {
+  const available = store.locations.find(loc => String(loc.value) !== String(excludeId));
+  return available ? String(available.value) : null;
+};
+
 // Reset form for new move
 const resetMoveForm = () => {
+  const fallbackOrigin = originLocation.value
+    ? String(originLocation.value)
+    : (store.locations[0] ? String(store.locations[0].value) : null);
+  const fallbackDestination = destinationLocation.value
+    ? String(destinationLocation.value)
+    : getAlternateLocationId(fallbackOrigin) || fallbackOrigin;
+
+  newMoveForm.value = {
+    origin: fallbackOrigin,
+    destination: fallbackDestination,
+    moveOut: moveDate.value,
+    moveIn: moveEndDate.value
+  };
+
   showNewMoveDialog.value = true;
 };
 
+const newMoveFormReady = computed(() => {
+  return !!(
+    newMoveForm.value.origin &&
+    newMoveForm.value.destination &&
+    (newMoveForm.value.moveOut || newMoveForm.value.moveIn)
+  );
+});
+
+const shiftDate = (dateStr: string | null, days: number): string | null => {
+  if (!dateStr) return null;
+  const base = new Date(dateStr);
+  if (Number.isNaN(base.getTime())) return null;
+  base.setDate(base.getDate() + days);
+  return base.toISOString().split('T')[0];
+};
+
 const confirmNewMove = () => {
+  const { origin, destination } = newMoveForm.value;
+  let moveOut = newMoveForm.value.moveOut;
+  let moveIn = newMoveForm.value.moveIn;
+
+  if (!origin || !destination) {
+    Notify.create({
+      type: 'warning',
+      message: 'Select both a starting and ending location to begin a new move.'
+    });
+    return;
+  }
+
+  if (origin === destination) {
+    Notify.create({
+      type: 'warning',
+      message: 'Please choose different locations for the start and end of the move.'
+    });
+    return;
+  }
+
+  if (!moveOut && !moveIn) {
+    Notify.create({
+      type: 'warning',
+      message: 'Please provide at least a move-out or move-in date.'
+    });
+    return;
+  }
+
+  if (moveOut && !moveIn) {
+    moveIn = shiftDate(moveOut, 14) || moveOut;
+  } else if (!moveOut && moveIn) {
+    moveOut = shiftDate(moveIn, -14) || moveIn;
+  }
+
+  newMoveForm.value.moveOut = moveOut;
+  newMoveForm.value.moveIn = moveIn;
+
   // Clear current move ID
   currentSavedMoveId.value = null;
   saveMoveFormModel.value.name = '';
 
   // Clear multi-location array
-  moveLocations.value = [];
   moveLocationIdCounter = 1;
+  const originEntry = createEmptyMoveLocation('origin');
+  originEntry.location = origin;
+  const destinationEntry = createEmptyMoveLocation('destination');
+  destinationEntry.location = destination;
+  moveLocations.value = [originEntry, destinationEntry];
+  moveLocations.value.forEach(applyLocationDetailsToMoveLocation);
 
   // Clear move configuration (legacy)
   originLocation.value = null;
   destinationLocation.value = null;
-  moveDate.value = null;
-  moveEndDate.value = null;
+  moveDate.value = moveOut || moveIn || null;
+  moveEndDate.value = moveIn || moveOut || null;
   numHelpers.value = 2;
   packingServicesRequired.value = 'none';
   packingAreasSelected.value = [];
@@ -1889,11 +2041,12 @@ const confirmNewMove = () => {
   specialRequirements.value = '';
   estimatedSquareFootage.value = null;
 
+  syncLegacyLocations();
   showNewMoveDialog.value = false;
 
   Notify.create({
     type: 'info',
-    message: 'Started new move'
+    message: 'Started new move with your selected locations and dates'
   });
 };
 
@@ -2033,6 +2186,13 @@ const saveMove = async () => {
 
     showSaveMoveDialog.value = false;
     await fetchSavedMoves();
+    if (waypointManagerRef.value && typeof waypointManagerRef.value.fetchWaypoints === 'function') {
+      try {
+        await waypointManagerRef.value.fetchWaypoints();
+      } catch (waypointError) {
+        console.warn('[DesktopMovePlanning] Unable to refresh waypoints after save', waypointError);
+      }
+    }
   } catch (error) {
     console.error('Error saving move:', error);
     Notify.create({
@@ -2090,6 +2250,8 @@ const loadMove = async (moveId: number) => {
           id: moveLocationIdCounter++,
           role: ml.location_role as 'origin' | 'intermediate' | 'destination',
           location: ml.location_id,
+          lat: normalizeCoordinate(ml.lat),
+          lng: normalizeCoordinate(ml.lng),
           entryType: ml.entry_type,
           numberOfFlights: ml.number_of_flights,
           hasElevator: ml.has_elevator,
@@ -2116,10 +2278,13 @@ const loadMove = async (moveId: number) => {
       // Fallback to legacy origin/destination fields for backward compatibility
       // Add origin location
       if (move.origin_location_id) {
+        const originRecord = store.locations.find(l => String(l.value) === String(move.origin_location_id));
         moveLocations.value.push({
           id: moveLocationIdCounter++,
           role: 'origin',
           location: move.origin_location_id,
+          lat: normalizeCoordinate(originRecord?.lat),
+          lng: normalizeCoordinate(originRecord?.lng),
           entryType: move.entry_type,
           numberOfFlights: move.number_of_flights,
           hasElevator: move.has_elevator,
@@ -2135,23 +2300,30 @@ const loadMove = async (moveId: number) => {
 
       // Add destination location
       if (move.destination_location_id) {
+        const destinationRecord = store.locations.find(l => String(l.value) === String(move.destination_location_id));
         moveLocations.value.push({
           id: moveLocationIdCounter++,
           role: 'destination',
           location: move.destination_location_id,
-          entryType: move.dest_entry_type,
-          numberOfFlights: move.dest_number_of_flights,
-          hasElevator: move.dest_has_elevator,
-          elevatorType: move.dest_elevator_type,
-          elevatorDistance: move.dest_elevator_distance,
+          lat: normalizeCoordinate(destinationRecord?.lat),
+          lng: normalizeCoordinate(destinationRecord?.lng),
+        lat: null,
+        lng: null,
+        entryType: move.dest_entry_type,
+        numberOfFlights: move.dest_number_of_flights,
+        hasElevator: move.dest_has_elevator,
+        elevatorType: move.dest_elevator_type,
+        elevatorDistance: move.dest_elevator_distance,
           elevatorReservationRequired: move.dest_elevator_reservation_required,
           parkingSituation: move.dest_parking_situation,
           parkingDistance: move.dest_parking_distance,
-          entryChallenges: move.dest_entry_challenges || [],
-          accessNotes: move.dest_access_notes || ''
-        });
-      }
+        entryChallenges: move.dest_entry_challenges || [],
+        accessNotes: move.dest_access_notes || ''
+      });
     }
+  }
+
+    moveLocations.value.forEach(applyLocationDetailsToMoveLocation);
 
     // Origin details
     hasStairs.value = move.has_stairs;
@@ -2872,29 +3044,49 @@ const downloadPdfEstimate = async () => {
             <div class="col-12 col-md-3">
               <q-input
                 v-model="moveDate"
-                type="date"
                 label="Desired Start Date"
                 outlined
                 dense
+                readonly
+                clearable
                 hint="Earliest date you can start loading"
+                @click="moveDatePopup?.show()"
+                @focus="moveDatePopup?.show()"
               >
                 <template v-slot:prepend>
                   <q-icon name="event" />
                 </template>
+                <q-popup-proxy ref="moveDatePopup" cover transition-show="scale" transition-hide="scale">
+                  <q-date
+                    v-model="moveDate"
+                    mask="YYYY-MM-DD"
+                    @update:model-value="moveDatePopup?.hide()"
+                  />
+                </q-popup-proxy>
               </q-input>
             </div>
             <div class="col-12 col-md-3">
               <q-input
                 v-model="moveEndDate"
-                type="date"
                 label="Desired End Date"
                 outlined
                 dense
+                readonly
+                clearable
                 hint="Latest date you need to finish unloading"
+                @click="moveEndDatePopup?.show()"
+                @focus="moveEndDatePopup?.show()"
               >
                 <template v-slot:prepend>
                   <q-icon name="event_available" />
                 </template>
+                <q-popup-proxy ref="moveEndDatePopup" cover transition-show="scale" transition-hide="scale">
+                  <q-date
+                    v-model="moveEndDate"
+                    mask="YYYY-MM-DD"
+                    @update:model-value="moveEndDatePopup?.hide()"
+                  />
+                </q-popup-proxy>
               </q-input>
             </div>
             <div class="col-12 col-md-2">
@@ -2958,23 +3150,31 @@ const downloadPdfEstimate = async () => {
       <div class="row items-center justify-between q-mb-sm">
         <div class="text-h6 text-primary">Locations</div>
         <q-btn
-          flat
+          unelevated
           dense
           color="primary"
-          icon="add"
-          label="Add Location"
+          icon="add_location_alt"
+          label="Add Drop-Off"
           :disable="moveLocations.length >= 5"
-          @click="addMoveLocation"
+          @click="addMoveLocation('intermediate')"
         >
           <q-tooltip v-if="moveLocations.length >= 5">Maximum 5 locations</q-tooltip>
+          <q-tooltip v-else>Add another drop-off stop</q-tooltip>
         </q-btn>
       </div>
 
       <div class="locations-row">
         <div
           v-for="(loc, index) in moveLocations"
-          :key="index"
-          class="location-card-wrapper"
+          :key="loc.id || index"
+          :class="[
+            'location-card-wrapper',
+            {
+              'location-start-wrapper': loc.role === 'origin',
+              'location-dropoff-wrapper': loc.role === 'intermediate',
+              'location-end-wrapper': loc.role === 'destination'
+            }
+          ]"
         >
           <q-card flat bordered class="location-card" :class="{ 'location-start': loc.role === 'origin', 'location-dropoff': loc.role === 'intermediate', 'location-end': loc.role === 'destination' }">
             <q-card-section class="q-pb-sm">
@@ -3029,7 +3229,7 @@ const downloadPdfEstimate = async () => {
                     icon="add"
                     color="primary"
                     size="sm"
-                    @click="showAddLocationDialog = true"
+                    @click="openLocationDialog"
                   >
                     <q-tooltip>Add new location</q-tooltip>
                   </q-btn>
@@ -3042,6 +3242,7 @@ const downloadPdfEstimate = async () => {
               dense-toggle
               label="Access Details"
               header-class="text-caption text-grey-7"
+              default-opened
             >
               <q-card-section class="q-pt-none">
                 <div class="row q-col-gutter-sm">
@@ -3383,62 +3584,6 @@ const downloadPdfEstimate = async () => {
       </q-card>
     </div>
 
-    <!-- Row 4: Space & Weight by Collection -->
-    <div class="q-pa-md">
-      <div class="collection-breakdown-section">
-        <div class="text-h6 text-primary q-mb-md q-px-md">Space & Weight by Collection</div>
-
-        <div v-if="collectionBreakdown.length > 0" class="collection-cards-container">
-          <q-card v-for="collection in collectionBreakdown" :key="collection.name" flat bordered class="collection-card">
-            <q-card-section>
-              <div class="row items-center justify-between q-mb-sm">
-                <div class="text-subtitle1 text-weight-medium">{{ collection.name }}</div>
-                <div class="text-caption text-grey-7">{{ collection.itemCount }} items</div>
-              </div>
-
-              <!-- Volume bar -->
-              <div class="q-mb-sm">
-                <div class="row items-center justify-between q-mb-xs">
-                  <div class="text-caption text-grey-6">
-                    <q-icon name="view_in_ar" size="xs" class="q-mr-xs" />
-                    Volume
-                  </div>
-                  <div class="text-caption text-weight-medium">{{ collection.volume.toFixed(1) }} cu ft</div>
-                </div>
-                <q-linear-progress
-                  :value="collection.percentage / 100"
-                  color="primary"
-                  size="8px"
-                  rounded
-                />
-              </div>
-
-              <!-- Weight bar -->
-              <div>
-                <div class="row items-center justify-between q-mb-xs">
-                  <div class="text-caption text-grey-6">
-                    <q-icon name="scale" size="xs" class="q-mr-xs" />
-                    Weight
-                  </div>
-                  <div class="text-caption text-weight-medium">{{ collection.weight.toFixed(0) }} lbs</div>
-                </div>
-                <q-linear-progress
-                  :value="collection.weightPercentage / 100"
-                  color="secondary"
-                  size="8px"
-                  rounded
-                />
-              </div>
-            </q-card-section>
-          </q-card>
-        </div>
-        <div v-else class="text-center text-grey-5 q-py-md">
-          <q-icon name="folder_off" size="lg" />
-          <div class="q-mt-sm">No collections with dimensions</div>
-        </div>
-      </div>
-    </div>
-
     </div><!-- Close v-if="originLocation" -->
     </div><!-- Close Planning Tab -->
 
@@ -3622,6 +3767,7 @@ const downloadPdfEstimate = async () => {
             <!-- Waypoints Overlay Panel (positioned on map) -->
             <div v-if="currentSavedMoveId" class="waypoints-overlay">
               <WaypointManager
+                ref="waypointManagerRef"
                 :move-id="currentSavedMoveId"
                 :route-polyline="routeData.route_polyline"
                 :total-distance-miles="estimatedDistance"
@@ -3678,12 +3824,15 @@ const downloadPdfEstimate = async () => {
               icon="event_note"
               label="Generate Move Schedule"
               :loading="generatingSchedule"
-              :disable="!journeyWaypoints || journeyWaypoints.length === 0"
+              :disable="!canGenerateSchedule"
               @click="promptGenerateSchedule"
               class="full-width"
             >
               <q-tooltip v-if="!journeyWaypoints || journeyWaypoints.length === 0">
                 Add waypoints and calculate route first
+              </q-tooltip>
+              <q-tooltip v-else-if="!hasScheduleAnchorDate">
+                Add a move-out or move-in date in the Move Details card to enable scheduling
               </q-tooltip>
               <q-tooltip v-else>
                 Create loading, driving, and unloading sessions from your planned route
@@ -3701,6 +3850,9 @@ const downloadPdfEstimate = async () => {
           <q-card style="min-width: 500px">
             <q-card-section>
               <div class="text-h6">Generate Move Schedule</div>
+              <div class="text-caption text-grey-7 q-mt-xs">
+                Sessions will auto-schedule based on your route and move dates.
+              </div>
             </q-card-section>
 
             <q-card-section class="q-pt-none">
@@ -3711,32 +3863,26 @@ const downloadPdfEstimate = async () => {
                 <li>1 unloading session at destination</li>
               </ul>
 
-              <!-- Anchor Date Selection -->
               <div class="q-mt-md">
-                <div class="text-subtitle2 q-mb-sm">When do you need to move?</div>
-                <q-option-group
-                  v-model="anchorDateType"
-                  :options="[
-                    { label: 'I need to be moved out by (anchor to start)', value: 'move-out' },
-                    { label: 'I need to be moved in by (anchor to end)', value: 'move-in' }
-                  ]"
-                  color="primary"
-                  dense
-                  class="q-mb-md"
-                />
-
-                <q-input
-                  v-model="anchorDate"
-                  type="date"
-                  :label="anchorDateType === 'move-out' ? 'Move-Out Date' : 'Move-In Date'"
-                  outlined
-                  dense
-                  :hint="anchorDateType === 'move-out' ? 'Loading will start on this date' : 'Unloading will complete by this date'"
-                >
-                  <template v-slot:prepend>
-                    <q-icon :name="anchorDateType === 'move-out' ? 'event' : 'event_available'" />
+                <div class="text-subtitle2 q-mb-sm">Scheduling anchor</div>
+                <q-banner dense class="bg-blue-1 text-primary">
+                  <template v-slot:avatar>
+                    <q-icon name="calendar_month" color="primary" />
                   </template>
-                </q-input>
+                  Sessions will be anchored to your
+                  {{ anchorDateType === 'move-out' ? 'move-out' : 'move-in' }} date
+                  <span v-if="anchorDateDisplay"><strong>{{ anchorDateDisplay }}</strong></span>.
+                </q-banner>
+                <div class="row q-col-gutter-md q-mt-sm text-caption text-grey-7">
+                  <div class="col-12 col-sm-6" v-if="moveDate">
+                    <q-icon name="logout" size="16px" class="q-mr-xs" /> Move-out:
+                    {{ formatDateLabel(moveDate) }}
+                  </div>
+                  <div class="col-12 col-sm-6" v-if="moveEndDate">
+                    <q-icon name="login" size="16px" class="q-mr-xs" /> Move-in:
+                    {{ formatDateLabel(moveEndDate) }}
+                  </div>
+                </div>
               </div>
 
               <p class="text-caption text-grey-7 q-mt-md">
@@ -3752,7 +3898,7 @@ const downloadPdfEstimate = async () => {
                 label="Generate Schedule"
                 color="positive"
                 :loading="generatingSchedule"
-                :disable="!anchorDate"
+                :disable="generatingSchedule"
                 @click="generateMoveSchedule(true)"
               />
             </q-card-actions>
@@ -3802,56 +3948,163 @@ const downloadPdfEstimate = async () => {
       </div>
     </div>
 
-    <!-- Add Location Dialog -->
-    <q-dialog v-model="showAddLocationDialog">
-      <q-card style="min-width: 400px">
-        <q-card-section>
-          <div class="text-h6 text-primary">Add New Location</div>
-        </q-card-section>
-
-        <q-card-section class="q-pt-none">
-          <q-input
-            v-model="newLocationName"
-            label="Location Name"
-            outlined
-            dense
-            autofocus
-            class="q-mb-md"
-          />
-          <q-input
-            v-model="newLocationAddress"
-            label="Address (optional)"
-            outlined
-            dense
-          />
-        </q-card-section>
-
-        <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="grey-7" v-close-popup />
-          <q-btn flat label="Add Location" color="primary" @click="addLocation" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
+    <LocationEditorDialog
+      v-model="showLocationDialog"
+      mode="add"
+      @save="handleLocationDialogSave"
+    />
 
     <!-- New Move Dialog -->
     <q-dialog v-model="showNewMoveDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="min-width: 480px; max-width: 620px">
         <q-card-section>
-          <div class="text-h6">Start New Move</div>
-          <div class="text-caption text-grey-7 q-mt-sm">
-            This will clear all current move details and start fresh
+          <div class="text-h6">Start a New Move</div>
+          <div class="text-caption text-grey-7 q-mt-xs">
+            Choose your starting/ending locations and key dates to begin planning.
           </div>
         </q-card-section>
 
         <q-card-section class="q-pt-none">
-          <p class="text-body2">
-            Are you sure you want to start a new move? Any unsaved changes to the current move will be lost.
-          </p>
+          <div class="row q-col-gutter-md q-mb-md">
+            <div class="col-12 col-md-6">
+              <q-select
+                v-model="newMoveForm.origin"
+                :options="locationsWithDetails"
+                option-value="value"
+                option-label="label"
+                emit-value
+                map-options
+                label="Starting location"
+                outlined
+                dense
+                use-input
+                input-debounce="0"
+                clearable
+              >
+                <template v-slot:prepend>
+                  <q-icon name="my_location" />
+                </template>
+                <template v-slot:append>
+                  <q-btn
+                    round
+                    dense
+                    flat
+                    icon="add"
+                    color="primary"
+                    @click="openLocationDialog"
+                  >
+                    <q-tooltip>Add a new location</q-tooltip>
+                  </q-btn>
+                </template>
+              </q-select>
+            </div>
+            <div class="col-12 col-md-6">
+              <q-select
+                v-model="newMoveForm.destination"
+                :options="locationsWithDetails"
+                option-value="value"
+                option-label="label"
+                emit-value
+                map-options
+                label="Ending location"
+                outlined
+                dense
+                use-input
+                input-debounce="0"
+                clearable
+              >
+                <template v-slot:prepend>
+                  <q-icon name="flag" />
+                </template>
+                <template v-slot:append>
+                  <q-btn
+                    round
+                    dense
+                    flat
+                    icon="add"
+                    color="primary"
+                    @click="openLocationDialog"
+                  >
+                    <q-tooltip>Add a new location</q-tooltip>
+                  </q-btn>
+                </template>
+              </q-select>
+            </div>
+          </div>
+
+          <div class="row q-col-gutter-md">
+            <div class="col-12 col-md-6">
+              <q-input
+                v-model="newMoveForm.moveOut"
+                label="Move-out date"
+                outlined
+                dense
+                readonly
+                clearable
+                @click="newMoveOutPopup?.show()"
+                @focus="newMoveOutPopup?.show()"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="event" />
+                </template>
+                <q-popup-proxy ref="newMoveOutPopup" cover transition-show="scale" transition-hide="scale">
+                  <q-date
+                    v-model="newMoveForm.moveOut"
+                    mask="YYYY-MM-DD"
+                    @update:model-value="newMoveOutPopup?.hide()"
+                  />
+                </q-popup-proxy>
+              </q-input>
+            </div>
+            <div class="col-12 col-md-6">
+              <q-input
+                v-model="newMoveForm.moveIn"
+                label="Move-in date"
+                outlined
+                dense
+                readonly
+                clearable
+                @click="newMoveInPopup?.show()"
+                @focus="newMoveInPopup?.show()"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="event_available" />
+                </template>
+                <q-popup-proxy ref="newMoveInPopup" cover transition-show="scale" transition-hide="scale">
+                  <q-date
+                    v-model="newMoveForm.moveIn"
+                    mask="YYYY-MM-DD"
+                    @update:model-value="newMoveInPopup?.hide()"
+                  />
+                </q-popup-proxy>
+              </q-input>
+            </div>
+          </div>
+
+          <q-banner
+            v-if="locationsWithDetails.length === 0"
+            class="bg-orange-1 text-orange-8 q-mt-md"
+            rounded
+            dense
+          >
+            <q-icon name="info" class="q-mr-sm" />
+            Add at least one location to your account to get started.
+          </q-banner>
+
+          <q-banner
+            v-if="!newMoveFormReady"
+            class="bg-orange-1 text-orange-8 q-mt-md"
+            rounded
+            dense
+          >
+            <q-icon name="info" class="q-mr-sm" />
+            Select both locations and at least one date to start planning.
+          </q-banner>
         </q-card-section>
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" color="grey-7" v-close-popup />
-          <q-btn flat label="Start New Move" color="primary" @click="confirmNewMove" />
+          <q-btn flat label="Start Planning" color="primary" @click="confirmNewMove" :disable="!newMoveFormReady" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -4143,35 +4396,6 @@ const downloadPdfEstimate = async () => {
   border-radius: 8px;
 }
 
-/* Collection Cards */
-.collection-breakdown-section {
-  background: white;
-  border: 1px solid #E0E0E0;
-  border-radius: 4px;
-  padding: 16px;
-}
-
-.collection-cards-container {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  overflow-x: auto;
-  padding: 8px 0;
-}
-
-.collection-card {
-  min-width: 280px;
-  flex: 1 1 280px;
-  max-width: 350px;
-  background: white;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-.collection-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
 /* Packing Materials Card - Match Packing Status Height */
 .packing-materials-card .packing-materials-section {
   min-height: 250px;
@@ -4225,10 +4449,6 @@ const downloadPdfEstimate = async () => {
     grid-template-columns: 1fr;
   }
 
-  .collection-card {
-    min-width: 100%;
-    max-width: 100%;
-  }
 }
 
 /* Form Section Styling */
@@ -4260,6 +4480,7 @@ const downloadPdfEstimate = async () => {
 .route-map-wrapper {
   position: relative;
 }
+
 
 .route-map-container {
   border-radius: 8px;
@@ -4351,6 +4572,15 @@ const downloadPdfEstimate = async () => {
 .location-card-wrapper {
   flex: 1 1 0;
   min-width: 0; /* Allow cards to shrink below content size for equal distribution */
+}
+.location-card-wrapper.location-start-wrapper {
+  order: 0;
+}
+.location-card-wrapper.location-dropoff-wrapper {
+  order: 1;
+}
+.location-card-wrapper.location-end-wrapper {
+  order: 2;
 }
 
 /* Location card styles */

@@ -5,6 +5,7 @@ import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
 import VisionProviderToggle from '../VisionProviderToggle.vue';
 import axios from 'axios';
+import LocationEditorDialog from '../location/LocationEditorDialog.vue';
 
 const props = defineProps<{
   user: string;
@@ -13,8 +14,22 @@ const props = defineProps<{
 const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
 
 const currentVisionProvider = ref<string>('gemini');
-const locationDialogOpen = ref(false);
 const editingLocationId = ref<number | null>(null);
+const locationEditorVisible = ref(false);
+const locationEditorMode = ref<'add' | 'edit'>('add');
+interface LocationEditorPayload {
+  name: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  lat: number | null;
+  lng: number | null;
+  formattedAddress?: string | null;
+}
+const locationEditorInitial = ref<LocationEditorPayload | null>(null);
 const store = inventoryStore();
 const { locations } = storeToRefs(store);
 const $q = useQuasar();
@@ -80,17 +95,6 @@ watch(locations, () => {
   applyOnboardingLocation();
 });
 
-const locationForm = reactive({
-  name: '',
-  description: '',
-  address: '',
-  address2: '',
-  city: '',
-  state: '',
-  zip: '',
-  isPrimary: false
-});
-
 const primaryLocationId = computed(() => {
   return locations.value.find(loc => loc.isPrimary)?.value ?? null;
 });
@@ -99,21 +103,11 @@ const handleProviderChanged = (provider: string) => {
   currentVisionProvider.value = provider;
 };
 
-const resetLocationForm = () => {
-  locationForm.name = '';
-  locationForm.description = '';
-  locationForm.address = '';
-  locationForm.address2 = '';
-  locationForm.city = '';
-  locationForm.state = '';
-  locationForm.zip = '';
-  locationForm.isPrimary = false;
-  editingLocationId.value = null;
-};
-
 const openAddLocation = () => {
-  resetLocationForm();
-  locationDialogOpen.value = true;
+  editingLocationId.value = null;
+  locationEditorMode.value = 'add';
+  locationEditorInitial.value = null;
+  locationEditorVisible.value = true;
 };
 
 const applyOnboardingLocation = () => {
@@ -135,43 +129,45 @@ const openEditLocation = (id: number) => {
   }
 
   editingLocationId.value = id;
-  locationForm.name = location.label;
-  locationForm.description = location.description || '';
-  locationForm.address = location.address || '';
-  locationForm.address2 = location.address_2 || '';
-  locationForm.city = location.city || '';
-  locationForm.state = location.state || '';
-  locationForm.zip = location.zip || '';
-  locationForm.isPrimary = location.isPrimary || false;
-  locationDialogOpen.value = true;
+  locationEditorMode.value = 'edit';
+  locationEditorInitial.value = {
+    name: location.label || '',
+    address1: location.address || '',
+    address2: location.address_2 || '',
+    city: location.city || '',
+    state: location.state || '',
+    zip: location.zip || '',
+    country: location.country || 'USA',
+    lat: location.lat ?? null,
+    lng: location.lng ?? null,
+    formattedAddress: location.address || location.description || ''
+  };
+  locationEditorVisible.value = true;
 };
 
-const saveLocation = async () => {
-  if (!locationForm.name.trim()) {
-    $q.notify({
-      type: 'warning',
-      message: 'Location name is required',
-      position: 'bottom'
-    });
-    return;
-  }
-
+const handleLocationEditorSave = async (payload: LocationEditorPayload) => {
   try {
     $q.loading.show({ message: editingLocationId.value ? 'Updating location...' : 'Adding location...' });
 
     if (editingLocationId.value !== null) {
+      const existing = locations.value.find(loc => Number(loc.value) === Number(editingLocationId.value));
       await store.updateLocation(
         editingLocationId.value,
         props.user,
-        locationForm.name,
-        locationForm.description,
-        locationForm.address,
-        locationForm.address2,
-        locationForm.city,
-        locationForm.state,
-        locationForm.zip,
-        locationForm.isPrimary,
-        { skipRedirect: true }
+        payload.name,
+        existing?.description || '',
+        payload.address1,
+        payload.address2,
+        payload.city,
+        payload.state,
+        payload.zip,
+        existing?.isPrimary || false,
+        {
+          skipRedirect: true,
+          lat: payload.lat ?? null,
+          lng: payload.lng ?? null,
+          country: payload.country
+        }
       );
       $q.notify({
         type: 'positive',
@@ -181,14 +177,17 @@ const saveLocation = async () => {
     } else {
       await store.createLocation(
         props.user,
-        locationForm.name,
-        locationForm.description,
-        locationForm.address,
-        locationForm.address2,
-        locationForm.city,
-        locationForm.state,
-        locationForm.zip,
-        locationForm.isPrimary
+        payload.name,
+        payload.formattedAddress || '',
+        payload.address1,
+        payload.address2,
+        payload.city,
+        payload.state,
+        payload.zip,
+        false,
+        payload.lat ?? null,
+        payload.lng ?? null,
+        payload.country || 'USA'
       );
       $q.notify({
         type: 'positive',
@@ -197,8 +196,8 @@ const saveLocation = async () => {
       });
     }
 
-    locationDialogOpen.value = false;
-    resetLocationForm();
+    locationEditorVisible.value = false;
+    editingLocationId.value = null;
   } catch (error) {
     console.error('Location save failed', error);
     $q.notify({
@@ -505,37 +504,12 @@ const getTruckSizeLabel = (size: string | null) => {
       </q-card>
     </div>
 
-    <q-dialog v-model="locationDialogOpen" persistent @hide="resetLocationForm">
-      <q-card style="min-width: 520px;">
-        <q-card-section>
-          <div class="text-h6">
-            {{ editingLocationId === null ? 'Add Location' : 'Edit Location' }}
-          </div>
-        </q-card-section>
-        <q-card-section class="location-form q-pt-none">
-          <q-input v-model="locationForm.name" label="Location Name" outlined dense autofocus />
-          <q-input v-model="locationForm.description" label="Description" outlined dense />
-          <q-input v-model="locationForm.address" label="Address" outlined dense />
-          <q-input v-model="locationForm.address2" label="Unit / Apt" outlined dense />
-          <div class="row q-col-gutter-sm">
-            <div class="col-6">
-              <q-input v-model="locationForm.city" label="City" outlined dense />
-            </div>
-            <div class="col-3">
-              <q-input v-model="locationForm.state" label="State" outlined dense />
-            </div>
-            <div class="col-3">
-              <q-input v-model="locationForm.zip" label="Zip" outlined dense />
-            </div>
-          </div>
-          <q-toggle class="primary-toggle" v-model="locationForm.isPrimary" label="Set as primary residence" color="primary" />
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="grey-7" v-close-popup />
-          <q-btn unelevated color="primary" :label="editingLocationId === null ? 'Add location' : 'Save changes'" @click="saveLocation" />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
+    <LocationEditorDialog
+      v-model="locationEditorVisible"
+      :mode="locationEditorMode"
+      :initial-location="locationEditorInitial"
+      @save="handleLocationEditorSave"
+    />
 
     <!-- Truck Edit Dialog -->
     <q-dialog v-model="truckDialogOpen" persistent @hide="resetTruckForm">

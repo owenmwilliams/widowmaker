@@ -142,7 +142,7 @@
       if (props.editSelect) {
         store.updateLocation(props.idProp!, user.value, name.value, description.value, address.value, address_2.value, city.value, state.value, zip.value)
       } else {
-        store.createLocation(user.value, name.value, description.value, address.value, address_2.value, city.value, state.value, zip.value)
+        store.createLocation(user.value, name.value, description.value, address.value, address_2.value, city.value, state.value, zip.value, false, null, null, 'USA')
       }
     } else if (props.objectType == ObjectEnum.collection) {
       if (props.editSelect) {

@@ -125,6 +125,19 @@ const resolveZoneCollectionId = (zones, index = 0) => {
   return zones[boundedIndex]?.id || null;
 };
 
+const formatCityStateLabel = (value) => {
+  if (!value || typeof value !== 'string') return value || '';
+  const parts = value.split(',').map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    const stateRaw = parts[parts.length - 1].replace(/\d+/g, '').trim();
+    const city = parts[parts.length - 2];
+    if (city && stateRaw) return `${city}, ${stateRaw}`;
+    if (city) return city;
+    if (stateRaw) return stateRaw;
+  }
+  return parts[parts.length - 1] || value;
+};
+
 const normalizeDateOnly = (value) => {
   if (!value) return null;
 
@@ -392,6 +405,14 @@ router.post('/sessions', async (req, res) => {
 
     const resolvedStartLocationId = requestedStartLocationId || move.origin_location_id;
     const normalizedStartLocationId = resolvedStartLocationId ? String(resolvedStartLocationId) : null;
+    const startLocationIdNumeric = normalizedStartLocationId ? Number(normalizedStartLocationId) : null;
+    let startLocationRecord = null;
+    if (Number.isFinite(startLocationIdNumeric)) {
+      startLocationRecord = await knex('locations')
+        .select('id', 'location_type')
+        .where({ id: startLocationIdNumeric, user_id: userId })
+        .first();
+    }
     console.log('[POST /sessions] Start location validation:', {
       normalizedStartLocationId,
       allowedStartLocations: Array.from(allowedStartLocations),
@@ -475,6 +496,36 @@ router.post('/sessions', async (req, res) => {
     const resolvedSessionType = session_type && validSessionTypes.includes(session_type)
       ? session_type
       : 'loading';  // Default to loading for backwards compatibility
+
+    const startIsOrigin = !!(move.origin_location_id && normalizedStartLocationId && normalizedStartLocationId === String(move.origin_location_id));
+    const startIsTruck = startLocationRecord?.location_type === 'truck';
+
+    if (resolvedSessionType === 'loading') {
+      if (!startIsOrigin) {
+        return res.status(400).json({ error: 'Loading sessions must start at the move origin' });
+      }
+      if (destinationMode !== 'truck') {
+        return res.status(400).json({ error: 'Loading sessions must end in a truck' });
+      }
+    }
+
+    if (resolvedSessionType === 'unloading') {
+      if (!startIsTruck) {
+        return res.status(400).json({ error: 'Unloading sessions must start from a truck' });
+      }
+      if (destinationMode !== 'location') {
+        return res.status(400).json({ error: 'Unloading sessions must end at a destination or dropoff location' });
+      }
+    }
+
+    if (resolvedSessionType === 'transfer') {
+      if (!startIsTruck) {
+        return res.status(400).json({ error: 'Transfer sessions must start from a truck' });
+      }
+      if (destinationMode !== 'truck') {
+        return res.status(400).json({ error: 'Transfer sessions must end in a truck' });
+      }
+    }
 
     // For driving sessions, validate waypoints
     if (resolvedSessionType === 'driving') {
@@ -794,6 +845,19 @@ router.post('/scans', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Container does not belong to this move owner' });
     }
 
+    if (scan_type !== 'loaded') {
+      const priorLoadedScan = await knex('box_scans')
+        .where({
+          move_session_id,
+          container_id: resolvedContainerId,
+          scan_type: 'loaded'
+        })
+        .first();
+      if (!priorLoadedScan) {
+        return res.status(400).json({ error: 'Load this container into the truck before recording this scan' });
+      }
+    }
+
     // Record the scan
     const scanResult = await knex.raw(`
       INSERT INTO box_scans (move_session_id, container_id, scan_type, scanned_by, location_type, destination_room, notes)
@@ -934,6 +998,19 @@ router.post('/scans/item', async (req, res) => {
         error: 'Cannot scan item that is in a container. Please scan the container instead.',
         container_id: itemRecord.container_id
       });
+    }
+
+    if (scan_type !== 'loaded') {
+      const priorItemLoad = await knex('item_scans')
+        .where({
+          move_session_id,
+          item_id: resolvedItemId,
+          scan_type: 'loaded'
+        })
+        .first();
+      if (!priorItemLoad) {
+        return res.status(400).json({ error: 'Load this item into the truck before recording this scan' });
+      }
     }
 
     // Record the item scan
@@ -1732,14 +1809,23 @@ router.post('/generate-from-route', async (req, res) => {
 
     const createdSessions = [];
 
+    const originLabel = formatCityStateLabel(routeData.origin_address || routeData.origin_city || 'Origin');
+    const destinationLabel = formatCityStateLabel(routeData.destination_address || routeData.destination_city || 'Destination');
+
     // Build segments first to calculate total trip duration
     // Segments: origin -> waypoint1, waypoint1 -> waypoint2, ..., lastWaypoint -> destination
     const segments = [];
 
     // Origin to first waypoint
     segments.push({
-      start: { type: 'origin', name: routeData.origin_address || 'Origin' },
-      end: { type: 'waypoint', id: waypoints[0].id, name: `${waypoints[0].city}${waypoints[0].state ? ', ' + waypoints[0].state : ''}`, isDropoff: waypoints[0].is_dropoff || false },
+      start: { type: 'origin', name: originLabel },
+      end: {
+        type: 'waypoint',
+        id: waypoints[0].id,
+        name: `${waypoints[0].city}${waypoints[0].state ? ', ' + waypoints[0].state : ''}`,
+        isDropoff: waypoints[0].is_dropoff || false,
+        location_id: waypoints[0].location_id || null
+      },
       distance: waypoints[0].segment_distance_miles,
       duration: waypoints[0].segment_duration_hours,
       overnight: waypoints[0].overnight_recommended
@@ -1751,8 +1837,20 @@ router.post('/generate-from-route', async (req, res) => {
     for (let i = 1; i < waypoints.length; i++) {
       console.log(`[MoveDay] ${correlationId}: Waypoint ${waypoints[i].city} - is_dropoff: ${waypoints[i].is_dropoff}`);
       segments.push({
-        start: { type: 'waypoint', id: waypoints[i - 1].id, name: `${waypoints[i - 1].city}${waypoints[i - 1].state ? ', ' + waypoints[i - 1].state : ''}`, isDropoff: waypoints[i - 1].is_dropoff || false },
-        end: { type: 'waypoint', id: waypoints[i].id, name: `${waypoints[i].city}${waypoints[i].state ? ', ' + waypoints[i].state : ''}`, isDropoff: waypoints[i].is_dropoff || false },
+        start: {
+          type: 'waypoint',
+          id: waypoints[i - 1].id,
+          name: `${waypoints[i - 1].city}${waypoints[i - 1].state ? ', ' + waypoints[i - 1].state : ''}`,
+          isDropoff: waypoints[i - 1].is_dropoff || false,
+          location_id: waypoints[i - 1].location_id || null
+        },
+        end: {
+          type: 'waypoint',
+          id: waypoints[i].id,
+          name: `${waypoints[i].city}${waypoints[i].state ? ', ' + waypoints[i].state : ''}`,
+          isDropoff: waypoints[i].is_dropoff || false,
+          location_id: waypoints[i].location_id || null
+        },
         distance: waypoints[i].segment_distance_miles,
         duration: waypoints[i].segment_duration_hours,
         overnight: waypoints[i].overnight_recommended
@@ -1765,8 +1863,14 @@ router.post('/generate-from-route', async (req, res) => {
     const finalLegDuration = routeData.finalLegDurationHours || (finalLegDistance / 60); // Estimate if not available
 
     segments.push({
-      start: { type: 'waypoint', id: waypoints[waypoints.length - 1].id, name: `${waypoints[waypoints.length - 1].city}${waypoints[waypoints.length - 1].state ? ', ' + waypoints[waypoints.length - 1].state : ''}` },
-      end: { type: 'destination', name: routeData.destination_address || 'Destination' },
+      start: {
+        type: 'waypoint',
+        id: waypoints[waypoints.length - 1].id,
+        name: `${waypoints[waypoints.length - 1].city}${waypoints[waypoints.length - 1].state ? ', ' + waypoints[waypoints.length - 1].state : ''}`,
+        isDropoff: waypoints[waypoints.length - 1].is_dropoff || false,
+        location_id: waypoints[waypoints.length - 1].location_id || null
+      },
+      end: { type: 'destination', name: destinationLabel },
       distance: finalLegDistance,
       duration: finalLegDuration,
       overnight: false // Arrive at destination
@@ -1881,7 +1985,7 @@ router.post('/generate-from-route', async (req, res) => {
             session_date: dateStr,
             move_date: dateStr,
             status: 'pending',
-            notes: `Loading session at ${routeData.origin_address || 'origin'}`,
+            notes: `Loading session at ${originLabel || 'origin'}`,
             created_at: knex.fn.now(),
             updated_at: knex.fn.now()
           })
@@ -1924,6 +2028,8 @@ router.post('/generate-from-route', async (req, res) => {
               session_date: dateStr,
               move_date: dateStr,
               status: 'pending',
+              session_start_location_id: segment.end.location_id || null,
+              session_end_location_id: segment.end.location_id || null,
               notes: `Unloading session at ${segment.end.name}`,
               created_at: knex.fn.now(),
               updated_at: knex.fn.now()
@@ -1944,7 +2050,7 @@ router.post('/generate-from-route', async (req, res) => {
             session_date: dateStr,
             move_date: dateStr,
             status: 'pending',
-            notes: `Unloading session at ${routeData.destination_address || 'destination'}`,
+            notes: `Unloading session at ${destinationLabel || 'destination'}`,
             created_at: knex.fn.now(),
             updated_at: knex.fn.now()
           })

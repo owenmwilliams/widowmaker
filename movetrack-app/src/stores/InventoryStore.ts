@@ -283,6 +283,12 @@ export const inventoryStore = defineStore("inventory", () => {
             };
           });
 
+          const parseCoordinate = (coord: any) => {
+            if (coord === null || coord === undefined) return null;
+            const numeric = typeof coord === "string" ? parseFloat(coord) : Number(coord);
+            return Number.isFinite(numeric) ? numeric : null;
+          };
+
           locations.value = locationsData.map((i) => {
             const locationType = i.location_type || "residence";
             return {
@@ -294,6 +300,9 @@ export const inventoryStore = defineStore("inventory", () => {
               city: i.city,
               state: i.state,
               zip: i.zip,
+              country: i.country,
+              lat: parseCoordinate(i.lat),
+              lng: parseCoordinate(i.lng),
               disable: !items.value.map((i) => i.location).includes(i.id),
               location_type: locationType,
               isPrimary: locationType === "primary_residence",
@@ -1442,6 +1451,9 @@ export const inventoryStore = defineStore("inventory", () => {
     state: string,
     zip: string,
     isPrimary = false,
+    lat: number | null = null,
+    lng: number | null = null,
+    country: string | null = "USA",
   ) {
     let params: any = {
       user: user,
@@ -1453,6 +1465,9 @@ export const inventoryStore = defineStore("inventory", () => {
       state: state,
       zip: zip,
       is_primary: isPrimary,
+      lat: lat ?? undefined,
+      lng: lng ?? undefined,
+      country: country ?? undefined,
     };
 
     const headers = await getHeaders();
@@ -1481,6 +1496,9 @@ export const inventoryStore = defineStore("inventory", () => {
       city: city,
       state: state,
       zip: zip,
+      country: country ?? "USA",
+      lat: lat,
+      lng: lng,
       disable: true,
       location_type: isPrimary ? "primary_residence" : "residence",
       isPrimary: isPrimary,
@@ -1505,7 +1523,7 @@ export const inventoryStore = defineStore("inventory", () => {
     state: string,
     zip: string,
     isPrimary = false,
-    options?: { skipRedirect?: boolean },
+    options?: { skipRedirect?: boolean; lat?: number | null; lng?: number | null; country?: string | null },
   ) {
     const normalizedId = normalizeId(id);
     const headers = await getHeaders();
@@ -1529,6 +1547,9 @@ export const inventoryStore = defineStore("inventory", () => {
         zip: zip,
         is_primary: isPrimary,
         location_type: locationType,
+        lat: options?.lat ?? undefined,
+        lng: options?.lng ?? undefined,
+        country: options?.country ?? undefined,
       },
       headers: headers,
     });
@@ -1544,6 +1565,15 @@ export const inventoryStore = defineStore("inventory", () => {
       locations.value[index].state = state;
       locations.value[index].zip = zip;
       locations.value[index].location_type = locationType;
+      if (options?.country) {
+        locations.value[index].country = options.country;
+      }
+      if (options?.lat != null) {
+        locations.value[index].lat = options.lat;
+      }
+      if (options?.lng != null) {
+        locations.value[index].lng = options.lng;
+      }
       locations.value[index].isPrimary = isPrimary;
     }
 
@@ -1580,31 +1610,7 @@ export const inventoryStore = defineStore("inventory", () => {
       headers: headers,
     });
 
-    // Remove from locations
-    locations.value.splice(
-      locations.value.findIndex((i) => i.value == id),
-      1,
-    );
-
-    // Remove id from locationValues
-    locationValues.value?.splice(
-      locationValues.value?.findIndex((i) => i == id),
-      1,
-    );
-
-    // Remove from containers
-    containers.value.forEach((i) => {
-      if (i.location == id) {
-        i.location = null;
-      }
-    });
-
-    // Remove from items
-    items.value.forEach((i) => {
-      if (i.location == id) {
-        i.location = null;
-      }
-    });
+    await loadInventory(user);
 
     if (!options?.skipRedirect) {
       router.push("items");

@@ -63,6 +63,7 @@ const dropoffMarkers = ref<any[]>([]);
 const routePolylineObj = ref<any>(null);
 const originMarker = ref<any>(null);
 const destinationMarker = ref<any>(null);
+const isDev = import.meta.env?.DEV ?? false;
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
@@ -290,8 +291,23 @@ const renderWaypointMarkers = (routePath: any[]) => {
 const renderDropoffMarkers = (routePath: any[]) => {
   if (!map.value || !props.dropoffLocations?.length) return;
 
+  if (isDev) {
+    console.groupCollapsed('[RouteMap] Drop-off payload');
+    console.table(
+      props.dropoffLocations.map(dropoff => ({
+        id: dropoff.id,
+        name: dropoff.name,
+        address: dropoff.address,
+        lat: dropoff.lat ?? null,
+        lng: dropoff.lng ?? null
+      }))
+    );
+    console.groupEnd();
+  }
+
   props.dropoffLocations.forEach((dropoff, index) => {
     let position: { lat: number; lng: number } | null = null;
+    let positionSource: 'explicit' | 'polyline' = 'polyline';
 
     // If dropoff has lat/lng, use those coordinates
     if (dropoff.lat != null && dropoff.lng != null) {
@@ -299,6 +315,7 @@ const renderDropoffMarkers = (routePath: any[]) => {
       const lng = typeof dropoff.lng === 'string' ? parseFloat(dropoff.lng) : dropoff.lng;
       if (!isNaN(lat) && !isNaN(lng)) {
         position = { lat, lng };
+        positionSource = 'explicit';
       }
     }
 
@@ -343,6 +360,16 @@ const renderDropoffMarkers = (routePath: any[]) => {
     marker.addListener('click', () => {
       infoWindow.open(map.value, marker);
     });
+
+    if (isDev) {
+      console.log('[RouteMap] Drop-off marker', {
+        name: dropoff.name,
+        address: dropoff.address,
+        source: positionSource,
+        lat: position.lat,
+        lng: position.lng
+      });
+    }
 
     dropoffMarkers.value.push(marker);
   });

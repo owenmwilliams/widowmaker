@@ -151,11 +151,11 @@ const moveWindowLabel = computed(() => {
 const sessionWindowStart = computed(() => moveWindow.value.start)
 const sessionWindowEnd = computed(() => moveWindow.value.end)
 
-// Drag and drop state
-const draggedItem = ref<any | null>(null)
-const draggedType = ref<'container' | 'item' | null>(null)
-const dragOverZone = ref<number | null>(null)
-const isSmartLoading = ref(false)
+const sessionTypeState = computed(() => newSession.value.session_type)
+const isLoadingSession = computed(() => sessionTypeState.value === 'loading')
+const isUnloadingSession = computed(() => sessionTypeState.value === 'unloading')
+const isTransferSession = computed(() => sessionTypeState.value === 'transfer')
+const isDrivingSession = computed(() => sessionTypeState.value === 'driving')
 
 // New session form
 type TransferEndMode = 'location' | 'truck'
@@ -182,6 +182,50 @@ const buildNewSessionDefaults = () => ({
 })
 
 const newSession = ref(buildNewSessionDefaults())
+
+const applySessionTypeDefaults = () => {
+  if (isLoadingSession.value) {
+    if (originLocationId.value) {
+      newSession.value.start_location_id = originLocationId.value
+    }
+    newSession.value.end_mode = 'truck'
+    if (!newSession.value.truck_mode) {
+      newSession.value.truck_mode = 'new'
+    }
+    newSession.value.end_location_id = null
+    newSession.value.end_collection_id = null
+  } else if (isUnloadingSession.value) {
+    newSession.value.end_mode = 'location'
+    if (destinationLocationId.value) {
+      newSession.value.end_location_id = destinationLocationId.value
+    }
+  } else if (isTransferSession.value) {
+    newSession.value.end_mode = 'truck'
+  }
+}
+
+const enforceStartLocationForType = () => {
+  if (isLoadingSession.value && originLocationId.value) {
+    newSession.value.start_location_id = originLocationId.value
+    return
+  }
+  const options = startOptionsForType.value
+  if (!options.length) {
+    newSession.value.start_location_id = null
+    return
+  }
+  const current = newSession.value.start_location_id ? String(newSession.value.start_location_id) : null
+  const hasCurrent = current ? options.some(option => String(option.value) === current) : false
+  if (!hasCurrent) {
+    newSession.value.start_location_id = options[0].value
+  }
+}
+
+// Drag and drop state
+const draggedItem = ref<any | null>(null)
+const draggedType = ref<'container' | 'item' | null>(null)
+const dragOverZone = ref<number | null>(null)
+const isSmartLoading = ref(false)
 
 const truckZoneOrder = ['Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E', 'Zone F']
 const truckSizeOptionList = [
@@ -216,7 +260,8 @@ const truckZoneOptions = computed(() => {
   }))
 })
 
-const eligibleStartOptions = ref<{ label: string, value: string, sourceType: string }[]>([])
+type StartOption = { label: string, value: string, sourceType: string, locationType?: string | null }
+const eligibleStartOptions = ref<StartOption[]>([])
 const startOptionsLoading = ref(false)
 
 // Existing trucks for reuse
@@ -258,8 +303,10 @@ const waypointOptions = computed(() => {
 })
 
 const sessionTypeOptions = [
-  { label: 'Loading', value: 'loading', icon: 'upload', description: 'Load items from a location into truck' },
-  { label: 'Unloading', value: 'unloading', icon: 'download', description: 'Unload items from truck to a location' }
+  { label: 'Loading', value: 'loading', icon: 'upload', description: 'Load items from the move origin into a truck' },
+  { label: 'Unloading', value: 'unloading', icon: 'download', description: 'Unload a truck into a destination/dropoff location' },
+  { label: 'Transfer', value: 'transfer', icon: 'swap_horiz', description: 'Move inventory between trucks' },
+  { label: 'Driving', value: 'driving', icon: 'local_shipping', description: 'Track drive time between waypoints' }
 ]
 
 const fetchWaypoints = async () => {
@@ -377,10 +424,72 @@ const plannedDestinationLocation = computed(() => {
   return locations.value.find(l => String(l.value) === String(destId)) || null
 })
 
+const originLocationId = computed(() => (plannedOriginLocation.value ? String(plannedOriginLocation.value.value) : null))
+const destinationLocationId = computed(() => (plannedDestinationLocation.value ? String(plannedDestinationLocation.value.value) : null))
+
 const endModeOptions = computed(() => [
   { label: 'Specific location', value: 'location' },
   { label: 'Truck', value: 'truck' }
 ])
+
+const startOptionsForType = computed(() => {
+  if (isLoadingSession.value) {
+    return eligibleStartOptions.value.filter(option => option.sourceType === 'origin')
+  }
+  if (isUnloadingSession.value || isTransferSession.value) {
+    return eligibleStartOptions.value.filter(option => option.sourceType === 'truck')
+  }
+  return eligibleStartOptions.value
+})
+
+const forceTruckDestination = computed(() => isLoadingSession.value || isTransferSession.value)
+const forceLocationDestination = computed(() => isUnloadingSession.value)
+const showEndModeToggle = computed(() => !forceTruckDestination.value && !forceLocationDestination.value)
+
+const startSelectLabel = computed(() => {
+  if (isLoadingSession.value) {
+    return 'Transfer From (Move Origin)'
+  }
+  if (isUnloadingSession.value || isTransferSession.value) {
+    return 'Transfer From Truck'
+  }
+  return 'Transfer From'
+})
+
+const startSelectHint = computed(() => {
+  if (isLoadingSession.value) {
+    return 'Loading sessions always begin at the move origin.'
+  }
+  if (isUnloadingSession.value) {
+    return 'Choose the truck you are unloading.'
+  }
+  if (isTransferSession.value) {
+    return 'Choose the truck you are transferring inventory from.'
+  }
+  return 'Start at the origin or the destination of a completed session.'
+})
+
+watch(() => newSession.value.session_type, () => {
+  applySessionTypeDefaults()
+  enforceStartLocationForType()
+}, { immediate: true })
+
+watch(startOptionsForType, () => {
+  enforceStartLocationForType()
+}, { immediate: true })
+
+watch(originLocationId, () => {
+  if (isLoadingSession.value) {
+    applySessionTypeDefaults()
+    enforceStartLocationForType()
+  }
+})
+
+watch(destinationLocationId, () => {
+  if (isUnloadingSession.value) {
+    applySessionTypeDefaults()
+  }
+})
 
 const startCollectionChoices = computed(() => {
   if (!newSession.value.start_location_id) return []
@@ -680,7 +789,7 @@ const loadEligibleStartOptions = async () => {
     const originFallbackId = plannedOriginLocation.value?.value
       ?? (currentMoveRecord.value?.origin_location_id ? Number(currentMoveRecord.value.origin_location_id) : null)
 
-    const baseOptions: { label: string, value: string, sourceType: string }[] = []
+    const baseOptions: StartOption[] = []
     if (originFallbackId) {
       const originLabel = plannedOriginLocation.value?.label
         || locations.value.find(l => Number(l.value) === Number(originFallbackId))?.label
@@ -688,23 +797,31 @@ const loadEligibleStartOptions = async () => {
       baseOptions.push({
         label: originLabel,
         value: String(originFallbackId),
-        sourceType: 'origin'
+        sourceType: 'origin',
+        locationType: plannedOriginLocation.value?.location_type || null
       })
     }
 
-    const apiOptions = (response.data.sources || []).map((source: any) => ({
-      label: source.source_type === 'origin'
-        ? `${source.label || 'Move Origin'}`
-        : `${source.label || 'Session Destination'}`,
-      value: String(source.location_id),
-      sourceType: source.source_type || 'origin'
-    })).filter(opt => opt.value && !baseOptions.some(b => b.value === opt.value))
+    const apiOptions = (response.data.sources || []).map((source: any) => {
+      const normalizedSourceType = source.source_type === 'truck'
+        ? 'truck'
+        : source.source_type === 'origin'
+          ? 'origin'
+          : (source.source_type || 'session')
+      return {
+        label: source.label || (normalizedSourceType === 'truck' ? 'Truck' : 'Session Destination'),
+        value: String(source.location_id),
+        sourceType: normalizedSourceType,
+        locationType: source.location_type || null
+      }
+    }).filter((opt: StartOption) => opt.value && !baseOptions.some(b => b.value === opt.value))
 
     eligibleStartOptions.value = [...baseOptions, ...apiOptions]
 
     if (!newSession.value.start_location_id && eligibleStartOptions.value.length > 0) {
       newSession.value.start_location_id = eligibleStartOptions.value[0].value
     }
+    enforceStartLocationForType()
   } catch (error) {
     console.error('Error loading eligible start locations:', error)
     const fallbackId = plannedOriginLocation.value?.value
@@ -716,7 +833,8 @@ const loadEligibleStartOptions = async () => {
       eligibleStartOptions.value = [{
         label: fallbackLabel,
         value: String(fallbackId),
-        sourceType: 'origin'
+        sourceType: 'origin',
+        locationType: plannedOriginLocation.value?.location_type || null
       }]
       if (!newSession.value.start_location_id) {
         newSession.value.start_location_id = Number.isFinite(fallbackId) ? String(fallbackId) : null
@@ -724,6 +842,7 @@ const loadEligibleStartOptions = async () => {
     } else {
       eligibleStartOptions.value = []
     }
+    enforceStartLocationForType()
   } finally {
     startOptionsLoading.value = false
   }
@@ -1867,14 +1986,14 @@ defineExpose({
 
           <!-- Non-Driving Sessions - Location Transfer -->
           <div v-if="newSession.session_type !== 'driving'" class="transfer-block q-mb-lg">
-            <div class="text-body1 text-weight-medium q-mb-sm">Transfer From</div>
+            <div class="text-body1 text-weight-medium q-mb-sm">{{ startSelectLabel }}</div>
             <div class="text-caption text-grey-7 q-mb-xs">
-              Start at the move origin or the destination of a completed session.
+              {{ startSelectHint }}
             </div>
             <q-select
               v-model="newSession.start_location_id"
-              :options="eligibleStartOptions"
-              label="Start Location"
+              :options="startOptionsForType"
+              label="Start Source"
               outlined
               dense
               emit-value
@@ -1882,8 +2001,16 @@ defineExpose({
               option-value="value"
               option-label="label"
               :loading="startOptionsLoading"
-              :disable="eligibleStartOptions.length === 0"
+              :disable="isLoadingSession || startOptionsForType.length === 0"
             />
+            <q-banner
+              v-if="!startOptionsLoading && startOptionsForType.length === 0"
+              class="bg-orange-1 text-orange-10 q-mt-sm"
+              rounded
+            >
+              <q-icon name="info" class="q-mr-sm" />
+              Set up a prior session to provide an eligible starting point for this session type.
+            </q-banner>
             <q-select
               v-if="startCollectionChoices.length > 0"
               v-model="newSession.start_collection_id"
@@ -1901,12 +2028,22 @@ defineExpose({
 
           <div v-if="newSession.session_type !== 'driving'" class="transfer-block q-mb-lg">
             <div class="text-body1 text-weight-medium q-mb-sm">Transfer To</div>
-            <q-option-group
-              v-model="newSession.end_mode"
-              :options="endModeOptions"
-              color="primary"
-              inline
-            />
+            <div v-if="showEndModeToggle">
+              <q-option-group
+                v-model="newSession.end_mode"
+                :options="endModeOptions"
+                color="primary"
+                inline
+              />
+            </div>
+            <div v-else class="text-caption text-grey-7 q-mb-sm">
+              <template v-if="forceTruckDestination">
+                This session ends in a truck. Choose an existing truck or create a new one.
+              </template>
+              <template v-else-if="forceLocationDestination">
+                This session ends at a specific location or dropoff.
+              </template>
+            </div>
             <div v-if="newSession.end_mode === 'location'" class="q-mt-md">
               <q-select
                 v-model="newSession.end_location_id"

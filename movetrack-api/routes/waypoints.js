@@ -795,64 +795,83 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Saved move is missing origin or destination address' });
     }
 
-    // SEGMENT-BASED OPTIMIZATION
-    // Divide route into segments based on drop-off locations and optimize each segment separately
-    // This ensures better routing and prevents Google from reordering drop-offs
+    // SEGMENT-BASED OPTIMIZATION WITH FIXED WAYPOINT SUPPORT
+    // Only optimize auto-suggested waypoints. Keep drop-offs AND manual waypoints fixed.
+    // This ensures user can add custom stops that won't be reordered.
 
     console.log(`[Waypoints] ${correlationId}: Building route segments based on ${dropoffWaypoints.length} drop-off(s)`);
 
-    // Build segments: each segment is origin → waypoints → (drop-off or destination)
-    const segments = [];
-    const sortedDropoffs = dropoffWaypoints.sort((a, b) => a.sequence_order - b.sequence_order);
-    const overnightWaypoints = waypointsWithCoords.filter(w => !w.is_dropoff);
+    // Separate waypoints by type:
+    // - Drop-offs (is_dropoff = true): Always fixed in position
+    // - Manual waypoints (source = 'manual'): Fixed in position (user-added)
+    // - Suggested waypoints (source = 'suggested'): Can be optimized
+    const fixedWaypoints = waypointsWithCoords.filter(w => w.is_dropoff || w.source === 'manual');
+    const suggestedWaypoints = waypointsWithCoords.filter(w => !w.is_dropoff && w.source === 'suggested');
 
-    if (sortedDropoffs.length === 0) {
-      // Simple case: no drop-offs, one segment with all waypoints
+    console.log(`[Waypoints] ${correlationId}: Fixed waypoints: ${fixedWaypoints.length} (${dropoffWaypoints.length} drop-offs, ${fixedWaypoints.length - dropoffWaypoints.length} manual)`);
+    console.log(`[Waypoints] ${correlationId}: Suggested waypoints: ${suggestedWaypoints.length} (can be optimized)`);
+
+    // Build segments: each segment is origin → waypoints → (next fixed point or destination)
+    const segments = [];
+    const sortedFixedWaypoints = fixedWaypoints.sort((a, b) => a.sequence_order - b.sequence_order);
+
+    if (sortedFixedWaypoints.length === 0) {
+      // Simple case: no fixed waypoints, one segment with all suggested waypoints
       segments.push({
         origin: routeData.origin_address,
         destination: routeData.destination_address,
-        waypoints: overnightWaypoints,
+        suggestedWaypoints: suggestedWaypoints,
+        fixedWaypoints: [],
         description: 'Origin to Destination'
       });
     } else {
-      // Complex case: create segments between drop-offs
+      // Complex case: create segments between fixed waypoints
       let currentOrigin = routeData.origin_address;
       let lastSequenceOrder = -1;
 
-      for (let i = 0; i < sortedDropoffs.length; i++) {
-        const dropoff = sortedDropoffs[i];
-        const dropoffAddress = `${dropoff.lat},${dropoff.lng}`;
+      for (let i = 0; i < sortedFixedWaypoints.length; i++) {
+        const fixedWaypoint = sortedFixedWaypoints[i];
+        const fixedAddress = `${fixedWaypoint.lat},${fixedWaypoint.lng}`;
 
-        // Get overnight waypoints between last point and this drop-off
-        const segmentWaypoints = overnightWaypoints.filter(w =>
-          w.sequence_order > lastSequenceOrder && w.sequence_order < dropoff.sequence_order
+        // Get suggested waypoints between last point and this fixed waypoint
+        const segmentSuggested = suggestedWaypoints.filter(w =>
+          w.sequence_order > lastSequenceOrder && w.sequence_order < fixedWaypoint.sequence_order
         );
 
+        // Get any fixed waypoints between last point and this fixed waypoint (for via points)
+        const segmentFixed = sortedFixedWaypoints.filter((w, idx) =>
+          idx < i && w.sequence_order > lastSequenceOrder && w.sequence_order < fixedWaypoint.sequence_order
+        );
+
+        const waypointType = fixedWaypoint.is_dropoff ? 'drop-off' : 'manual stop';
         segments.push({
           origin: currentOrigin,
-          destination: dropoffAddress,
-          destinationDropoff: dropoff,
-          waypoints: segmentWaypoints,
-          description: `${i === 0 ? 'Origin' : sortedDropoffs[i-1].city} → ${dropoff.city}, ${dropoff.state} (drop-off)`
+          destination: fixedAddress,
+          destinationFixedWaypoint: fixedWaypoint,
+          suggestedWaypoints: segmentSuggested,
+          fixedWaypoints: segmentFixed,
+          description: `${i === 0 ? 'Origin' : sortedFixedWaypoints[i-1].city} → ${fixedWaypoint.city}, ${fixedWaypoint.state} (${waypointType})`
         });
 
-        currentOrigin = dropoffAddress;
-        lastSequenceOrder = dropoff.sequence_order;
+        currentOrigin = fixedAddress;
+        lastSequenceOrder = fixedWaypoint.sequence_order;
       }
 
-      // Final segment: last drop-off to destination
-      const finalWaypoints = overnightWaypoints.filter(w => w.sequence_order > lastSequenceOrder);
+      // Final segment: last fixed waypoint to destination
+      const finalSuggested = suggestedWaypoints.filter(w => w.sequence_order > lastSequenceOrder);
       segments.push({
         origin: currentOrigin,
         destination: routeData.destination_address,
-        waypoints: finalWaypoints,
-        description: `${sortedDropoffs[sortedDropoffs.length - 1].city} → Destination`
+        suggestedWaypoints: finalSuggested,
+        fixedWaypoints: [],
+        description: `${sortedFixedWaypoints[sortedFixedWaypoints.length - 1].city} → Destination`
       });
     }
 
     console.log(`[Waypoints] ${correlationId}: Route divided into ${segments.length} segment(s):`);
     segments.forEach((seg, idx) => {
-      console.log(`[Waypoints] ${correlationId}:   Segment ${idx + 1}: ${seg.description} (${seg.waypoints.length} waypoint(s))`);
+      const totalWaypoints = seg.suggestedWaypoints.length + seg.fixedWaypoints.length;
+      console.log(`[Waypoints] ${correlationId}:   Segment ${idx + 1}: ${seg.description} (${seg.suggestedWaypoints.length} suggested, ${seg.fixedWaypoints.length} fixed)`);
     });
 
     // Optimize each segment separately and collect all results
@@ -866,15 +885,28 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
       const segment = segments[segmentIndex];
       console.log(`[Waypoints] ${correlationId}: Optimizing segment ${segmentIndex + 1}/${segments.length}: ${segment.description}`);
 
-      // Build Google Directions API request for this segment
-      const waypointsParam = segment.waypoints.length > 0
-        ? segment.waypoints.map(w => `${w.lat},${w.lng}`).join('|')
+      // Build waypoints parameter for Google Directions API
+      // Fixed waypoints go first (in order), then suggested waypoints (can be optimized)
+      // Google will optimize the suggested ones but keep fixed ones in place
+      const allSegmentWaypoints = [
+        ...segment.fixedWaypoints.sort((a, b) => a.sequence_order - b.sequence_order),
+        ...segment.suggestedWaypoints
+      ];
+
+      // Only apply optimize:true if we have suggested waypoints
+      const hasOptimizableWaypoints = segment.suggestedWaypoints.length > 0;
+      const waypointsParam = allSegmentWaypoints.length > 0
+        ? allSegmentWaypoints.map(w => `${w.lat},${w.lng}`).join('|')
         : '';
 
       let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(segment.origin)}&destination=${encodeURIComponent(segment.destination)}&key=${GOOGLE_MAPS_API_KEY}`;
 
       if (waypointsParam) {
-        url += `&waypoints=optimize:true|${encodeURIComponent(waypointsParam)}`;
+        // Only optimize suggested waypoints, not fixed ones
+        // Google's optimize:true will reorder ALL waypoints, so we need a different approach
+        // For now, only enable optimization if ALL waypoints in segment are suggested
+        const optimizeFlag = hasOptimizableWaypoints && segment.fixedWaypoints.length === 0 ? 'optimize:true|' : '';
+        url += `&waypoints=${optimizeFlag}${encodeURIComponent(waypointsParam)}`;
       }
 
       const response = await axios.get(url, { timeout: 30000 });
@@ -892,12 +924,19 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
       const waypointOrder = response.data.routes[0].waypoint_order || [];
       allPolylines.push(route.overview_polyline?.points);
 
-      console.log(`[Waypoints] ${correlationId}:   Segment ${segmentIndex + 1} optimized waypoint order: [${waypointOrder.join(', ')}]`);
+      console.log(`[Waypoints] ${correlationId}:   Segment ${segmentIndex + 1} Google waypoint order: [${waypointOrder.join(', ')}]`);
 
-      // Reorder waypoints in this segment based on Google's optimization
-      const segmentOptimizedWaypoints = waypointOrder.length > 0
-        ? waypointOrder.map(idx => segment.waypoints[idx])
-        : [];
+      // Build final waypoint order for this segment
+      let segmentWaypointsOrdered = [];
+
+      if (waypointOrder.length > 0) {
+        // Google optimized the waypoints - reorder according to waypoint_order
+        // waypoint_order is indices into allSegmentWaypoints
+        segmentWaypointsOrdered = waypointOrder.map(idx => allSegmentWaypoints[idx]);
+      } else if (allSegmentWaypoints.length > 0) {
+        // No optimization happened (no suggested waypoints), use original order
+        segmentWaypointsOrdered = allSegmentWaypoints;
+      }
 
       // Process each leg in this segment
       for (let i = 0; i < legs.length; i++) {
@@ -906,17 +945,14 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
         cumulativeDurationSeconds += leg.duration.value;
 
         // If this leg ends at a waypoint (not the segment destination)
-        if (i < segmentOptimizedWaypoints.length) {
-          const waypoint = segmentOptimizedWaypoints[i];
+        if (i < segmentWaypointsOrdered.length) {
+          const waypoint = segmentWaypointsOrdered[i];
           const distanceMiles = Math.round(cumulativeDistanceMeters / 1609.34);
           const durationHours = Math.round((cumulativeDurationSeconds / 3600) * 10) / 10;
           const segmentDistanceMiles = Math.round(leg.distance.value / 1609.34);
           const segmentDurationHours = Math.round((leg.duration.value / 3600) * 10) / 10;
 
-          //Check if drop-off
-          const waypointKeyFull = `${waypoint.city}|${waypoint.state || ''}`.toLowerCase();
-          const waypointKeyCity = waypoint.city ? waypoint.city.toLowerCase() : '';
-          const isDropoff = dropoffMatches.has(waypointKeyFull) || dropoffMatches.has(waypointKeyCity);
+          const waypointType = waypoint.is_dropoff ? '[DROP-OFF]' : (waypoint.source === 'manual' ? '[MANUAL]' : '');
 
           optimizedWaypoints.push({
             ...waypoint,
@@ -924,17 +960,16 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
             distance_from_origin_miles: distanceMiles,
             typical_drive_hours_from_origin: durationHours,
             segment_distance_miles: segmentDistanceMiles,
-            segment_duration_hours: segmentDurationHours,
-            is_dropoff: isDropoff
+            segment_duration_hours: segmentDurationHours
           });
 
-          console.log(`[Waypoints] ${correlationId}:     ${waypoint.city}, ${waypoint.state}: ${distanceMiles} mi (${segmentDistanceMiles} mi segment)`);
+          console.log(`[Waypoints] ${correlationId}:     ${waypoint.city}, ${waypoint.state}: ${distanceMiles} mi (${segmentDistanceMiles} mi segment) ${waypointType}`);
         }
       }
 
-      // If this segment ends at a drop-off, add it to optimized waypoints
-      if (segment.destinationDropoff) {
-        const dropoff = segment.destinationDropoff;
+      // If this segment ends at a fixed waypoint, add it to optimized waypoints
+      if (segment.destinationFixedWaypoint) {
+        const fixedWaypoint = segment.destinationFixedWaypoint;
         const lastLeg = legs[legs.length - 1];
         cumulativeDistanceMeters += lastLeg.distance.value;
         cumulativeDurationSeconds += lastLeg.duration.value;
@@ -944,17 +979,18 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
         const segmentDistanceMiles = Math.round(lastLeg.distance.value / 1609.34);
         const segmentDurationHours = Math.round((lastLeg.duration.value / 3600) * 10) / 10;
 
+        const waypointType = fixedWaypoint.is_dropoff ? '[DROP-OFF]' : '[MANUAL]';
+
         optimizedWaypoints.push({
-          ...dropoff,
+          ...fixedWaypoint,
           sequence_order: globalSequenceOrder++,
           distance_from_origin_miles: distanceMiles,
           typical_drive_hours_from_origin: durationHours,
           segment_distance_miles: segmentDistanceMiles,
-          segment_duration_hours: segmentDurationHours,
-          is_dropoff: true
+          segment_duration_hours: segmentDurationHours
         });
 
-        console.log(`[Waypoints] ${correlationId}:     ${dropoff.city}, ${dropoff.state}: ${distanceMiles} mi [DROP-OFF]`);
+        console.log(`[Waypoints] ${correlationId}:     ${fixedWaypoint.city}, ${fixedWaypoint.state}: ${distanceMiles} mi ${waypointType}`);
       }
     }
 
@@ -971,7 +1007,7 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
           segment_distance_miles: waypoint.segment_distance_miles,
           segment_duration_hours: waypoint.segment_duration_hours,
           distance_source: 'calculated',
-          is_dropoff: waypoint.is_dropoff,
+          // Preserve is_dropoff and source - don't override them
           updated_at: knex.fn.now()
         });
 

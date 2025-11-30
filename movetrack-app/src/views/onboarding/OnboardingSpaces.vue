@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, reactive, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { onboardingStore } from "../../stores/OnboardingStore";
 import { inventoryStore } from "../../stores/InventoryStore";
+import LocationSearchInline from "../../components/location/LocationSearchInline.vue";
 
 const emit = defineEmits<{ "app:loading": (value: boolean) => void }>();
 emit("app:loading", false);
@@ -11,12 +12,31 @@ emit("app:loading", false);
 const store = onboardingStore();
 const router = useRouter();
 
-const locationName = ref(store.locationName || "");
-const addressLine1 = ref(store.locationAddress || "");
-const addressLine2 = ref(store.locationAddressTwo || "");
-const city = ref(store.locationCity || "");
-const state = ref(store.locationState || "");
-const zip = ref(store.locationZip || "");
+interface LocationForm {
+  name: string;
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  lat: number | null;
+  lng: number | null;
+  formattedAddress?: string | null;
+}
+
+const locationForm = reactive<LocationForm>({
+  name: store.locationName || "",
+  address1: store.locationAddress || "",
+  address2: store.locationAddressTwo || "",
+  city: store.locationCity || "",
+  state: store.locationState || "",
+  zip: store.locationZip || "",
+  country: "USA",
+  lat: null,
+  lng: null,
+  formattedAddress: store.locationAddress || ""
+});
 
 const displayedBedrooms = ref(store.bedroomCount ?? 1);
 
@@ -58,11 +78,11 @@ const saveCustomRoom = () => {
 
 const canContinue = computed(() => {
   return (
-    locationName.value.trim().length > 0 &&
-    addressLine1.value.trim().length > 0 &&
-    city.value.trim().length > 0 &&
-    state.value.trim().length > 0 &&
-    zip.value.trim().length > 0
+    locationForm.name.trim().length > 0 &&
+    locationForm.address1.trim().length > 0 &&
+    locationForm.city.trim().length > 0 &&
+    locationForm.state.trim().length > 0 &&
+    locationForm.zip.trim().length > 0
   );
 });
 
@@ -109,12 +129,12 @@ const isSaving = ref(false);
 const handleNext = async () => {
   if (isSaving.value) return;
   store.setLocation({
-    name: locationName.value.trim(),
-    address: addressLine1.value.trim(),
-    addressTwo: addressLine2.value.trim(),
-    city: city.value.trim(),
-    state: state.value.trim(),
-    zip: zip.value.trim(),
+    name: locationForm.name.trim(),
+    address: locationForm.address1.trim(),
+    addressTwo: locationForm.address2.trim(),
+    city: locationForm.city.trim(),
+    state: locationForm.state.trim(),
+    zip: locationForm.zip.trim(),
   });
   store.setRooms([...store.selectedRooms]);
   router.push({ name: "onboarding-first-item" });
@@ -132,53 +152,7 @@ const handleNext = async () => {
       </p>
 
       <div class="form-grid">
-        <q-input
-          v-model="locationName"
-          label="Location nickname"
-          outlined
-          dense
-          class="q-mt-sm"
-          placeholder="e.g., Seattle Home"
-        />
-        <q-input
-          v-model="addressLine1"
-          label="Street address"
-          outlined
-          dense
-          class="address-field"
-          placeholder="123 Main St"
-        />
-        <q-input
-          v-model="addressLine2"
-          label="Address line 2 (optional)"
-          outlined
-          dense
-          class="address-field"
-          placeholder="Unit 5B"
-        />
-        <div class="address-row">
-          <q-input
-            v-model="city"
-            label="City"
-            outlined
-            dense
-            class="address-field"
-          />
-          <q-input
-            v-model="state"
-            label="State"
-            outlined
-            dense
-            class="address-field"
-          />
-          <q-input
-            v-model="zip"
-            label="ZIP"
-            outlined
-            dense
-            class="address-field"
-          />
-        </div>
+        <LocationSearchInline v-model="locationForm" />
       </div>
 
       <div class="section">
@@ -323,26 +297,7 @@ const handleNext = async () => {
 }
 
 .form-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.subdued-label {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  color: #94a3b8;
-}
-
-.address-row {
-  display: flex;
-  gap: 12px;
-}
-
-.address-row :deep(.q-field) {
-  flex: 1;
-  width: auto;
+  margin-bottom: 24px;
 }
 
 .actions {
@@ -421,6 +376,3 @@ const handleNext = async () => {
 }
 
 </style>
-.custom-room-dialog {
-  width: 360px;
-}

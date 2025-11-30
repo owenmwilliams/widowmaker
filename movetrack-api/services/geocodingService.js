@@ -296,20 +296,24 @@ const forwardGeocodeCache = new Map();
  * @returns {Promise<Object>} Result { lat, lng, formattedAddress, source }
  */
 async function forwardGeocode(city, state, country = 'USA', options = {}) {
-  const { correlationId = 'unknown', skipCache = false } = options;
+  const { correlationId = 'unknown', skipCache = false, addressOverride = null } = options;
   const logPrefix = `[Geocoding ${correlationId}]`;
 
-  // Validate inputs
-  if (!city || typeof city !== 'string') {
-    console.warn(`${logPrefix} Invalid city: ${city}`);
-    return { lat: null, lng: null, formattedAddress: null, source: 'error' };
-  }
-
   // Build address string for geocoding
-  const addressParts = [city];
+  const addressParts = [];
+  if (addressOverride && typeof addressOverride === 'string') {
+    addressParts.push(addressOverride);
+  } else if (city) {
+    addressParts.push(city);
+  }
   if (state) addressParts.push(state);
   if (country) addressParts.push(country);
-  const address = addressParts.join(', ');
+  const address = addressParts.join(', ').trim();
+
+  if (!address) {
+    console.warn(`${logPrefix} Invalid geocode input: city="${city}", state="${state}"`);
+    return { lat: null, lng: null, formattedAddress: null, source: 'error' };
+  }
 
   // Create cache key from normalized address
   const cacheKey = `fwd:${address.toLowerCase().replace(/\s+/g, ' ').trim()}`;
