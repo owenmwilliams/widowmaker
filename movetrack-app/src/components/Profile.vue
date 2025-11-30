@@ -3,10 +3,13 @@
   import { debounce } from 'debounce'
   import axios from 'axios';
   import router from '../router';
+  import { useQuasar } from 'quasar';
 
   const emits = defineEmits<{
     (e: 'app:loading', id: boolean): void
   }>()
+
+  const $q = useQuasar();
 
   const username = ref('');
   const usernameError = ref(false);
@@ -120,6 +123,88 @@
 
     }
   }, 500));
+
+  // Account deletion
+  const showDeleteSection = ref(false);
+  const deleteConfirmation = ref('');
+  const isDeletingAccount = ref(false);
+
+  const handleDeleteAccount = () => {
+    $q.dialog({
+      title: '⚠️ Delete Account',
+      message: 'This will permanently delete your account and ALL your data including:\n\n• All items in your inventory\n• All collections and containers\n• All locations and moves\n• All uploaded images\n\nThis action CANNOT be undone.\n\nType "DELETE" to confirm:',
+      prompt: {
+        model: '',
+        type: 'text',
+        isValid: (val: string) => val === 'DELETE'
+      },
+      cancel: true,
+      persistent: true
+    }).onOk(async () => {
+      await deleteAccount();
+    });
+  };
+
+  const deleteAccount = async () => {
+    const sessionToken = localStorage.getItem('session_token');
+
+    if (!sessionToken) {
+      $q.notify({
+        type: 'negative',
+        message: 'Please log in to delete your account',
+        position: 'bottom'
+      });
+      return;
+    }
+
+    isDeletingAccount.value = true;
+
+    $q.loading.show({
+      message: 'Deleting your account and all data...'
+    });
+
+    try {
+      const response = await axios({
+        method: 'delete',
+        url: core_url + '/users/account',
+        headers: {
+          Authorization: 'Bearer ' + sessionToken
+        }
+      });
+
+      console.log('Account deletion response:', response.data);
+
+      $q.loading.hide();
+
+      $q.notify({
+        type: 'positive',
+        message: 'Your account has been permanently deleted',
+        position: 'bottom',
+        timeout: 3000
+      });
+
+      // Clear all local storage
+      localStorage.clear();
+
+      // Redirect to home page
+      setTimeout(() => {
+        router.push({ name: 'home' });
+      }, 1500);
+
+    } catch (error: any) {
+      console.error('Error deleting account:', error);
+
+      $q.loading.hide();
+      isDeletingAccount.value = false;
+
+      $q.notify({
+        type: 'negative',
+        message: error.response?.data?.message || 'Failed to delete account. Please try again.',
+        position: 'bottom',
+        timeout: 5000
+      });
+    }
+  };
 </script>
 
 <template>
@@ -169,6 +254,52 @@
         :disable="usernameError"
         @click="addUser" />
     </q-card-actions>
+  </q-card>
+
+  <!-- Danger Zone - Account Deletion -->
+  <q-card
+    class="q-pa-md q-mt-xl"
+    style="max-width: 80vw; margin: auto; border: 2px solid #c10015;">
+    <q-card-section>
+      <div class="text-h5 text-negative">⚠️ Danger Zone</div>
+      <div class="text-body2 text-grey-7">Irreversible actions</div>
+    </q-card-section>
+    <q-separator />
+    <q-card-section>
+      <q-expansion-item
+        v-model="showDeleteSection"
+        icon="delete_forever"
+        label="Delete Account"
+        caption="Permanently delete your account and all data"
+        header-class="text-negative">
+        <q-card class="q-mt-md" flat bordered>
+          <q-card-section class="bg-red-1">
+            <div class="text-body1 q-mb-md">
+              <strong>This will permanently delete:</strong>
+            </div>
+            <ul class="text-body2">
+              <li>All items in your inventory</li>
+              <li>All collections, containers, and locations</li>
+              <li>All saved moves and move sessions</li>
+              <li>All uploaded images</li>
+              <li>Your user account</li>
+            </ul>
+            <div class="text-body2 text-weight-bold q-mt-md text-negative">
+              ⚠️ This action CANNOT be undone. All your data will be permanently erased.
+            </div>
+          </q-card-section>
+          <q-card-actions align="right" class="q-pa-md">
+            <q-btn
+              outline
+              color="negative"
+              label="Delete My Account"
+              icon="delete_forever"
+              :loading="isDeletingAccount"
+              @click="handleDeleteAccount" />
+          </q-card-actions>
+        </q-card>
+      </q-expansion-item>
+    </q-card-section>
   </q-card>
 
   <!-- <van-cell-group inset>
