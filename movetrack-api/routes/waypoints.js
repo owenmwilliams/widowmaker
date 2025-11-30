@@ -482,15 +482,6 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
       }
     }
 
-    // Calculate suggestions
-    const numStops = Math.ceil(totalDistanceMiles / maxDailyMiles) - 1;
-    if (numStops <= 0) {
-      return res.json({
-        waypoints: [],
-        message: 'No stops needed for this distance'
-      });
-    }
-
     const polyline = require('@mapbox/polyline');
     let decodedPath;
     try {
@@ -499,30 +490,122 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'Invalid polyline format' });
     }
 
+    // Generate a unique correlation ID for this request
+    const correlationId = `suggest-save-${moveId}-${Date.now()}`;
+    console.log(`[Waypoints] ${correlationId}: Starting intelligent waypoint suggestion`);
+
+    // Get existing drop-off waypoints (sorted by distance from origin)
+    const dropoffWaypoints = await knex('move_waypoints')
+      .where('saved_move_id', moveId)
+      .where('is_dropoff', true)
+      .whereNotNull('lat')
+      .whereNotNull('lng')
+      .orderBy('distance_from_origin_miles', 'asc');
+
+    console.log(`[Waypoints] ${correlationId}: Found ${dropoffWaypoints.length} drop-off waypoint(s) to route through`);
+
+    // Build route segments: origin → dropoff1 → dropoff2 → ... → destination
+    // Each segment gets its own overnight stop suggestions based on distance
+    const segments = [];
+
+    if (dropoffWaypoints.length === 0) {
+      // Simple case: no drop-offs, one segment from origin to destination
+      segments.push({
+        startMiles: 0,
+        endMiles: totalDistanceMiles,
+        distanceMiles: totalDistanceMiles,
+        description: 'Origin to Destination'
+      });
+    } else {
+      // Complex case: route through drop-offs
+      // Segment 1: Origin to first drop-off
+      segments.push({
+        startMiles: 0,
+        endMiles: dropoffWaypoints[0].distance_from_origin_miles,
+        distanceMiles: dropoffWaypoints[0].distance_from_origin_miles,
+        description: `Origin to ${dropoffWaypoints[0].city}, ${dropoffWaypoints[0].state}`
+      });
+
+      // Middle segments: between drop-offs
+      for (let i = 0; i < dropoffWaypoints.length - 1; i++) {
+        const startMiles = dropoffWaypoints[i].distance_from_origin_miles;
+        const endMiles = dropoffWaypoints[i + 1].distance_from_origin_miles;
+        segments.push({
+          startMiles,
+          endMiles,
+          distanceMiles: endMiles - startMiles,
+          description: `${dropoffWaypoints[i].city} to ${dropoffWaypoints[i + 1].city}`
+        });
+      }
+
+      // Final segment: Last drop-off to destination
+      const lastDropoff = dropoffWaypoints[dropoffWaypoints.length - 1];
+      segments.push({
+        startMiles: lastDropoff.distance_from_origin_miles,
+        endMiles: totalDistanceMiles,
+        distanceMiles: totalDistanceMiles - lastDropoff.distance_from_origin_miles,
+        description: `${lastDropoff.city}, ${lastDropoff.state} to Destination`
+      });
+    }
+
+    console.log(`[Waypoints] ${correlationId}: Route divided into ${segments.length} segment(s)`);
+    segments.forEach((seg, idx) => {
+      console.log(`[Waypoints] ${correlationId}:   Segment ${idx + 1}: ${seg.description} (${seg.distanceMiles} miles)`);
+    });
+
+    // For each segment, suggest overnight stops if needed (every ~600 miles / 8-10 hours)
+    const coordsToGeocode = [];
+    let stopCounter = 1;
+
+    for (const segment of segments) {
+      const numStopsInSegment = Math.floor(segment.distanceMiles / maxDailyMiles);
+
+      if (numStopsInSegment === 0) {
+        console.log(`[Waypoints] ${correlationId}:   ${segment.description}: No stops needed (${segment.distanceMiles} < ${maxDailyMiles} miles)`);
+        continue;
+      }
+
+      console.log(`[Waypoints] ${correlationId}:   ${segment.description}: Suggesting ${numStopsInSegment} stop(s)`);
+
+      // Place stops evenly within this segment
+      for (let i = 1; i <= numStopsInSegment; i++) {
+        // Calculate position within THIS segment
+        const fractionInSegment = i / (numStopsInSegment + 1);
+        const milesIntoSegment = segment.distanceMiles * fractionInSegment;
+        const totalMilesFromOrigin = segment.startMiles + milesIntoSegment;
+
+        // Map to polyline position
+        const fraction = totalMilesFromOrigin / totalDistanceMiles;
+        const pathIndex = Math.floor(fraction * (decodedPath.length - 1));
+        const point = decodedPath[Math.min(pathIndex, decodedPath.length - 1)];
+
+        coordsToGeocode.push({
+          id: stopCounter++,
+          lat: point[0],
+          lng: point[1],
+          fraction,
+          distanceFromOrigin: Math.round(totalMilesFromOrigin),
+          segmentDescription: segment.description
+        });
+      }
+    }
+
+    if (coordsToGeocode.length === 0) {
+      console.log(`[Waypoints] ${correlationId}: No overnight stops needed - all segments < ${maxDailyMiles} miles`);
+      return res.json({
+        waypoints: [],
+        message: 'No overnight stops needed for this route'
+      });
+    }
+
+    console.log(`[Waypoints] ${correlationId}: Geocoding ${coordsToGeocode.length} suggested stop location(s)`);
+
     // Get current max sequence order
     const maxOrder = await knex('move_waypoints')
       .where('saved_move_id', moveId)
       .max('sequence_order as max')
       .first();
     const startOrder = (maxOrder?.max || 0) + 1;
-
-    // Generate a unique correlation ID for this request
-    const correlationId = `suggest-save-${moveId}-${Date.now()}`;
-    console.log(`[Waypoints] ${correlationId}: Starting waypoint suggestion for ${numStops} stops`);
-
-    // First, collect all coordinates to geocode
-    const coordsToGeocode = [];
-    for (let i = 1; i <= numStops; i++) {
-      const fraction = i / (numStops + 1);
-      const pathIndex = Math.floor(fraction * (decodedPath.length - 1));
-      const point = decodedPath[Math.min(pathIndex, decodedPath.length - 1)];
-      coordsToGeocode.push({
-        id: i,
-        lat: point[0],
-        lng: point[1],
-        fraction
-      });
-    }
 
     // Batch geocode all coordinates using the centralized service
     // This handles caching, retry logic, and rate limiting automatically
@@ -535,7 +618,7 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
     const savedWaypoints = [];
     for (const coord of coordsToGeocode) {
       const geocode = geocodeResults.get(coord.id) || {};
-      const distanceFromOrigin = Math.round(coord.fraction * totalDistanceMiles);
+      const distanceFromOrigin = coord.distanceFromOrigin; // Already calculated per segment
       const driveHoursFromOrigin = Math.round((distanceFromOrigin / 60) * 10) / 10;
 
       const [savedWaypoint] = await knex('move_waypoints')
@@ -550,21 +633,21 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
           source: 'suggested',
           distance_from_origin_miles: distanceFromOrigin,
           typical_drive_hours_from_origin: driveHoursFromOrigin,
-          notes: `Suggested overnight stop ~${distanceFromOrigin} miles from origin`,
+          notes: `Suggested overnight stop in ${coord.segmentDescription} (~${distanceFromOrigin} mi from origin)`,
           overnight_recommended: true,
           sequence_order: clearExisting ? coord.id : startOrder + coord.id - 1
         })
         .returning('*');
 
       savedWaypoints.push(savedWaypoint);
+      console.log(`[Waypoints] ${correlationId}:   Saved: ${geocode.city || 'Stop'}, ${geocode.state || ''} (${distanceFromOrigin} mi)`);
     }
 
-    console.log(`[Waypoints] ${correlationId}: Completed - saved ${savedWaypoints.length} waypoints`);
+    console.log(`[Waypoints] ${correlationId}: Completed - saved ${savedWaypoints.length} waypoint(s)`);
 
     res.status(201).json({
       waypoints: savedWaypoints,
-      numStops,
-      message: `Added ${savedWaypoints.length} suggested waypoints`
+      message: `Added ${savedWaypoints.length} suggested overnight stop(s) for your route`
     });
   } catch (error) {
     console.error('Error in suggest-and-save:', error);
