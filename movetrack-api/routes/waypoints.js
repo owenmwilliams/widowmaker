@@ -18,6 +18,22 @@ const knex = require('knex')({
   }
 });
 
+async function detachWaypointSessions(moveId, waypointIds) {
+  if (!Array.isArray(waypointIds) || waypointIds.length === 0) {
+    return;
+  }
+
+  await knex('move_sessions')
+    .where('saved_move_id', moveId)
+    .whereIn('start_waypoint_id', waypointIds)
+    .update({ start_waypoint_id: null, updated_at: knex.fn.now() });
+
+  await knex('move_sessions')
+    .where('saved_move_id', moveId)
+    .whereIn('end_waypoint_id', waypointIds)
+    .update({ end_waypoint_id: null, updated_at: knex.fn.now() });
+}
+
 /**
  * GET /api/waypoints/:moveId
  * Get all waypoints for a specific saved move
@@ -450,12 +466,20 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
       return res.status(400).json({ error: 'routePolyline and totalDistanceMiles are required' });
     }
 
-    // Clear existing waypoints if requested
+    // Clear existing waypoints if requested (keep drop-off locations)
     if (clearExisting) {
-      await knex('move_waypoints')
+      const deletableIds = await knex('move_waypoints')
         .where('saved_move_id', moveId)
         .andWhere('user_id', userId)
-        .del();
+        .whereNot('source', 'dropoff_location')
+        .pluck('id');
+
+      if (deletableIds.length) {
+        await detachWaypointSessions(moveId, deletableIds);
+        await knex('move_waypoints')
+          .whereIn('id', deletableIds)
+          .del();
+      }
     }
 
     // Calculate suggestions
@@ -574,13 +598,38 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Saved move not found' });
     }
 
-    // Get all waypoints in sequence order
+    // ENFORCE: Sync drop-off waypoints BEFORE optimization to ensure they're included
+    console.log(`[Waypoints] ${correlationId}: Syncing drop-off waypoints before optimization`);
+    const { syncDropoffWaypoints } = require('./savedMoves');
+    await syncDropoffWaypoints(moveId, userId);
+
+    // Get all waypoints in sequence order (now includes freshly synced drop-offs)
     const waypoints = await knex('move_waypoints')
       .where('saved_move_id', moveId)
       .orderBy('sequence_order', 'asc');
 
     if (waypoints.length === 0) {
       return res.status(400).json({ error: 'No waypoints to calculate' });
+    }
+
+    // Check for drop-off waypoints specifically
+    const dropoffWaypoints = waypoints.filter(w => w.is_dropoff === true);
+    console.log(`[Waypoints] ${correlationId}: Found ${dropoffWaypoints.length} drop-off waypoint(s) in route`);
+
+    // Validate that drop-off waypoints have coordinates
+    const dropoffsWithoutCoords = dropoffWaypoints.filter(w => w.lat == null || w.lng == null);
+    if (dropoffsWithoutCoords.length > 0) {
+      const missingCities = dropoffsWithoutCoords.map(w => w.city || 'Unknown').join(', ');
+      console.warn(`[Waypoints] ${correlationId}: ${dropoffsWithoutCoords.length} drop-off(s) missing coordinates: ${missingCities}`);
+      return res.status(400).json({
+        error: 'Some drop-off locations are missing coordinates',
+        details: `The following drop-off location(s) could not be geocoded: ${missingCities}. Please verify the addresses are correct.`,
+        missingDropoffs: dropoffsWithoutCoords.map(w => ({
+          city: w.city,
+          state: w.state,
+          locationId: w.location_id
+        }))
+      });
     }
 
     // Get all intermediate (dropoff) locations from move_locations for this move
@@ -667,10 +716,10 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
     const origin = encodeURIComponent(routeData.origin_address);
     const destination = encodeURIComponent(routeData.destination_address);
 
-    // Build waypoints string with optimize:true prefix
-    // Format: optimize:true|lat,lng|lat,lng|...
-    const waypointsParam = 'optimize:true|' + waypointsWithCoords
-      .map(w => `${w.lat},${w.lng}`)
+    // Build waypoints string preserving the defined sequence order
+    // Format: lat,lng|lat,lng|...
+    const waypointsParam = waypointsWithCoords
+      .map((w) => `${w.lat},${w.lng}`)
       .join('|');
 
     const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&waypoints=${encodeURIComponent(waypointsParam)}&key=${GOOGLE_MAPS_API_KEY}`;
