@@ -17,6 +17,7 @@
   import { storeToRefs } from 'pinia';
   import type { InventoryItem } from '../../data/inventoryItems';
   import axios from 'axios';
+  import { useQuasar } from 'quasar';
 
 
   const pageItem = ref<'dashboard' | 'inventory' | 'move' | 'settings' | 'support'>('dashboard')
@@ -61,6 +62,7 @@
   const store = inventoryStore()
   const { locationValues, collectionValues, containerValues } = storeToRefs(store);
   const router = useRouter();
+  const $q = useQuasar();
 
 //ALL FUNCTIONS
 
@@ -143,11 +145,20 @@
 
 
   // Handle photo item added
-  const handlePhotoItemAdded = (item: InventoryItem) => {
-    // Add item to inventory store
-    // Note: You may need to call a store action here to persist the item
+  const handlePhotoItemAdded = async (item: InventoryItem) => {
     console.log('Photo item added:', item);
+
+    // Reload inventory to show the newly added item
+    await store.loadInventory(props.user!);
+
     showPhotoCapture.value = false;
+
+    $q.notify({
+      type: 'positive',
+      message: `${item.label || item.name || 'Item'} added to inventory!`,
+      position: 'bottom',
+      timeout: 2000,
+    });
   }
 
   // Handle vision provider changed

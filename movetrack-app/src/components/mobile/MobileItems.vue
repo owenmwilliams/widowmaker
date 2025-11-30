@@ -569,11 +569,23 @@ function logoutFunction() {
 }
 
 // Handle photo item added
-const handlePhotoItemAdded = (item: InventoryItem) => {
-  // Add item to inventory store
-  // Note: You may need to call a store action here to persist the item
+const handlePhotoItemAdded = async (item: InventoryItem) => {
   console.log("Photo item added:", item);
+
+  // Reload inventory to show the newly added item
+  await store.loadInventory(props.user);
+
+  // Rebuild drag lists to show item in correct container
+  rebuildDragLists();
+
   showPhotoCapture.value = false;
+
+  $q.notify({
+    type: "positive",
+    message: `${item.label || item.name || "Item"} added to inventory!`,
+    position: "bottom",
+    timeout: 2000,
+  });
 };
 
 // Handle vision provider changed
