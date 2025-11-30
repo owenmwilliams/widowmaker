@@ -10,7 +10,7 @@ import MobileEditSelect from "./MobileEditSelect.vue";
 import axios from "axios";
 import ItemToggleCard from "../ItemToggleCard.vue";
 import PhotoCapture from "../PhotoCapture.vue";
-import ReloPrepLogo from "../ReloPrepLogo.vue";
+import MoveTrackLogo from "../MoveTrackLogo.vue";
 import MobileNavDrawer from "./MobileNavDrawer.vue";
 import MobileSettings from "./MobileSettings.vue";
 import type { InventoryItem } from "../../data/inventoryItems";
@@ -855,7 +855,7 @@ const handleContainerHide = (containerId: string) => {
           Inventory
         </q-toolbar-title>
 
-        <ReloPrepLogo
+        <MoveTrackLogo
           :width="30"
           logo-src="https://storage.googleapis.com/widowmaker-site-images/verimove_app_logo_white.png"
           style="margin-left: 8px"

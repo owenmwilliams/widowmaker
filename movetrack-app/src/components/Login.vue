@@ -2,7 +2,7 @@
 import { ref, onMounted, defineEmits } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
-import ReloPrepLogo from './ReloPrepLogo.vue';
+import MoveTrackLogo from './MoveTrackLogo.vue';
 import { useQuasar } from 'quasar';
 import { hasCompletedOnboarding } from '../utils/onboarding';
 
@@ -193,7 +193,7 @@ const redirectAfterLogin = (user: any) => {
     <q-card class="login-card">
       <q-card-section>
         <div class="logo-row">
-          <ReloPrepLogo :width="140" :height="34" />
+        <MoveTrackLogo :width="140" :height="34" />
         </div>
         <div class="text-h4 q-mb-md">Login to MoveTrack</div>
 

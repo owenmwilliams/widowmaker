@@ -4,7 +4,7 @@
       <q-toolbar class="constrained">
         <div class="brand">
           <q-btn flat dense no-caps to="/" class="brand-btn">
-            <ReloPrepLogo :width="120" :height="28" />
+            <MoveTrackLogo :width="120" :height="28" />
           </q-btn>
         </div>
         <div class="actions">
@@ -122,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import ReloPrepLogo from '../components/ReloPrepLogo.vue';
+import MoveTrackLogo from '../components/MoveTrackLogo.vue';
 </script>
 
 <style scoped>

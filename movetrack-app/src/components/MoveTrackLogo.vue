@@ -1,6 +1,6 @@
 <template>
   <img
-    class="reloprep-logo"
+    class="movetrack-logo"
     :src="logoSrc"
     :alt="alt"
     :width="width"
@@ -22,17 +22,17 @@ defineProps({
   },
   alt: {
     type: String,
-    default: 'ReloPrep logo'
+    default: 'MoveTrack logo'
   },
   logoSrc: {
     type: String,
-    default: 'https://storage.googleapis.com/widowmaker-site-images/reloprep_color.png'
+    default: 'https://storage.googleapis.com/widowmaker-site-images/movetrack-logo-_app-bar_.png'
   }
 });
 </script>
 
 <style scoped>
-.reloprep-logo {
+.movetrack-logo {
   display: inline-block;
   max-width: 100%;
   border: 0;

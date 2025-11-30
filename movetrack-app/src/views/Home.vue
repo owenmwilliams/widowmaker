@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import PrivacyPolicy from './PrivacyPolicy.vue';
 import TermsOfService from './TermsAndConditions.vue';
-import ReloPrepLogo from '../components/ReloPrepLogo.vue';
+import MoveTrackLogo from '../components/MoveTrackLogo.vue';
 
 const showPrivacyPolicy = ref(false);
 const showTermsOfService = ref(false);
@@ -25,7 +25,7 @@ const planRows = [
     <q-header bordered class="header">
       <q-toolbar class="constrained">
         <div class="brand">
-          <ReloPrepLogo :width="120" :height="28" />
+          <MoveTrackLogo :width="120" :height="28" />
         </div>
         <div class="actions">
           <q-btn flat color="primary" label="Login" to="/login" />

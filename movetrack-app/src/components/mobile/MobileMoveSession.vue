@@ -4,7 +4,7 @@ import { useQuasar } from "quasar";
 import { useRoute, useRouter } from "vue-router";
 import axios from "axios";
 import FooterVue from "../Footer.vue";
-import ReloPrepLogo from "../ReloPrepLogo.vue";
+import MoveTrackLogo from "../MoveTrackLogo.vue";
 import MobileNavDrawer from "./MobileNavDrawer.vue";
 import { inventoryStore } from "../../stores/InventoryStore";
 import { BrowserMultiFormatReader } from "@zxing/browser";
@@ -979,7 +979,7 @@ watch(
           Move Sessions
         </q-toolbar-title>
 
-        <ReloPrepLogo
+        <MoveTrackLogo
           :width="30"
           logo-src="https://storage.googleapis.com/widowmaker-site-images/verimove_app_logo_white.png"
           style="margin-left: 8px"

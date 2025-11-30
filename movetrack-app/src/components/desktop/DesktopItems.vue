@@ -13,7 +13,7 @@
   import DesktopSupport from './DesktopSupport.vue';
   import PhotoCapture from '../PhotoCapture.vue';
   import VisionProviderToggle from '../VisionProviderToggle.vue';
-  import ReloPrepLogo from '../ReloPrepLogo.vue';
+  import MoveTrackLogo from '../MoveTrackLogo.vue';
   import { storeToRefs } from 'pinia';
   import type { InventoryItem } from '../../data/inventoryItems';
   import axios from 'axios';
@@ -195,7 +195,7 @@
       <q-header bordered class="temp_bg text-primary" style="z-index: 9998;">
         <q-toolbar>
           <div class="toolbar-left">
-            <ReloPrepLogo :width="120" :height="32" class="brand-logo" />
+            <MoveTrackLogo :width="120" :height="32" class="brand-logo" />
             <q-btn-group flat class="primary-nav">
               <q-btn
                 flat

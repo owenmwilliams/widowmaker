@@ -24,9 +24,7 @@ var listsRouter = require('./routes/lists');
 var fileRouter = require('./routes/files');
 var visionRouter = require('./routes/vision');
 var publicRouter = require('./routes/public');
-var coinsRouter = require('./routes/coins');
 var gptRouter = require('./routes/gpt');
-var encryptRouter = require('./routes/encrypt');
 var googleRouter = require('./routes/google');
 var emailRouter = require('./routes/email');
 var authRouter = require('./routes/auth');
@@ -38,7 +36,6 @@ var billingRouter = require('./routes/billing');
 var billingWebhook = require('./routes/billingWebhook');
 var onboardingRouter = require('./routes/onboarding');
 var importsRouter = require('./routes/imports');
-var visionLabRouter = require('./routes/visionLab');
 
 var app = express();
 app.set('trust proxy', 1);
@@ -96,9 +93,7 @@ app.use('/public', publicRouter)
 app.use('/file', fileRouter);
 app.use('/lists', listsRouter);
 app.use('/vision', visionRouter);
-app.use('/coins', coinsRouter);
 app.use('/gpt', gptRouter);
-app.use('/secure', encryptRouter);
 app.use('/google', googleRouter)
 app.use('/email', emailRouter)
 app.use('/auth', authRouter)
