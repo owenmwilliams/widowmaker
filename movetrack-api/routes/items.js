@@ -476,7 +476,23 @@ router.put('/update', jsonParser, async function(req, res, next) {
       .then(trx.commit)
       .catch(trx.rollback);
     })
-    .then((data) => {
+    .then(async (data) => {
+      // If picture_url was updated, mark the image as linked (no longer orphaned)
+      if (params.picture_url) {
+        try {
+          await knex('image_uploads')
+            .update({
+              linked_to_item_id: req.query.item_id,
+              linked_at: new Date(),
+              is_orphaned: false
+            })
+            .where('image_url', params.picture_url);
+          console.log(`[DB] Marked image as linked: ${params.picture_url} -> item ${req.query.item_id}`);
+        } catch (linkError) {
+          console.error('[DB] Failed to mark image as linked (non-critical):', linkError);
+          // Don't fail the item update if image tracking fails
+        }
+      }
       res.send('OK')
     })
   }

@@ -224,6 +224,83 @@ const createNewCollection = async () => {
   }
 };
 
+// NEW: Helper function to upload image to GCS
+const uploadImageToGCS = async (blob: Blob | File): Promise<string> => {
+  const sessionToken = localStorage.getItem("session_token");
+  if (!sessionToken) {
+    throw new Error("Please log in to upload images");
+  }
+
+  const formData = new FormData();
+  formData.append("file", blob, "image.jpg");
+
+  const response = await axios.post(
+    `${core_url}/file/upload/movetrack-item-photos`,
+    formData,
+    {
+      params: {
+        folder: props.user || "temp",
+      },
+      headers: {
+        "Content-Type": "multipart/form-data",
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    },
+  );
+
+  if (response.data?.url) {
+    return response.data.url;
+  }
+
+  throw new Error("Failed to upload image");
+};
+
+// NEW: Analyze image by URL (upload-first flow)
+const analyzeItemByUrl = async (imageUrl: string, attempt = 1): Promise<any> => {
+  const sessionToken = localStorage.getItem("session_token");
+  if (!sessionToken) {
+    throw new Error("Please log in to analyze items");
+  }
+
+  const providerParam = props.visionProvider
+    ? `?provider=${props.visionProvider}`
+    : "";
+
+  try {
+    const response = await axios.post(
+      `${core_url}/vision/analyze-item${providerParam}`,
+      {
+        imageUrl,
+        mimeType: "image/jpeg",
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${sessionToken}`,
+        },
+        timeout: 15000,
+      },
+    );
+
+    if (response.data?.success) {
+      return response.data.data;
+    }
+
+    throw new Error(response.data?.error || "Vision analysis failed");
+  } catch (error) {
+    if (attempt < 3) {
+      console.warn(
+        `[PhotoCapture] Vision analyze failed (attempt ${attempt}), retrying...`,
+        error,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
+      return analyzeItemByUrl(imageUrl, attempt + 1);
+    }
+    throw error;
+  }
+};
+
+// LEGACY: Analyze image from blob (fallback for compatibility)
 const analyzeItemBlob = async (blob: Blob, attempt = 1): Promise<any> => {
   const sessionToken = localStorage.getItem("session_token");
   if (!sessionToken) {
@@ -548,7 +625,7 @@ const handlePhotoCapture = async (event: Event) => {
   }
 };
 
-// Handle single-item capture (original behavior)
+// Handle single-item capture (NEW: upload-first flow)
 const handleSingleItemCapture = async (file: File) => {
   // Start rotating loading messages
   startLoadingMessages();
@@ -561,51 +638,19 @@ const handleSingleItemCapture = async (file: File) => {
       throw new Error("Please log in to use AI-powered photo analysis");
     }
 
-    // Call vision API with retries
-    const formData = new FormData();
-    formData.append("image", file);
+    // NEW FLOW: Upload image to GCS first
+    console.log("[PhotoCapture] Uploading image to storage...");
+    const imageUrl = await uploadImageToGCS(file);
+    console.log("[PhotoCapture] Image uploaded:", imageUrl);
 
-    const providerParam = props.visionProvider
-      ? `?provider=${props.visionProvider}`
-      : "";
+    // Store the GCS URL instead of base64
+    capturedImage.value = imageUrl;
 
-    const callVision = async (attempt = 1): Promise<any> => {
-      try {
-        const response = await axios.post(
-          `${core_url}/vision/analyze-item${providerParam}`,
-          formData,
-          {
-            headers: {
-              "Content-Type": "multipart/form-data",
-              Authorization: `Bearer ${sessionToken}`,
-            },
-            timeout: 15000,
-          },
-        );
+    // NEW: Call vision API with URL instead of FormData
+    console.log("[PhotoCapture] Analyzing image from URL...");
+    const aiData = await analyzeItemByUrl(imageUrl);
 
-        if (!response.data.success) {
-          throw new Error(response.data.error || "Failed to analyze image");
-        }
-
-        return response.data;
-      } catch (error) {
-        if (attempt < 3) {
-          console.warn(
-            `[PhotoCapture] Vision analyze failed (attempt ${attempt}), retrying...`,
-            error,
-          );
-          await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
-          return callVision(attempt + 1);
-        }
-        throw error;
-      }
-    };
-
-    const response = await callVision();
-
-    if (response.data) {
-      const aiData = response.data;
-
+    if (aiData) {
       // Safely extract dimensions with fallback values
       const dimensions = aiData.estimatedDimensions || {
         length: 6,
@@ -624,7 +669,7 @@ const handleSingleItemCapture = async (file: File) => {
         primaryColor: aiData.color || "",
         description: aiData.reasoning || "Item detected from photo",
         tags: Array.isArray(aiData.tags) ? aiData.tags : [],
-        image: capturedImage.value || "",
+        image: imageUrl,  // Use GCS URL instead of base64
       };
 
       editDimensions.value = {
@@ -635,25 +680,24 @@ const handleSingleItemCapture = async (file: File) => {
       editWeight.value = weight;
       editFragile.value = aiData.fragile || false;
 
-      const providerName = response.data.provider || "AI";
       const confidencePercent = aiData.confidence
         ? Math.round(aiData.confidence * 100)
         : 80;
 
       $q.notify({
         type: "positive",
-        message: `Item detected! (${providerName}, ${confidencePercent}% confidence)`,
+        message: `Item detected! (${confidencePercent}% confidence)`,
         caption: "Review and confirm details below",
         position: "bottom",
         timeout: 3000,
       });
     } else {
-      throw new Error(response.data.error || "Failed to analyze image");
+      throw new Error("Failed to analyze image");
     }
   } catch (error: any) {
     console.error("Vision API error:", error);
 
-    // Fallback to basic detection
+    // Fallback to basic detection (still use uploaded URL if available)
     newItem.value = {
       name: detectItemName(file.name),
       qty: 1,
@@ -687,7 +731,7 @@ const handleSingleItemCapture = async (file: File) => {
   }
 };
 
-// Handle multi-item capture (new feature)
+// Handle multi-item capture (NEW: upload-first flow)
 const handleMultiItemCapture = async (file: File) => {
   // Start rotating loading messages
   startLoadingMessages();
@@ -700,19 +744,27 @@ const handleMultiItemCapture = async (file: File) => {
       throw new Error("Please log in to use AI-powered photo analysis");
     }
 
-    // Call multi-item vision API
-    const formData = new FormData();
-    formData.append("image", file);
+    // NEW FLOW: Upload image to GCS first
+    console.log("[PhotoCapture Multi] Uploading image to storage...");
+    const imageUrl = await uploadImageToGCS(file);
+    console.log("[PhotoCapture Multi] Image uploaded:", imageUrl);
 
+    // Store the GCS URL instead of base64
+    capturedImage.value = imageUrl;
+
+    // NEW: Call multi-item vision API with URL
     const providerParam = props.visionProvider
       ? `?provider=${props.visionProvider}`
       : "";
     const response = await axios.post(
       `${core_url}/vision/analyze-multi-item${providerParam}`,
-      formData,
+      {
+        imageUrl,
+        mimeType: "image/jpeg",
+      },
       {
         headers: {
-          "Content-Type": "multipart/form-data",
+          "Content-Type": "application/json",
           Authorization: `Bearer ${sessionToken}`,
         },
       },
@@ -876,14 +928,11 @@ const saveItem = async () => {
       message: "Saving item to inventory...",
     });
 
-    // Convert base64 image to blob if available
-    let imageBlob: Blob | undefined;
-    if (capturedImage.value) {
-      const response = await fetch(capturedImage.value);
-      imageBlob = await response.blob();
-    }
+    // NEW: capturedImage.value is now a URL string (already uploaded to GCS)
+    // No need to convert or upload - just pass the URL directly
+    const imageUrl = capturedImage.value || undefined;
 
-    // Call the inventory store's createItem function
+    // Call the inventory store's createItem function (now accepts URL string)
     await store.createItem(
       props.user,
       newItem.value.name,
@@ -891,7 +940,7 @@ const saveItem = async () => {
       newItem.value.qty || 1,
       selectedCollectionId.value,
       store.activeContainer?.value,
-      imageBlob,
+      imageUrl,  // Pass URL string instead of Blob
       null, // estimatedValue
       editFragile.value,
       undefined, // priority
@@ -1021,28 +1070,35 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       timeout: 1500,
     });
 
-    // Crop the image based on bounding box
-    let imageBlob: Blob | undefined;
+    // NEW: Crop the image and upload to GCS
+    let croppedImageUrl: string | undefined;
     if (capturedImage.value) {
       try {
-        imageBlob = await cropImageFromBoundingBox(
+        // Crop image from bounding box
+        const croppedBlob = await cropImageFromBoundingBox(
           capturedImage.value,
           item.boundingBox,
           imageNaturalDimensions.value,
           0.15,
         );
+
+        // Upload cropped image to GCS
+        console.log("[Multi-Item Add] Uploading cropped image...");
+        croppedImageUrl = await uploadImageToGCS(croppedBlob);
+        console.log("[Multi-Item Add] Cropped image uploaded:", croppedImageUrl);
       } catch (error) {
-        console.error("Failed to crop image, using full image instead:", error);
-        // Fallback to full image if cropping fails
-        const response = await fetch(capturedImage.value);
-        imageBlob = await response.blob();
+        console.error("Failed to crop/upload image, using full image instead:", error);
+        // Fallback to full image URL if cropping/upload fails
+        croppedImageUrl = capturedImage.value;
       }
     }
 
+    // NEW: Analyze the cropped image using URL
     let aiDetails: any = null;
-    if (imageBlob) {
+    if (croppedImageUrl) {
       try {
-        aiDetails = await analyzeItemBlob(imageBlob);
+        console.log("[Multi-Item Add] Analyzing cropped image...");
+        aiDetails = await analyzeItemByUrl(croppedImageUrl);
       } catch (analysisError) {
         console.warn(
           "Unable to fetch AI details for multi-item capture",
@@ -1077,6 +1133,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       .filter(Boolean)
       .join("\n");
 
+    // NEW: Pass URL string instead of Blob
     await store.createItem(
       props.user,
       item.name,
@@ -1084,7 +1141,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       1,
       selectedCollectionId.value,
       store.activeContainer?.value,
-      imageBlob,
+      croppedImageUrl,  // Pass URL string instead of Blob
       null,
       aiDetails?.fragile ?? false,
       undefined,

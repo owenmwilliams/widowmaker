@@ -462,7 +462,7 @@ export const inventoryStore = defineStore("inventory", () => {
     quantity: number,
     collection: string,
     container?: string | undefined,
-    image?: Blob,
+    image?: Blob | string,  // Now accepts either Blob (legacy) OR URL string (new)
     estimatedValue?: number | null,
     fragile?: boolean,
     priority?: string,
@@ -475,9 +475,11 @@ export const inventoryStore = defineStore("inventory", () => {
     primaryColor?: string,
     tags?: string[],
   ) {
+    // NEW FLOW:
     // 1. UPLOAD ALL THE TEXTUAL DATA
     // 2. RETURN AN ID
-    // 3. UPLOAD IMAGE WITH THAT ID AS A UNIQUE IDENTIFIER
+    // 3. IF IMAGE IS BLOB (legacy): UPLOAD IMAGE WITH ID AS IDENTIFIER
+    //    IF IMAGE IS STRING (new): USE EXISTING URL
     // 4. UPDATE ITEMS TABLE WITH URL
     // 5. GET ITEMS LIST
     // 6. BUILD LISTS
@@ -559,24 +561,33 @@ export const inventoryStore = defineStore("inventory", () => {
       })
       .then(async (id) => {
         if (image) {
-          const formData = new FormData();
-          formData.append("file", image);
-          let url = await axios({
-            method: "post",
-            data: formData,
-            url: core_url + "/file/upload/movetrack-item-photos/",
-            params: {
-              folder: url_suffix + "/" + user,
-              name: id,
-            },
-            headers: {
-              ...headers,
-              "Content-Type": "multipart/form-data",
-            },
-          }).then((value) => {
-            return value.data.url;
-          });
-          return { url, id };
+          // NEW: Check if image is a URL string (already uploaded)
+          if (typeof image === 'string') {
+            console.log('[createItem] Using existing image URL:', image);
+            return { url: image, id };
+          }
+          // LEGACY: Image is a Blob - upload it now
+          else {
+            console.log('[createItem] Uploading image blob...');
+            const formData = new FormData();
+            formData.append("file", image);
+            let url = await axios({
+              method: "post",
+              data: formData,
+              url: core_url + "/file/upload/movetrack-item-photos/",
+              params: {
+                folder: url_suffix + "/" + user,
+                name: id,
+              },
+              headers: {
+                ...headers,
+                "Content-Type": "multipart/form-data",
+              },
+            }).then((value) => {
+              return value.data.url;
+            });
+            return { url, id };
+          }
         } else {
           return { id };
         }

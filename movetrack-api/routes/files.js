@@ -3,7 +3,18 @@ var router = express.Router();
 const { Storage } = require('@google-cloud/storage');
 const multer = require('multer');
 const path = require('path');
+const crypto = require('crypto');
 const { authenticate, resolveEffectivePlan } = require('../bin/authService');
+const knex = require('knex')({
+  client: 'pg',
+  connection: {
+    host: process.env.MT_DATALAYER_HOSTNAME,
+    port: process.env.MT_DATALAYER_PORT,
+    user: process.env.MT_DATALAYER_USERNAME,
+    password: process.env.MT_DATALAYER_PASSWORD,
+    database: process.env.MT_DATALAYER_DATABASE
+  }
+});
 
 const isLocalEnvironment = process.env.NODE_ENV !== 'production'; // Detect local development environment
 
@@ -41,6 +52,19 @@ router.use(authenticate);
 //   next();
 // });
 
+// Helper function to generate unique filename
+function generateUniqueFilename(originalName, mimetype) {
+  const timestamp = Date.now();
+  const randomHash = crypto.randomBytes(8).toString('hex');
+  const ext = mimetype.split('/')[1] || 'jpg';
+  // Sanitize original name (remove extension and special chars)
+  const safeName = originalName
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .substring(0, 50);
+  return `${timestamp}_${randomHash}_${safeName}.${ext}`;
+}
+
 // Route to upload a file to a Google Cloud Storage bucket
 // THI IS USED BY THE APPLICATION TO UPLOAD A FILE TO THE BUCKET
 router.post('/upload/:bucket', upload.single('file'), async (req, res) => {
@@ -74,16 +98,26 @@ router.post('/upload/:bucket', upload.single('file'), async (req, res) => {
     }
   }
 
-  // Production: Upload to GCS
+  // Production: Upload to GCS with unique filename
   const bucketInstance = storage.bucket(bucket);
-  const fileName = req.query.folder + '/' + req.query.name;
+
+  // Generate unique filename to prevent overwrites
+  const folder = req.query.folder || 'uploads';
+  const uniqueFilename = generateUniqueFilename(
+    req.file.originalname || 'image',
+    req.file.mimetype
+  );
+  const fileName = `${folder}/${uniqueFilename}`;
   const file = bucketInstance.file(fileName);
 
-  // file.name = req.folder.concat(req.file.originalname)
   try {
     const blobStream = file.createWriteStream({
       metadata: {
         contentType: req.file.mimetype,
+        metadata: {
+          originalName: req.file.originalname,
+          uploadedAt: new Date().toISOString(),
+        }
       },
       resumable: false
     });
@@ -91,9 +125,34 @@ router.post('/upload/:bucket', upload.single('file'), async (req, res) => {
       console.error('Error uploading file:', error);
       res.status(500).send('Internal server error.');
     });
-    blobStream.on('finish', () => {
+    blobStream.on('finish', async () => {
       const publicUrl = `https://storage.googleapis.com/${bucket}/${file.name}`;
-      res.status(200).json({ url: publicUrl });
+      console.log(`[GCS] Uploaded: ${file.name} (${Math.round(req.file.size / 1024)}KB)`);
+
+      // Track upload in database for GDPR compliance and cleanup
+      try {
+        await knex('image_uploads').insert({
+          user_id: req.user?.user_id || null,
+          image_url: publicUrl,
+          gcs_bucket: bucket,
+          gcs_path: file.name,
+          file_size: req.file.size,
+          mime_type: req.file.mimetype,
+          uploaded_at: new Date(),
+          is_orphaned: true, // Will be set to false when linked to an item
+        });
+        console.log(`[DB] Tracked upload: ${publicUrl}`);
+      } catch (dbError) {
+        console.error('[DB] Failed to track upload (non-critical):', dbError);
+        // Don't fail the upload if tracking fails
+      }
+
+      res.status(200).json({
+        url: publicUrl,
+        fileName: file.name,
+        bucket: bucket,
+        size: req.file.size
+      });
     });
     blobStream.end(req.file.buffer);
   } catch (error) {

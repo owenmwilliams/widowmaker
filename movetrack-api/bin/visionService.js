@@ -2,6 +2,20 @@ const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fetch = require('node-fetch');
+const { Storage } = require('@google-cloud/storage');
+const path = require('path');
+
+// Initialize GCS client for fetching images from URLs
+const isLocalEnvironment = process.env.NODE_ENV !== 'production';
+const storageOptions = {
+  projectId: 'widowmaker-477505',
+};
+
+if (isLocalEnvironment) {
+  storageOptions.keyFilename = path.join(__dirname, '../devkeys/take-stock-364901-c11c49339bff.json');
+}
+
+const storage = new Storage(storageOptions);
 
 // Initialize clients
 let anthropicClient = null;
@@ -43,6 +57,80 @@ if (togetherApiKey) {
 
 // Default provider (can be changed via admin settings)
 let currentProvider = process.env.VISION_PROVIDER || 'gemini';
+
+/**
+ * Helper function to determine if input is a URL or base64
+ */
+function isUrl(imageSource) {
+  return typeof imageSource === 'string' &&
+         (imageSource.startsWith('http://') ||
+          imageSource.startsWith('https://') ||
+          imageSource.startsWith('gs://'));
+}
+
+/**
+ * Helper function to fetch image from URL and convert to base64
+ */
+async function fetchImageAsBase64(imageUrl) {
+  try {
+    // Handle GCS URLs (gs:// or https://storage.googleapis.com/)
+    if (imageUrl.startsWith('gs://')) {
+      const gsPath = imageUrl.replace('gs://', '');
+      const [bucketName, ...filePath] = gsPath.split('/');
+      const fileName = filePath.join('/');
+
+      const bucket = storage.bucket(bucketName);
+      const file = bucket.file(fileName);
+      const [buffer] = await file.download();
+      return buffer.toString('base64');
+    } else if (imageUrl.includes('storage.googleapis.com')) {
+      // Parse https://storage.googleapis.com/bucket/path URL
+      const urlParts = imageUrl.split('storage.googleapis.com/')[1];
+      const [bucketName, ...filePath] = urlParts.split('/');
+      const fileName = filePath.join('/');
+
+      const bucket = storage.bucket(bucketName);
+      const file = bucket.file(fileName);
+      const [buffer] = await file.download();
+      return buffer.toString('base64');
+    } else if (imageUrl.startsWith('data:')) {
+      // Already a data URL, extract base64 part
+      return imageUrl.split(',')[1];
+    } else {
+      // Generic HTTP(S) URL - fetch via HTTP
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image from URL: ${response.status} ${response.statusText}`);
+      }
+      const buffer = await response.buffer();
+      return buffer.toString('base64');
+    }
+  } catch (error) {
+    console.error('Error fetching image from URL:', error);
+    throw new Error(`Failed to fetch image from URL: ${error.message}`);
+  }
+}
+
+/**
+ * Helper function to get MIME type from URL or default to jpeg
+ */
+function getMimeTypeFromUrl(imageUrl) {
+  if (imageUrl.startsWith('data:')) {
+    const match = imageUrl.match(/^data:([^;]+);/);
+    return match ? match[1] : 'image/jpeg';
+  }
+
+  // Detect from file extension
+  const ext = imageUrl.split('.').pop().split('?')[0].toLowerCase();
+  const mimeTypes = {
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'gif': 'image/gif',
+    'webp': 'image/webp'
+  };
+  return mimeTypes[ext] || 'image/jpeg';
+}
 
 /**
  * Common prompt for all vision APIs - Single Item Mode
@@ -125,13 +213,26 @@ Return ONLY the JSON object, nothing else.`;
 
 /**
  * Analyze photo using Claude 3.5 Sonnet Vision
+ * @param {string} imageSource - Base64 string or URL
+ * @param {string} mimeType - MIME type of the image
+ * @param {string} prompt - Analysis prompt
  */
-async function analyzeWithClaude(base64Image, mimeType, prompt = VISION_PROMPT) {
+async function analyzeWithClaude(imageSource, mimeType, prompt = VISION_PROMPT) {
     if (!anthropicClient) {
         throw new Error('Anthropic API key not configured');
     }
 
     try {
+        // Convert URL to base64 if needed (Claude only supports base64)
+        let base64Image = imageSource;
+        let actualMimeType = mimeType;
+
+        if (isUrl(imageSource)) {
+            console.log('[Claude] Converting URL to base64...');
+            base64Image = await fetchImageAsBase64(imageSource);
+            actualMimeType = mimeType || getMimeTypeFromUrl(imageSource);
+        }
+
         const response = await anthropicClient.messages.create({
             model: "claude-3-5-sonnet-20241022",
             max_tokens: 1024,
@@ -142,7 +243,7 @@ async function analyzeWithClaude(base64Image, mimeType, prompt = VISION_PROMPT) 
                         type: "image",
                         source: {
                             type: "base64",
-                            media_type: mimeType,
+                            media_type: actualMimeType,
                             data: base64Image
                         }
                     },
@@ -177,13 +278,26 @@ async function analyzeWithClaude(base64Image, mimeType, prompt = VISION_PROMPT) 
 
 /**
  * Analyze photo using GPT-4 Vision
+ * @param {string} imageSource - Base64 string or URL
+ * @param {string} mimeType - MIME type of the image
+ * @param {string} prompt - Analysis prompt
  */
-async function analyzeWithGPT4(base64Image, mimeType, prompt = VISION_PROMPT) {
+async function analyzeWithGPT4(imageSource, mimeType, prompt = VISION_PROMPT) {
     if (!openaiClient) {
         throw new Error('OpenAI API key not configured');
     }
 
     try {
+        // GPT-4 supports both URLs and base64 - use URL if available for efficiency
+        let imageUrl;
+        if (isUrl(imageSource)) {
+            console.log('[GPT-4] Using URL directly (native support)');
+            imageUrl = imageSource;
+        } else {
+            // Convert base64 to data URL
+            imageUrl = `data:${mimeType};base64,${imageSource}`;
+        }
+
         const response = await openaiClient.chat.completions.create({
             model: "gpt-4o",
             messages: [{
@@ -196,7 +310,7 @@ async function analyzeWithGPT4(base64Image, mimeType, prompt = VISION_PROMPT) {
                     {
                         type: "image_url",
                         image_url: {
-                            url: `data:${mimeType};base64,${base64Image}`
+                            url: imageUrl
                         }
                     }
                 ]
@@ -225,13 +339,26 @@ async function analyzeWithGPT4(base64Image, mimeType, prompt = VISION_PROMPT) {
 
 /**
  * Analyze photo using Google Gemini
+ * @param {string} imageSource - Base64 string or URL
+ * @param {string} mimeType - MIME type of the image
+ * @param {string} prompt - Analysis prompt
  */
-async function analyzeWithGemini(base64Image, mimeType, prompt = VISION_PROMPT) {
+async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT) {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
 
     try {
+        // Convert URL to base64 if needed (Gemini prefers base64)
+        let base64Image = imageSource;
+        let actualMimeType = mimeType;
+
+        if (isUrl(imageSource)) {
+            console.log('[Gemini] Converting URL to base64...');
+            base64Image = await fetchImageAsBase64(imageSource);
+            actualMimeType = mimeType || getMimeTypeFromUrl(imageSource);
+        }
+
         const model = geminiClient.getGenerativeModel({
             model: "gemini-2.0-flash-exp",
             generationConfig: {
@@ -243,7 +370,7 @@ async function analyzeWithGemini(base64Image, mimeType, prompt = VISION_PROMPT) 
             {
                 inlineData: {
                     data: base64Image,
-                    mimeType: mimeType
+                    mimeType: actualMimeType
                 }
             },
             {
@@ -272,13 +399,28 @@ async function analyzeWithGemini(base64Image, mimeType, prompt = VISION_PROMPT) 
 
 /**
  * Generic helper for Together.ai Vision API
+ * @param {string} modelId - Together.ai model ID
+ * @param {string} imageSource - Base64 string or URL
+ * @param {string} mimeType - MIME type of the image
+ * @param {string} prompt - Analysis prompt
+ * @param {number} maxTokens - Maximum tokens to generate
  */
-async function callTogetherVision(modelId, base64Image, mimeType, prompt, maxTokens = 1024) {
+async function callTogetherVision(modelId, imageSource, mimeType, prompt, maxTokens = 1024) {
     if (!togetherApiKey) {
         throw new Error('Together.ai API key not configured');
     }
 
     try {
+        // Together.ai supports URLs directly - use if available for efficiency
+        let imageUrl;
+        if (isUrl(imageSource)) {
+            console.log('[Together.ai] Using URL directly (native support)');
+            imageUrl = imageSource;
+        } else {
+            // Convert base64 to data URL
+            imageUrl = `data:${mimeType};base64,${imageSource}`;
+        }
+
         const response = await fetch('https://api.together.xyz/v1/chat/completions', {
             method: 'POST',
             headers: {
@@ -298,7 +440,7 @@ async function callTogetherVision(modelId, base64Image, mimeType, prompt, maxTok
                             {
                                 type: "image_url",
                                 image_url: {
-                                    url: `data:${mimeType};base64,${base64Image}`
+                                    url: imageUrl
                                 }
                             }
                         ]
@@ -401,10 +543,25 @@ async function analyzeMultiItemWithTogether(base64Image, mimeType) {
 
 /**
  * Generic helper for Hugging Face Inference API (vision-language chat style)
+ * @param {string} modelId - HuggingFace model ID
+ * @param {string} imageSource - Base64 string or URL
+ * @param {string} mimeType - MIME type of the image
+ * @param {string} prompt - Analysis prompt
+ * @param {number} maxTokens - Maximum tokens to generate
  */
-async function callHuggingFaceVision(modelId, base64Image, mimeType, prompt, maxTokens = 512) {
+async function callHuggingFaceVision(modelId, imageSource, mimeType, prompt, maxTokens = 512) {
     if (!huggingFaceToken) {
         throw new Error('Hugging Face token not configured');
+    }
+
+    // Convert URL to base64 if needed (HuggingFace typically requires base64)
+    let base64Image = imageSource;
+    let actualMimeType = mimeType;
+
+    if (isUrl(imageSource)) {
+        console.log('[HuggingFace] Converting URL to base64...');
+        base64Image = await fetchImageAsBase64(imageSource);
+        actualMimeType = mimeType || getMimeTypeFromUrl(imageSource);
     }
 
     // Use the new Hugging Face Inference Router endpoint
@@ -420,7 +577,7 @@ async function callHuggingFaceVision(modelId, base64Image, mimeType, prompt, max
                     role: "user",
                     content: [
                         { type: "text", text: prompt },
-                        { type: "image_url", image_url: `data:${mimeType};base64,${base64Image}` }
+                        { type: "image_url", image_url: `data:${actualMimeType};base64,${base64Image}` }
                     ]
                 }
             ],
@@ -502,13 +659,25 @@ async function analyzeWithNemotron(base64Image, mimeType, prompt = VISION_PROMPT
 
 /**
  * Analyze photo for multiple items using Claude
+ * @param {string} imageSource - Base64 string or URL
+ * @param {string} mimeType - MIME type of the image
  */
-async function analyzeMultiItemWithClaude(base64Image, mimeType) {
+async function analyzeMultiItemWithClaude(imageSource, mimeType) {
     if (!anthropicClient) {
         throw new Error('Anthropic API key not configured');
     }
 
     try {
+        // Convert URL to base64 if needed
+        let base64Image = imageSource;
+        let actualMimeType = mimeType;
+
+        if (isUrl(imageSource)) {
+            console.log('[Claude Multi-Item] Converting URL to base64...');
+            base64Image = await fetchImageAsBase64(imageSource);
+            actualMimeType = mimeType || getMimeTypeFromUrl(imageSource);
+        }
+
         const response = await anthropicClient.messages.create({
             model: "claude-3-5-sonnet-20241022",
             max_tokens: 2048,
@@ -519,7 +688,7 @@ async function analyzeMultiItemWithClaude(base64Image, mimeType) {
                         type: "image",
                         source: {
                             type: "base64",
-                            media_type: mimeType,
+                            media_type: actualMimeType,
                             data: base64Image
                         }
                     },
@@ -590,13 +759,24 @@ async function analyzeMultiItemWithClaude(base64Image, mimeType) {
 
 /**
  * Analyze photo for multiple items using GPT-4
+ * @param {string} imageSource - Base64 string or URL
+ * @param {string} mimeType - MIME type of the image
  */
-async function analyzeMultiItemWithGPT4(base64Image, mimeType) {
+async function analyzeMultiItemWithGPT4(imageSource, mimeType) {
     if (!openaiClient) {
         throw new Error('OpenAI API key not configured');
     }
 
     try {
+        // GPT-4 supports URLs natively - use if available
+        let imageUrl;
+        if (isUrl(imageSource)) {
+            console.log('[GPT-4 Multi-Item] Using URL directly (native support)');
+            imageUrl = imageSource;
+        } else {
+            imageUrl = `data:${mimeType};base64,${imageSource}`;
+        }
+
         const response = await openaiClient.chat.completions.create({
             model: "gpt-4o",
             messages: [{
@@ -609,7 +789,7 @@ async function analyzeMultiItemWithGPT4(base64Image, mimeType) {
                     {
                         type: "image_url",
                         image_url: {
-                            url: `data:${mimeType};base64,${base64Image}`
+                            url: imageUrl
                         }
                     }
                 ]
@@ -670,13 +850,25 @@ async function analyzeMultiItemWithGPT4(base64Image, mimeType) {
 
 /**
  * Analyze photo for multiple items using Gemini
+ * @param {string} imageSource - Base64 string or URL
+ * @param {string} mimeType - MIME type of the image
  */
-async function analyzeMultiItemWithGemini(base64Image, mimeType) {
+async function analyzeMultiItemWithGemini(imageSource, mimeType) {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
 
     try {
+        // Convert URL to base64 if needed
+        let base64Image = imageSource;
+        let actualMimeType = mimeType;
+
+        if (isUrl(imageSource)) {
+            console.log('[Gemini Multi-Item] Converting URL to base64...');
+            base64Image = await fetchImageAsBase64(imageSource);
+            actualMimeType = mimeType || getMimeTypeFromUrl(imageSource);
+        }
+
         const model = geminiClient.getGenerativeModel({
             model: "gemini-2.0-flash-exp",
             generationConfig: {
@@ -691,7 +883,7 @@ async function analyzeMultiItemWithGemini(base64Image, mimeType) {
                 {
                     inlineData: {
                         data: base64Image,
-                        mimeType: mimeType
+                        mimeType: actualMimeType
                     }
                 },
                 {

@@ -167,10 +167,34 @@ router.post('/analyze', upload.single('file'), async (req, res) => {
 
 // POST route to analyze item photo using multimodal AI (Claude, GPT-4, or Gemini)
 // REQUIRES AUTHENTICATION
+// Accepts either multipart file upload OR JSON with imageUrl
 router.post('/analyze-item', verifyToken, upload.single('image'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image file uploaded' });
+    let imageSource, mimeType;
+
+    // Check for image URL in body (new flow)
+    if (req.body.imageUrl) {
+      imageSource = req.body.imageUrl;
+      mimeType = req.body.mimeType || 'image/jpeg';
+
+      // Security: Only allow GCS URLs or data URLs (no arbitrary external URLs)
+      const isGcsUrl = imageSource.includes('storage.googleapis.com') || imageSource.startsWith('gs://');
+      const isDataUrl = imageSource.startsWith('data:');
+
+      if (!isGcsUrl && !isDataUrl) {
+        return res.status(400).json({ error: 'Only Google Cloud Storage URLs or data URLs are allowed' });
+      }
+
+      console.log(`Analyzing item photo from URL - Type: ${mimeType}, Provider: ${req.query.provider || req.body.provider || 'default'}`);
+    }
+    // Fall back to file upload (legacy flow)
+    else if (req.file) {
+      imageSource = req.file.buffer.toString('base64');
+      mimeType = req.file.mimetype;
+      console.log(`Analyzing item photo from upload - Size: ${req.file.size} bytes, Type: ${mimeType}, Provider: ${req.query.provider || req.body.provider || 'default'}`);
+    }
+    else {
+      return res.status(400).json({ error: 'No image provided (imageUrl or file required)' });
     }
 
     // Get provider from query param or body (optional - defaults to current provider)
@@ -182,14 +206,8 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
       provider = allowedBasicProviders.includes(provider) ? provider : 'scout';
     }
 
-    // Convert buffer to base64
-    const base64Image = req.file.buffer.toString('base64');
-    const mimeType = req.file.mimetype;
-
-    console.log(`Analyzing item photo - Size: ${req.file.size} bytes, Type: ${mimeType}, Provider: ${provider || 'default'}`);
-
-    // Call vision service
-    const result = await visionService.analyzeItemPhoto(base64Image, mimeType, provider);
+    // Call vision service (now supports both base64 and URLs)
+    const result = await visionService.analyzeItemPhoto(imageSource, mimeType, provider);
 
     if (result.success) {
       // Map AI response fields to database schema
@@ -218,10 +236,34 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
 
 // POST route to analyze photo for multiple items
 // REQUIRES AUTHENTICATION
+// Accepts either multipart file upload OR JSON with imageUrl
 router.post('/analyze-multi-item', verifyToken, upload.single('image'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image file uploaded' });
+    let imageSource, mimeType;
+
+    // Check for image URL in body (new flow)
+    if (req.body.imageUrl) {
+      imageSource = req.body.imageUrl;
+      mimeType = req.body.mimeType || 'image/jpeg';
+
+      // Security: Only allow GCS URLs or data URLs (no arbitrary external URLs)
+      const isGcsUrl = imageSource.includes('storage.googleapis.com') || imageSource.startsWith('gs://');
+      const isDataUrl = imageSource.startsWith('data:');
+
+      if (!isGcsUrl && !isDataUrl) {
+        return res.status(400).json({ error: 'Only Google Cloud Storage URLs or data URLs are allowed' });
+      }
+
+      console.log(`Analyzing multi-item photo from URL - Type: ${mimeType}, Provider: ${req.query.provider || req.body.provider || 'default'}`);
+    }
+    // Fall back to file upload (legacy flow)
+    else if (req.file) {
+      imageSource = req.file.buffer.toString('base64');
+      mimeType = req.file.mimetype;
+      console.log(`Analyzing multi-item photo from upload - Size: ${req.file.size} bytes, Type: ${mimeType}, Provider: ${req.query.provider || req.body.provider || 'default'}`);
+    }
+    else {
+      return res.status(400).json({ error: 'No image provided (imageUrl or file required)' });
     }
 
     const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
@@ -247,14 +289,8 @@ router.post('/analyze-multi-item', verifyToken, upload.single('image'), async (r
       provider = 'scout';
     }
 
-    // Convert buffer to base64
-    const base64Image = req.file.buffer.toString('base64');
-    const mimeType = req.file.mimetype;
-
-    console.log(`Analyzing multi-item photo - Size: ${req.file.size} bytes, Type: ${mimeType}, Provider: ${provider || 'default'}`);
-
-    // Call vision service for multi-item detection
-    const result = await visionService.analyzeMultiItemPhoto(base64Image, mimeType, provider);
+    // Call vision service for multi-item detection (now supports both base64 and URLs)
+    const result = await visionService.analyzeMultiItemPhoto(imageSource, mimeType, provider);
 
     if (result.success) {
       // Only consume quota AFTER successful API call
