@@ -39,6 +39,7 @@ var billingWebhook = require('./routes/billingWebhook');
 var onboardingRouter = require('./routes/onboarding');
 var importsRouter = require('./routes/imports');
 var visionLabRouter = require('./routes/visionLab');
+var adminRouter = require('./routes/admin');
 
 var app = express();
 app.set('trust proxy', 1);
@@ -107,6 +108,7 @@ app.use('/api/saved-moves', savedMovesRouter)
 app.use('/api/move-day', moveDayRouter)
 app.use('/api/waypoints', waypointsRouter)
 app.use('/billing', billingRouter)
+app.use('/admin', adminRouter)
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

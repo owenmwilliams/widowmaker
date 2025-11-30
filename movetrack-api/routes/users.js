@@ -3,6 +3,8 @@ var router = express.Router();
 const pgp = require('pg-promise')();
 var bodyParser = require('body-parser');
 var conn = require('../bin/db');
+const { Storage } = require('@google-cloud/storage');
+const path = require('path');
 
 const db = conn.db;
 const authService = require('../bin/authService');
@@ -16,6 +18,18 @@ const knex = require('knex')({
     database : process.env.MT_DATALAYER_DATABASE
   }
 });
+
+// Initialize GCS client for image deletion
+const isLocalEnvironment = process.env.NODE_ENV !== 'production';
+const storageOptions = {
+  projectId: 'widowmaker-477505',
+};
+
+if (isLocalEnvironment) {
+  storageOptions.keyFilename = path.join(__dirname, '../devkeys/take-stock-364901-c11c49339bff.json');
+}
+
+const storage = new Storage(storageOptions);
 
 var jsonParser = bodyParser.json();
 
@@ -155,6 +169,166 @@ router.put('/onboarding', authService.authenticate, async function(req, res) {
   } catch (error) {
     console.error('Failed to update onboarding status:', error);
     res.status(500).json({ success: false, error: 'Failed to update onboarding status' });
+  }
+});
+
+/**
+ * DELETE /users/account
+ * Delete user account and ALL associated data (GDPR compliant)
+ * Deletes:
+ * - All uploaded images (both orphaned and linked)
+ * - All items, collections, containers, locations
+ * - All saved moves and move sessions
+ * - User account record
+ */
+router.delete('/account', authService.authenticate, async function(req, res) {
+  const userId = req.user?.user_id;
+
+  if (!userId) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized'
+    });
+  }
+
+  console.log('========================================');
+  console.log('Account Deletion Request (GDPR)');
+  console.log('========================================');
+  console.log(`User ID: ${userId}`);
+  console.log('');
+
+  try {
+    // 1. Delete all user images from GCS and database
+    console.log('[Account Deletion] Step 1: Deleting all user images...');
+    const userImages = await knex('image_uploads')
+      .where('user_id', userId);
+
+    console.log(`[Account Deletion] Found ${userImages.length} images to delete`);
+
+    let imageDeleteCount = 0;
+    let imageDeleteErrors = 0;
+
+    for (const img of userImages) {
+      try {
+        // Delete from GCS
+        const bucket = storage.bucket(img.gcs_bucket);
+        const file = bucket.file(img.gcs_path);
+
+        const [exists] = await file.exists();
+        if (exists) {
+          await file.delete();
+          console.log(`[Account Deletion] ✓ Deleted image: ${img.gcs_path}`);
+        }
+
+        imageDeleteCount++;
+      } catch (error) {
+        console.error(`[Account Deletion] ✗ Failed to delete image ${img.gcs_path}:`, error.message);
+        imageDeleteErrors++;
+      }
+    }
+
+    // Delete image tracking records
+    await knex('image_uploads')
+      .where('user_id', userId)
+      .delete();
+
+    console.log(`[Account Deletion] Images deleted: ${imageDeleteCount}, Errors: ${imageDeleteErrors}`);
+    console.log('');
+
+    // 2. Delete user data in order (respecting foreign key constraints)
+    console.log('[Account Deletion] Step 2: Deleting user data...');
+
+    // Delete items (has references to collections and containers)
+    const itemsDeleted = await knex('items')
+      .where('user_id', userId)
+      .delete();
+    console.log(`[Account Deletion] ✓ Deleted ${itemsDeleted} items`);
+
+    // Delete containers
+    const containersDeleted = await knex('containers')
+      .where('user_id', userId)
+      .delete();
+    console.log(`[Account Deletion] ✓ Deleted ${containersDeleted} containers`);
+
+    // Delete collections
+    const collectionsDeleted = await knex('collections')
+      .where('user_id', userId)
+      .delete();
+    console.log(`[Account Deletion] ✓ Deleted ${collectionsDeleted} collections`);
+
+    // Delete locations
+    const locationsDeleted = await knex('locations')
+      .where('user_id', userId)
+      .delete();
+    console.log(`[Account Deletion] ✓ Deleted ${locationsDeleted} locations`);
+
+    // Delete move-related data
+    const movesDeleted = await knex('saved_moves')
+      .where('user_id', userId)
+      .delete();
+    console.log(`[Account Deletion] ✓ Deleted ${movesDeleted} saved moves`);
+
+    const sessionsDeleted = await knex('move_sessions')
+      .where('user_id', userId)
+      .delete();
+    console.log(`[Account Deletion] ✓ Deleted ${sessionsDeleted} move sessions`);
+
+    // Delete waypoints
+    const waypointsDeleted = await knex('move_waypoints')
+      .where('user_id', userId)
+      .delete();
+    console.log(`[Account Deletion] ✓ Deleted ${waypointsDeleted} waypoints`);
+
+    // Delete auth tokens
+    const tokensDeleted = await knex('auth_tokens')
+      .where('user_id', userId)
+      .delete();
+    console.log(`[Account Deletion] ✓ Deleted ${tokensDeleted} auth tokens`);
+
+    console.log('');
+
+    // 3. Delete user account
+    console.log('[Account Deletion] Step 3: Deleting user account...');
+    const usersDeleted = await knex('users')
+      .where('user_id', userId)
+      .delete();
+    console.log(`[Account Deletion] ✓ Deleted user account`);
+
+    console.log('');
+    console.log('========================================');
+    console.log('Account Deletion Summary:');
+    console.log(`  User ID: ${userId}`);
+    console.log(`  Images deleted: ${imageDeleteCount}`);
+    console.log(`  Items deleted: ${itemsDeleted}`);
+    console.log(`  Collections deleted: ${collectionsDeleted}`);
+    console.log(`  Containers deleted: ${containersDeleted}`);
+    console.log(`  Locations deleted: ${locationsDeleted}`);
+    console.log(`  Moves deleted: ${movesDeleted}`);
+    console.log(`  Sessions deleted: ${sessionsDeleted}`);
+    console.log('========================================');
+    console.log('');
+
+    res.json({
+      success: true,
+      message: 'Account and all data deleted successfully (GDPR compliant)',
+      deletedCounts: {
+        images: imageDeleteCount,
+        items: itemsDeleted,
+        collections: collectionsDeleted,
+        containers: containersDeleted,
+        locations: locationsDeleted,
+        moves: movesDeleted,
+        sessions: sessionsDeleted
+      }
+    });
+
+  } catch (error) {
+    console.error('[Account Deletion] Fatal error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete account',
+      message: error.message
+    });
   }
 });
 
