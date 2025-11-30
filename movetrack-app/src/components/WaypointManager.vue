@@ -20,6 +20,7 @@ interface Waypoint {
   country: string;
   lat?: number;
   lng?: number;
+  location_id?: number | null;
   source: string;
   distance_from_origin_miles?: number;
   typical_drive_hours_from_origin?: number;
@@ -470,9 +471,25 @@ defineExpose({
         <div
           v-for="(waypoint, index) in sortedWaypoints"
           :key="waypoint.id"
-          class="waypoint-row"
+          :class="['waypoint-row', { 'dropoff-waypoint': waypoint.is_dropoff }]"
         >
           <span class="waypoint-name">
+            <q-icon
+              v-if="waypoint.is_dropoff"
+              name="unarchive"
+              size="xs"
+              class="q-mr-xs text-orange-7"
+            >
+              <q-tooltip>Drop-off location (unloading stop)</q-tooltip>
+            </q-icon>
+            <q-icon
+              v-else-if="waypoint.overnight_recommended"
+              name="hotel"
+              size="xs"
+              class="q-mr-xs text-blue-6"
+            >
+              <q-tooltip>Suggested overnight stop</q-tooltip>
+            </q-icon>
             {{ waypoint.city }}<span v-if="waypoint.state">, {{ waypoint.state }}</span>
           </span>
           <span v-if="waypoint.segment_distance_miles" class="waypoint-dist text-grey-6">
@@ -484,9 +501,15 @@ defineExpose({
             <q-tooltip v-if="waypoint.distance_source === 'estimated'">Estimated distance from origin (straight-line calculation)</q-tooltip>
           </span>
           <div class="waypoint-actions">
-            <q-btn flat dense round icon="arrow_upward" size="xs" :disable="index === 0" @click="moveWaypointUp(index)" />
-            <q-btn flat dense round icon="arrow_downward" size="xs" :disable="index === sortedWaypoints.length - 1" @click="moveWaypointDown(index)" />
-            <q-btn flat dense round icon="delete" size="xs" color="negative" @click="deleteWaypoint(waypoint)" />
+            <q-btn flat dense round icon="arrow_upward" size="xs" :disable="index === 0 || waypoint.is_dropoff" @click="moveWaypointUp(index)">
+              <q-tooltip v-if="waypoint.is_dropoff">Cannot reorder drop-off locations</q-tooltip>
+            </q-btn>
+            <q-btn flat dense round icon="arrow_downward" size="xs" :disable="index === sortedWaypoints.length - 1 || waypoint.is_dropoff" @click="moveWaypointDown(index)">
+              <q-tooltip v-if="waypoint.is_dropoff">Cannot reorder drop-off locations</q-tooltip>
+            </q-btn>
+            <q-btn flat dense round icon="delete" size="xs" color="negative" :disable="waypoint.is_dropoff" @click="deleteWaypoint(waypoint)">
+              <q-tooltip v-if="waypoint.is_dropoff">Cannot delete drop-off locations (remove from move plan instead)</q-tooltip>
+            </q-btn>
           </div>
         </div>
         <!-- Destination row (final leg from last waypoint to destination) -->
@@ -635,6 +658,12 @@ defineExpose({
 
 .waypoint-row:hover .waypoint-actions .q-btn {
   opacity: 1;
+}
+
+.dropoff-waypoint {
+  background: rgba(255, 152, 0, 0.08);
+  border-left: 3px solid #ff9800;
+  font-weight: 500;
 }
 
 .waypoint-row.final-leg {
