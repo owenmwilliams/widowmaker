@@ -650,12 +650,30 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
       const waypointsParam = segmentWaypoints.map(w => `${w.lat},${w.lng}`).join('|');
       const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(segmentOrigin)}&destination=${encodeURIComponent(segmentDestination)}&waypoints=optimize:true|${encodeURIComponent(waypointsParam)}&key=${GOOGLE_MAPS_API_KEY}`;
 
-      console.log(`[Waypoints] ${correlationId}:     Calling Google Directions API for segment ${segIdx + 1}...`);
+      console.log(`\n========================================`);
+      console.log(`[Waypoints] ${correlationId}: SEGMENT ${segIdx + 1}/${segments.length} - Google Directions API Request`);
+      console.log(`========================================`);
+      console.log(`Segment: ${segment.description}`);
+      console.log(`Distance: ${segment.distanceMiles} miles`);
+      console.log(`\nREQUEST PAYLOAD:`);
+      console.log(`  Origin: ${segmentOrigin}`);
+      console.log(`  Destination: ${segmentDestination}`);
+      console.log(`  Waypoints (${segmentWaypoints.length}): optimize:true`);
+      segmentWaypoints.forEach((wp, idx) => {
+        console.log(`    ${idx}: ${wp.lat},${wp.lng} (~${wp.estimatedDistance} mi from origin)`);
+      });
+      console.log(`\nCalling Google Directions API...`);
 
       const response = await axios.get(url, { timeout: 30000 });
 
+      console.log(`\nRESPONSE STATUS: ${response.data.status}`);
+
       if (response.data.status !== 'OK') {
-        console.error(`[Waypoints] ${correlationId}:     Segment ${segIdx + 1} API error:`, response.data.status);
+        console.error(`ERROR: ${response.data.status}`);
+        if (response.data.error_message) {
+          console.error(`Error message: ${response.data.error_message}`);
+        }
+        console.log(`========================================\n`);
         // Fall back to evenly-spaced waypoints if Google fails
         for (const wp of segmentWaypoints) {
           coordsToGeocode.push({
@@ -673,7 +691,16 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
       const legs = route.legs;
       const waypointOrder = response.data.routes[0].waypoint_order || [];
 
-      console.log(`[Waypoints] ${correlationId}:     Google optimized waypoint order: [${waypointOrder.join(', ')}]`);
+      console.log(`\nRESPONSE DATA:`);
+      console.log(`  Total legs: ${legs.length}`);
+      console.log(`  Optimized waypoint order: [${waypointOrder.join(', ')}]`);
+      console.log(`\n  Route breakdown:`);
+      legs.forEach((leg, idx) => {
+        console.log(`    Leg ${idx + 1}: ${leg.distance.text} (${leg.duration.text})`);
+        console.log(`      Start: ${leg.start_address}`);
+        console.log(`      End: ${leg.end_address}`);
+      });
+      console.log(`========================================\n`);
 
       // Reorder waypoints based on Google's optimization
       const optimizedSegmentWaypoints = waypointOrder.length > 0
@@ -1264,13 +1291,30 @@ router.post('/:moveId/recalculate-route', authenticate, async (req, res) => {
       url += `&waypoints=${encodeURIComponent(waypointsParam)}`;
     }
 
-    console.log(`[Waypoints] ${correlationId}: Calling Google Directions API with ${waypointsWithCoords.length} waypoint(s) in current order`);
+    console.log(`\n========================================`);
+    console.log(`[Waypoints] ${correlationId}: Google Directions API Request (RECALCULATE)`);
+    console.log(`========================================`);
+    console.log(`\nREQUEST PAYLOAD:`);
+    console.log(`  Origin: ${routeData.origin_address}`);
+    console.log(`  Destination: ${routeData.destination_address}`);
+    console.log(`  Waypoints (${waypointsWithCoords.length}): NO OPTIMIZATION (current order)`);
+    waypointsWithCoords.forEach((wp, idx) => {
+      const waypointType = wp.is_dropoff ? '[DROP-OFF]' : (wp.source === 'manual' ? '[MANUAL]' : '[SUGGESTED]');
+      console.log(`    ${idx}: ${wp.city}, ${wp.state} ${waypointType} - ${wp.lat},${wp.lng}`);
+    });
+    console.log(`\nCalling Google Directions API...`);
 
     const axios = require('axios');
     const response = await axios.get(url, { timeout: 30000 });
 
+    console.log(`\nRESPONSE STATUS: ${response.data.status}`);
+
     if (response.data.status !== 'OK') {
-      console.error(`[Waypoints] ${correlationId}: API error:`, response.data.status);
+      console.error(`ERROR: ${response.data.status}`);
+      if (response.data.error_message) {
+        console.error(`Error message: ${response.data.error_message}`);
+      }
+      console.log(`========================================\n`);
       return res.status(400).json({
         error: `Google Directions API error: ${response.data.status}`,
         details: response.data.error_message
@@ -1279,6 +1323,16 @@ router.post('/:moveId/recalculate-route', authenticate, async (req, res) => {
 
     const route = response.data.routes[0];
     const legs = route.legs;
+
+    console.log(`\nRESPONSE DATA:`);
+    console.log(`  Total legs: ${legs.length}`);
+    console.log(`\n  Route breakdown:`);
+    legs.forEach((leg, idx) => {
+      console.log(`    Leg ${idx + 1}: ${leg.distance.text} (${leg.duration.text})`);
+      console.log(`      Start: ${leg.start_address}`);
+      console.log(`      End: ${leg.end_address}`);
+    });
+    console.log(`========================================\n`);
 
     // Update waypoints with cumulative distances
     let cumulativeDistanceMeters = 0;
