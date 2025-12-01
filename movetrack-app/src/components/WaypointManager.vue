@@ -343,7 +343,7 @@ const calculateRoute = async () => {
 
   calculating.value = true;
   try {
-    const response = await axios.post(`${core_url}/api/waypoints/${props.moveId}/calculate-route`, {}, {
+    const response = await axios.post(`${core_url}/api/waypoints/${props.moveId}/recalculate-route`, {}, {
       headers: getAuthHeaders()
     });
 
@@ -362,10 +362,8 @@ const calculateRoute = async () => {
     finalLegDurationHours.value = finalLegDur ?? null;
 
     // Build notification message
-    let message = `Route optimized: ${totalDistanceMiles} mi, ~${totalDurationHours} hrs`;
-    if (waypointsReordered) {
-      message += ' (waypoints reordered)';
-    }
+    let message = `Route recalculated: ${totalDistanceMiles} mi, ~${totalDurationHours} hrs`;
+    // Note: recalculate-route never reorders, so no need to check waypointsReordered
 
     $q.notify({
       type: 'positive',
@@ -427,7 +425,7 @@ defineExpose({
           :disable="!moveId || calculating"
           @click="calculateRoute"
         >
-          <q-tooltip>Update route (optimize waypoint order)</q-tooltip>
+          <q-tooltip>Recalculate route distances (keeps current waypoint order)</q-tooltip>
         </q-btn>
         <q-btn
           v-if="canSuggestStops && !isCollapsed"
@@ -440,7 +438,7 @@ defineExpose({
           :disable="!moveId || suggesting"
           @click="suggestStops"
         >
-          <q-tooltip>Suggest {{ suggestedStopsCount }} stop{{ suggestedStopsCount !== 1 ? 's' : '' }}</q-tooltip>
+          <q-tooltip>Suggest {{ suggestedStopsCount }} optimized stop{{ suggestedStopsCount !== 1 ? 's' : '' }} (Google-optimized within each segment)</q-tooltip>
         </q-btn>
         <q-btn
           v-if="!isCollapsed"

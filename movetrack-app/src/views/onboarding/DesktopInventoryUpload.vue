@@ -848,22 +848,23 @@ onMounted(async () => {
 }
 
 .onboarding-card {
-  width: min(62vw, 980px);
-  min-height: calc(100vh - 120px);
+  width: min(60vw, 900px);
+  max-width: 900px;
   background: white;
   border-radius: 24px;
-  padding: 28px 32px 40px;
+  padding: 28px 32px;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
+  margin: 24px auto;
 }
 
 .onboarding-card--mobile {
   width: 100%;
-  min-height: calc(100vh - 56px);
   border-radius: 0;
   box-shadow: none;
-  padding: 16px 12px 32px;
+  background: transparent;
+  padding: 16px;
 }
 
 .eyebrow {

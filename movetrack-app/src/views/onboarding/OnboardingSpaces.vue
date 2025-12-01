@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from "vue";
+import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { onboardingStore } from "../../stores/OnboardingStore";
@@ -25,7 +25,7 @@ interface LocationForm {
   formattedAddress?: string | null;
 }
 
-const locationForm = reactive<LocationForm>({
+const locationForm = ref<LocationForm>({
   name: store.locationName || "",
   address1: store.locationAddress || "",
   address2: store.locationAddressTwo || "",
@@ -77,12 +77,13 @@ const saveCustomRoom = () => {
 };
 
 const canContinue = computed(() => {
+  const form = locationForm.value;
   return (
-    locationForm.name.trim().length > 0 &&
-    locationForm.address1.trim().length > 0 &&
-    locationForm.city.trim().length > 0 &&
-    locationForm.state.trim().length > 0 &&
-    locationForm.zip.trim().length > 0
+    form.name.trim().length > 0 &&
+    form.address1.trim().length > 0 &&
+    form.city.trim().length > 0 &&
+    form.state.trim().length > 0 &&
+    form.zip.trim().length > 0
   );
 });
 
@@ -128,13 +129,14 @@ const isSaving = ref(false);
 
 const handleNext = async () => {
   if (isSaving.value) return;
+  const form = locationForm.value;
   store.setLocation({
-    name: locationForm.name.trim(),
-    address: locationForm.address1.trim(),
-    addressTwo: locationForm.address2.trim(),
-    city: locationForm.city.trim(),
-    state: locationForm.state.trim(),
-    zip: locationForm.zip.trim(),
+    name: form.name.trim(),
+    address: form.address1.trim(),
+    addressTwo: form.address2.trim(),
+    city: form.city.trim(),
+    state: form.state.trim(),
+    zip: form.zip.trim(),
   });
   store.setRooms([...store.selectedRooms]);
   router.push({ name: "onboarding-first-item" });
@@ -236,20 +238,18 @@ const handleNext = async () => {
 
 .onboarding-card {
   width: min(60vw, 900px);
-  min-height: 70vh;
-  max-height: 85vh;
+  max-width: 900px;
   background: white;
   border-radius: 24px;
   padding: 28px 32px;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
+  margin: 24px auto;
 }
 
 .onboarding-card--mobile {
   width: 100%;
-  min-height: calc(100vh - 56px);
-  max-height: none;
   border-radius: 0;
   box-shadow: none;
   background: transparent;

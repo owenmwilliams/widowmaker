@@ -553,11 +553,51 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
       console.log(`[Waypoints] ${correlationId}:   Segment ${idx + 1}: ${seg.description} (${seg.distanceMiles} miles)`);
     });
 
-    // For each segment, suggest overnight stops if needed (every ~600 miles / 8-10 hours)
+    // For each segment, use Google Directions API with optimize:true to get optimized waypoints
+    // This ensures we get the best route within each segment between drop-offs
+    const axios = require('axios');
     const coordsToGeocode = [];
     let stopCounter = 1;
 
-    for (const segment of segments) {
+    // Get origin and destination from saved move
+    let routeData = move.route_data ? (typeof move.route_data === 'string' ? JSON.parse(move.route_data) : move.route_data) : null;
+    if (!routeData) {
+      routeData = {};
+    }
+
+    const ensureAddressForRole = async (role, locationId) => {
+      if (!locationId || routeData[`${role}_address`]) {
+        return;
+      }
+      const location = await knex('locations').where('id', locationId).first();
+      if (!location) {
+        return;
+      }
+      const components = [
+        location.address || location.name,
+        location.city,
+        location.state,
+        location.zip
+      ].filter(Boolean);
+      if (components.length) {
+        routeData[`${role}_address`] = components.join(', ');
+      }
+      if (location.lat != null && location.lng != null) {
+        routeData[`${role}_lat`] = location.lat;
+        routeData[`${role}_lng`] = location.lng;
+      }
+    };
+
+    await ensureAddressForRole('origin', move.origin_location_id);
+    await ensureAddressForRole('destination', move.destination_location_id);
+
+    if (!routeData?.origin_address || !routeData?.destination_address) {
+      return res.status(400).json({ error: 'Saved move is missing origin or destination address' });
+    }
+
+    // For each segment, call Google Directions API with optimize:true
+    for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+      const segment = segments[segIdx];
       const numStopsInSegment = Math.floor(segment.distanceMiles / maxDailyMiles);
 
       if (numStopsInSegment === 0) {
@@ -565,26 +605,93 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
         continue;
       }
 
-      console.log(`[Waypoints] ${correlationId}:   ${segment.description}: Suggesting ${numStopsInSegment} stop(s)`);
+      console.log(`[Waypoints] ${correlationId}:   ${segment.description}: Requesting ${numStopsInSegment} optimized stop(s) from Google`);
 
-      // Place stops evenly within this segment
+      // Determine segment origin and destination
+      let segmentOrigin, segmentDestination;
+
+      if (segIdx === 0) {
+        // First segment: origin to first drop-off (or destination)
+        segmentOrigin = routeData.origin_address;
+      } else {
+        // Use previous drop-off's coordinates
+        const prevDropoff = dropoffWaypoints[segIdx - 1];
+        segmentOrigin = `${prevDropoff.lat},${prevDropoff.lng}`;
+      }
+
+      if (segIdx < dropoffWaypoints.length) {
+        // Segment ends at a drop-off
+        const dropoff = dropoffWaypoints[segIdx];
+        segmentDestination = `${dropoff.lat},${dropoff.lng}`;
+      } else {
+        // Final segment: ends at destination
+        segmentDestination = routeData.destination_address;
+      }
+
+      // Place evenly-spaced waypoints along the polyline within this segment
+      const segmentWaypoints = [];
       for (let i = 1; i <= numStopsInSegment; i++) {
-        // Calculate position within THIS segment
         const fractionInSegment = i / (numStopsInSegment + 1);
         const milesIntoSegment = segment.distanceMiles * fractionInSegment;
         const totalMilesFromOrigin = segment.startMiles + milesIntoSegment;
 
-        // Map to polyline position
         const fraction = totalMilesFromOrigin / totalDistanceMiles;
         const pathIndex = Math.floor(fraction * (decodedPath.length - 1));
         const point = decodedPath[Math.min(pathIndex, decodedPath.length - 1)];
 
-        coordsToGeocode.push({
-          id: stopCounter++,
+        segmentWaypoints.push({
           lat: point[0],
           lng: point[1],
-          fraction,
-          distanceFromOrigin: Math.round(totalMilesFromOrigin),
+          estimatedDistance: Math.round(totalMilesFromOrigin)
+        });
+      }
+
+      // Call Google Directions API with optimize:true for this segment
+      const waypointsParam = segmentWaypoints.map(w => `${w.lat},${w.lng}`).join('|');
+      const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(segmentOrigin)}&destination=${encodeURIComponent(segmentDestination)}&waypoints=optimize:true|${encodeURIComponent(waypointsParam)}&key=${GOOGLE_MAPS_API_KEY}`;
+
+      console.log(`[Waypoints] ${correlationId}:     Calling Google Directions API for segment ${segIdx + 1}...`);
+
+      const response = await axios.get(url, { timeout: 30000 });
+
+      if (response.data.status !== 'OK') {
+        console.error(`[Waypoints] ${correlationId}:     Segment ${segIdx + 1} API error:`, response.data.status);
+        // Fall back to evenly-spaced waypoints if Google fails
+        for (const wp of segmentWaypoints) {
+          coordsToGeocode.push({
+            id: stopCounter++,
+            lat: wp.lat,
+            lng: wp.lng,
+            distanceFromOrigin: wp.estimatedDistance,
+            segmentDescription: segment.description
+          });
+        }
+        continue;
+      }
+
+      const route = response.data.routes[0];
+      const legs = route.legs;
+      const waypointOrder = response.data.routes[0].waypoint_order || [];
+
+      console.log(`[Waypoints] ${correlationId}:     Google optimized waypoint order: [${waypointOrder.join(', ')}]`);
+
+      // Reorder waypoints based on Google's optimization
+      const optimizedSegmentWaypoints = waypointOrder.length > 0
+        ? waypointOrder.map(idx => segmentWaypoints[idx])
+        : segmentWaypoints;
+
+      // Add optimized waypoints to geocode list with actual distances from route legs
+      let cumulativeSegmentDistance = segment.startMiles * 1609.34; // Convert to meters
+      for (let i = 0; i < legs.length - 1; i++) {  // -1 because last leg goes to segment destination
+        const leg = legs[i];
+        cumulativeSegmentDistance += leg.distance.value;
+
+        const wp = optimizedSegmentWaypoints[i];
+        coordsToGeocode.push({
+          id: stopCounter++,
+          lat: wp.lat,
+          lng: wp.lng,
+          distanceFromOrigin: Math.round(cumulativeSegmentDistance / 1609.34),
           segmentDescription: segment.description
         });
       }
@@ -1074,6 +1181,191 @@ router.post('/:moveId/calculate-route', authenticate, async (req, res) => {
   } catch (error) {
     console.error(`[Waypoints] ${correlationId}: Error calculating route:`, error);
     res.status(500).json({ error: 'Failed to calculate route', details: error.message });
+  }
+});
+
+/**
+ * POST /api/waypoints/:moveId/recalculate-route
+ * Recalculate distances for existing waypoints WITHOUT reordering
+ * Just calls Google Directions API with waypoints in current sequence order
+ * Updates distance/duration fields only
+ */
+router.post('/:moveId/recalculate-route', authenticate, async (req, res) => {
+  const correlationId = `recalc-route-${Date.now()}`;
+  console.log(`[Waypoints] ${correlationId}: Recalculating route distances (no reordering)`);
+
+  try {
+    const userId = req.user.user_id;
+    const moveId = req.params.moveId;
+
+    // Verify user owns the move
+    const move = await knex('saved_moves')
+      .where('id', moveId)
+      .andWhere('user_id', userId)
+      .first();
+
+    if (!move) {
+      return res.status(404).json({ error: 'Saved move not found' });
+    }
+
+    // Get all waypoints in current sequence order
+    const waypoints = await knex('move_waypoints')
+      .where('saved_move_id', moveId)
+      .orderBy('sequence_order', 'asc');
+
+    if (waypoints.length === 0) {
+      return res.status(400).json({ error: 'No waypoints to calculate' });
+    }
+
+    // Get origin and destination
+    let routeData = move.route_data ? (typeof move.route_data === 'string' ? JSON.parse(move.route_data) : move.route_data) : null;
+    if (!routeData) {
+      routeData = {};
+    }
+
+    const ensureAddressForRole = async (role, locationId) => {
+      if (!locationId || routeData[`${role}_address`]) {
+        return;
+      }
+      const location = await knex('locations').where('id', locationId).first();
+      if (!location) {
+        return;
+      }
+      const components = [
+        location.address || location.name,
+        location.city,
+        location.state,
+        location.zip
+      ].filter(Boolean);
+      if (components.length) {
+        routeData[`${role}_address`] = components.join(', ');
+      }
+      if (location.lat != null && location.lng != null) {
+        routeData[`${role}_lat`] = location.lat;
+        routeData[`${role}_lng`] = location.lng;
+      }
+    };
+
+    await ensureAddressForRole('origin', move.origin_location_id);
+    await ensureAddressForRole('destination', move.destination_location_id);
+
+    if (!routeData?.origin_address || !routeData?.destination_address) {
+      return res.status(400).json({ error: 'Saved move is missing origin or destination address' });
+    }
+
+    // Build waypoints parameter (NO optimize:true - keep current order)
+    const waypointsWithCoords = waypoints.filter(w => w.lat != null && w.lng != null);
+    const waypointsParam = waypointsWithCoords.map(w => `${w.lat},${w.lng}`).join('|');
+
+    let url = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(routeData.origin_address)}&destination=${encodeURIComponent(routeData.destination_address)}&key=${GOOGLE_MAPS_API_KEY}`;
+
+    if (waypointsParam) {
+      // NO optimize:true - just calculate distances for current order
+      url += `&waypoints=${encodeURIComponent(waypointsParam)}`;
+    }
+
+    console.log(`[Waypoints] ${correlationId}: Calling Google Directions API with ${waypointsWithCoords.length} waypoint(s) in current order`);
+
+    const axios = require('axios');
+    const response = await axios.get(url, { timeout: 30000 });
+
+    if (response.data.status !== 'OK') {
+      console.error(`[Waypoints] ${correlationId}: API error:`, response.data.status);
+      return res.status(400).json({
+        error: `Google Directions API error: ${response.data.status}`,
+        details: response.data.error_message
+      });
+    }
+
+    const route = response.data.routes[0];
+    const legs = route.legs;
+
+    // Update waypoints with cumulative distances
+    let cumulativeDistanceMeters = 0;
+    let cumulativeDurationSeconds = 0;
+    const updatedWaypoints = [];
+
+    for (let i = 0; i < legs.length; i++) {
+      const leg = legs[i];
+      cumulativeDistanceMeters += leg.distance.value;
+      cumulativeDurationSeconds += leg.duration.value;
+
+      // If this leg ends at a waypoint (not the final destination)
+      if (i < waypointsWithCoords.length) {
+        const waypoint = waypointsWithCoords[i];
+        const distanceMiles = Math.round(cumulativeDistanceMeters / 1609.34);
+        const durationHours = Math.round((cumulativeDurationSeconds / 3600) * 10) / 10;
+        const segmentDistanceMiles = Math.round(leg.distance.value / 1609.34);
+        const segmentDurationHours = Math.round((leg.duration.value / 3600) * 10) / 10;
+
+        await knex('move_waypoints')
+          .where('id', waypoint.id)
+          .update({
+            distance_from_origin_miles: distanceMiles,
+            typical_drive_hours_from_origin: durationHours,
+            segment_distance_miles: segmentDistanceMiles,
+            segment_duration_hours: segmentDurationHours,
+            distance_source: 'calculated',
+            updated_at: knex.fn.now()
+          });
+
+        updatedWaypoints.push({
+          ...waypoint,
+          distance_from_origin_miles: distanceMiles,
+          typical_drive_hours_from_origin: durationHours,
+          segment_distance_miles: segmentDistanceMiles,
+          segment_duration_hours: segmentDurationHours
+        });
+
+        const waypointType = waypoint.is_dropoff ? '[DROP-OFF]' : (waypoint.source === 'manual' ? '[MANUAL]' : '');
+        console.log(`[Waypoints] ${correlationId}:   ${waypoint.city}, ${waypoint.state}: ${distanceMiles} mi (${segmentDistanceMiles} mi segment) ${waypointType}`);
+      }
+    }
+
+    // Calculate totals
+    const totalDistanceMiles = Math.round(cumulativeDistanceMeters / 1609.34);
+    const totalDurationHours = Math.round((cumulativeDurationSeconds / 3600) * 10) / 10;
+
+    // Get final leg info
+    const finalLeg = legs[legs.length - 1];
+    const finalLegDistanceMiles = Math.round(finalLeg.distance.value / 1609.34);
+    const finalLegDurationHours = Math.round((finalLeg.duration.value / 3600) * 10) / 10;
+
+    console.log(`[Waypoints] ${correlationId}: Final leg to destination: ${finalLegDistanceMiles} mi, ${finalLegDurationHours} hrs`);
+
+    // Update saved_moves with new route data
+    const updatedRouteData = {
+      ...routeData,
+      route_polyline: route.overview_polyline?.points || '',
+      total_distance_miles: totalDistanceMiles,
+      total_duration_hours: totalDurationHours,
+      waypoints_optimized: false,  // Not optimized, just recalculated
+      last_calculated: new Date().toISOString()
+    };
+
+    await knex('saved_moves')
+      .where('id', moveId)
+      .update({
+        route_data: JSON.stringify(updatedRouteData),
+        updated_at: knex.fn.now()
+      });
+
+    console.log(`[Waypoints] ${correlationId}: Recalculation complete. Total: ${totalDistanceMiles} mi, ${totalDurationHours} hrs`);
+
+    res.json({
+      success: true,
+      waypoints: updatedWaypoints,
+      routePolyline: route.overview_polyline?.points || '',
+      totalDistanceMiles,
+      totalDurationHours,
+      finalLegDistanceMiles,
+      finalLegDurationHours,
+      message: `Route recalculated with ${updatedWaypoints.length} waypoint(s) in current order`
+    });
+
+  } catch (error) {
+    console.error(`[Waypoints] ${correlationId}: Error recalculating route:`, error);
+    res.status(500).json({ error: 'Failed to recalculate route', details: error.message });
   }
 });
 

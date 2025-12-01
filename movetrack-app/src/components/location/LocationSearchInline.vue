@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 
 declare global {
   interface Window {
@@ -134,6 +134,7 @@ const geocodeManualAddress = async () => {
 
 const scheduleManualGeocode = () => {
   if (suppressManualGeocode) return;
+  if (!googleMapsKey) return;
   if (!manualEntryOpen.value) return;
   if (manualGeocodeTimeout) clearTimeout(manualGeocodeTimeout);
   manualGeocodeTimeout = setTimeout(() => {
@@ -307,12 +308,61 @@ onBeforeUnmount(() => {
   <div class="location-search-inline">
     <q-input v-model="form.name" label="Location nickname" outlined dense autofocus />
     <label class="text-caption text-grey-7">Search address</label>
-    <div ref="autocompleteContainer" class="inline-search-input"></div>
+    <div
+      v-if="hasMapsKey"
+      ref="autocompleteContainer"
+      class="inline-search-input"
+    ></div>
+    <div v-else class="inline-search-input warning">
+      Google Maps API key missing. Contact support.
+    </div>
     <div class="text-caption text-grey-6 q-mt-xs" v-if="form.formattedAddress">
       {{ form.formattedAddress }}<span v-if="form.zip"> • ZIP {{ form.zip }}</span>
     </div>
+
+    <q-expansion-item
+      dense
+      dense-toggle
+      v-model="manualEntryOpen"
+      label="Enter address manually"
+      header-class="text-caption text-grey-7"
+    >
+      <q-card flat>
+        <q-card-section class="q-pt-xs">
+          <div class="row q-col-gutter-sm">
+            <div class="col-12">
+              <q-input v-model="form.address1" label="Address line 1" outlined dense />
+            </div>
+            <div class="col-12">
+              <q-input v-model="form.address2" label="Address line 2 (optional)" outlined dense />
+            </div>
+            <div class="col-12 col-md-6">
+              <q-input v-model="form.city" label="City" outlined dense />
+            </div>
+            <div class="col-6 col-md-3">
+              <q-input v-model="form.state" label="State" outlined dense />
+            </div>
+            <div class="col-6 col-md-3">
+              <q-input v-model="form.zip" label="ZIP" outlined dense />
+            </div>
+          </div>
+          <div class="text-caption text-grey-6 q-mt-xs">
+            Map updates automatically as you edit these fields.
+          </div>
+        </q-card-section>
+      </q-card>
+    </q-expansion-item>
+
     <div ref="mapContainer" class="inline-map q-mt-md"></div>
     <div class="text-caption text-grey-7 q-mt-xs">Drag the marker if the entrance is different.</div>
+    <q-banner
+      v-if="verificationError"
+      dense
+      rounded
+      class="bg-negative text-white q-mt-sm"
+    >
+      {{ verificationError }}
+    </q-banner>
   </div>
 </template>
 
@@ -325,9 +375,35 @@ onBeforeUnmount(() => {
 
 .inline-search-input {
   width: 100%;
-  padding: 10px 12px;
+  border-radius: 8px;
   border: 1px solid #cfd8dc;
-  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.inline-search-input.warning {
+  padding: 10px 12px;
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #b91c1c;
+}
+
+.inline-search-input :deep(gmpx-place-autocomplete) {
+  width: 100%;
+  display: block;
+  border-radius: 8px;
+  --gmpx-color-surface: #ffffff;
+  --gmpx-border-color: #cfd8dc;
+  --gmpx-border-radius: 8px;
+  --gmpx-padding-vertical: 10px;
+  --gmpx-padding-horizontal: 12px;
+  --gmpx-font-size: 14px;
+  --gmpx-text-color: #0f172a;
+  --gmpx-placeholder-color: rgba(15, 23, 42, 0.5);
+  --gmpx-color-primary: #1d4ed8;
+}
+
+.inline-search-input :deep(gmpx-place-autocomplete::part(input)) {
   font-size: 14px;
 }
 

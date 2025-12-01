@@ -218,20 +218,18 @@ const handleNext = async () => {
 
 .onboarding-card {
   width: min(60vw, 900px);
-  min-height: 70vh;
-  max-height: 85vh;
+  max-width: 900px;
   background: white;
   border-radius: 24px;
   padding: 28px 32px;
   box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
+  margin: 24px auto;
 }
 
 .onboarding-card--mobile {
   width: 100%;
-  min-height: calc(100vh - 56px);
-  max-height: none;
   border-radius: 0;
   box-shadow: none;
   background: transparent;
