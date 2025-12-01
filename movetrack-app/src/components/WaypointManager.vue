@@ -289,25 +289,25 @@ watch(() => props.moveId, () => {
   }
 }, { immediate: true });
 
-const suggestStops = async () => {
+const proposeWaypoints = async () => {
   if (!props.moveId || !props.routePolyline || !props.totalDistanceMiles) return;
 
   // Confirm if waypoints already exist
   if (waypoints.value.length > 0) {
     $q.dialog({
-      title: 'Replace Existing Waypoints?',
-      message: 'This will replace your current waypoints with auto-suggested stops. Continue?',
+      title: 'Propose New Waypoints?',
+      message: 'This will replace your current suggested stops with new optimized waypoints based on your route segments. Drop-off locations will be preserved. Continue?',
       cancel: true,
       persistent: true
     }).onOk(async () => {
-      await performSuggestStops(true);
+      await performProposeWaypoints(true);
     });
   } else {
-    await performSuggestStops(false);
+    await performProposeWaypoints(false);
   }
 };
 
-const performSuggestStops = async (clearExisting: boolean) => {
+const performProposeWaypoints = async (clearExisting: boolean) => {
   suggesting.value = true;
   try {
     const response = await axios.post(`${core_url}/api/waypoints/${props.moveId}/suggest-and-save`, {
@@ -325,16 +325,16 @@ const performSuggestStops = async (clearExisting: boolean) => {
 
     // Auto-recalculate route distances after suggesting waypoints
     if (count > 0) {
-      await calculateRoute();
+      await reroute();
     }
 
     $q.notify({
       type: 'positive',
-      message: `Added ${count} suggested stop${count !== 1 ? 's' : ''} and calculated route distances`
+      message: `Proposed ${count} optimized waypoint${count !== 1 ? 's' : ''}`
     });
   } catch (error: any) {
-    console.error('Error suggesting stops:', error);
-    const message = error.response?.data?.error || 'Failed to suggest stops';
+    console.error('Error proposing waypoints:', error);
+    const message = error.response?.data?.error || 'Failed to propose waypoints';
     $q.notify({
       type: 'negative',
       message
@@ -344,7 +344,7 @@ const performSuggestStops = async (clearExisting: boolean) => {
   }
 };
 
-const calculateRoute = async () => {
+const reroute = async () => {
   if (!props.moveId || waypoints.value.length === 0) return;
 
   calculating.value = true;
@@ -369,8 +369,7 @@ const calculateRoute = async () => {
 
     // Build notification message
     let message = `Route recalculated: ${totalDistanceMiles} mi, ~${totalDurationHours} hrs`;
-    // Note: recalculate-route never reorders, so no need to check waypointsReordered
-
+    
     $q.notify({
       type: 'positive',
       message
@@ -406,7 +405,7 @@ const calculateRoute = async () => {
 defineExpose({
   waypoints,
   fetchWaypoints,
-  calculateRoute
+  calculateRoute: reroute
 });
 </script>
 
@@ -429,9 +428,9 @@ defineExpose({
           icon="replay"
           :loading="calculating"
           :disable="!moveId || calculating"
-          @click="calculateRoute"
+          @click="reroute"
         >
-          <q-tooltip>Recalculate route distances (keeps current waypoint order)</q-tooltip>
+          <q-tooltip>Reroute: Recalculate route for current waypoints</q-tooltip>
         </q-btn>
         <q-btn
           v-if="canSuggestStops && !isCollapsed"
@@ -442,9 +441,9 @@ defineExpose({
           icon="auto_awesome"
           :loading="suggesting"
           :disable="!moveId || suggesting"
-          @click="suggestStops"
+          @click="proposeWaypoints"
         >
-          <q-tooltip>Suggest {{ suggestedStopsCount }} optimized stop{{ suggestedStopsCount !== 1 ? 's' : '' }} (Google-optimized within each segment)</q-tooltip>
+          <q-tooltip>Propose Waypoints: Optimize route segments</q-tooltip>
         </q-btn>
         <q-btn
           v-if="!isCollapsed"

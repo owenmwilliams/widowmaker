@@ -633,11 +633,22 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
       for (let i = 1; i <= numStopsInSegment; i++) {
         const fractionInSegment = i / (numStopsInSegment + 1);
         const milesIntoSegment = segment.distanceMiles * fractionInSegment;
-        const totalMilesFromOrigin = segment.startMiles + milesIntoSegment;
+        const totalMilesFromOrigin = (Number(segment.startMiles) || 0) + milesIntoSegment;
 
-        const fraction = totalMilesFromOrigin / totalDistanceMiles;
+        const fraction = totalMilesFromOrigin / (Number(totalDistanceMiles) || 1);
         const pathIndex = Math.floor(fraction * (decodedPath.length - 1));
+        
+        if (isNaN(pathIndex)) {
+          console.error(`[Waypoints] Error: pathIndex is NaN. fraction=${fraction}, totalMilesFromOrigin=${totalMilesFromOrigin}, totalDistanceMiles=${totalDistanceMiles}, startMiles=${segment.startMiles}, milesIntoSegment=${milesIntoSegment}`);
+          continue;
+        }
+
         const point = decodedPath[Math.min(pathIndex, decodedPath.length - 1)];
+
+        if (!point) {
+          console.warn(`[Waypoints] Warning: Point not found at index ${pathIndex} (length: ${decodedPath.length})`);
+          continue;
+        }
 
         segmentWaypoints.push({
           lat: point[0],
@@ -687,6 +698,11 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
         continue;
       }
 
+      if (!response.data.routes || !response.data.routes[0]) {
+        console.error(`[Waypoints] ${correlationId}: No routes found in Google response`);
+        continue;
+      }
+
       const route = response.data.routes[0];
       const legs = route.legs;
       const waypointOrder = response.data.routes[0].waypoint_order || [];
@@ -708,7 +724,7 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
         : segmentWaypoints;
 
       // Add optimized waypoints to geocode list with actual distances from route legs
-      let cumulativeSegmentDistance = segment.startMiles * 1609.34; // Convert to meters
+      let cumulativeSegmentDistance = (Number(segment.startMiles) || 0) * 1609.34; // Convert to meters
       for (let i = 0; i < legs.length - 1; i++) {  // -1 because last leg goes to segment destination
         const leg = legs[i];
         cumulativeSegmentDistance += leg.distance.value;
@@ -719,7 +735,8 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
           lat: wp.lat,
           lng: wp.lng,
           distanceFromOrigin: Math.round(cumulativeSegmentDistance / 1609.34),
-          segmentDescription: segment.description
+          segmentDescription: segment.description,
+          segmentIndex: segIdx // Track which segment this belongs to
         });
       }
     }
@@ -734,13 +751,6 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
 
     console.log(`[Waypoints] ${correlationId}: Geocoding ${coordsToGeocode.length} suggested stop location(s)`);
 
-    // Get current max sequence order
-    const maxOrder = await knex('move_waypoints')
-      .where('saved_move_id', moveId)
-      .max('sequence_order as max')
-      .first();
-    const startOrder = (maxOrder?.max || 0) + 1;
-
     // Batch geocode all coordinates using the centralized service
     // This handles caching, retry logic, and rate limiting automatically
     const geocodeResults = await batchReverseGeocode(coordsToGeocode, {
@@ -748,33 +758,54 @@ router.post('/:moveId/suggest-and-save', authenticate, async (req, res) => {
       delayBetweenRequests: 300  // 300ms between requests for safety
     });
 
-    // Save all waypoints to database
+    // Save all waypoints to database with correct sequencing
+    // We need to interleave suggestions with existing drop-offs
     const savedWaypoints = [];
-    for (const coord of coordsToGeocode) {
-      const geocode = geocodeResults.get(coord.id) || {};
-      const distanceFromOrigin = coord.distanceFromOrigin; // Already calculated per segment
-      const driveHoursFromOrigin = Math.round((distanceFromOrigin / 60) * 10) / 10;
+    let currentSequence = 1;
 
-      const [savedWaypoint] = await knex('move_waypoints')
-        .insert({
-          saved_move_id: moveId,
-          user_id: userId,
-          city: geocode.city || `Stop ${coord.id}`,
-          state: geocode.state || null,
-          country: geocode.country || 'USA',
-          lat: Math.round(coord.lat * 10000000) / 10000000,
-          lng: Math.round(coord.lng * 10000000) / 10000000,
-          source: 'suggested',
-          distance_from_origin_miles: distanceFromOrigin,
-          typical_drive_hours_from_origin: driveHoursFromOrigin,
-          notes: `Suggested overnight stop in ${coord.segmentDescription} (~${distanceFromOrigin} mi from origin)`,
-          overnight_recommended: true,
-          sequence_order: clearExisting ? coord.id : startOrder + coord.id - 1
-        })
-        .returning('*');
+    // Process each segment's suggestions and the following drop-off
+    for (let i = 0; i < segments.length; i++) {
+      // 1. Add suggestions for this segment
+      const segmentSuggestions = coordsToGeocode.filter(c => c.segmentIndex === i);
+      
+      for (const coord of segmentSuggestions) {
+        const geocode = geocodeResults.get(coord.id) || {};
+        const distanceFromOrigin = coord.distanceFromOrigin;
+        const driveHoursFromOrigin = Math.round((distanceFromOrigin / 60) * 10) / 10;
 
-      savedWaypoints.push(savedWaypoint);
-      console.log(`[Waypoints] ${correlationId}:   Saved: ${geocode.city || 'Stop'}, ${geocode.state || ''} (${distanceFromOrigin} mi)`);
+        const [savedWaypoint] = await knex('move_waypoints')
+          .insert({
+            saved_move_id: moveId,
+            user_id: userId,
+            city: geocode.city || `Stop ${coord.id}`,
+            state: geocode.state || null,
+            country: geocode.country || 'USA',
+            lat: Math.round(coord.lat * 10000000) / 10000000,
+            lng: Math.round(coord.lng * 10000000) / 10000000,
+            source: 'suggested',
+            distance_from_origin_miles: distanceFromOrigin,
+            typical_drive_hours_from_origin: driveHoursFromOrigin,
+            notes: `Suggested overnight stop in ${coord.segmentDescription} (~${distanceFromOrigin} mi from origin)`,
+            overnight_recommended: true,
+            sequence_order: currentSequence++
+          })
+          .returning('*');
+
+        savedWaypoints.push(savedWaypoint);
+        console.log(`[Waypoints] ${correlationId}:   Saved: ${geocode.city || 'Stop'}, ${geocode.state || ''} (${distanceFromOrigin} mi) at sequence ${savedWaypoint.sequence_order}`);
+      }
+
+      // 2. Update the drop-off that ends this segment (if any)
+      if (i < dropoffWaypoints.length) {
+        const dropoff = dropoffWaypoints[i];
+        await knex('move_waypoints')
+          .where('id', dropoff.id)
+          .update({
+            sequence_order: currentSequence++,
+            updated_at: knex.fn.now()
+          });
+        console.log(`[Waypoints] ${correlationId}:   Updated drop-off ${dropoff.city} to sequence ${currentSequence - 1}`);
+      }
     }
 
     console.log(`[Waypoints] ${correlationId}: Completed - saved ${savedWaypoints.length} waypoint(s)`);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, toRaw } from 'vue';
 
 declare global {
   interface Window {
@@ -29,6 +29,8 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: LocationForm): void;
 }>();
 
+// --- Default State ---
+
 const defaultForm = (): LocationForm => ({
   name: '',
   address1: '',
@@ -46,119 +48,74 @@ const form = reactive<LocationForm>(defaultForm());
 const manualEntryOpen = ref(false);
 const verifying = ref(false);
 const verificationError = ref<string | null>(null);
+
+// --- Google Maps References ---
+
+const googleMapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
+const searchInputRef = ref<any>(null); // Quasar input ref
+const searchText = ref('');
+const mapContainer = ref<HTMLElement | null>(null);
+const mapInstance = ref<any>(null);
+const markerInstance = ref<any>(null);
+
+let autocompleteInstance: any = null;
+let autocompleteListener: any = null;
+let scriptPromise: Promise<void> | null = null;
 let manualGeocodeTimeout: ReturnType<typeof setTimeout> | null = null;
 let suppressManualGeocode = false;
+let isUpdatingFromProp = false;
 
+const hasMapsKey = computed(() => Boolean(googleMapsKey));
+
+// --- State Watchers ---
+
+// Sync Prop -> Local Form
 watch(
   () => props.modelValue,
-  (val) => {
-    const source = val || defaultForm();
+  (newVal) => {
+    isUpdatingFromProp = true;
+    const source = newVal || defaultForm();
     Object.assign(form, defaultForm(), source);
+    
+    // Update map view if coordinates exist
+    if (form.lat && form.lng) {
+      nextTick(ensureMap);
+    }
+    isUpdatingFromProp = false;
   },
   { immediate: true, deep: true }
 );
 
+// Sync Local Form -> Prop
 watch(
   form,
-  () => {
-    emit('update:modelValue', { ...form });
+  (newVal) => {
+    if (isUpdatingFromProp) return;
+    emit('update:modelValue', { ...toRaw(newVal) });
   },
   { deep: true }
 );
 
+// Watch address fields for manual geocoding trigger
 watch(
-  () => [form.lat, form.lng],
-  async ([lat, lng]) => {
-    if (lat != null && lng != null) {
-      await ensureMap();
-      if (mapInstance.value && markerInstance.value) {
-        const position = { lat, lng };
-        mapInstance.value.setCenter(position);
-        mapInstance.value.setZoom(15);
-        markerInstance.value.setPosition(position);
-      }
-    }
-  }
-);
-
-watch(
-  () => [form.address1, form.address2, form.city, form.state, form.zip, form.country],
+  () => [form.address1, form.city, form.state, form.zip, form.country],
   () => {
-    if (!manualEntryOpen.value) return;
-    scheduleManualGeocode();
+    if (isUpdatingFromProp) return;
+    if (manualEntryOpen.value) scheduleManualGeocode();
   }
 );
 
-watch(manualEntryOpen, (open) => {
-  if (open) {
-    scheduleManualGeocode();
-  } else if (manualGeocodeTimeout) {
-    clearTimeout(manualGeocodeTimeout);
-  }
-});
-
-const geocodeManualAddress = async () => {
-  if (!googleMapsKey || !form.address1 || !form.city || !form.state) return;
-  verifying.value = true;
-  verificationError.value = null;
-  try {
-    await ensureMap();
-    const query = [form.address1, form.address2, form.city, form.state, form.zip, form.country]
-      .filter(Boolean)
-      .join(', ');
-    const response = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?key=${googleMapsKey}&address=${encodeURIComponent(query)}`
-    );
-    if (!response.ok) throw new Error('Failed to contact Google Maps');
-    const payload = await response.json();
-    if (payload.status !== 'OK' || !payload.results?.length) {
-      throw new Error('Address not found. Refine and try again.');
-    }
-    const result = payload.results[0];
-    form.formattedAddress = result.formatted_address;
-    form.lat = result.geometry.location.lat;
-    form.lng = result.geometry.location.lng;
-    if (mapInstance.value && markerInstance.value) {
-      const position = { lat: form.lat, lng: form.lng };
-      mapInstance.value.setCenter(position);
-      mapInstance.value.setZoom(16);
-      markerInstance.value.setPosition(position);
-    }
-  } catch (error: any) {
-    console.error('[LocationSearchInline] manual geocode failed', error);
-    verificationError.value = error?.message || 'Unable to verify address.';
-  } finally {
-    verifying.value = false;
-  }
-};
-
-const scheduleManualGeocode = () => {
-  if (suppressManualGeocode) return;
-  if (!googleMapsKey) return;
-  if (!manualEntryOpen.value) return;
-  if (manualGeocodeTimeout) clearTimeout(manualGeocodeTimeout);
-  manualGeocodeTimeout = setTimeout(() => {
-    geocodeManualAddress();
-  }, 800);
-};
-
-const googleMapsKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
-const autocompleteContainer = ref<HTMLElement | null>(null);
-const mapContainer = ref<HTMLElement | null>(null);
-const mapInstance = ref<any>(null);
-const markerInstance = ref<any>(null);
-let autocompleteElement: any = null;
-let autocompleteListener: any = null;
-let scriptPromise: Promise<void> | null = null;
-const hasMapsKey = computed(() => Boolean(googleMapsKey));
+// --- Google Maps Loading Logic ---
 
 const loadMapsScript = () => {
   if (typeof window === 'undefined' || !googleMapsKey) return Promise.resolve();
   if (window.google?.maps) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
+
   scriptPromise = new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsKey}&libraries=geometry&v=weekly`;
+    // Ensure 'places' and 'geometry' are requested
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsKey}&loading=async&libraries=places,geometry&v=weekly`;
     script.async = true;
     script.defer = true;
     script.onload = () => resolve();
@@ -171,6 +128,8 @@ const loadMapsScript = () => {
 const ensureMap = async () => {
   if (!googleMapsKey || !mapContainer.value) return;
   await loadMapsScript();
+
+  // Initialize Map
   if (!mapInstance.value) {
     mapInstance.value = new window.google.maps.Map(mapContainer.value, {
       center: { lat: 37.773972, lng: -122.431297 },
@@ -180,11 +139,14 @@ const ensureMap = async () => {
       fullscreenControl: false
     });
   }
+
+  // Initialize Marker
   if (!markerInstance.value) {
     markerInstance.value = new window.google.maps.Marker({
       map: mapInstance.value,
       draggable: true
     });
+    
     markerInstance.value.addListener('dragend', () => {
       const pos = markerInstance.value.getPosition();
       if (!pos) return;
@@ -192,169 +154,262 @@ const ensureMap = async () => {
       form.lng = pos.lng();
     });
   }
+
+  // Update Position
   if (form.lat != null && form.lng != null) {
     const position = { lat: form.lat, lng: form.lng };
     mapInstance.value.setCenter(position);
-    mapInstance.value.setZoom(15);
+    mapInstance.value.setZoom(16);
     markerInstance.value.setPosition(position);
   }
 };
 
-const handlePlaceSelection = async (place: any) => {
-  if (!place) return;
-  try {
-    await place.fetchFields({ fields: ['formattedAddress', 'addressComponents', 'location'] });
-  } catch (error) {
-    console.warn('[LocationSearchInline] fetchFields failed', error);
+// --- Autocomplete Logic ---
+
+const initAutocomplete = async () => {
+  if (!googleMapsKey || !searchInputRef.value) return;
+  await loadMapsScript();
+
+  // Clean up previous instance
+  if (autocompleteListener) {
+    window.google.maps.event.removeListener(autocompleteListener);
   }
-  await ensureMap();
-  const components = place.addressComponents || [];
-  const getComponent = (type: string, short = false) => {
-    const match = components.find((c: any) => c.types?.includes(type));
-    return short ? match?.shortText ?? match?.short_name : match?.longText ?? match?.long_name;
-  };
+
+  // Get the native input element from Quasar wrapper
+  const nativeInput = searchInputRef.value.$el.getElementsByTagName('input')[0];
+  if (!nativeInput) return;
+
+  autocompleteInstance = new window.google.maps.places.Autocomplete(nativeInput, {
+    fields: ['formatted_address', 'geometry', 'address_components', 'name'],
+    types: ['address'],
+    componentRestrictions: { country: ['us', 'ca', 'gb', 'au'] } // Common defaults, adjust as needed
+  });
+
+  autocompleteListener = autocompleteInstance.addListener('place_changed', handlePlaceChanged);
+};
+
+const handlePlaceChanged = async () => {
+  const place = autocompleteInstance.getPlace();
+  verificationError.value = null;
+
+  if (!place || !place.geometry) {
+    verificationError.value = "Please select an address from the dropdown list.";
+    return;
+  }
+
   suppressManualGeocode = true;
-  const streetNumber = getComponent('street_number', true) || '';
-  const route = getComponent('route') || '';
-  if (streetNumber || route) {
-    form.address1 = `${streetNumber} ${route}`.trim();
-  } else if (place.formattedAddress) {
-    form.address1 = place.formattedAddress.split(',')[0] || place.formattedAddress;
+
+  // Parse Components
+  const components = place.address_components || [];
+  const getComponent = (type: string, useShort = false) => {
+    const match = components.find((c: any) => c.types.includes(type));
+    return match ? (useShort ? match.short_name : match.long_name) : '';
+  };
+
+  const streetNum = getComponent('street_number');
+  const route = getComponent('route');
+  
+  form.address1 = `${streetNum} ${route}`.trim();
+  // Fallback if component parsing fails but formatted address exists
+  if (!form.address1 && place.formatted_address) {
+    form.address1 = place.formatted_address.split(',')[0];
   }
-  const cityFallback =
-    getComponent('locality') ||
-    getComponent('sublocality_level_1') ||
-    getComponent('administrative_area_level_2');
-  if (cityFallback) {
-    form.city = cityFallback;
+
+  form.city = getComponent('locality') || getComponent('sublocality') || getComponent('administrative_area_level_2');
+  form.state = getComponent('administrative_area_level_1', true); // Short name for state
+  form.zip = getComponent('postal_code');
+  form.country = getComponent('country');
+  form.formattedAddress = place.formatted_address;
+  
+  // Clear optional
+  form.address2 = '';
+
+  // Handle Geometry
+  if (place.geometry.location) {
+    form.lat = place.geometry.location.lat();
+    form.lng = place.geometry.location.lng();
+    await ensureMap();
+    
+    const pos = { lat: form.lat as number, lng: form.lng as number };
+    mapInstance.value.setCenter(pos);
+    mapInstance.value.setZoom(17);
+    markerInstance.value.setPosition(pos);
   }
-  const state = getComponent('administrative_area_level_1', true);
-  if (state) {
-    form.state = state;
-  }
-  const postal = getComponent('postal_code') || getComponent('postal_code', true);
-  const postalSuffix = getComponent('postal_code_suffix', true);
-  if (postal && postalSuffix) {
-    form.zip = `${postal}-${postalSuffix}`;
-  } else if (postal) {
-    form.zip = postal;
-  }
-  const country = getComponent('country');
-  if (country) {
-    form.country = country;
-  }
-  form.formattedAddress = place.formattedAddress || form.address1;
-  manualEntryOpen.value = false;
-  let lat: number | null = null;
-  let lng: number | null = null;
-  if (place.location) {
-    if (typeof place.location.lat === 'function') {
-      lat = place.location.lat();
-      lng = place.location.lng();
-    } else {
-      lat = place.location.lat ?? place.location.latitude ?? null;
-      lng = place.location.lng ?? place.location.longitude ?? null;
-    }
-  }
-  if (lat != null && lng != null) {
-    form.lat = lat;
-    form.lng = lng;
+
+  searchText.value = ''; // Clear search bar
+  manualEntryOpen.value = true; // Reveal details
+  
+  // Debounce release of suppression to prevent watchers from firing immediately
+  setTimeout(() => {
+    suppressManualGeocode = false;
+  }, 500);
+};
+
+// --- Manual Geocoding ---
+
+const geocodeManualAddress = async () => {
+  if (!googleMapsKey || !form.address1 || !form.city || !form.state) return;
+
+  verifying.value = true;
+  verificationError.value = null;
+
+  try {
+    await ensureMap();
+    const query = [
+      form.address1, 
+      form.address2, 
+      form.city, 
+      form.state, 
+      form.zip, 
+      form.country
+    ].filter(Boolean).join(', ');
+
+    const geocoder = new window.google.maps.Geocoder();
+    
+    // Wrap generic Geocoding in Promise
+    const result = await new Promise<any>((resolve, reject) => {
+      geocoder.geocode({ address: query }, (results: any, status: any) => {
+        if (status === 'OK' && results[0]) resolve(results[0]);
+        else reject(new Error(status));
+      });
+    });
+
+    form.formattedAddress = result.formatted_address;
+    form.lat = result.geometry.location.lat();
+    form.lng = result.geometry.location.lng();
+
     if (mapInstance.value && markerInstance.value) {
-      const position = { lat, lng };
+      const position = { lat: form.lat!, lng: form.lng! };
       mapInstance.value.setCenter(position);
       mapInstance.value.setZoom(16);
       markerInstance.value.setPosition(position);
     }
+  } catch (error: any) {
+    console.warn('[LocationSearchInline] Manual geocode failed', error);
+    // Don't show visible error for manual typing to avoid annoying user
+  } finally {
+    verifying.value = false;
   }
-  suppressManualGeocode = false;
 };
 
-const initAutocomplete = async () => {
-  if (!googleMapsKey || !autocompleteContainer.value) return;
-  await loadMapsScript();
-  await window.google.maps.importLibrary('places');
-  await ensureMap();
-  if (autocompleteElement && autocompleteListener) {
-    autocompleteElement.removeEventListener('gmpx-placechange', autocompleteListener);
-  }
-  autocompleteElement = new window.google.maps.places.PlaceAutocompleteElement({
-    componentRestrictions: { country: form.country?.toLowerCase?.() || 'us' }
-  });
-  autocompleteElement.fields = ['formattedAddress', 'addressComponents', 'location'];
-  autocompleteElement.classList.add('inline-autocomplete');
-  autocompleteContainer.value.innerHTML = '';
-  autocompleteContainer.value.appendChild(autocompleteElement);
-  autocompleteListener = (event: any) => {
-    event?.preventDefault?.();
-    const place = event?.detail?.place || autocompleteElement?.place;
-    handlePlaceSelection(place);
-  };
-  autocompleteElement.addEventListener('gmpx-placechange', autocompleteListener);
+const scheduleManualGeocode = () => {
+  if (suppressManualGeocode) return;
+  if (!hasMapsKey.value) return;
+  
+  if (manualGeocodeTimeout) clearTimeout(manualGeocodeTimeout);
+  manualGeocodeTimeout = setTimeout(() => {
+    geocodeManualAddress();
+  }, 1000); // 1s debounce
 };
+
+// --- Lifecycle ---
 
 onMounted(async () => {
-  await nextTick();
-  initAutocomplete();
+  if (hasMapsKey.value) {
+    // Wait for DOM to be ready
+    await nextTick();
+    await loadMapsScript();
+    initAutocomplete();
+    ensureMap();
+  }
 });
 
 onBeforeUnmount(() => {
-  if (autocompleteElement && autocompleteListener) {
-    autocompleteElement.removeEventListener('gmpx-placechange', autocompleteListener);
+  if (autocompleteListener) {
+    window.google.maps?.event.removeListener(autocompleteListener);
+  }
+  if (manualGeocodeTimeout) {
+    clearTimeout(manualGeocodeTimeout);
   }
 });
 </script>
 
 <template>
   <div class="location-search-inline">
-    <q-input v-model="form.name" label="Location nickname" outlined dense autofocus />
-    <label class="text-caption text-grey-7">Search address</label>
-    <div
-      v-if="hasMapsKey"
-      ref="autocompleteContainer"
-      class="inline-search-input"
-    ></div>
-    <div v-else class="inline-search-input warning">
-      Google Maps API key missing. Contact support.
-    </div>
-    <div class="text-caption text-grey-6 q-mt-xs" v-if="form.formattedAddress">
-      {{ form.formattedAddress }}<span v-if="form.zip"> • ZIP {{ form.zip }}</span>
+    <div class="row q-col-gutter-sm">
+      <div class="col-12">
+        <q-input 
+          v-model="form.name" 
+          label="Location Nickname (e.g. Warehouse A)" 
+          outlined 
+          dense 
+        />
+      </div>
+      
+      <div class="col-12">
+        <label class="text-caption text-grey-7">Address Search</label>
+        <q-input
+          ref="searchInputRef"
+          v-model="searchText"
+          placeholder="Start typing an address..."
+          outlined
+          dense
+          bg-color="white"
+          :disable="!hasMapsKey"
+        >
+          <template v-slot:prepend>
+            <q-icon name="search" />
+          </template>
+        </q-input>
+        
+        <div v-if="!hasMapsKey" class="text-caption text-negative q-mt-xs">
+          Google Maps API key missing.
+        </div>
+        
+        <div class="text-caption text-grey-6 q-mt-xs" v-if="form.formattedAddress">
+          Currently: <strong>{{ form.formattedAddress }}</strong>
+        </div>
+      </div>
     </div>
 
     <q-expansion-item
       dense
       dense-toggle
       v-model="manualEntryOpen"
-      label="Enter address manually"
-      header-class="text-caption text-grey-7"
+      label="Address Details"
+      class="q-mt-sm border-radius-inherit"
+      header-class="text-caption text-grey-7 bg-grey-2"
+      expand-icon-class="text-grey-7"
     >
-      <q-card flat>
-        <q-card-section class="q-pt-xs">
-          <div class="row q-col-gutter-sm">
-            <div class="col-12">
-              <q-input v-model="form.address1" label="Address line 1" outlined dense />
-            </div>
-            <div class="col-12">
-              <q-input v-model="form.address2" label="Address line 2 (optional)" outlined dense />
-            </div>
-            <div class="col-12 col-md-6">
-              <q-input v-model="form.city" label="City" outlined dense />
-            </div>
-            <div class="col-6 col-md-3">
-              <q-input v-model="form.state" label="State" outlined dense />
-            </div>
-            <div class="col-6 col-md-3">
-              <q-input v-model="form.zip" label="ZIP" outlined dense />
-            </div>
+      <q-card flat class="bg-grey-1 q-pa-sm">
+        <div class="row q-col-gutter-sm">
+          <div class="col-12">
+            <q-input v-model="form.address1" label="Address line 1" outlined dense bg-color="white" />
           </div>
-          <div class="text-caption text-grey-6 q-mt-xs">
-            Map updates automatically as you edit these fields.
+          <div class="col-12">
+            <q-input v-model="form.address2" label="Line 2 (Optional)" outlined dense bg-color="white" />
           </div>
-        </q-card-section>
+          <div class="col-12 col-md-6">
+            <q-input v-model="form.city" label="City" outlined dense bg-color="white" />
+          </div>
+          <div class="col-6 col-md-3">
+            <q-input v-model="form.state" label="State" outlined dense bg-color="white" />
+          </div>
+          <div class="col-6 col-md-3">
+            <q-input v-model="form.zip" label="ZIP" outlined dense bg-color="white" />
+          </div>
+          <div class="col-12 col-md-6">
+            <q-input v-model="form.country" label="Country" outlined dense bg-color="white" />
+          </div>
+        </div>
+        <div class="text-caption text-grey-6 q-mt-xs">
+          <q-icon name="info" /> Map updates automatically as you edit fields.
+        </div>
       </q-card>
     </q-expansion-item>
 
-    <div ref="mapContainer" class="inline-map q-mt-md"></div>
-    <div class="text-caption text-grey-7 q-mt-xs">Drag the marker if the entrance is different.</div>
+    <div class="col-12 q-mt-md">
+      <div ref="mapContainer" class="inline-map"></div>
+      <div class="text-caption text-grey-7 q-mt-xs text-center">
+        <span v-if="form.lat && form.lng" class="text-positive text-weight-bold">
+           Pin active: {{ form.lat.toFixed(5) }}, {{ form.lng.toFixed(5) }}
+        </span>
+        <span v-else>
+          Enter an address to place pin.
+        </span>
+      </div>
+    </div>
+
     <q-banner
       v-if="verificationError"
       dense
@@ -370,41 +425,6 @@ onBeforeUnmount(() => {
 .location-search-inline {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.inline-search-input {
-  width: 100%;
-  border-radius: 8px;
-  border: 1px solid #cfd8dc;
-  background: #fff;
-  font-size: 14px;
-}
-
-.inline-search-input.warning {
-  padding: 10px 12px;
-  background: #fff1f2;
-  border-color: #fecdd3;
-  color: #b91c1c;
-}
-
-.inline-search-input :deep(gmpx-place-autocomplete) {
-  width: 100%;
-  display: block;
-  border-radius: 8px;
-  --gmpx-color-surface: #ffffff;
-  --gmpx-border-color: #cfd8dc;
-  --gmpx-border-radius: 8px;
-  --gmpx-padding-vertical: 10px;
-  --gmpx-padding-horizontal: 12px;
-  --gmpx-font-size: 14px;
-  --gmpx-text-color: #0f172a;
-  --gmpx-placeholder-color: rgba(15, 23, 42, 0.5);
-  --gmpx-color-primary: #1d4ed8;
-}
-
-.inline-search-input :deep(gmpx-place-autocomplete::part(input)) {
-  font-size: 14px;
 }
 
 .inline-map {
@@ -413,5 +433,15 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   border: 1px solid #cfd8dc;
   overflow: hidden;
+  background-color: #f5f5f5;
+}
+
+/* Ensure Google Autocomplete shows above other elements */
+:global(.pac-container) {
+  z-index: 9999 !important;
+  font-family: inherit;
+  border-radius: 0 0 8px 8px;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  border: 1px solid #e2e8f0;
 }
 </style>

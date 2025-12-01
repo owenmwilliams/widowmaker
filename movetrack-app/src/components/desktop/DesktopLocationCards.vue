@@ -3,6 +3,7 @@
   import { inventoryStore } from '../../stores/InventoryStore';
   import DesktopAdd from './DesktopAdd.vue';
   import DesktopEdit from './DesktopEdit.vue';
+  import LocationDeleteDialog from '../location/LocationDeleteDialog.vue';
   import { storeToRefs } from 'pinia';
 import { computed } from 'vue';
 import { watch } from 'vue';
@@ -15,16 +16,33 @@ import { watch } from 'vue';
   })
 
   const deleteDialog = ref(false);
+  const locationDeleteDialog = ref(false);
+  const locationToDelete = ref<{ id: number; name: string } | null>(null);
   const editDialog = ref(false);
   const typePassed = ref('');
   const itemPassed: Ref<number | undefined> = ref();
   const toggle = ref(false);
   // const roomsDeleted: Ref<any[]> = ref([])
 
-  const deleteThing = (id: number, type: string) => {
-      itemPassed.value = id
-      typePassed.value = type
-      deleteDialog.value = true
+const deleteThing = (id: number, type: string) => {
+  if (type === 'Location') {
+    const location = store.locations.find(l => l.value === id);
+    if (location) {
+      locationToDelete.value = { id, name: location.label };
+      locationDeleteDialog.value = true;
+    }
+  } else {
+    itemPassed.value = id;
+    typePassed.value = type;
+    deleteDialog.value = true;
+  }
+}
+
+const handleLocationDeleted = async () => {
+    // Refresh inventory after location deletion
+    await store.loadInventory(props.user);
+    locationDeleteDialog.value = false;
+    locationToDelete.value = null;
   }
 
   // const { containers, collections, locations } = storeToRefs(store);
@@ -283,6 +301,15 @@ import { watch } from 'vue';
   <q-dialog v-model="editDialog" persistent>
     <DesktopEdit :user="props.user!" :addType="typePassed" :id="itemPassed!" />
   </q-dialog>
+
+  <!-- Location Delete Dialog with Move Handling -->
+  <LocationDeleteDialog
+    v-if="locationToDelete"
+    v-model="locationDeleteDialog"
+    :location-id="locationToDelete.id"
+    :location-name="locationToDelete.name"
+    @deleted="handleLocationDeleted"
+  />
 
   <!-- <q-dialog dark v-model="editRoomDialog" persistent>
     <DesktopEdit :user="props.user!" addType="Room" />

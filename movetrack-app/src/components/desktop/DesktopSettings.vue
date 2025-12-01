@@ -6,6 +6,7 @@ import { storeToRefs } from 'pinia';
 import VisionProviderToggle from '../VisionProviderToggle.vue';
 import axios from 'axios';
 import LocationEditorDialog from '../location/LocationEditorDialog.vue';
+import LocationDeleteDialog from '../location/LocationDeleteDialog.vue';
 
 const props = defineProps<{
   user: string;
@@ -17,6 +18,8 @@ const currentVisionProvider = ref<string>('gemini');
 const editingLocationId = ref<number | null>(null);
 const locationEditorVisible = ref(false);
 const locationEditorMode = ref<'add' | 'edit'>('add');
+const locationDeleteDialog = ref(false);
+const locationToDelete = ref<{ id: number; name: string } | null>(null);
 interface LocationEditorPayload {
   name: string;
   address1: string;
@@ -210,32 +213,24 @@ const handleLocationEditorSave = async (payload: LocationEditorPayload) => {
   }
 };
 
-const deleteLocation = async (id: number) => {
-  $q.dialog({
-    title: 'Delete location',
-    message: 'Are you sure you want to remove this location?',
-    cancel: true,
-    persistent: true
-  }).onOk(async () => {
-    try {
-      $q.loading.show({ message: 'Deleting location...' });
-      await store.deleteLocation(id, props.user, { skipRedirect: true });
-      $q.notify({
-        type: 'positive',
-        message: 'Location removed',
-        position: 'bottom'
-      });
-    } catch (error) {
-      console.error('Delete failed', error);
-      $q.notify({
-        type: 'negative',
-        message: 'Unable to delete location',
-        position: 'bottom'
-      });
-    } finally {
-      $q.loading.hide();
-    }
+const deleteLocation = (id: number) => {
+  const location = locations.value.find(l => l.value === id);
+  if (location) {
+    locationToDelete.value = { id, name: location.label || 'this location' };
+    locationDeleteDialog.value = true;
+  }
+};
+
+const handleLocationDeleted = () => {
+  locationDeleteDialog.value = false;
+  locationToDelete.value = null;
+  $q.notify({
+    type: 'positive',
+    message: 'Location removed successfully.',
+    position: 'bottom'
   });
+  // The inventory store automatically refreshes its data,
+  // so no need to call a fetch method here.
 };
 
 const markPrimary = async (id: number | null) => {
@@ -509,6 +504,14 @@ const getTruckSizeLabel = (size: string | null) => {
       :mode="locationEditorMode"
       :initial-location="locationEditorInitial"
       @save="handleLocationEditorSave"
+    />
+
+    <LocationDeleteDialog
+      v-if="locationToDelete"
+      v-model="locationDeleteDialog"
+      :location-id="locationToDelete.id"
+      :location-name="locationToDelete.name"
+      @deleted="handleLocationDeleted"
     />
 
     <!-- Truck Edit Dialog -->

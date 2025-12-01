@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useQuasar } from 'quasar';
 import VisionProviderToggle from '../VisionProviderToggle.vue';
 import MobileAdd from './MobileAdd.vue';
+import LocationDeleteDialog from '../location/LocationDeleteDialog.vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 
 const props = defineProps<{
@@ -22,6 +23,9 @@ const manageDialogOpen = ref(false);
 const manageObjectType = ref<'location' | 'collection'>('location');
 const manageEditMode = ref(false);
 const manageId = ref<string | number | undefined>(undefined);
+
+const locationDeleteDialog = ref(false);
+const locationToDelete = ref<{ id: number; name: string } | null>(null);
 
 const handleProviderChanged = (provider: string) => {
   currentVisionProvider.value = provider;
@@ -61,18 +65,28 @@ const formatLocationSubtitle = (location: any) => {
 };
 
 const confirmDelete = (type: 'location' | 'collection', id: string | number, name: string) => {
-  $q.dialog({
-    title: `Delete ${type === 'location' ? 'Location' : 'Collection'}`,
-    message: `Are you sure you want to delete "${name}"?`,
-    cancel: true,
-    persistent: true
-  }).onOk(async () => {
-    if (type === 'location') {
-      await store.deleteLocation(id, props.user, { skipRedirect: true });
-    } else {
+  if (type === 'location') {
+    // Use the new deletion dialog for locations
+    locationToDelete.value = { id: Number(id), name };
+    locationDeleteDialog.value = true;
+  } else {
+    // Keep simple dialog for collections
+    $q.dialog({
+      title: 'Delete Collection',
+      message: `Are you sure you want to delete "${name}"?`,
+      cancel: true,
+      persistent: true
+    }).onOk(async () => {
       await store.deleteCollection(id, props.user);
-    }
-  });
+    });
+  }
+};
+
+const handleLocationDeleted = async () => {
+  // Refresh inventory after location deletion
+  await store.loadInventory(props.user);
+  locationDeleteDialog.value = false;
+  locationToDelete.value = null;
 };
 </script>
 
@@ -205,6 +219,15 @@ const confirmDelete = (type: 'location' | 'collection', id: string | number, nam
       @close="closeManageDialog"
     />
   </q-dialog>
+
+  <!-- Location Delete Dialog with Move Handling -->
+  <LocationDeleteDialog
+    v-if="locationToDelete"
+    v-model="locationDeleteDialog"
+    :location-id="locationToDelete.id"
+    :location-name="locationToDelete.name"
+    @deleted="handleLocationDeleted"
+  />
 </template>
 
 <style scoped>
