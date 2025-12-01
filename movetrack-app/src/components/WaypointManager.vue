@@ -320,12 +320,18 @@ const performSuggestStops = async (clearExisting: boolean) => {
     });
 
     const count = response.data.waypoints?.length || 0;
-    $q.notify({
-      type: 'positive',
-      message: `Added ${count} suggested stop${count !== 1 ? 's' : ''} along your route`
-    });
 
     await fetchWaypoints();
+
+    // Auto-recalculate route distances after suggesting waypoints
+    if (count > 0) {
+      await calculateRoute();
+    }
+
+    $q.notify({
+      type: 'positive',
+      message: `Added ${count} suggested stop${count !== 1 ? 's' : ''} and calculated route distances`
+    });
   } catch (error: any) {
     console.error('Error suggesting stops:', error);
     const message = error.response?.data?.error || 'Failed to suggest stops';
@@ -419,8 +425,8 @@ defineExpose({
           dense
           flat
           size="sm"
-          color="positive"
-          icon="route"
+          color="grey-7"
+          icon="replay"
           :loading="calculating"
           :disable="!moveId || calculating"
           @click="calculateRoute"
