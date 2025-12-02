@@ -112,7 +112,29 @@ const handleNext = async () => {
     bedroomCount: bedroomCount.value ?? 1,
   });
 
-  await persistName();
+  // Don't persist name to backend yet - wait until onboarding completion
+  // Just update local cache for now
+  const trimmed = name.value.trim();
+  let firstName = trimmed;
+  let lastName = "";
+  const parts = trimmed.split(/\s+/);
+  if (parts.length > 1) {
+    firstName = parts.shift() ?? trimmed;
+    lastName = parts.join(" ");
+  }
+
+  try {
+    const raw = localStorage.getItem("user_data");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      parsed.name = trimmed;
+      parsed.first_name = firstName;
+      parsed.last_name = lastName;
+      localStorage.setItem("user_data", JSON.stringify(parsed));
+    }
+  } catch (error) {
+    console.warn("[OnboardingProfile] Unable to update cached user", error);
+  }
 
   router.push({ name: "onboarding-spaces" });
 };
