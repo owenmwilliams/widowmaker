@@ -16,8 +16,12 @@ const knex = require('knex')({
 const jsonParser = bodyParser.json({ limit: '2mb' });
 
 router.post('/complete', jsonParser, async function (req, res) {
+  console.log('[onboarding/complete] req.user:', req.user);
+  console.log('[onboarding/complete] headers:', req.headers);
   const userId = req.user?.user_id || req.user?.userId;
+  console.log('[onboarding/complete] userId:', userId);
   if (!userId) {
+    console.log('[onboarding/complete] No userId found, returning 401');
     return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
 
