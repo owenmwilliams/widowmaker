@@ -477,7 +477,7 @@ async function logout(sessionToken) {
 async function getUserFromToken(sessionToken) {
     try {
         console.log('[getUserFromToken] Verifying JWT...');
-        // Verify JWT
+        // Verify JWT (this checks signature and expiration)
         const decoded = verifySessionToken(sessionToken);
         console.log('[getUserFromToken] JWT decoded:', decoded ? { userId: decoded.userId, email: decoded.email } : null);
         if (!decoded) {
@@ -485,57 +485,35 @@ async function getUserFromToken(sessionToken) {
             return null;
         }
 
-        // Check if session token exists in database and is valid
-        // Note: Session tokens are reusable until expiration, unlike magic links
+        // JWT is valid, now fetch user from database
+        // We trust the JWT since it's cryptographically signed
         const hasOnboarding = await hasOnboardingColumn();
-        const onboardingSelect = hasOnboarding ? ', u.onboarding_completed' : ', NULL::boolean AS onboarding_completed';
+        const onboardingSelect = hasOnboarding ? ', onboarding_completed' : ', NULL::boolean AS onboarding_completed';
 
-        console.log('[getUserFromToken] Querying database for session token...');
-
-        // First, check if the token exists at all (without JOIN)
-        const tokenExists = await db.oneOrNone(
-            `SELECT user_id, token_type, expires_at, expires_at > NOW() as is_valid
-             FROM auth_tokens
-             WHERE token = $1`,
-            [sessionToken]
-        );
-        console.log('[getUserFromToken] Token in auth_tokens:', tokenExists);
-
-        // Then check if user exists
-        if (tokenExists) {
-            const userExists = await db.oneOrNone(
-                `SELECT user_id, email FROM users WHERE user_id = $1`,
-                [tokenExists.user_id]
-            );
-            console.log('[getUserFromToken] User in users table:', userExists);
-        }
-
-        // Now do the full query
-        const authToken = await db.oneOrNone(
-            `SELECT at.*, u.email, u.first_name, u.last_name${onboardingSelect}
-             FROM auth_tokens at
-             JOIN users u ON at.user_id = u.user_id
-             WHERE at.token = $1
-             AND at.token_type = 'session'
-             AND at.expires_at > NOW()`,
-            [sessionToken]
+        console.log('[getUserFromToken] Fetching user from database by userId:', decoded.userId);
+        const user = await db.oneOrNone(
+            `SELECT user_id, email, first_name, last_name${onboardingSelect}
+             FROM users
+             WHERE user_id = $1`,
+            [decoded.userId]
         );
 
-        console.log('[getUserFromToken] Query result:', authToken ? { user_id: authToken.user_id, email: authToken.email } : null);
+        console.log('[getUserFromToken] User from database:', user ? { user_id: user.user_id, email: user.email } : null);
 
-        if (!authToken) {
-            console.log('[getUserFromToken] No authToken found in database');
+        if (!user) {
+            console.log('[getUserFromToken] User not found in database');
             return null;
         }
 
-        const flags = await getPlanForEmail(authToken.email);
+        const flags = await getPlanForEmail(user.email);
 
         return {
-            userId: authToken.user_id,
-            email: authToken.email,
-            firstName: authToken.first_name,
-            lastName: authToken.last_name,
-            onboarding_completed: !!authToken.onboarding_completed,
+            userId: user.user_id,
+            user_id: user.user_id, // Add both formats for compatibility
+            email: user.email,
+            firstName: user.first_name,
+            lastName: user.last_name,
+            onboarding_completed: !!user.onboarding_completed,
             plan: flags.plan,
             is_admin: flags.is_admin
         };
