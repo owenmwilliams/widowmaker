@@ -491,6 +491,26 @@ async function getUserFromToken(sessionToken) {
         const onboardingSelect = hasOnboarding ? ', u.onboarding_completed' : ', NULL::boolean AS onboarding_completed';
 
         console.log('[getUserFromToken] Querying database for session token...');
+
+        // First, check if the token exists at all (without JOIN)
+        const tokenExists = await db.oneOrNone(
+            `SELECT user_id, token_type, expires_at, expires_at > NOW() as is_valid
+             FROM auth_tokens
+             WHERE token = $1`,
+            [sessionToken]
+        );
+        console.log('[getUserFromToken] Token in auth_tokens:', tokenExists);
+
+        // Then check if user exists
+        if (tokenExists) {
+            const userExists = await db.oneOrNone(
+                `SELECT user_id, email FROM users WHERE user_id = $1`,
+                [tokenExists.user_id]
+            );
+            console.log('[getUserFromToken] User in users table:', userExists);
+        }
+
+        // Now do the full query
         const authToken = await db.oneOrNone(
             `SELECT at.*, u.email, u.first_name, u.last_name${onboardingSelect}
              FROM auth_tokens at
