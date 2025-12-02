@@ -483,6 +483,7 @@ async function getUserFromToken(sessionToken) {
         }
 
         // Check if session token exists in database and is valid
+        // Note: Session tokens are reusable until expiration, unlike magic links
         const hasOnboarding = await hasOnboardingColumn();
         const onboardingSelect = hasOnboarding ? ', u.onboarding_completed' : ', NULL::boolean AS onboarding_completed';
         const authToken = await db.oneOrNone(
@@ -491,8 +492,7 @@ async function getUserFromToken(sessionToken) {
              JOIN users u ON at.user_id = u.user_id
              WHERE at.token = $1
              AND at.token_type = 'session'
-             AND at.expires_at > NOW()
-             AND at.used_at IS NULL`,
+             AND at.expires_at > NOW()`,
             [sessionToken]
         );
 
