@@ -882,12 +882,13 @@ onMounted(async () => {
 .step-indicator {
   display: flex;
   align-items: center;
+  justify-content: center;
   margin-bottom: 20px;
 }
 
 .step-dot {
-  width: 84px;
-  height: 84px;
+  width: 120px;
+  height: 100px;
   border-radius: 16px;
   border: 1px dashed #cbd5f5;
   display: flex;
@@ -896,14 +897,17 @@ onMounted(async () => {
   align-items: center;
   font-weight: 700;
   color: #94a3b8;
-  font-size: 1.1rem;
+  font-size: 1.3rem;
+  text-align: center;
+  padding: 8px;
 }
 
 .step-dot span {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin-top: 4px;
+  margin-top: 6px;
+  line-height: 1.2;
 }
 
 .step-dot.active {
