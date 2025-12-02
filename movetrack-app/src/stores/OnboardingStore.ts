@@ -274,12 +274,14 @@ export const onboardingStore = defineStore("onboarding", {
     async finalizeOnboarding() {
       const token = typeof window !== "undefined" ? localStorage.getItem("session_token") : null;
       if (!token) {
-        throw new Error("Not authenticated");
+        console.error("[OnboardingStore] No session token found in localStorage");
+        throw new Error("Not authenticated - please log in again");
       }
 
       const profile = this.buildProfilePayload();
       const location = this.buildLocationPayload();
       if (!location.name || !location.address || !location.city || !location.state || !location.zip) {
+        console.error("[OnboardingStore] Incomplete location data:", location);
         throw new Error("Location information is incomplete");
       }
 
@@ -289,6 +291,7 @@ export const onboardingStore = defineStore("onboarding", {
         rooms: this.selectedRooms,
       };
 
+      console.log("[OnboardingStore] Sending onboarding completion request");
       const response = await axios.post(`${core_url}/onboarding/complete`, payload, {
         headers: {
           Authorization: `Bearer ${token}`,
