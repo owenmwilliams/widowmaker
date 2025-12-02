@@ -76,12 +76,16 @@ watch(
     isUpdatingFromProp = true;
     const source = newVal || defaultForm();
     Object.assign(form, defaultForm(), source);
-    
+
     // Update map view if coordinates exist
     if (form.lat && form.lng) {
       nextTick(ensureMap);
     }
-    isUpdatingFromProp = false;
+
+    // CRITICAL: Use nextTick to ensure flag stays true during reactive updates
+    nextTick(() => {
+      isUpdatingFromProp = false;
+    });
   },
   { immediate: true, deep: true }
 );
