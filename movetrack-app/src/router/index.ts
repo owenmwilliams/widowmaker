@@ -21,6 +21,7 @@ import OnboardingMobileCapture from '../views/onboarding/OnboardingMobileCapture
 import DesktopInventoryUpload from '../views/onboarding/DesktopInventoryUpload.vue'
 import VisionLab from '../views/VisionLab.vue'
 import { hasCompletedOnboarding } from '../utils/onboarding'
+import { validateSessionToken, clearAuthData } from '../utils/auth'
 
 // Custom auth guard using session tokens
 const authGuard = (to: RouteLocationNormalized, from: RouteLocationNormalized, next: NavigationGuardNext) => {
@@ -182,13 +183,32 @@ const router = createRouter({
   ],
 });
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   const sessionToken = localStorage.getItem('session_token');
   const isOnboardingRoute = to.path.startsWith('/onboarding');
+  const isLoginRoute = to.path === '/login';
+
+  // No token - allow navigation
   if (!sessionToken) {
     return next();
   }
 
+  // Validate the session token before checking onboarding
+  // This prevents infinite loops when token is expired
+  const isValidToken = await validateSessionToken();
+
+  if (!isValidToken) {
+    console.log('[Router] Session token is invalid or expired, redirecting to login');
+    clearAuthData();
+
+    // Only redirect to login if not already going there
+    if (!isLoginRoute) {
+      return next('/login');
+    }
+    return next();
+  }
+
+  // Token is valid - check onboarding completion
   const completed = hasCompletedOnboarding();
   if (!completed && !isOnboardingRoute) {
     return next({ name: 'onboarding-welcome' });
