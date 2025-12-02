@@ -476,9 +476,12 @@ async function logout(sessionToken) {
  */
 async function getUserFromToken(sessionToken) {
     try {
+        console.log('[getUserFromToken] Verifying JWT...');
         // Verify JWT
         const decoded = verifySessionToken(sessionToken);
+        console.log('[getUserFromToken] JWT decoded:', decoded ? { userId: decoded.userId, email: decoded.email } : null);
         if (!decoded) {
+            console.log('[getUserFromToken] JWT verification failed');
             return null;
         }
 
@@ -486,6 +489,8 @@ async function getUserFromToken(sessionToken) {
         // Note: Session tokens are reusable until expiration, unlike magic links
         const hasOnboarding = await hasOnboardingColumn();
         const onboardingSelect = hasOnboarding ? ', u.onboarding_completed' : ', NULL::boolean AS onboarding_completed';
+
+        console.log('[getUserFromToken] Querying database for session token...');
         const authToken = await db.oneOrNone(
             `SELECT at.*, u.email, u.first_name, u.last_name${onboardingSelect}
              FROM auth_tokens at
@@ -496,7 +501,10 @@ async function getUserFromToken(sessionToken) {
             [sessionToken]
         );
 
+        console.log('[getUserFromToken] Query result:', authToken ? { user_id: authToken.user_id, email: authToken.email } : null);
+
         if (!authToken) {
+            console.log('[getUserFromToken] No authToken found in database');
             return null;
         }
 
