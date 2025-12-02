@@ -122,7 +122,7 @@ watch(
 
 const loadMapsScript = () => {
   if (typeof window === 'undefined' || !googleMapsKey) return Promise.resolve();
-  if (window.google?.maps) return Promise.resolve();
+  if (window.google?.maps?.places) return Promise.resolve();
   if (scriptPromise) return scriptPromise;
 
   scriptPromise = new Promise((resolve, reject) => {
@@ -131,7 +131,17 @@ const loadMapsScript = () => {
     script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsKey}&loading=async&libraries=places,geometry&v=weekly`;
     script.async = true;
     script.defer = true;
-    script.onload = () => resolve();
+    script.onload = () => {
+      // Wait for Google Maps to be fully initialized
+      const checkGoogleMaps = () => {
+        if (window.google?.maps?.places?.Autocomplete) {
+          resolve();
+        } else {
+          setTimeout(checkGoogleMaps, 50);
+        }
+      };
+      checkGoogleMaps();
+    };
     script.onerror = reject;
     document.head.appendChild(script);
   });
