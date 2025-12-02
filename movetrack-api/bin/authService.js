@@ -279,6 +279,160 @@ If you didn't request this login link, you can safely ignore this email.
 }
 
 /**
+ * Send ReloPrep booking confirmation email with inventory PDF
+ */
+async function sendReloprepConfirmationEmail(userEmail, bookingData, pdfBuffer = null) {
+    const {
+        depositAmount,
+        totalAmount,
+        remainingBalance,
+        origin,
+        destination,
+        moveDate,
+        userName
+    } = bookingData;
+
+    const mailOptions = {
+        from: process.env.EMAIL_FROM || 'owen@we3kings.dev',
+        to: userEmail,
+        subject: 'Your ReloPrep Move is Confirmed!',
+        html: `
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                    .header { background: linear-gradient(135deg, #1976D2 0%, #1ca1c1 100%); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
+                    .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
+                    .detail-box { background: white; padding: 20px; margin: 15px 0; border-left: 4px solid #1976D2; }
+                    .price { font-size: 24px; font-weight: bold; color: #1976D2; }
+                    .footer { margin-top: 30px; padding-top: 20px; border-top: 2px solid #ddd; font-size: 12px; color: #666; }
+                    .button { display: inline-block; padding: 12px 30px; background-color: #1976D2; color: white; text-decoration: none; border-radius: 6px; margin: 10px 0; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>🎉 Your Move is Confirmed!</h1>
+                        <p>Thank you for choosing ReloPrep</p>
+                    </div>
+                    <div class="content">
+                        <h2>Hi${userName ? ' ' + userName : ''}! 👋</h2>
+                        <p>Great news! We've received your deposit and your move is now confirmed. We're finding the perfect vetted mover for your relocation.</p>
+
+                        <div class="detail-box">
+                            <h3>📍 Move Details</h3>
+                            <p><strong>From:</strong> ${origin}</p>
+                            <p><strong>To:</strong> ${destination}</p>
+                            <p><strong>Move Date:</strong> ${moveDate}</p>
+                        </div>
+
+                        <div class="detail-box">
+                            <h3>💰 Payment Summary</h3>
+                            <p><strong>Total Move Cost:</strong> <span class="price">$${totalAmount.toLocaleString()}</span></p>
+                            <p><strong>Deposit Paid (15%):</strong> $${depositAmount.toLocaleString()}</p>
+                            <p><strong>Remaining Balance:</strong> $${remainingBalance.toLocaleString()}</p>
+                            <p style="font-size: 12px; color: #666; margin-top: 10px;">
+                                The remaining balance will be paid directly to your matched moving partner on move day.
+                            </p>
+                        </div>
+
+                        <div class="detail-box">
+                            <h3>📦 Your Inventory PDF</h3>
+                            <p>We've attached your complete inventory PDF to this email. This is what we'll share with your matched mover to ensure an accurate quote.</p>
+                            <p><strong>⚠️ Important:</strong> Please review your inventory carefully. If anything has changed (added items, removed items, or access conditions), please notify us ASAP at <a href="mailto:support@we3kings.dev">support@we3kings.dev</a></p>
+                        </div>
+
+                        <div class="detail-box">
+                            <h3>🚚 What Happens Next?</h3>
+                            <ol>
+                                <li>We're matching you with a vetted, licensed moving partner</li>
+                                <li>You'll receive an introduction to your mover within 24-48 hours</li>
+                                <li>Your mover will confirm the final details and schedule</li>
+                                <li>On move day, you'll pay the remaining balance directly to the mover</li>
+                            </ol>
+                        </div>
+
+                        <p style="text-align: center; margin-top: 30px;">
+                            <a href="mailto:support@we3kings.dev" class="button">Contact Support</a>
+                        </p>
+
+                        <div class="footer">
+                            <p><strong>Price Guarantee:</strong> This price is guaranteed based on the inventory in your PDF and the access conditions you described. Changes to inventory or access may result in additional charges from the moving partner.</p>
+                            <p>Questions? Email us at <a href="mailto:support@we3kings.dev">support@we3kings.dev</a></p>
+                            <p style="color: #999; margin-top: 20px;">© ${new Date().getFullYear()} ReloPrep. All rights reserved.</p>
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+        `,
+        text: `
+Your ReloPrep Move is Confirmed!
+
+Hi${userName ? ' ' + userName : ''}!
+
+Great news! We've received your deposit and your move is now confirmed. We're finding the perfect vetted mover for your relocation.
+
+MOVE DETAILS
+From: ${origin}
+To: ${destination}
+Move Date: ${moveDate}
+
+PAYMENT SUMMARY
+Total Move Cost: $${totalAmount.toLocaleString()}
+Deposit Paid (15%): $${depositAmount.toLocaleString()}
+Remaining Balance: $${remainingBalance.toLocaleString()}
+
+The remaining balance will be paid directly to your matched moving partner on move day.
+
+YOUR INVENTORY PDF
+We've attached your complete inventory PDF to this email. This is what we'll share with your matched mover to ensure an accurate quote.
+
+IMPORTANT: Please review your inventory carefully. If anything has changed (added items, removed items, or access conditions), please notify us ASAP at support@we3kings.dev
+
+WHAT HAPPENS NEXT?
+1. We're matching you with a vetted, licensed moving partner
+2. You'll receive an introduction to your mover within 24-48 hours
+3. Your mover will confirm the final details and schedule
+4. On move day, you'll pay the remaining balance directly to the mover
+
+Price Guarantee: This price is guaranteed based on the inventory in your PDF and the access conditions you described. Changes to inventory or access may result in additional charges from the moving partner.
+
+Questions? Email us at support@we3kings.dev
+
+© ${new Date().getFullYear()} ReloPrep. All rights reserved.
+        `
+    };
+
+    // Attach PDF if provided
+    if (pdfBuffer) {
+        mailOptions.attachments = [{
+            filename: 'move-inventory.pdf',
+            content: pdfBuffer,
+            contentType: 'application/pdf'
+        }];
+    }
+
+    try {
+        if (emailTransporter) {
+            await emailTransporter.sendMail(mailOptions);
+            console.log('ReloPrep confirmation email sent successfully to:', userEmail);
+            return { success: true };
+        } else {
+            console.log('No email transporter configured - would have sent confirmation to:', userEmail);
+            console.log('Booking data:', bookingData);
+            return { success: true, warning: 'Email not configured' };
+        }
+    } catch (error) {
+        console.error('Error sending confirmation email:', error);
+        // Don't fail the booking just because email failed
+        return { success: false, error: error.message };
+    }
+}
+
+/**
  * Log login attempt for security and analytics
  */
 async function logLoginAttempt(userId, loginMethod, success, ipAddress, userAgent, failureReason = null) {
@@ -516,6 +670,7 @@ module.exports = {
     createMagicLinkToken,
     verifyMagicLinkToken,
     sendMagicLinkEmail,
+    sendReloprepConfirmationEmail,
     logLoginAttempt,
     logout,
     getUserFromToken,

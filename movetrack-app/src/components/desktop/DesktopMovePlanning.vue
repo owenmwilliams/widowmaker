@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue';
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { storeToRefs } from 'pinia';
 import { useQuasar, Notify } from 'quasar';
@@ -100,7 +100,12 @@ const specialRequirements = ref('');
 const estimatedSquareFootage = ref<number | null>(null);
 
 // Tab state
-const movePlanningTab = ref<'planning' | 'costs' | 'moveday'>('planning');
+const movePlanningTab = ref<'planning' | 'costs' | 'route' | 'moveday'>('planning');
+
+// Cost details visibility toggles
+const showDiyDetails = ref(false);
+const showDedicatedDetails = ref(false);
+const showVanLineDetails = ref(false);
 
 watch(moveDate, (newStart) => {
   if (!newStart) {
@@ -122,12 +127,13 @@ if (typeof window !== 'undefined') {
   }
 }
 
+const planPreviewOverride = ref<'basic' | 'pro' | null>(localStorage.getItem('plan_preview') as 'basic' | 'pro' | null);
 const basePlan = computed(() => (userData.value?.plan || 'basic').toLowerCase());
 const isAdmin = computed(() => !!userData.value?.is_admin);
-const effectivePlan = computed(() => basePlan.value);
+const effectivePlan = computed(() => (planPreviewOverride.value || basePlan.value) as 'basic' | 'pro');
 const isPro = computed(() => effectivePlan.value === 'pro');
 
-const selectTab = (tab: 'planning' | 'costs' | 'moveday') => {
+const selectTab = (tab: 'planning' | 'costs' | 'route' | 'moveday') => {
   if (tab === 'moveday' && !isPro.value) {
     Notify.create({
       type: 'warning',
@@ -145,7 +151,9 @@ const pageTitle = computed(() => {
     case 'planning':
       return 'Move Planning';
     case 'costs':
-      return 'Costs & Route';
+      return 'Cost Estimates';
+    case 'route':
+      return 'Route Planning';
     case 'moveday':
       return 'Move Day Mode';
     default:
@@ -158,7 +166,9 @@ const pageSubtitle = computed(() => {
     case 'planning':
       return 'Estimate materials, truck size, and timeline for your move';
     case 'costs':
-      return 'View cost estimates and optimize your moving route';
+      return 'Compare DIY and professional moving costs';
+    case 'route':
+      return 'Plan your route, add waypoints, and generate your move schedule';
     case 'moveday':
       return 'Track and manage your move in real-time';
     default:
@@ -1099,6 +1109,63 @@ const costEstimates = computed(() => {
   // Professional movers upcharge 110% on materials
   const professionalMaterialsCost = packingMaterialsCost * 1.10;
 
+  // Calculate difficulty premiums based on access details
+  // Research: Stairs: $50-70 per flight beyond first, Elevator out: $75, Long carry: $90-120 per 75ft
+  const difficultyPremiums = {
+    origin: {
+      stairs: 0,
+      elevator: 0,
+      parking: 0,
+      total: 0
+    },
+    destination: {
+      stairs: 0,
+      elevator: 0,
+      parking: 0,
+      total: 0
+    }
+  };
+
+  // Origin difficulty premiums
+  if (numberOfFlights.value && numberOfFlights.value > 1) {
+    // Charge $60 per flight beyond the first
+    difficultyPremiums.origin.stairs = (numberOfFlights.value - 1) * 60;
+  }
+  if (numberOfFlights.value && numberOfFlights.value > 0 && !hasElevator.value) {
+    // No elevator with stairs: add $75 elevator fee
+    difficultyPremiums.origin.elevator = 75;
+  }
+  if (parkingDistance.value && parkingDistance.value > 100) {
+    // Long carry: $100 per 75ft beyond 100ft
+    const extraDistance = parkingDistance.value - 100;
+    difficultyPremiums.origin.parking = Math.ceil(extraDistance / 75) * 100;
+  }
+  difficultyPremiums.origin.total = difficultyPremiums.origin.stairs +
+                                     difficultyPremiums.origin.elevator +
+                                     difficultyPremiums.origin.parking;
+
+  // Destination difficulty premiums
+  if (destNumberOfFlights.value && destNumberOfFlights.value > 1) {
+    difficultyPremiums.destination.stairs = (destNumberOfFlights.value - 1) * 60;
+  }
+  if (destNumberOfFlights.value && destNumberOfFlights.value > 0 && !destHasElevator.value) {
+    difficultyPremiums.destination.elevator = 75;
+  }
+  if (destParkingDistance.value && destParkingDistance.value > 100) {
+    const extraDistance = destParkingDistance.value - 100;
+    difficultyPremiums.destination.parking = Math.ceil(extraDistance / 75) * 100;
+  }
+  difficultyPremiums.destination.total = difficultyPremiums.destination.stairs +
+                                          difficultyPremiums.destination.elevator +
+                                          difficultyPremiums.destination.parking;
+
+  const totalDifficultyPremium = difficultyPremiums.origin.total + difficultyPremiums.destination.total;
+
+  // Calculate multi-stop premium
+  // Research: ~$150-200 per additional stop (increased from $80)
+  const intermediateStops = moveLocations.value.filter(loc => loc.role === 'intermediate' && loc.location).length;
+  const multiStopPremium = intermediateStops * 175;
+
   if (distance < 100) {
     // Local move: hourly rate
     const hourlyRate = 150; // $150/hour for 2-person crew (2024 rates)
@@ -1157,11 +1224,39 @@ const costEstimates = computed(() => {
   }
   // else 'none': packing costs remain 0
 
-  // Market average (moving + packing based on selection + tolls/hotels)
+  // Market average (moving + packing based on selection + tolls/hotels + difficulty + multi-stop)
   const marketMovingAverage = (professionalLow + professionalHigh) / 2;
   const marketPackingAverage = (adjustedPackingCostLow + adjustedPackingCostHigh) / 2;
   const miscCosts = estimatedTolls + hotelCosts;
-  const marketTotalAverage = marketMovingAverage + marketPackingAverage + miscCosts;
+  const marketTotalAverage = marketMovingAverage + marketPackingAverage + miscCosts + totalDifficultyPremium + multiStopPremium;
+
+  // --- Consolidated Shipment (Van Line) Logic ---
+  // 1. Chargeable Weight: Greater of actual weight or volumetric weight (7 lbs/cu ft)
+  const chargeableWeight = Math.max(weight, volume * 7);
+
+  // 2. Linehaul Rate: Lower tariff for shared load, tiered by distance
+  // Rates: >2000mi: $0.75/lb, >1000mi: $0.85/lb, <1000mi: $1.00/lb (Increased base rates)
+  const vanLineRatePerLb = distance > 2000 ? 0.75 : (distance > 1000 ? 0.85 : 1.00);
+  const linehaul = chargeableWeight * vanLineRatePerLb;
+
+  // 3. Mandatory Fees
+  const fuelSurcharge = linehaul * 0.12; // Increased to 12% Fuel Surcharge
+  const destinationLabor = chargeableWeight * 0.25; // Increased to $0.25/lb for destination services
+
+  // 4. Shuttle / Access Fees for High CoL Areas
+  // If CoL multiplier > 1.3 (e.g. SF, NYC), assume shuttle or long carry is needed
+  const shuttleFee = colMultiplier > 1.3 ? 750 : 0;
+
+  // 5. Delivery Window Calculation
+  const deliveryWindowMin = Math.max(5, Math.ceil(distance / 500) + 2);
+  const deliveryWindowMax = Math.max(14, Math.ceil(distance / 300) + 5);
+  const deliveryWindowStr = `${deliveryWindowMin}-${deliveryWindowMax} days`;
+
+  // Total Van Line Cost
+  const vanLineBase = linehaul + fuelSurcharge + destinationLabor + shuttleFee;
+  // Apply CoL multiplier to the base cost as well to reflect local labor rates
+  const vanLineTotalLow = (vanLineBase * colMultiplier) + adjustedPackingCostLow + (totalDifficultyPremium * 1.2);
+  const vanLineTotalHigh = (vanLineBase * 1.25 * colMultiplier) + adjustedPackingCostHigh + (totalDifficultyPremium * 1.2);
 
   // ReloPrep estimate: Range from 80%-95% based on CoL adjustment
   // Lower CoL (colMultiplier < 1) = better savings (closer to 80%)
@@ -1221,10 +1316,46 @@ const costEstimates = computed(() => {
         hotels: hotelCosts,
         total: miscCosts
       },
+      difficulty: {
+        origin: difficultyPremiums.origin,
+        destination: difficultyPremiums.destination,
+        total: totalDifficultyPremium
+      },
+      multiStop: {
+        stops: intermediateStops,
+        premium: multiStopPremium
+      },
+      additionalBoxCost: {
+        low: 20,
+        high: 50
+      },
+      furnitureAssembly: {
+        low: 150,
+        high: 200
+      },
       total: {
-        low: professionalLow + adjustedPackingCostLow + miscCosts,
-        high: professionalHigh + adjustedPackingCostHigh + miscCosts,
+        low: professionalLow + adjustedPackingCostLow + miscCosts + totalDifficultyPremium + multiStopPremium,
+        high: professionalHigh + adjustedPackingCostHigh + miscCosts + totalDifficultyPremium + multiStopPremium,
         average: marketTotalAverage
+      },
+      // Separate dedicated movers from van lines (van lines only for non-multi-stop long distance)
+      dedicated: {
+        available: true,
+        low: professionalLow + adjustedPackingCostLow + miscCosts + totalDifficultyPremium + multiStopPremium,
+        high: professionalHigh + adjustedPackingCostHigh + miscCosts + totalDifficultyPremium + multiStopPremium
+      },
+      vanLine: {
+        available: distance >= 250 && intermediateStops === 0,
+        low: distance >= 250 && intermediateStops === 0 ? vanLineTotalLow : 0,
+        high: distance >= 250 && intermediateStops === 0 ? vanLineTotalHigh : 0,
+        chargeableWeight: chargeableWeight,
+        deliveryWindow: deliveryWindowStr,
+        breakdown: {
+          linehaul: linehaul,
+          fuelSurcharge: fuelSurcharge,
+          destinationLabor: destinationLabor,
+          shuttleFee: shuttleFee
+        }
       }
     },
     reloprep: {
@@ -1754,6 +1885,8 @@ const intermediateDropoffLocations = computed(() => {
       );
 
       const waypointMatchByCity = !waypointMatchById && locationData?.city
+       
+
         ? dropoffWaypoints.find(wp => wp.city?.toLowerCase() === locationData.city.toLowerCase())
         : undefined;
 
@@ -1780,16 +1913,16 @@ const roundedMiles = computed(() => {
 });
 
 const decimalHours = computed(() => {
-  if (!routeData.value || !routeData.value.duration_seconds) return null;
+  if (!routeData.value || !routeData.duration_seconds) return null;
   // Convert seconds to hours with 1 decimal place
-  const hours = routeData.value.duration_seconds / 3600;
+  const hours = routeData.duration_seconds / 3600;
   return hours.toFixed(1);
 });
 
 const roundedTolls = computed(() => {
-  if (!routeData.value || !routeData.value.estimated_tolls) return null;
+  if (!routeData.value || !routeData.estimated_tolls) return null;
   // Round to nearest 10
-  return Math.round(routeData.value.estimated_tolls / 10) * 10;
+  return Math.round(routeData.estimated_tolls / 10) * 10;
 });
 
 const addMoveLocation = (role: 'origin' | 'intermediate' | 'destination' = 'intermediate') => {
@@ -2307,13 +2440,11 @@ const loadMove = async (moveId: number) => {
           location: move.destination_location_id,
           lat: normalizeCoordinate(destinationRecord?.lat),
           lng: normalizeCoordinate(destinationRecord?.lng),
-        lat: null,
-        lng: null,
-        entryType: move.dest_entry_type,
-        numberOfFlights: move.dest_number_of_flights,
-        hasElevator: move.dest_has_elevator,
-        elevatorType: move.dest_elevator_type,
-        elevatorDistance: move.dest_elevator_distance,
+          entryType: move.dest_entry_type,
+          numberOfFlights: move.dest_number_of_flights,
+          hasElevator: move.dest_has_elevator,
+          elevatorType: move.dest_elevator_type,
+          elevatorDistance: move.dest_elevator_distance,
           elevatorReservationRequired: move.dest_elevator_reservation_required,
           parkingSituation: move.dest_parking_situation,
           parkingDistance: move.dest_parking_distance,
@@ -2473,7 +2604,7 @@ const downloadPdfEstimate = async () => {
     const addSectionHeader = (text: string) => {
       doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(25, 118, 210); // Primary blue
+      doc.setTextColor(25, 118, 210);
       doc.text(text, 15, yPos);
       yPos += 2;
       doc.setLineWidth(0.5);
@@ -2695,6 +2826,15 @@ const downloadPdfEstimate = async () => {
           doc.setFont('helvetica', 'bold');
           const itemName = (item.label || 'Unnamed').substring(0, 30);
           doc.text(itemName, xPos + 40, yPos + 65, { align: 'center' });
+
+          // Add dimensions if available
+          const dims = parseItemDimensions(item);
+          if (dims) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7);
+            doc.text(`${dims.length}"×${dims.width}"×${dims.height}"`, xPos + 40, yPos + 70, { align: 'center' });
+          }
+
           doc.setFont('helvetica', 'normal');
         } catch (imgError) {
           console.warn('Failed to add image to PDF:', imgError);
@@ -2953,6 +3093,212 @@ const downloadPdfEstimate = async () => {
     });
   }
 };
+
+// Send confirmation email with PDF attachment
+const sendConfirmationEmail = async (depositAmount: number, totalAmount: number) => {
+  try {
+    const origin = locationsWithDetails.value.find(l => l.value === originLocation.value);
+    const destination = locationsWithDetails.value.find(l => l.value === destinationLocation.value);
+
+    if (!origin || !destination || !userData.value?.email) {
+      console.error('Missing required data for confirmation email');
+      return;
+    }
+
+    const bookingData = {
+      depositAmount,
+      totalAmount,
+      remainingBalance: totalAmount - depositAmount,
+      origin: origin.label || 'Origin',
+      destination: destination.label || 'Destination',
+      moveDate: moveDate.value || 'TBD',
+      userName: userData.value.name || ''
+    };
+
+    // Generate PDF as base64 for attachment
+    // We'll generate the PDF and convert to base64
+    const pdfDoc = await generateInventoryPdfDocument();
+    const pdfBase64 = pdfDoc.output('datauristring').split(',')[1]; // Get base64 part only
+
+    const response = await fetch(`${core_url}/reloprep/send-confirmation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify({
+        email: userData.value.email,
+        bookingData,
+        pdfBase64
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      console.log('Confirmation email sent successfully');
+    } else {
+      console.error('Failed to send confirmation email:', result.error);
+      Notify.create({
+        type: 'warning',
+        message: 'Email sending failed',
+        caption: 'Your booking is confirmed, but we couldn\'t send the confirmation email. Please contact support.',
+        timeout: 5000
+      });
+    }
+  } catch (error) {
+    console.error('Error sending confirmation email:', error);
+    // Don't show error to user - email failure shouldn't block the booking
+  }
+};
+
+// Helper function to generate PDF document (returns jsPDF instance instead of downloading)
+const generateInventoryPdfDocument = async () => {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  // Title
+  doc.setFontSize(20);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Move Inventory', pageWidth / 2, 20, { align: 'center' });
+
+  // Move Details
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  const origin = locationsWithDetails.value.find(l => l.value === originLocation.value);
+  const destination = locationsWithDetails.value.find(l => l.value === destinationLocation.value);
+
+  let yPos = 35;
+  doc.text(`From: ${origin?.label || 'N/A'}`, 15, yPos);
+  yPos += 7;
+  doc.text(`To: ${destination?.label || 'N/A'}`, 15, yPos);
+  yPos += 7;
+  doc.text(`Move Date: ${moveDate.value || 'TBD'}`, 15, yPos);
+  yPos += 7;
+  doc.text(`Distance: ${estimatedDistance.value} miles`, 15, yPos);
+  yPos += 10;
+
+  // Inventory Table
+  const inventoryData = containerValues.value.map(container => {
+    const items = collectionValues.value.filter(c => c.container_id === container.id);
+    return [
+      container.name || 'Unnamed Container',
+      items.length.toString(),
+      items.map(i => i.name).join(', ') || 'No items'
+    ];
+  });
+
+  autoTable(doc, {
+    startY: yPos,
+    head: [['Container', 'Items', 'Contents']],
+    body: inventoryData,
+    theme: 'grid',
+    headStyles: { fillColor: [25, 118, 210] }
+  });
+
+  return doc;
+};
+
+// Initiate Stripe Checkout for ReloPrep booking
+const initiateStripeCheckout = async () => {
+  if (!estimatedDistance.value || !costEstimates.value) {
+    Notify.create({
+      type: 'warning',
+      message: 'Please select origin and destination locations first',
+      timeout: 3000
+    });
+    return;
+  }
+
+  const depositAmount = Math.round(costEstimates.value.reloprep.high * 0.15);
+  const totalAmount = costEstimates.value.reloprep.high;
+
+  // TODO: Integrate with Stripe Checkout
+  // This is a placeholder for now
+  console.log('Stripe Checkout Details:', {
+    depositAmount,
+    totalAmount,
+    originLocation: originLocation.value,
+    destinationLocation: destinationLocation.value,
+    moveDate: moveDate.value
+  });
+
+  // Placeholder: Show confirmation dialog
+  $q.dialog({
+    title: 'Stripe Checkout (Placeholder)',
+    message: `
+      <div class="q-mb-md"><strong>ReloPrep Move Booking</strong></div>
+      <div class="q-mb-sm">Total Move Cost: $${totalAmount.toLocaleString()}</div>
+      <div class="q-mb-sm">Deposit (15%): $${depositAmount.toLocaleString()}</div>
+      <div class="q-mb-md">Remaining Balance: $${(totalAmount - depositAmount).toLocaleString()}</div>
+      <div class="text-caption text-grey-7">
+        In production, this will redirect to Stripe Checkout.
+        After payment, you'll be redirected to a confirmation page with:
+        <ul class="q-mt-sm">
+          <li>Move booking confirmation</li>
+          <li>PDF download of your inventory</li>
+          <li>Email receipt with PDF attached</li>
+        </ul>
+      </div>
+    `,
+    html: true,
+    ok: {
+      label: 'Simulate Payment Success',
+      color: 'primary'
+    },
+    cancel: {
+      label: 'Cancel',
+      color: 'grey-7',
+      flat: true
+    }
+  }).onOk(async () => {
+    // Simulate successful payment
+    Notify.create({
+      type: 'positive',
+      message: 'Payment Successful!',
+      caption: 'Downloading your inventory PDF and sending confirmation email...',
+      timeout: 4000,
+      actions: [
+        {
+          label: 'Download PDF',
+          color: 'white',
+          handler: () => {
+            downloadInventoryPdf();
+          }
+        }
+      ]
+    });
+
+    // Send confirmation email
+    await sendConfirmationEmail(depositAmount, totalAmount);
+
+    // TODO: In production:
+    // 1. Create Stripe checkout session via API
+    // 2. Redirect to Stripe
+    // 3. Handle webhook for successful payment
+    // 4. Redirect back to confirmation page
+    // 5. Store booking in database
+  });
+};
+
+// Listen for plan preview changes
+onMounted(() => {
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key === 'plan_preview') {
+      planPreviewOverride.value = (event.newValue as 'basic' | 'pro' | null) || null;
+    }
+  };
+  const handleCustom = (event: Event) => {
+    planPreviewOverride.value = ((event as CustomEvent).detail as 'basic' | 'pro' | null) || null;
+  };
+  window.addEventListener('storage', handleStorage);
+  window.addEventListener('plan-preview-change', handleCustom);
+
+  onUnmounted(() => {
+    window.removeEventListener('storage', handleStorage);
+    window.removeEventListener('plan-preview-change', handleCustom);
+  });
+});
 </script>
 
 <template>
@@ -2975,8 +3321,17 @@ const downloadPdfEstimate = async () => {
           no-caps
           :class="{ 'pill-tab-active': movePlanningTab === 'costs' }"
           class="pill-tab"
-          label="Costs & Route"
+          label="Costs"
           @click="selectTab('costs')"
+        />
+        <q-btn
+          flat
+          dense
+          no-caps
+          :class="{ 'pill-tab-active': movePlanningTab === 'route' }"
+          class="pill-tab"
+          label="Route"
+          @click="selectTab('route')"
         />
         <q-btn
           flat
@@ -3221,17 +3576,19 @@ const downloadPdfEstimate = async () => {
                 use-input
                 input-debounce="300"
               >
-                <template v-slot:after>
+                <template v-slot:prepend>
+                  <q-icon name="my_location" />
+                </template>
+                <template v-slot:append>
                   <q-btn
                     round
                     dense
                     flat
                     icon="add"
                     color="primary"
-                    size="sm"
                     @click="openLocationDialog"
                   >
-                    <q-tooltip>Add new location</q-tooltip>
+                    <q-tooltip>Add a new location</q-tooltip>
                   </q-btn>
                 </template>
               </q-select>
@@ -3588,147 +3945,277 @@ const downloadPdfEstimate = async () => {
     </div><!-- Close Planning Tab -->
 
     <!-- Costs & Route Tab -->
+    <!-- Costs Tab -->
     <div v-else-if="movePlanningTab === 'costs'">
-      <div class="costs-route-grid q-pa-md">
-      <!-- Cost Estimates -->
-      <q-card flat bordered class="content-card">
-        <q-card-section>
-          <!-- Heading 1: Cost Estimates -->
-          <div class="text-h5 text-weight-bold q-mb-md">
-            Cost Estimates
-          </div>
-
-          <div v-if="estimatedDistance">
-            <!-- Heading 2: DIY Move -->
-            <div class="text-h6 text-weight-medium q-mb-sm">
-              DIY Move
+      <div v-if="estimatedDistance" class="costs-grid q-pa-md">
+        <!-- Left Column: Cost Breakouts -->
+        <div class="costs-breakouts">
+          <!-- DIY Move -->
+          <div class="cost-section cost-section-diy">
+            <div class="text-overline text-black text-weight-bold" style="margin-bottom: 5px;">DIY MOVE</div>
+            <div class="text-caption text-grey-6 q-mb-sm">
+              For the most cost-effective option, you handle everything: renting equipment from providers like U-Haul or PODS, driving the truck, and doing all the packing, loading, and unloading yourself.
+              <q-btn flat dense no-caps size="sm" color="primary" @click="showDiyDetails = !showDiyDetails" :label="showDiyDetails ? 'Hide details' : 'Show details'" class="q-ml-xs" />
             </div>
-
-            <!-- Subheading: Dollar Amount -->
-            <div class="text-h5 text-weight-bold text-grey-9 q-mb-sm">
+            <div class="cost-total" style="margin-bottom: 15px;">
               ${{ costEstimates.diy.total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
             </div>
+            <q-slide-transition>
+              <div v-show="showDiyDetails" class="cost-breakdown">
+                <div class="cost-line-item">
+                  <span>Truck rental <span class="text-grey-8">({{ costEstimates.diy.breakdown.days }} day{{ costEstimates.diy.breakdown.days > 1 ? 's' : '' }})</span></span>
+                  <span class="cost-value">${{ costEstimates.diy.breakdown.truckRental.toFixed(0) }}</span>
+                </div>
+             
 
-            <!-- Breakdown bullets -->
-            <div class="text-body2 text-grey-7 q-mb-lg">
-              <div>• Truck rental: ${{ costEstimates.diy.breakdown.truckRental.toFixed(0) }} ({{ costEstimates.diy.breakdown.days }} day{{ costEstimates.diy.breakdown.days > 1 ? 's' : '' }})</div>
-              <div>• Fuel: ${{ costEstimates.diy.breakdown.fuel.toFixed(0) }}</div>
-              <div>• Packing materials & equipment: ${{ (costEstimates.diy.breakdown.materials + costEstimates.diy.breakdown.equipment).toFixed(0) }}</div>
-              <div v-if="costEstimates.diy.breakdown.tolls > 0">• Tolls: ${{ costEstimates.diy.breakdown.tolls.toFixed(0) }}</div>
-              <div v-if="costEstimates.diy.breakdown.hotels > 0">• Hotels: ${{ costEstimates.diy.breakdown.hotels.toFixed(0) }}</div>
+                <div class="cost-line-item">
+                  <span>Fuel</span>
+                  <span class="cost-value">${{ costEstimates.diy.breakdown.fuel.toFixed(0) }}</span>
+                </div>
+
+                <div class="cost-line-item">
+                  <span>Packing materials & equipment</span>
+                  <span class="cost-value">${{ (costEstimates.diy.breakdown.materials + costEstimates.diy.breakdown.equipment).toFixed(0) }}</span>
+                </div>
+
+                <div v-if="costEstimates.diy.breakdown.tolls > 0" class="cost-line-item">
+                  <span>Tolls</span>
+                  <span class="cost-value">${{ costEstimates.diy.breakdown.tolls.toFixed(0) }}</span>
+                </div>
+
+                <div v-if="costEstimates.diy.breakdown.hotels > 0" class="cost-line-item">
+                  <span>Hotels</span>
+                  <span class="cost-value">${{ costEstimates.diy.breakdown.hotels.toFixed(0) }}</span>
+                </div>
+              </div>
+            </q-slide-transition>
+          </div>
+
+          <!-- Dotted Separator -->
+          <div class="cost-separator"></div>
+
+          <!-- Professional Movers (Dedicated) -->
+          <div class="cost-section cost-section-professional">
+            <div class="row items-center justify-between" style="margin-bottom: 5px;">
+              <div class="text-overline text-black text-weight-bold">DEDICATED MOVERS</div>
             </div>
 
-          <q-separator class="q-my-md" />
-
-          <!-- Heading 2: Professional Movers -->
-          <div class="row items-center justify-between q-mb-sm">
-            <div class="text-h6 text-weight-medium">
-              Professional Movers
+            <div class="text-caption text-grey-6 q-mb-sm">
+              A professional moving company provides a dedicated truck and crew just for your belongings, ensuring a fixed schedule and direct transport from origin to destination.
+              <q-btn flat dense no-caps size="sm" color="primary" @click="showDedicatedDetails = !showDedicatedDetails" :label="showDedicatedDetails ? 'Hide details' : 'Show details'" class="q-ml-xs" />
             </div>
+
+            <!-- Dedicated Movers -->
+            <div class="professional-tier">
+              <div class="cost-total" style="margin-bottom: 15px;">
+                ${{ costEstimates.professional.dedicated.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
+                ${{ costEstimates.professional.dedicated.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
+              </div>
+              <q-slide-transition>
+                <div v-show="showDedicatedDetails" class="cost-breakdown">
+                  <div class="cost-line-item">
+                    <span>Labor & Transport</span>
+                    <span class="cost-value">${{ costEstimates.professional.movingOnly.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
+                    ${{ costEstimates.professional.movingOnly.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span>
+                  </div>
+
+                  <div v-if="costEstimates.professional.packing.low > 0" class="cost-line-item">
+                    <span>Packing Services</span>
+                    <span class="cost-value">${{ costEstimates.professional.packing.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
+                    ${{ costEstimates.professional.packing.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span>
+                  </div>
+
+                  <div v-if="costEstimates.professional.difficulty.origin.stairs > 0" class="cost-line-item">
+                    <span>Potential fee: Origin stairs</span>
+                    <span class="cost-value">${{ costEstimates.professional.difficulty.origin.stairs.toFixed(0) }}</span>
+                  </div>
+
+                  <div v-if="costEstimates.professional.difficulty.origin.elevator > 0" class="cost-line-item">
+                    <span>Potential fee: No elevator at origin</span>
+                                       <span class="cost-value">${{ costEstimates.professional.difficulty.origin.elevator.toFixed(0) }}</span>
+                  </div>
+
+                  <div v-if="costEstimates.professional.difficulty.origin.parking > 0" class="cost-line-item">
+                    <span>Potential fee: Long carry at origin</span>
+                    <span class="cost-value">${{ costEstimates.professional.difficulty.origin.parking.toFixed(0) }}</span>
+                  </div>
+
+                  <div v-if="costEstimates.professional.difficulty.destination.stairs > 0" class="cost-line-item">
+                    <span>Potential fee: Destination stairs</span>
+                    <span class="cost-value">${{ costEstimates.professional.difficulty.destination.stairs.toFixed(0) }}</span>
+                  </div>
+
+                  <div v-if="costEstimates.professional.difficulty.destination.elevator > 0" class="cost-line-item">
+                    <span>Potential fee: No elevator at destination</span>
+                    <span class="cost-value">${{ costEstimates.professional.difficulty.destination.elevator.toFixed(0) }}</span>
+                  </div>
+
+                  <div v-if="costEstimates.professional.difficulty.destination.parking > 0" class="cost-line-item">
+                    <span>Potential fee: Long carry at destination</span>
+                    <span class="cost-value">${{ costEstimates.professional.difficulty.destination.parking.toFixed(0) }}</span>
+                  </div>
+
+                  <div v-if="costEstimates.professional.multiStop.premium > 0" class="cost-line-item">
+                    <span>Potential fee: Multi-stop service ({{ costEstimates.professional.multiStop.stops }} stop{{ costEstimates.professional.multiStop.stops > 1 ? 's' : '' }})</span>
+                    <span class="cost-value">${{ costEstimates.professional.multiStop.premium.toFixed(0) }}</span>
+                  </div>
+
+                  <div class="cost-line-item">
+                    <span>Est. cost per box or medium-sized item not in inventory</span>
+                    <span class="cost-value">${{ costEstimates.professional.additionalBoxCost.low }} - ${{ costEstimates.professional.additionalBoxCost.high }}</span>
+                  </div>
+
+                  <div class="cost-line-item">
+                    <span>Est. cost for furniture assembly/disassembly</span>
+                    <span class="cost-value">${{ costEstimates.professional.furnitureAssembly.low }} - ${{ costEstimates.professional.furnitureAssembly.high }}</span>
+                  </div>
+                </div>
+              </q-slide-transition>
+            </div>
+          </div>
+
+          <!-- Dotted Separator -->
+          <div v-if="costEstimates.professional.vanLine.available" class="cost-separator"></div>
+
+          <!-- Van Lines -->
+          <div v-if="costEstimates.professional.vanLine.available" class="cost-section cost-section-vanline">
+            <div class="text-overline text-black text-weight-bold" style="margin-bottom: 5px;">VAN LINES</div>
+
+            <div class="text-caption text-grey-6 q-mb-sm">
+              Your items are transported on a large, shared truck with other moves. This is a budget-friendly option for long-distance moves if you have a flexible delivery window.
+              <q-btn flat dense no-caps size="sm" color="primary" @click="showVanLineDetails = !showVanLineDetails" :label="showVanLineDetails ? 'Hide details' : 'Show details'" class="q-ml-xs" />
+            </div>
+
+            <div class="professional-tier">
+              <div class="cost-total q-mb-xs">
+                ${{ costEstimates.professional.vanLine.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
+                ${{ costEstimates.professional.vanLine.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
+              </div>
+              
+              <q-slide-transition>
+                <div v-show="showVanLineDetails" class="cost-breakdown q-mt-sm">
+                  <div class="cost-line-item">
+                    <span>Chargeable Weight <q-icon name="help" size="xs" color="grey-6"><q-tooltip>Greater of actual weight or 7 lbs/cu ft</q-tooltip></q-icon></span>
+                    <span class="cost-value">{{ Math.round(costEstimates.professional.vanLine.chargeableWeight).toLocaleString() }} lbs</span>
+                  </div>
+                  <div class="cost-line-item">
+                    <span>Delivery Window</span>
+                    <span class="cost-value">{{ costEstimates.professional.vanLine.deliveryWindow }}</span>
+                  </div>
+                  <div class="cost-line-item text-grey-7">
+                    <span>Includes Fuel Surcharge</span>
+                    <span class="cost-value">${{ Math.round(costEstimates.professional.vanLine.breakdown.fuelSurcharge).toLocaleString() }}</span>
+                  </div>
+                  <div class="cost-line-item text-grey-7">
+                    <span>Includes Destination Labor</span>
+                    <span class="cost-value">${{ Math.round(costEstimates.professional.vanLine.breakdown.destinationLabor).toLocaleString() }}</span>
+                  </div>
+                  <div v-if="costEstimates.professional.vanLine.breakdown.shuttleFee > 0" class="cost-line-item text-grey-7">
+                    <span>Includes Shuttle/Access Fee</span>
+                    <span class="cost-value">${{ Math.round(costEstimates.professional.vanLine.breakdown.shuttleFee).toLocaleString() }}</span>
+                  </div>
+                </div>
+              </q-slide-transition>
+            </div>
+          </div>
+
+          <!-- Download Inventory Button -->
+          <div class="q-mt-md">
             <q-btn
-              dense
+              v-if="isPro"
               flat
               color="primary"
               icon="download"
-              label="Download PDF"
-              size="sm"
+              label="Share your inventory with movers (Download PDF)"
+              class="full-width"
               @click="downloadInventoryPdf"
+            />
+            <q-btn
+              v-else
+              flat
+              disable
+              icon="lock"
+              label="Share your inventory with movers (Download PDF)"
+              class="full-width"
+              color="grey-7"
             >
-              <q-tooltip>Share inventory with movers for accurate quotes</q-tooltip>
+              <q-tooltip>Upgrade to Pro to download inventory PDF for quotes</q-tooltip>
             </q-btn>
           </div>
+        </div>
 
-          <!-- Subheading: Total Range -->
-          <div class="text-h5 text-weight-bold text-grey-9 q-mb-sm">
-            ${{ costEstimates.professional.total.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
-            ${{ costEstimates.professional.total.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
-          </div>
+        <!-- Right Column: ReloPrep Quote Card -->
+        <div class="reloprep-quote-container">
+          <q-card flat bordered class="reloprep-quote-card">
+            <q-card-section class="text-center">
+              <div class="text-h5 text-weight-bold text-primary q-mb-md">
+                ReloPrep Estimated Quote
+              </div>
 
-          <!-- Breakdown bullets -->
-          <div class="text-body2 text-grey-7 q-mb-lg">
-            <!-- Moving bullet -->
-            <div>
-              • Moving: ${{ costEstimates.professional.movingOnly.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
-              ${{ costEstimates.professional.movingOnly.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
-            </div>
-
-            <!-- Packing bullet with popup -->
-            <div>
-              • Packing: ${{ costEstimates.professional.packing.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
-              ${{ costEstimates.professional.packing.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
-              <q-icon name="info_outline" size="xs" class="q-ml-xs cursor-pointer" color="grey-6">
-                <q-tooltip max-width="200px" class="text-caption">
-                  <div class="text-weight-medium q-mb-xs" style="font-size: 11px;">{{ costEstimates.professional.packing.hours.toFixed(1) }} hrs</div>
-                  <div style="font-size: 10px;">
-                    Labor: ${{ costEstimates.professional.packing.breakdown.labor.toFixed(0) }}<br>
-                    Materials: ${{ (costEstimates.professional.packing.breakdown.boxes + costEstimates.professional.packing.breakdown.furnitureProtection + costEstimates.professional.packing.breakdown.supplies).toFixed(0) }}
-                  </div>
-                </q-tooltip>
-              </q-icon>
-            </div>
-          </div>
-
-          <q-separator class="q-my-md" />
-
-          <!-- ReloPrep Blue Box -->
-          <div class="q-mb-md q-pa-md rounded-borders" style="background: #E3F2FD; border: 2px solid #1976D2;">
-            <div class="text-h6 text-weight-medium text-primary q-mb-sm">
-              ReloPrep Estimated Quote
-            </div>
-            <div class="row items-center q-mb-sm">
-              <div class="col text-h4 text-weight-bold text-primary">
+              <div class="text-h3 text-weight-bold text-primary q-mb-md">
                 ${{ costEstimates.reloprep.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
               </div>
-            </div>
 
-            <!-- Savings callout -->
-            <div class="q-pa-sm rounded-borders q-mb-sm" style="background: #4CAF50; display: inline-block;">
-              <span class="text-body2 text-white">
-                Save <span class="text-weight-bold">${{ costEstimates.reloprep.savings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span>
-              </span>
-            </div>
-
-            <!-- Footnote -->
-            <div class="text-caption text-grey-6">
-              * Not-to-exceed estimation
-            </div>
-          </div>
-
-          <!-- Download PDF Buttons -->
-          <div class="q-mt-md">
-            <div class="row q-col-gutter-sm">
-              <!-- Quote PDF with Pricing -->
-              <div class="col-12">
-                <q-btn
-                  unelevated
-                  color="primary"
-                  icon="receipt"
-                  label="Download Quote PDF"
-                  class="full-width"
-                  @click="downloadPdfEstimate"
-                >
-                  <q-tooltip>ReloPrep quote with pricing breakdown</q-tooltip>
-                </q-btn>
-                <div class="text-caption text-grey-6 q-mt-sm">
-                  <strong>Quote Valid Upon Scheduling:</strong> These estimates are based on {{ routeData.source === 'estimated' ? 'estimated' : 'calculated' }} distances and current market rates.
-                  Quote is honored if scheduled within the next 10 business days, subject only to significant unforeseen circumstances (e.g., inaccessible roads, major inventory changes).
-                  Fuel surcharges may apply for moves scheduled 30+ days out.
-                </div>
+              <!-- Savings Badge -->
+              <div class="savings-badge q-mb-lg">
+                <q-icon name="savings" size="sm" class="q-mr-xs" />
+                <span class="text-weight-bold">
+                  Save ${{ costEstimates.reloprep.savings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
+                </span>
+                <span class="text-caption q-ml-xs">vs. market average</span>
               </div>
-            </div>
-          </div>
-          </div>
 
-          <!-- Placeholder when no locations selected -->
-          <div v-else class="text-center text-grey-5 q-py-lg">
-            <q-icon name="location_off" size="xl" />
-            <div class="text-body2 q-mt-md">Select origin and destination locations</div>
-            <div class="text-caption">to see cost estimates</div>
-          </div>
-        </q-card-section>
-      </q-card>
+              <q-separator class="q-my-md" />
 
-      <!-- Distance & Route -->
+              <!-- Secure This Price Button -->
+              <q-btn
+                unelevated
+                icon="lock_clock"
+                label="Secure This Price"
+                class="full-width q-mb-sm download-quote-btn"
+                size="lg"
+                @click="initiateStripeCheckout"
+              >
+                <q-tooltip>Get matched with a vetted mover - Pay 15% deposit to lock in this rate</q-tooltip>
+              </q-btn>
+
+              <!-- Deposit Amount Info -->
+              <div class="text-caption text-grey-7 text-center q-mb-sm">
+                Deposit: ${{ (costEstimates.reloprep.high * 0.15).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} (15%)
+              </div>
+
+              <!-- Quote Validity Note -->
+              <div class="text-caption text-grey-6 q-mt-md text-left">
+                <strong>Price Guarantee:</strong> ReloPrep connects you with a 
+                licensed, vetted moving partner. This quoted price is guaranteed 
+                based exclusively on the inventory detailed in your PDF and the 
+                access conditions you described. Your deposit secures this 
+                service and is ReloPrep's non-refundable brokerage fee. The 
+                remaining balance for the move and any additional 
+                charges—resulting from changes to inventory or access 
+                conditions—are paid directly to the licensed moving partner 
+                at the time of service.
+              </div>
+
+              
+            </q-card-section>
+          </q-card>
+        </div>
+      </div>
+
+      <!-- Placeholder when no locations selected -->
+      <div v-else class="q-pa-md">
+        <div class="text-center text-grey-5 q-py-lg">
+          <q-icon name="location_off" size="xl" />
+          <div class="text-body2 q-mt-md">Select origin and destination locations</div>
+          <div class="text-caption">to see cost estimates</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Route Planning Tab -->
+    <div v-else-if="movePlanningTab === 'route'">
+      <div class="q-pa-md">
       <q-card flat bordered class="content-card">
         <q-card-section class="q-pb-none">
           <div class="text-h5 text-weight-bold q-mb-md">
@@ -3756,10 +4243,8 @@ const downloadPdfEstimate = async () => {
                 <template v-slot:avatar>
                   <q-icon name="warning" color="warning" />
                 </template>
-                <div class="text-weight-medium">Using Estimated Distance</div>
-                <div class="text-caption q-mt-xs">
-                  Distance is estimated at {{ routeData.distance_miles }} miles based on city-to-city averages.
-                  Actual driving distance may vary. For precise routing and cost calculations, Google Maps API needs to be configured.
+                <div v-for="(warning, idx) in routeData.warnings" :key="idx" class="text-caption">
+                  {{ warning }}
                 </div>
               </q-banner>
             </div>
@@ -3781,12 +4266,12 @@ const downloadPdfEstimate = async () => {
           <!-- Route Stats - Compact Cards Row -->
           <div class="route-stats-row q-mt-md">
             <div class="stat-card">
-              <q-icon name="straighten" size="sm" color="primary" />
+              <q-icon name="straighten" size="sm" color="primary" class="q-mb-xs" />
               <div class="stat-value text-primary">{{ roundedMiles?.toLocaleString() || estimatedDistance?.toLocaleString() || 0 }}</div>
               <div class="stat-label">miles</div>
             </div>
             <div class="stat-card">
-              <q-icon name="schedule" size="sm" color="secondary" />
+              <q-icon name="schedule" size="sm" color="secondary" class="q-mb-xs" />
               <div class="stat-value text-secondary">{{ decimalHours || (routeData.duration_seconds ? (routeData.duration_seconds / 3600).toFixed(1) : '0.0') }}</div>
               <div class="stat-label">drive hrs</div>
             </div>
@@ -4166,12 +4651,12 @@ const downloadPdfEstimate = async () => {
                   {{ move.origin_location_name }} → {{ move.destination_location_name }}
                 </q-item-label>
                 <q-item-label caption class="text-grey-6">
-                  <q-icon name="event" size="12px" /> {{ new Date(move.move_date).toLocaleDateString() }}
+                  <q-icon name="event" size="12px" class="q-mr-xs" /> {{ new Date(move.move_date).toLocaleDateString() }}
                   <span class="q-ml-sm">
-                    <q-icon name="inventory_2" size="12px" /> {{ move.total_items }} items
+                    <q-icon name="inventory_2" size="12px" class="q-mr-xs" /> {{ move.total_items }} items
                   </span>
                   <span class="q-ml-sm">
-                    <q-icon name="straighten" size="12px" /> {{ move.estimated_distance_miles }} mi
+                    <q-icon name="straighten" size="12px" class="q-mr-xs" /> {{ move.estimated_distance_miles }} mi
                   </span>
                 </q-item-label>
                 <q-item-label caption class="text-grey-5">
@@ -4277,7 +4762,210 @@ const downloadPdfEstimate = async () => {
   align-items: stretch;
 }
 
-/* Costs & Route Grid (2 columns) */
+/* Costs Grid (2 columns: breakouts + quote card) */
+.costs-grid {
+  display: grid;
+  grid-template-columns: 1fr 30vw;
+  gap: 30px;
+  align-items: start;
+}
+
+.costs-breakouts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cost-section {
+  padding: 4px 0;
+}
+
+.cost-section-diy,
+.cost-section-professional,
+.cost-section-vanline {
+  padding-left: 32px;
+}
+
+.cost-separator {
+  border-top: 2px dotted #BDBDBD;
+  margin: 4px 0;
+  margin-left: 32px;
+}
+
+.cost-total {
+  font-size: 22px;
+  font-weight: 700;
+  color: #212121;
+  line-height: 1.0;
+}
+
+.cost-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cost-line-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #616161;
+  font-size: 14px;
+  line-height: 1.2;
+  padding: 3px;
+}
+
+.cost-line-item > span:first-child {
+  flex: 1;
+}
+
+.cost-value {
+  font-weight: 600;
+  color: #424242;
+  white-space: nowrap;
+  margin-left: 16px;
+  font-size: 12px;
+}
+
+.cost-line-subtext {
+  font-size: 10px;
+  color: #9E9E9E;
+  margin-top: -1px;
+  margin-left: 0;
+  margin-bottom: 0;
+}
+
+.professional-tier {
+  margin-bottom: 6px;
+}
+
+.tier-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #757575;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cost-premium-item {
+  background: #FFF3E0;
+  padding: 10px;
+  border-radius: 6px;
+  border-left: 3px solid #FF9800;
+}
+
+.premium-label {
+  color: #E65100;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.premium-value {
+  color: #E65100;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.premium-feature-notice {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: #F5F5F5;
+  border-radius: 6px;
+  border: 1px solid #E0E0E0;
+  font-size: 12px;
+}
+
+.reloprep-quote-container {
+  position: sticky;
+  top: 24px;
+}
+
+.reloprep-quote-card {
+  background: linear-gradient(135deg, #E3F2FD 0%, #FFFFFF 100%);
+  border: 2px solid #1976D2 !important;
+  box-shadow: 0 8px 24px rgba(25, 118, 210, 0.15) !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.reloprep-quote-card .q-card__section {
+  padding: 20px !important;
+}
+
+.savings-badge {
+  background: linear-gradient(135deg, #4CAF50 0%, #45A049 100%);
+  color: white;
+  padding: 10px 16px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  box-shadow: 0 3px 10px rgba(76, 175, 80, 0.3);
+  font-size: 0.9em;
+}
+
+/* Shimmer button effect (from onboarding) */
+.download-quote-btn {
+  box-shadow: 0 10px 24px rgba(39, 70, 144, 0.28);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+  background: linear-gradient(135deg, #274690, #1ca1c1, #7dd3fc) !important;
+  background-size: 240% 240%;
+  animation: fabShimmer 2.8s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  color: white !important;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.download-quote-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 12px 28px rgba(39, 70, 144, 0.32);
+}
+
+.download-quote-btn:active {
+  transform: scale(0.96);
+  box-shadow: 0 8px 18px rgba(39, 70, 144, 0.25);
+}
+
+@keyframes fabShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+    box-shadow: 0 12px 28px rgba(39, 70, 144, 0.34);
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.download-quote-btn::after {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  background:
+    radial-gradient(
+      10px 10px at 20% 30%,
+      rgba(255, 255, 255, 0.6),
+      transparent
+    ),
+    radial-gradient(
+      6px 6px at 60% 40%,
+      rgba(255, 255, 255, 0.4),
+      transparent
+    );
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Costs & Route Grid (2 columns) - Legacy */
 .costs-route-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -4435,8 +5123,13 @@ const downloadPdfEstimate = async () => {
 @media (max-width: 900px) {
   .truck-time-grid,
   .packing-grid,
-  .costs-route-grid {
+  .costs-route-grid,
+  .costs-grid {
     grid-template-columns: 1fr;
+  }
+
+  .reloprep-quote-container {
+    position: static;
   }
 
   .special-items-grid {

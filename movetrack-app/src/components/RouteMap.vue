@@ -12,8 +12,8 @@ interface Waypoint {
   id: number;
   city: string;
   state?: string;
-  lat?: number;
-  lng?: number;
+  lat?: number | string;
+  lng?: number | string;
   overnight_recommended?: boolean;
   sequence_order: number;
 }
@@ -21,9 +21,9 @@ interface Waypoint {
 interface DropoffLocation {
   id: number;
   name: string;
-  address?: string;
-  lat?: number;
-  lng?: number;
+  address?: string | null;
+  lat?: number | string;
+  lng?: number | string;
 }
 
 const props = defineProps({
