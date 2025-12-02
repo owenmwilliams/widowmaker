@@ -188,14 +188,25 @@ router.beforeEach(async (to, from, next) => {
   const isOnboardingRoute = to.path.startsWith('/onboarding');
   const isLoginRoute = to.path === '/login';
 
+  console.log('[Router Guard] Navigation:', {
+    to: to.path,
+    from: from.path,
+    hasToken: !!sessionToken,
+    isOnboardingRoute,
+    isLoginRoute
+  });
+
   // No token - allow navigation
   if (!sessionToken) {
+    console.log('[Router Guard] No token, allowing navigation');
     return next();
   }
 
   // Validate the session token before checking onboarding
   // This prevents infinite loops when token is expired
+  console.log('[Router Guard] Validating session token...');
   const isValidToken = await validateSessionToken();
+  console.log('[Router Guard] Token validation result:', isValidToken);
 
   if (!isValidToken) {
     console.log('[Router] Session token is invalid or expired, redirecting to login');
@@ -210,15 +221,20 @@ router.beforeEach(async (to, from, next) => {
 
   // Token is valid - check onboarding completion
   const completed = hasCompletedOnboarding();
+  console.log('[Router Guard] Onboarding completed:', completed);
+
   if (!completed && !isOnboardingRoute) {
+    console.log('[Router Guard] Onboarding not completed, redirecting to onboarding');
     return next({ name: 'onboarding-welcome' });
   }
 
   if (completed && to.name === 'onboarding-welcome' && from.name && !from.path.startsWith('/onboarding')) {
     // allow onboarding revisit, but if navigating from elsewhere and already complete, continue
+    console.log('[Router Guard] Onboarding completed, allowing revisit');
     return next();
   }
 
+  console.log('[Router Guard] Allowing navigation');
   return next();
 });
 

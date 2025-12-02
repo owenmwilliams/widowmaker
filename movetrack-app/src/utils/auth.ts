@@ -17,6 +17,7 @@ export async function validateSessionToken(): Promise<boolean> {
   const sessionToken = localStorage.getItem('session_token');
 
   if (!sessionToken) {
+    console.log('[auth] No session token found');
     return false;
   }
 
@@ -27,8 +28,11 @@ export async function validateSessionToken(): Promise<boolean> {
     lastValidationResult &&
     now - lastValidationTime < VALIDATION_CACHE_MS
   ) {
+    console.log('[auth] Using cached validation result (valid)');
     return true;
   }
+
+  console.log('[auth] Making API call to validate token...');
 
   try {
     // Make a lightweight request to verify the token is valid
@@ -41,6 +45,7 @@ export async function validateSessionToken(): Promise<boolean> {
     });
 
     const isValid = response.status === 200;
+    console.log('[auth] Token validation response:', response.status, isValid);
 
     // Cache the result
     lastValidatedToken = sessionToken;
@@ -51,7 +56,7 @@ export async function validateSessionToken(): Promise<boolean> {
   } catch (error) {
     // Token is invalid, expired, or API is unreachable
     if (axios.isAxiosError(error) && error.response?.status === 401) {
-      console.log('[auth] Session token is invalid or expired');
+      console.log('[auth] Session token is invalid or expired (401)');
       lastValidatedToken = sessionToken;
       lastValidationResult = false;
       lastValidationTime = now;
@@ -59,7 +64,7 @@ export async function validateSessionToken(): Promise<boolean> {
     }
 
     // For network errors, assume token is still valid to avoid blocking users
-    console.warn('[auth] Unable to validate session token:', error);
+    console.warn('[auth] Unable to validate session token (network error):', error.message);
     return true;
   }
 }
