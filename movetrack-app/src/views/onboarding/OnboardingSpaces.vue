@@ -83,7 +83,9 @@ const canContinue = computed(() => {
     form.address1.trim().length > 0 &&
     form.city.trim().length > 0 &&
     form.state.trim().length > 0 &&
-    form.zip.trim().length > 0
+    form.zip.trim().length > 0 &&
+    form.lat != null &&
+    form.lng != null
   );
 });
 

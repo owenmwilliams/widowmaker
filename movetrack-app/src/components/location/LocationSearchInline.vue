@@ -67,6 +67,15 @@ let isUpdatingFromProp = false;
 
 const hasMapsKey = computed(() => Boolean(googleMapsKey));
 
+// US State options for dropdown
+const usStateOptions = [
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA',
+  'HI','ID','IL','IN','IA','KS','KY','LA','ME','MD',
+  'MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC',
+  'SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'
+].map(state => ({ label: state, value: state }));
+
 // --- State Watchers ---
 
 // Sync Prop -> Local Form
@@ -387,7 +396,16 @@ onBeforeUnmount(() => {
             <q-input v-model="form.city" label="City" outlined dense bg-color="white" />
           </div>
           <div class="col-6 col-md-3">
-            <q-input v-model="form.state" label="State" outlined dense bg-color="white" />
+            <q-select
+              v-model="form.state"
+              :options="usStateOptions"
+              label="State"
+              outlined
+              dense
+              emit-value
+              map-options
+              bg-color="white"
+            />
           </div>
           <div class="col-6 col-md-3">
             <q-input v-model="form.zip" label="ZIP" outlined dense bg-color="white" />
