@@ -226,14 +226,90 @@ export const onboardingStore = defineStore("onboarding", {
       const inventory = inventoryStore();
       await inventory.loadInventory(userId);
 
+      // Step 1: Create all unique containers first
+      // Map: room -> container name -> container ID
+      const containerMap = new Map<string, Map<string, string>>();
+
       for (const item of queued) {
         const roomLabel =
           typeof item.room === "string" ? item.room.trim().toLowerCase() : "";
+        const containerName =
+          typeof item.container === "string" ? item.container.trim() : "";
+
+        if (!roomLabel || !containerName) continue;
+
+        // Find matching collection
+        const collection = inventory.collections.find(
+          (col) => (col.label || "").trim().toLowerCase() === roomLabel,
+        );
+        if (!collection) continue;
+
+        // Initialize room map if needed
+        if (!containerMap.has(roomLabel)) {
+          containerMap.set(roomLabel, new Map());
+        }
+
+        const roomContainers = containerMap.get(roomLabel)!;
+
+        // Check if container already exists or was just created
+        const existingContainer = inventory.containers.find(
+          (cont) =>
+            cont.collection === collection.value &&
+            cont.label.trim().toLowerCase() === containerName.toLowerCase(),
+        );
+
+        if (existingContainer) {
+          roomContainers.set(containerName.toLowerCase(), existingContainer.value);
+        } else if (!roomContainers.has(containerName.toLowerCase())) {
+          // Create new container
+          try {
+            await inventory.createContainer(
+              userId,
+              containerName,
+              collection.value,
+            );
+
+            // Reload inventory to get the newly created container
+            await inventory.loadInventory(userId);
+
+            // Find the container we just created
+            const newContainer = inventory.containers.find(
+              (cont) =>
+                cont.collection === collection.value &&
+                cont.label.trim().toLowerCase() === containerName.toLowerCase(),
+            );
+
+            if (newContainer) {
+              roomContainers.set(containerName.toLowerCase(), newContainer.value);
+              console.log(`[OnboardingStore] Created container: ${containerName} in ${collection.label}`);
+            }
+          } catch (error) {
+            console.error(
+              `[OnboardingStore] Failed to create container ${containerName}`,
+              error,
+            );
+          }
+        }
+      }
+
+      // Step 2: Create items with proper container references
+      for (const item of queued) {
+        const roomLabel =
+          typeof item.room === "string" ? item.room.trim().toLowerCase() : "";
+        const containerName =
+          typeof item.container === "string" ? item.container.trim() : "";
+
         const collection =
           inventory.collections.find(
             (col) => (col.label || "").trim().toLowerCase() === roomLabel,
           ) || inventory.collections[0];
         if (!collection) continue;
+
+        // Find container ID if specified
+        let containerId: string | undefined = undefined;
+        if (containerName && containerMap.has(roomLabel)) {
+          containerId = containerMap.get(roomLabel)!.get(containerName.toLowerCase());
+        }
 
         let imageBlob: Blob | undefined;
         if (item.picture_url) {
@@ -252,7 +328,7 @@ export const onboardingStore = defineStore("onboarding", {
             item.description || "",
             item.quantity || 1,
             collection.value, // collection.value is the collection ID (string)
-            undefined,
+            containerId, // Now properly references created container
             imageBlob,
             null,
             item.fragile || false,
