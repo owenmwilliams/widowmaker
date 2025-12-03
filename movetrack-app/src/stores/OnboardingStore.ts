@@ -251,7 +251,7 @@ export const onboardingStore = defineStore("onboarding", {
             item.name || "New Item",
             item.description || "",
             item.quantity || 1,
-            collection.value,
+            collection.id, // Fixed: was collection.value, should be collection.id
             undefined,
             imageBlob,
             null,
