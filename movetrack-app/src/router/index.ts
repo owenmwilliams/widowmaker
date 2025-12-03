@@ -125,11 +125,12 @@ const router = createRouter({
       component: VisionLab,
       beforeEnter: adminGuard,
     },
-    {
+    // Progress button test page - only available in development
+    ...(import.meta.env.MODE === 'development' ? [{
       path: "/progress-button",
       name: "progress-button-test",
       component: ProgressButtonTest
-    },
+    }] : []),
     {
       path: "/onboarding/import",
       name: "onboarding-import",
