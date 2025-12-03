@@ -18,18 +18,24 @@ const isSubmitting = ref(false);
 
 // Computed button label based on upload state
 const completeButtonLabel = computed(() => {
-  if (isSubmitting.value && uploadProgress.value.total > 0) {
-    const { current, total, phase } = uploadProgress.value;
-    if (phase === 'containers') {
-      return `Creating containers... (${current}/${total})`;
-    } else if (phase === 'items') {
-      return `Adding items... (${current}/${total})`;
-    } else if (phase === 'complete') {
-      return 'Complete!';
-    }
-    return `Uploading... (${current}/${total})`;
+  if (!isSubmitting.value) {
+    return 'Create your inventory';
   }
-  return 'Upload and take me to my inventory';
+
+  if (uploadProgress.value.percentage === 100) {
+    return 'Complete!';
+  }
+
+  // During upload, only show percentage
+  return `${uploadProgress.value.percentage}%`;
+});
+
+// Show icon only when idle or complete
+const completeButtonIcon = computed(() => {
+  if (!isSubmitting.value || uploadProgress.value.percentage === 100) {
+    return 'arrow_forward';
+  }
+  return undefined;
 });
 
 onMounted(() => {
@@ -105,10 +111,25 @@ const goAddMultiple = () => {
   finalizeAndNavigate(() => launchCapture("multi"));
 };
 
-const handleComplete = () => {
-  finalizeAndNavigate(() =>
-    router.push({ name: isMobilePlatform() ? "mobile-locations" : "items" }),
-  );
+const handleComplete = async () => {
+  if (isSubmitting.value) return;
+
+  isSubmitting.value = true;
+  try {
+    await store.finalizeOnboarding();
+
+    // Add 750ms delay at 100% to reinforce completion
+    if (uploadProgress.value.percentage === 100) {
+      await new Promise(resolve => setTimeout(resolve, 750));
+    }
+
+    router.push({ name: isMobilePlatform() ? "mobile-locations" : "items" });
+  } catch (error: any) {
+    console.error("[OnboardingNext] Finalization failed", error);
+    const message = error?.response?.data?.error || "Unable to finish onboarding";
+    $q.notify({ type: "negative", message });
+    isSubmitting.value = false;
+  }
 };
 </script>
 
@@ -172,16 +193,19 @@ const handleComplete = () => {
       <div class="actions actions--primary">
         <q-btn
           class="fab-button fab-pill progress-btn"
-          :label="completeButtonLabel"
-          icon="arrow_forward"
+          :class="{ 'progress-btn--complete': uploadProgress.percentage === 100 }"
           unelevated
-          :loading="isSubmitting"
           :disable="isSubmitting"
           :style="{
             '--progress-percentage': `${uploadProgress.percentage}%`
           }"
           @click="handleComplete"
-        />
+        >
+          <div class="button-content">
+            <span class="button-label">{{ completeButtonLabel }}</span>
+            <q-icon v-if="completeButtonIcon" :name="completeButtonIcon" size="20px" />
+          </div>
+        </q-btn>
       </div>
 
       <div class="action-grid">
@@ -408,7 +432,7 @@ const handleComplete = () => {
   background-size: 240% 240%;
   animation: fabShimmer 2.8s ease-in-out infinite;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .fab-pill {
@@ -418,11 +442,30 @@ const handleComplete = () => {
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: white;
+  /* Fixed size to prevent layout shift */
+  min-width: 400px;
+  min-height: 56px;
 }
 
 .fab-button :deep(.q-btn__content) {
   gap: 10px;
   font-size: 1rem;
+}
+
+/* Custom button content layout */
+.button-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  width: 100%;
+}
+
+.button-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  /* Large font for percentage during upload */
+  font-size: 1.2rem;
 }
 
 .fab-button:hover {
@@ -438,44 +481,9 @@ const handleComplete = () => {
 /* Progress border animation */
 .progress-btn {
   --progress-percentage: 0%;
+  transition: background 0.5s ease;
 }
 
-.progress-btn::before {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: inherit;
-  padding: 3px;
-  background: linear-gradient(135deg, #10b981, #059669, #047857);
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  z-index: 1;
-}
-
-.progress-btn[style*="--progress-percentage"]::before {
-  opacity: 1;
-  clip-path: polygon(
-    /* Start from top-left, go clockwise */
-    50% 0%,
-    calc(50% + (50% * (var(--progress-percentage) / 25))) 0%,
-    calc(50% + (50% * max(0, (var(--progress-percentage) - 25) / 25))) calc((50% * min(1, var(--progress-percentage) / 25))),
-    100% calc(50% * min(1, var(--progress-percentage) / 25)),
-    100% calc(50% + (50% * max(0, (var(--progress-percentage) - 25) / 25))),
-    calc(100% - (50% * max(0, (var(--progress-percentage) - 50) / 25))) 100%,
-    calc(50% - (50% * max(0, (var(--progress-percentage) - 75) / 25))) 100%,
-    0% calc(100% - (50% * max(0, (var(--progress-percentage) - 75) / 25))),
-    0% calc(50% - (50% * max(0, (var(--progress-percentage) - 50) / 25))),
-    calc(50% * max(0, (var(--progress-percentage) - 25) / 25)) 0%,
-    50% 0%
-  );
-}
-
-/* Alternative simpler approach - growing box-shadow border */
 .progress-btn::after {
   content: '';
   position: absolute;
@@ -483,8 +491,8 @@ const handleComplete = () => {
   border-radius: inherit;
   background: conic-gradient(
     from 0deg at 50% 50%,
-    #10b981 0%,
-    #059669 var(--progress-percentage),
+    #1ca1c1 0%,
+    #1ca1c1 var(--progress-percentage),
     transparent var(--progress-percentage),
     transparent 100%
   );
@@ -494,12 +502,23 @@ const handleComplete = () => {
   mask-composite: exclude;
   padding: 4px;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, background 0.5s ease;
   pointer-events: none;
+  z-index: -1;
 }
 
 .progress-btn[style*="--progress-percentage"]:not([style*="--progress-percentage: 0%"])::after {
   opacity: 1;
+}
+
+/* Complete state - teal button and border */
+.progress-btn--complete {
+  background: #1ca1c1 !important;
+  animation: none !important;
+}
+
+.progress-btn--complete::after {
+  background: #1ca1c1 !important;
 }
 
 @keyframes fabShimmer {
