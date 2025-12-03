@@ -20,6 +20,7 @@ import OnboardingNextSteps from '../views/onboarding/OnboardingNextSteps.vue'
 import OnboardingMobileCapture from '../views/onboarding/OnboardingMobileCapture.vue'
 import DesktopInventoryUpload from '../views/onboarding/DesktopInventoryUpload.vue'
 import VisionLab from '../views/VisionLab.vue'
+import ProgressButtonTest from '../views/ProgressButtonTest.vue'
 import { hasCompletedOnboarding } from '../utils/onboarding'
 import { validateSessionToken, clearAuthData } from '../utils/auth'
 
@@ -123,6 +124,11 @@ const router = createRouter({
       name: "vision-lab",
       component: VisionLab,
       beforeEnter: adminGuard,
+    },
+    {
+      path: "/progress-button",
+      name: "progress-button-test",
+      component: ProgressButtonTest
     },
     {
       path: "/onboarding/import",

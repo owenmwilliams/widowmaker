@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
 import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { onboardingStore } from "../../stores/OnboardingStore";
+import { storeToRefs } from "pinia";
 
 const emit = defineEmits<{ "app:loading": (value: boolean) => void }>();
 emit("app:loading", false);
@@ -10,9 +11,26 @@ emit("app:loading", false);
 const router = useRouter();
 const $q = useQuasar();
 const store = onboardingStore();
+const { uploadProgress } = storeToRefs(store);
 const importSummary = ref<any | null>(null);
 const captureSummary = ref<any | null>(null);
 const isSubmitting = ref(false);
+
+// Computed button label based on upload state
+const completeButtonLabel = computed(() => {
+  if (isSubmitting.value && uploadProgress.value.total > 0) {
+    const { current, total, phase } = uploadProgress.value;
+    if (phase === 'containers') {
+      return `Creating containers... (${current}/${total})`;
+    } else if (phase === 'items') {
+      return `Adding items... (${current}/${total})`;
+    } else if (phase === 'complete') {
+      return 'Complete!';
+    }
+    return `Uploading... (${current}/${total})`;
+  }
+  return 'Upload and take me to my inventory';
+});
 
 onMounted(() => {
   if (typeof window === "undefined") return;
@@ -153,12 +171,15 @@ const handleComplete = () => {
 
       <div class="actions actions--primary">
         <q-btn
-          class="fab-button fab-pill"
-          label="Take me to my inventory"
+          class="fab-button fab-pill progress-btn"
+          :label="completeButtonLabel"
           icon="arrow_forward"
           unelevated
           :loading="isSubmitting"
           :disable="isSubmitting"
+          :style="{
+            '--progress-percentage': `${uploadProgress.percentage}%`
+          }"
           @click="handleComplete"
         />
       </div>
@@ -412,6 +433,73 @@ const handleComplete = () => {
 .fab-button:active {
   transform: scale(0.96);
   box-shadow: 0 8px 18px rgba(39, 70, 144, 0.25);
+}
+
+/* Progress border animation */
+.progress-btn {
+  --progress-percentage: 0%;
+}
+
+.progress-btn::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  padding: 3px;
+  background: linear-gradient(135deg, #10b981, #059669, #047857);
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 1;
+}
+
+.progress-btn[style*="--progress-percentage"]::before {
+  opacity: 1;
+  clip-path: polygon(
+    /* Start from top-left, go clockwise */
+    50% 0%,
+    calc(50% + (50% * (var(--progress-percentage) / 25))) 0%,
+    calc(50% + (50% * max(0, (var(--progress-percentage) - 25) / 25))) calc((50% * min(1, var(--progress-percentage) / 25))),
+    100% calc(50% * min(1, var(--progress-percentage) / 25)),
+    100% calc(50% + (50% * max(0, (var(--progress-percentage) - 25) / 25))),
+    calc(100% - (50% * max(0, (var(--progress-percentage) - 50) / 25))) 100%,
+    calc(50% - (50% * max(0, (var(--progress-percentage) - 75) / 25))) 100%,
+    0% calc(100% - (50% * max(0, (var(--progress-percentage) - 75) / 25))),
+    0% calc(50% - (50% * max(0, (var(--progress-percentage) - 50) / 25))),
+    calc(50% * max(0, (var(--progress-percentage) - 25) / 25)) 0%,
+    50% 0%
+  );
+}
+
+/* Alternative simpler approach - growing box-shadow border */
+.progress-btn::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    #10b981 0%,
+    #059669 var(--progress-percentage),
+    transparent var(--progress-percentage),
+    transparent 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box,
+               linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 4px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.progress-btn[style*="--progress-percentage"]:not([style*="--progress-percentage: 0%"])::after {
+  opacity: 1;
 }
 
 @keyframes fabShimmer {

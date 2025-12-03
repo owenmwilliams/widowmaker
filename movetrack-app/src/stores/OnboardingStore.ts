@@ -83,6 +83,13 @@ export const onboardingStore = defineStore("onboarding", {
       selectedRooms: draft.selectedRooms ?? [],
       importDraft: draft.importDraft ?? {},
       completed: hasCompletedOnboarding(),
+      // Progress tracking for item creation
+      uploadProgress: {
+        current: 0,
+        total: 0,
+        phase: '' as 'containers' | 'items' | 'complete' | '',
+        percentage: 0,
+      },
     };
   },
   actions: {
@@ -226,6 +233,30 @@ export const onboardingStore = defineStore("onboarding", {
       const inventory = inventoryStore();
       await inventory.loadInventory(userId);
 
+      // Calculate total work units (containers + items)
+      const uniqueContainers = new Set<string>();
+      for (const item of queued) {
+        const roomLabel =
+          typeof item.room === "string" ? item.room.trim().toLowerCase() : "";
+        const containerName =
+          typeof item.container === "string" ? item.container.trim() : "";
+        if (roomLabel && containerName) {
+          uniqueContainers.add(`${roomLabel}:${containerName.toLowerCase()}`);
+        }
+      }
+
+      const totalContainers = uniqueContainers.size;
+      const totalItems = queued.length;
+      const totalWork = totalContainers + totalItems;
+
+      // Initialize progress
+      this.uploadProgress = {
+        current: 0,
+        total: totalWork,
+        phase: 'containers',
+        percentage: 0,
+      };
+
       // Step 1: Create all unique containers first
       // Map: room -> container name -> container ID
       const containerMap = new Map<string, Map<string, string>>();
@@ -283,6 +314,12 @@ export const onboardingStore = defineStore("onboarding", {
               roomContainers.set(containerName.toLowerCase(), newContainer.value);
               console.log(`[OnboardingStore] Created container: ${containerName} in ${collection.label}`);
             }
+
+            // Update progress
+            this.uploadProgress.current++;
+            this.uploadProgress.percentage = Math.round(
+              (this.uploadProgress.current / this.uploadProgress.total) * 100
+            );
           } catch (error) {
             console.error(
               `[OnboardingStore] Failed to create container ${containerName}`,
@@ -293,6 +330,8 @@ export const onboardingStore = defineStore("onboarding", {
       }
 
       // Step 2: Create items with proper container references
+      this.uploadProgress.phase = 'items';
+
       for (const item of queued) {
         const roomLabel =
           typeof item.room === "string" ? item.room.trim().toLowerCase() : "";
@@ -343,10 +382,20 @@ export const onboardingStore = defineStore("onboarding", {
             Array.isArray(item.tags) ? item.tags : [],
             { skipRedirect: true }, // Don't redirect during bulk onboarding item creation
           );
+
+          // Update progress
+          this.uploadProgress.current++;
+          this.uploadProgress.percentage = Math.round(
+            (this.uploadProgress.current / this.uploadProgress.total) * 100
+          );
         } catch (error) {
           console.error("[OnboardingStore] Failed to persist queued item", error);
         }
       }
+
+      // Mark as complete
+      this.uploadProgress.phase = 'complete';
+      this.uploadProgress.percentage = 100;
     },
     async finalizeOnboarding() {
       const token = typeof window !== "undefined" ? localStorage.getItem("session_token") : null;
