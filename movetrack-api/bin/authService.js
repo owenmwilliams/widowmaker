@@ -491,11 +491,11 @@ async function getUserFromToken(sessionToken) {
         const onboardingSelect = hasOnboarding ? ', onboarding_completed' : ', NULL::boolean AS onboarding_completed';
 
         console.log('[getUserFromToken] Fetching user from database by userId:', decoded.userId);
-        // Handle both integer and UUID user_id columns
+        // user_id is UUID type
         const user = await db.oneOrNone(
             `SELECT user_id, email, first_name, last_name${onboardingSelect}
              FROM users
-             WHERE user_id::text = $1::text`,
+             WHERE user_id = $1::uuid`,
             [decoded.userId]
         );
 
