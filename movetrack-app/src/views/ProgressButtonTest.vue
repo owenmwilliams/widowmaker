@@ -19,21 +19,16 @@ const buttonLabel = computed(() => {
     return 'Complete!';
   }
 
-  if (percentage.value < 33) {
-    return `Creating containers...`;
-  } else if (percentage.value < 100) {
-    return `Adding items...`;
-  }
-
-  return `Uploading...`;
+  // During upload, only show percentage
+  return `${percentage.value}%`;
 });
 
-// Show percentage instead of loading spinner
+// Show icon only when idle or complete
 const buttonIcon = computed(() => {
-  if (isRunning.value && percentage.value < 100) {
-    return undefined; // No icon during upload
+  if (!isRunning.value || percentage.value === 100) {
+    return 'arrow_forward';
   }
-  return 'arrow_forward';
+  return undefined;
 });
 
 const startProgress = () => {
@@ -100,8 +95,7 @@ const reset = () => {
             >
               <div class="button-content">
                 <span class="button-label">{{ buttonLabel }}</span>
-                <span v-if="isRunning && percentage < 100" class="button-percentage">{{ percentage }}%</span>
-                <q-icon v-else-if="buttonIcon" :name="buttonIcon" size="20px" />
+                <q-icon v-if="buttonIcon" :name="buttonIcon" size="20px" />
               </div>
             </q-btn>
           </div>
@@ -275,17 +269,8 @@ const reset = () => {
 .button-label {
   flex: 0 0 auto;
   white-space: nowrap;
-}
-
-.button-percentage {
-  font-size: 1.1rem;
-  font-weight: 700;
-  background: rgba(255, 255, 255, 0.2);
-  padding: 4px 12px;
-  border-radius: 999px;
-  min-width: 55px;
-  text-align: center;
-  backdrop-filter: blur(4px);
+  /* Large font for percentage during upload */
+  font-size: 1.2rem;
 }
 
 .fab-button:hover {
