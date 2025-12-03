@@ -3405,11 +3405,10 @@ onMounted(() => {
                 readonly
                 clearable
                 hint="Earliest date you can start loading"
-                @click="moveDatePopup?.show()"
-                @focus="moveDatePopup?.show()"
+                class="cursor-pointer"
               >
                 <template v-slot:prepend>
-                  <q-icon name="event" />
+                  <q-icon name="event" class="cursor-pointer" />
                 </template>
                 <q-popup-proxy ref="moveDatePopup" cover transition-show="scale" transition-hide="scale">
                   <q-date
@@ -3429,11 +3428,10 @@ onMounted(() => {
                 readonly
                 clearable
                 hint="Latest date you need to finish unloading"
-                @click="moveEndDatePopup?.show()"
-                @focus="moveEndDatePopup?.show()"
+                class="cursor-pointer"
               >
                 <template v-slot:prepend>
-                  <q-icon name="event_available" />
+                  <q-icon name="event_available" class="cursor-pointer" />
                 </template>
                 <q-popup-proxy ref="moveEndDatePopup" cover transition-show="scale" transition-hide="scale">
                   <q-date
@@ -3578,18 +3576,6 @@ onMounted(() => {
               >
                 <template v-slot:prepend>
                   <q-icon name="my_location" />
-                </template>
-                <template v-slot:append>
-                  <q-btn
-                    round
-                    dense
-                    flat
-                    icon="add"
-                    color="primary"
-                    @click="openLocationDialog"
-                  >
-                    <q-tooltip>Add a new location</q-tooltip>
-                  </q-btn>
                 </template>
               </q-select>
             </q-card-section>
@@ -4469,18 +4455,6 @@ onMounted(() => {
                 <template v-slot:prepend>
                   <q-icon name="my_location" />
                 </template>
-                <template v-slot:append>
-                  <q-btn
-                    round
-                    dense
-                    flat
-                    icon="add"
-                    color="primary"
-                    @click="openLocationDialog"
-                  >
-                    <q-tooltip>Add a new location</q-tooltip>
-                  </q-btn>
-                </template>
               </q-select>
             </div>
             <div class="col-12 col-md-6">
@@ -4501,18 +4475,6 @@ onMounted(() => {
                 <template v-slot:prepend>
                   <q-icon name="flag" />
                 </template>
-                <template v-slot:append>
-                  <q-btn
-                    round
-                    dense
-                    flat
-                    icon="add"
-                    color="primary"
-                    @click="openLocationDialog"
-                  >
-                    <q-tooltip>Add a new location</q-tooltip>
-                  </q-btn>
-                </template>
               </q-select>
             </div>
           </div>
@@ -4526,11 +4488,10 @@ onMounted(() => {
                 dense
                 readonly
                 clearable
-                @click="newMoveOutPopup?.show()"
-                @focus="newMoveOutPopup?.show()"
+                class="cursor-pointer"
               >
                 <template v-slot:prepend>
-                  <q-icon name="event" />
+                  <q-icon name="event" class="cursor-pointer" />
                 </template>
                 <q-popup-proxy ref="newMoveOutPopup" cover transition-show="scale" transition-hide="scale">
                   <q-date
@@ -4549,11 +4510,10 @@ onMounted(() => {
                 dense
                 readonly
                 clearable
-                @click="newMoveInPopup?.show()"
-                @focus="newMoveInPopup?.show()"
+                class="cursor-pointer"
               >
                 <template v-slot:prepend>
-                  <q-icon name="event_available" />
+                  <q-icon name="event_available" class="cursor-pointer" />
                 </template>
                 <q-popup-proxy ref="newMoveInPopup" cover transition-show="scale" transition-hide="scale">
                   <q-date
