@@ -47,6 +47,17 @@ export async function validateSessionToken(): Promise<boolean> {
     const isValid = response.status === 200;
     console.log('[auth] Token validation response:', response.status, isValid);
 
+    // Update user_data in localStorage with fresh data from server
+    // This ensures onboarding_completed and other fields are up-to-date
+    if (isValid && response.data?.success && response.data?.user) {
+      try {
+        localStorage.setItem('user_data', JSON.stringify(response.data.user));
+        console.log('[auth] Updated user_data with fresh server data');
+      } catch (error) {
+        console.warn('[auth] Failed to update user_data in localStorage:', error);
+      }
+    }
+
     // Cache the result
     lastValidatedToken = sessionToken;
     lastValidationResult = isValid;
