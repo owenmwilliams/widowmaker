@@ -62,13 +62,25 @@ const fetchProviderInfo = async () => {
     if (!isPro.value && currentProvider.value !== 'scout') {
       currentProvider.value = 'scout';
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching provider info:', error);
-    $q.notify({
-      type: 'negative',
-      message: 'Could not fetch vision provider info',
-      position: 'bottom'
-    });
+
+    // Set defaults if fetch fails (e.g., 401 Unauthorized during onboarding)
+    currentProvider.value = 'scout';
+    availableProviders.value = ['scout', 'qwen', 'gemini', 'claude', 'gpt4'];
+    plan.value = 'basic';
+    isPro.value = false;
+
+    // Only show notification if it's not a 401 (auth) error
+    // 401 is expected during onboarding or with expired tokens
+    if (!axios.isAxiosError(error) || error.response?.status !== 401) {
+      $q.notify({
+        type: 'negative',
+        message: 'Could not fetch vision provider info',
+        caption: 'Using default settings',
+        position: 'bottom'
+      });
+    }
   }
 };
 
