@@ -20,12 +20,20 @@ const buttonLabel = computed(() => {
   }
 
   if (percentage.value < 33) {
-    return `Creating containers... (${current.value}/${total.value})`;
+    return `Creating containers...`;
   } else if (percentage.value < 100) {
-    return `Adding items... (${current.value}/${total.value})`;
+    return `Adding items...`;
   }
 
-  return `Uploading... (${current.value}/${total.value})`;
+  return `Uploading...`;
+});
+
+// Show percentage instead of loading spinner
+const buttonIcon = computed(() => {
+  if (isRunning.value && percentage.value < 100) {
+    return undefined; // No icon during upload
+  }
+  return 'arrow_forward';
 });
 
 const startProgress = () => {
@@ -83,16 +91,19 @@ const reset = () => {
           <div class="button-showcase">
             <q-btn
               class="fab-button fab-pill progress-btn"
-              :label="buttonLabel"
-              icon="arrow_forward"
               unelevated
-              :loading="isRunning"
               :disable="isRunning"
               :style="{
                 '--progress-percentage': `${percentage}%`
               }"
               @click="startProgress"
-            />
+            >
+              <div class="button-content">
+                <span class="button-label">{{ buttonLabel }}</span>
+                <span v-if="isRunning && percentage < 100" class="button-percentage">{{ percentage }}%</span>
+                <q-icon v-else-if="buttonIcon" :name="buttonIcon" size="20px" />
+              </div>
+            </q-btn>
           </div>
 
           <div class="controls">
@@ -242,11 +253,39 @@ const reset = () => {
   letter-spacing: 0.5px;
   text-transform: uppercase;
   color: white;
+  /* Fixed size to prevent layout shift */
+  min-width: 400px;
+  min-height: 56px;
 }
 
 .fab-button :deep(.q-btn__content) {
   gap: 10px;
   font-size: 1rem;
+}
+
+/* Custom button content layout */
+.button-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  width: 100%;
+}
+
+.button-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.button-percentage {
+  font-size: 1.1rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 12px;
+  border-radius: 999px;
+  min-width: 55px;
+  text-align: center;
+  backdrop-filter: blur(4px);
 }
 
 .fab-button:hover {
