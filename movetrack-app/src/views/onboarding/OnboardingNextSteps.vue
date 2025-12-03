@@ -259,7 +259,7 @@ const handleComplete = () => {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
-  margin-top: 32px;
+  margin-top: 48px;
 }
 
 .action-card {

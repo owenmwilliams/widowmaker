@@ -45,7 +45,7 @@ const defaultForm = (): LocationForm => ({
 });
 
 const form = reactive<LocationForm>(defaultForm());
-const manualEntryOpen = ref(false);
+const manualEntryOpen = ref(true); // Default to open so users can type directly
 const verifying = ref(false);
 const verificationError = ref<string | null>(null);
 
