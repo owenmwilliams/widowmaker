@@ -567,11 +567,16 @@ export const inventoryStore = defineStore("inventory", () => {
       headers: headers,
     })
       .then((value) => {
-        // Validate response structure
-        if (!value.data || !Array.isArray(value.data) || !value.data[0]?.id) {
+        // Validate response structure - handle both array and object formats
+        const responseData = value.data;
+        const itemId = Array.isArray(responseData)
+          ? responseData[0]?.id
+          : responseData?.id;
+
+        if (!itemId) {
           throw new Error('Invalid response from items/post endpoint');
         }
-        return value.data[0].id;
+        return itemId;
       })
       .then(async (id) => {
         if (image) {
@@ -1044,8 +1049,13 @@ export const inventoryStore = defineStore("inventory", () => {
       params: parameters,
       headers: headers,
     }).then(async (value) => {
-      // Validate API response
-      if (!value.data || !Array.isArray(value.data) || value.data.length === 0 || !value.data[0]?.id) {
+      // Validate API response - handle both array and object formats
+      const responseData = value.data;
+      const containerId = Array.isArray(responseData)
+        ? responseData[0]?.id
+        : responseData?.id;
+
+      if (!containerId) {
         console.error('Invalid container creation response:', value.data);
         throw new Error('Container creation failed: Invalid response from server');
       }
@@ -1061,7 +1071,7 @@ export const inventoryStore = defineStore("inventory", () => {
               height: innerHeightIn,
             }
           : fallbackDimensions;
-      const normalizedContainerId = normalizeId(value.data[0].id);
+      const normalizedContainerId = normalizeId(containerId);
       const parentCollection = collections.value.find(
         (c) => c.value === normalizedCollectionId,
       );
