@@ -36,7 +36,7 @@ export const dataQualityDefinitions = [
   {
     key: 'container',
     label: 'Unpacked Items',
-    description: 'Items not assigned to a container (excludes loose items like furniture)',
+    description: 'Items not assigned to a container',
     color: 'primary',
     predicate: (item: any) => {
       // Exclude items tagged as "loose" (furniture, large appliances, etc.)
