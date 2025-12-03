@@ -4654,6 +4654,7 @@ onMounted(() => {
 .move-planning-container {
   max-width: 100%;
   background: #F7F8FA;
+  min-height: 100vh;
 }
 
 .move-planning-header {

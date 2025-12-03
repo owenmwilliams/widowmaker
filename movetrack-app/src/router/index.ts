@@ -21,6 +21,7 @@ import OnboardingMobileCapture from '../views/onboarding/OnboardingMobileCapture
 import DesktopInventoryUpload from '../views/onboarding/DesktopInventoryUpload.vue'
 import VisionLab from '../views/VisionLab.vue'
 import ProgressButtonTest from '../views/ProgressButtonTest.vue'
+import PdfInventoryTest from '../views/PdfInventoryTest.vue'
 import { hasCompletedOnboarding } from '../utils/onboarding'
 import { validateSessionToken, clearAuthData } from '../utils/auth'
 
@@ -125,12 +126,20 @@ const router = createRouter({
       component: VisionLab,
       beforeEnter: adminGuard,
     },
-    // Progress button test page - only available in development
-    ...(import.meta.env.MODE === 'development' ? [{
-      path: "/progress-button",
-      name: "progress-button-test",
-      component: ProgressButtonTest
-    }] : []),
+    // Test pages - only available in development
+    ...(import.meta.env.MODE === 'development' ? [
+      {
+        path: "/progress-button",
+        name: "progress-button-test",
+        component: ProgressButtonTest
+      },
+      {
+        path: "/pdf-inventory-test",
+        name: "pdf-inventory-test",
+        component: PdfInventoryTest,
+        beforeEnter: authGuard
+      }
+    ] : []),
     {
       path: "/onboarding/import",
       name: "onboarding-import",
