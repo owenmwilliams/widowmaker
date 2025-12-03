@@ -265,6 +265,7 @@ export const onboardingStore = defineStore("onboarding", {
             item.material || undefined,
             item.primary_color || undefined,
             Array.isArray(item.tags) ? item.tags : [],
+            { skipRedirect: true }, // Don't redirect during bulk onboarding item creation
           );
         } catch (error) {
           console.error("[OnboardingStore] Failed to persist queued item", error);

@@ -483,6 +483,7 @@ export const inventoryStore = defineStore("inventory", () => {
     material?: string,
     primaryColor?: string,
     tags?: string[],
+    options?: { skipRedirect?: boolean },
   ) {
     // NEW FLOW:
     // 1. UPLOAD ALL THE TEXTUAL DATA
@@ -566,6 +567,10 @@ export const inventoryStore = defineStore("inventory", () => {
       headers: headers,
     })
       .then((value) => {
+        // Validate response structure
+        if (!value.data || !Array.isArray(value.data) || !value.data[0]?.id) {
+          throw new Error('Invalid response from items/post endpoint');
+        }
         return value.data[0].id;
       })
       .then(async (id) => {
@@ -656,7 +661,9 @@ export const inventoryStore = defineStore("inventory", () => {
         }
       })
       .finally(() => {
-        router.push("items");
+        if (!options?.skipRedirect) {
+          router.push("items");
+        }
       });
   }
 
