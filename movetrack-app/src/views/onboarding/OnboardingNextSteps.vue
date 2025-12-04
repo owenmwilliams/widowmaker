@@ -478,6 +478,19 @@ const handleComplete = async () => {
   box-shadow: 0 8px 18px rgba(39, 70, 144, 0.25);
 }
 
+@keyframes fabShimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+    box-shadow: 0 12px 28px rgba(39, 70, 144, 0.34);
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
 /* Progress border animation */
 .progress-btn {
   --progress-percentage: 0%;
@@ -519,19 +532,6 @@ const handleComplete = async () => {
 
 .progress-btn--complete::after {
   background: #1ca1c1 !important;
-}
-
-@keyframes fabShimmer {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-    box-shadow: 0 12px 28px rgba(39, 70, 144, 0.34);
-  }
-  100% {
-    background-position: 0% 50%;
-  }
 }
 
 .fab-button::after {
