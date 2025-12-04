@@ -1771,6 +1771,27 @@ export const inventoryStore = defineStore("inventory", () => {
     return response.data;
   }
 
+  async function requestItemEstimate(
+    itemId: string,
+    payload?: {
+      overrideFields?: Record<string, any>;
+      model?: string;
+    },
+  ) {
+    const normalizedId = normalizeId(itemId);
+    if (!normalizedId) {
+      throw new Error("Item ID is required for AI estimation");
+    }
+    const headers = getHeaders();
+    const response = await axios({
+      method: "post",
+      url: `${core_url}/items/${normalizedId}/ai-estimate`,
+      data: payload || {},
+      headers,
+    });
+    return response.data;
+  }
+
   return {
     locations,
     collections,
@@ -1811,5 +1832,6 @@ export const inventoryStore = defineStore("inventory", () => {
     closeItemDetailsModal,
     startNewItem,
     getQrUrl: buildQrUrl,
+    requestItemEstimate,
   };
 });

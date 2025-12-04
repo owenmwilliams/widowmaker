@@ -15,6 +15,48 @@ const selectedLocation = ref<string | null>(null);
 const includeImages = ref(true);
 const imageGridSize = ref<'small' | 'medium' | 'large'>('medium');
 
+// Dummy move details data
+const dummyMoveDetails = {
+  customer: {
+    name: 'Sarah Johnson',
+    email: 'sarah.johnson@email.com',
+    phone: '(555) 234-5678'
+  },
+  origin: {
+    address: '1245 Oak Street, Apt 3B, San Francisco, CA 94102',
+    floors: 3,
+    accessRestrictions: [
+      'Walk-up (no elevator)',
+      'Narrow stairwell (36" width)',
+      'Limited street parking - permit required',
+      'Building entrance 40 ft from parking'
+    ]
+  },
+  destination: {
+    address: '892 Pine Avenue, Unit 12, Oakland, CA 94610',
+    floors: 2,
+    accessRestrictions: [
+      'Freight elevator available (8am-6pm)',
+      'Loading dock access',
+      'Reserved parking for movers',
+      'Door width: 32 inches'
+    ]
+  },
+  moveDate: {
+    packDate: new Date('2024-03-15'),
+    loadDate: new Date('2024-03-16'),
+    deliveryDate: new Date('2024-03-17')
+  },
+  distance: 12.4, // miles
+  estimatedCost: 3850,
+  deposit: 850,
+  specialRequirements: [
+    'Long carry required at origin (40+ ft)',
+    'Packing service requested for fragile items',
+    'Furniture disassembly/reassembly needed'
+  ]
+};
+
 // Sample furniture images (various Unsplash images)
 const SAMPLE_IMAGES = [
   'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=400&h=300&fit=crop', // Sofa
@@ -188,6 +230,66 @@ const itemsInLocation = computed(() => {
   }
 });
 
+// Calculate inventory totals
+const inventoryTotals = computed(() => {
+  const items = itemsInLocation.value;
+
+  let totalWeight = 0;
+  let totalVolume = 0;
+
+  items.forEach(item => {
+    const qty = item.quantity || 1;
+    const weight = item.weight_lbs || 0;
+    totalWeight += weight * qty;
+
+    const dims = parseItemDimensions(item);
+    if (dims) {
+      // Volume in cubic feet
+      const volumeCubicInches = dims.length * dims.width * dims.height;
+      const volumeCubicFeet = volumeCubicInches / 1728;
+      totalVolume += volumeCubicFeet * qty;
+    }
+  });
+
+  return {
+    totalWeight: Math.round(totalWeight),
+    totalVolume: Math.round(totalVolume),
+    itemCount: items.reduce((sum, item) => sum + (item.quantity || 1), 0)
+  };
+});
+
+// Identify high-value/fragile items
+const highValueItems = computed(() => {
+  return itemsInLocation.value.filter(item => {
+    const tags = item.tags || [];
+    const description = (item.description || '').toLowerCase();
+    const label = (item.label || '').toLowerCase();
+
+    return tags.includes('fragile') ||
+           tags.includes('high-value') ||
+           description.includes('antique') ||
+           description.includes('glass') ||
+           label.includes('piano') ||
+           label.includes('china cabinet') ||
+           label.includes('artwork');
+  });
+});
+
+// Identify items requiring disassembly
+const disassemblyItems = computed(() => {
+  return itemsInLocation.value.filter(item => {
+    const label = (item.label || '').toLowerCase();
+    const description = (item.description || '').toLowerCase();
+
+    return label.includes('bed') ||
+           label.includes('desk') ||
+           label.includes('table') ||
+           label.includes('bookshelf') ||
+           label.includes('bookcase') ||
+           description.includes('assembly');
+  });
+});
+
 // Parse item dimensions
 const parseItemDimensions = (item: any) => {
   const length = item.length_in || item.lengthIn;
@@ -241,26 +343,144 @@ const generatePDF = async () => {
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(25, 118, 210);
-  doc.text('Inventory Report', 15, yPos);
+  doc.text('Moving Inventory & Quote', 15, yPos);
   yPos += 8;
 
   doc.setFontSize(10);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 100, 100);
   doc.text(`Generated: ${new Date().toLocaleDateString()}`, 15, yPos);
-  yPos += 4;
-  doc.text(`Test Scenario: ${testScenario.value}`, 15, yPos);
-  yPos += 12;
+  yPos += 10;
 
-  // Location info (only for real data)
-  if (testScenario.value === 'real' && selectedLocation.value) {
-    const location = locationValues.value.find(l => l.value === selectedLocation.value);
-    if (location) {
-      addSectionHeader('Location');
-      doc.setFontSize(10);
-      doc.text(location.label, 15, yPos);
-      yPos += 10;
+  // SECTION 1: Contact Information
+  addSectionHeader('Customer Information');
+  doc.setFontSize(10);
+  doc.text(`Name: ${dummyMoveDetails.customer.name}`, 20, yPos);
+  yPos += 5;
+  doc.text(`Email: ${dummyMoveDetails.customer.email}`, 20, yPos);
+  yPos += 5;
+  doc.text(`Phone: ${dummyMoveDetails.customer.phone}`, 20, yPos);
+  yPos += 10;
+
+  // SECTION 2: Move Overview (Distance/Route & Dates)
+  addSectionHeader('Move Overview');
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Origin:', 20, yPos);
+  doc.setFont('helvetica', 'normal');
+  yPos += 5;
+  doc.text(dummyMoveDetails.origin.address, 25, yPos);
+  yPos += 6;
+
+  doc.setFont('helvetica', 'bold');
+  doc.text('Destination:', 20, yPos);
+  doc.setFont('helvetica', 'normal');
+  yPos += 5;
+  doc.text(dummyMoveDetails.destination.address, 25, yPos);
+  yPos += 6;
+
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Distance: ${dummyMoveDetails.distance} miles`, 20, yPos);
+  yPos += 6;
+
+  doc.setFont('helvetica', 'normal');
+  doc.text(`Pack Date: ${dummyMoveDetails.moveDate.packDate.toLocaleDateString()}`, 20, yPos);
+  yPos += 5;
+  doc.text(`Load Date: ${dummyMoveDetails.moveDate.loadDate.toLocaleDateString()}`, 20, yPos);
+  yPos += 5;
+  doc.text(`Delivery Date: ${dummyMoveDetails.moveDate.deliveryDate.toLocaleDateString()}`, 20, yPos);
+  yPos += 10;
+
+  // SECTION 3: Cost Information
+  addSectionHeader('Cost Summary');
+  doc.setFontSize(10);
+  doc.text(`Estimated Total Cost: $${dummyMoveDetails.estimatedCost.toLocaleString()}`, 20, yPos);
+  yPos += 5;
+  doc.text(`Deposit Paid: $${dummyMoveDetails.deposit.toLocaleString()}`, 20, yPos);
+  yPos += 5;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  const remainingBalance = dummyMoveDetails.estimatedCost - dummyMoveDetails.deposit;
+  doc.text(`Balance Due: $${remainingBalance.toLocaleString()}`, 20, yPos);
+  yPos += 10;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+
+  // SECTION 4: Top-line Inventory Stats
+  addSectionHeader('Inventory Summary');
+  doc.setFontSize(10);
+  doc.text(`Total Items: ${inventoryTotals.value.itemCount}`, 20, yPos);
+  yPos += 5;
+  doc.text(`Estimated Weight: ${inventoryTotals.value.totalWeight.toLocaleString()} lbs`, 20, yPos);
+  yPos += 5;
+  doc.text(`Estimated Volume: ${inventoryTotals.value.totalVolume.toLocaleString()} cubic feet`, 20, yPos);
+  yPos += 10;
+
+  // SECTION 5: Floor Plan Info
+  addSectionHeader('Access Details');
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Origin (Floor ${dummyMoveDetails.origin.floors}):`, 20, yPos);
+  yPos += 5;
+  doc.setFont('helvetica', 'normal');
+  dummyMoveDetails.origin.accessRestrictions.forEach(restriction => {
+    doc.text(`• ${restriction}`, 25, yPos);
+    yPos += 5;
+  });
+  yPos += 3;
+
+  doc.setFont('helvetica', 'bold');
+  doc.text(`Destination (Floor ${dummyMoveDetails.destination.floors}):`, 20, yPos);
+  yPos += 5;
+  doc.setFont('helvetica', 'normal');
+  dummyMoveDetails.destination.accessRestrictions.forEach(restriction => {
+    doc.text(`• ${restriction}`, 25, yPos);
+    yPos += 5;
+  });
+  yPos += 10;
+
+  // SECTION 6: Special Requirements
+  if (dummyMoveDetails.specialRequirements.length > 0) {
+    addSectionHeader('Special Requirements');
+    doc.setFontSize(10);
+    dummyMoveDetails.specialRequirements.forEach(req => {
+      doc.text(`• ${req}`, 20, yPos);
+      yPos += 5;
+    });
+    yPos += 10;
+  }
+
+  // SECTION 7: High-Value Items
+  if (highValueItems.value.length > 0) {
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 20;
     }
+    addSectionHeader('High-Value/Fragile Items');
+    doc.setFontSize(9);
+    highValueItems.value.forEach(item => {
+      const itemName = item.label || 'Unnamed';
+      const description = item.description ? ` - ${item.description}` : '';
+      doc.text(`• ${itemName}${description}`, 20, yPos);
+      yPos += 5;
+    });
+    yPos += 10;
+  }
+
+  // SECTION 8: Disassembly/Reassembly Items
+  if (disassemblyItems.value.length > 0) {
+    if (yPos > 240) {
+      doc.addPage();
+      yPos = 20;
+    }
+    addSectionHeader('Items Requiring Disassembly/Reassembly');
+    doc.setFontSize(9);
+    disassemblyItems.value.forEach(item => {
+      const itemName = item.label || 'Unnamed';
+      doc.text(`• ${itemName}`, 20, yPos);
+      yPos += 5;
+    });
+    yPos += 10;
   }
 
   // Inventory table
@@ -269,7 +489,7 @@ const generatePDF = async () => {
     yPos = 20;
   }
 
-  addSectionHeader('Inventory');
+  addSectionHeader('Detailed Inventory List');
 
   const inventoryItems = itemsInLocation.value.map(item => {
     const dims = parseItemDimensions(item);
@@ -392,13 +612,13 @@ const generatePDF = async () => {
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
     doc.text(`Page ${i} of ${pageCount}`, 105, 285, { align: 'center' });
-    doc.text('Inventory Report • Generated by ReloPrep', 105, 290, { align: 'center' });
+    doc.text('Moving Inventory & Quote • Generated by ReloPrep', 105, 290, { align: 'center' });
   }
 
   // Save PDF
   const filename = testScenario.value === 'real' && selectedLocation.value
-    ? `Inventory-${locationValues.value.find(l => l.value === selectedLocation.value)?.label}-${new Date().toISOString().split('T')[0]}.pdf`
-    : `Inventory-Test-${testScenario.value}-${new Date().toISOString().split('T')[0]}.pdf`;
+    ? `Moving-Quote-${locationValues.value.find(l => l.value === selectedLocation.value)?.label}-${new Date().toISOString().split('T')[0]}.pdf`
+    : `Moving-Quote-Test-${testScenario.value}-${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(filename);
 };
 </script>
@@ -479,16 +699,24 @@ const generatePDF = async () => {
 
           <div class="stats-section">
             <div class="stat-card">
-              <div class="stat-value">{{ itemsInLocation.length }}</div>
+              <div class="stat-value">{{ inventoryTotals.itemCount }}</div>
               <div class="stat-label">Total Items</div>
             </div>
             <div class="stat-card">
-              <div class="stat-value">{{ itemsInLocation.filter(i => i.picture_url).length }}</div>
-              <div class="stat-label">Items with Images</div>
+              <div class="stat-value">{{ inventoryTotals.totalWeight.toLocaleString() }}</div>
+              <div class="stat-label">Total Weight (lbs)</div>
             </div>
             <div class="stat-card">
-              <div class="stat-value">{{ locationValues.length }}</div>
-              <div class="stat-label">Available Locations</div>
+              <div class="stat-value">{{ inventoryTotals.totalVolume.toLocaleString() }}</div>
+              <div class="stat-label">Volume (cu ft)</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">{{ highValueItems.length }}</div>
+              <div class="stat-label">High-Value Items</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">{{ disassemblyItems.length }}</div>
+              <div class="stat-label">Disassembly Required</div>
             </div>
           </div>
 
@@ -514,14 +742,17 @@ const generatePDF = async () => {
               <li><strong>Mixed:</strong> 35 items with furniture, boxes, and equipment</li>
             </ul>
 
-            <h3>What to check:</h3>
+            <h3>PDF Includes Essential Mover Information:</h3>
             <ul>
-              <li>Table formatting and readability across pages</li>
-              <li>Image quality and sizing at different grid sizes</li>
-              <li>Page breaks between sections</li>
-              <li>Item names, dimensions, and weights display correctly</li>
-              <li>Headers and footers are consistent</li>
-              <li>PDF file size with many images</li>
+              <li><strong>Customer Contact:</strong> Name, email, phone</li>
+              <li><strong>Move Details:</strong> Origin, destination, distance, dates</li>
+              <li><strong>Cost Summary:</strong> Total cost, deposit, balance due</li>
+              <li><strong>Inventory Stats:</strong> Total weight, volume, item count</li>
+              <li><strong>Access Details:</strong> Floor info, restrictions at both locations</li>
+              <li><strong>Special Requirements:</strong> Long carry, packing services, etc.</li>
+              <li><strong>High-Value Items:</strong> Fragile items requiring special handling</li>
+              <li><strong>Disassembly Needs:</strong> Furniture requiring assembly work</li>
+              <li><strong>Detailed Inventory:</strong> Complete list with dimensions and weights</li>
             </ul>
           </div>
         </div>
@@ -588,7 +819,7 @@ const generatePDF = async () => {
 
 .stats-section {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }

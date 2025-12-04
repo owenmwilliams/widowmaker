@@ -12,7 +12,7 @@ const percentage = computed(() => {
 
 const buttonLabel = computed(() => {
   if (!isRunning.value) {
-    return 'Upload and take me to my inventory';
+    return 'Create your inventory';
   }
 
   if (percentage.value === 100) {
@@ -40,7 +40,11 @@ const startProgress = () => {
   const interval = setInterval(() => {
     if (current.value >= total.value) {
       clearInterval(interval);
-      isRunning.value = false;
+
+      // Add 250ms delay at 100% to reinforce completion
+      setTimeout(() => {
+        isRunning.value = false;
+      }, 750);
       return;
     }
 
@@ -86,6 +90,7 @@ const reset = () => {
           <div class="button-showcase">
             <q-btn
               class="fab-button fab-pill progress-btn"
+              :class="{ 'progress-btn--complete': percentage === 100 }"
               unelevated
               :disable="isRunning"
               :style="{
@@ -299,6 +304,7 @@ const reset = () => {
 /* Progress border animation */
 .progress-btn {
   --progress-percentage: 0%;
+  transition: background 0.5s ease;
 }
 
 .progress-btn::after {
@@ -308,8 +314,8 @@ const reset = () => {
   border-radius: inherit;
   background: conic-gradient(
     from 0deg at 50% 50%,
-    #10b981 0%,
-    #059669 var(--progress-percentage),
+    #1ca1c1 0%,
+    #1ca1c1 var(--progress-percentage),
     transparent var(--progress-percentage),
     transparent 100%
   );
@@ -319,12 +325,22 @@ const reset = () => {
   mask-composite: exclude;
   padding: 4px;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, background 0.5s ease;
   pointer-events: none;
   z-index: -1;
 }
 
 .progress-btn[style*="--progress-percentage"]:not([style*="--progress-percentage: 0%"])::after {
   opacity: 1;
+}
+
+/* Complete state - teal button and border */
+.progress-btn--complete {
+  background: #1ca1c1 !important;
+  animation: none !important;
+}
+
+.progress-btn--complete::after {
+  background: #1ca1c1 !important;
 }
 </style>

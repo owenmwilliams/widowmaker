@@ -4,7 +4,7 @@ import { useQuasar } from 'quasar';
 import axios from 'axios';
 
 const props = defineProps<{
-  locationId: number;
+  locationId: number | string;
   locationName: string;
   modelValue: boolean;
 }>();

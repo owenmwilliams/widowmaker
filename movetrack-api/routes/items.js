@@ -4,6 +4,7 @@ const pgp = require('pg-promise')();
 var bodyParser = require('body-parser');
 var conn = require('../bin/db');
 const { QR_TYPES, buildQrUrl, generateUniqueToken, extractQrToken } = require('../services/qrService');
+const { generateItemEstimate } = require('../services/itemEstimationService');
 
 const db = conn.db;
 
@@ -37,6 +38,71 @@ function parseDimensionString(value) {
     width: numbers[1],
     height: numbers[2]
   };
+}
+
+function toOptionalNumber(value) {
+  if (value === null || value === undefined) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeTags(value) {
+  if (!value && value !== '') return [];
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry)))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry)))
+          .filter(Boolean);
+      }
+    } catch (error) {
+      // Ignore JSON parse error and fall back to comma split
+    }
+    return value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function buildEstimationContext(record, overrides = {}) {
+  const merged = {
+    ...record
+  };
+  const directFields = [
+    'name',
+    'description',
+    'quantity',
+    'notes',
+    'material',
+    'primary_color',
+    'estimated_value'
+  ];
+  directFields.forEach((field) => {
+    if (overrides[field] !== undefined && overrides[field] !== null) {
+      merged[field] = overrides[field];
+    }
+  });
+
+  const numericFields = ['weight_lbs', 'length_in', 'width_in', 'height_in'];
+  numericFields.forEach((field) => {
+    if (overrides[field] !== undefined && overrides[field] !== null) {
+      merged[field] = toOptionalNumber(overrides[field]);
+    }
+  });
+
+  if (overrides.tags !== undefined) {
+    merged.tags = normalizeTags(overrides.tags);
+  }
+
+  return merged;
 }
 
 /* GET items listing. */
@@ -498,6 +564,121 @@ router.put('/update', jsonParser, async function(req, res, next) {
   }
   catch(e) {
     res.send(e)
+  }
+});
+
+router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
+  const requestUserId = req.user?.user_id || req.body?.user || req.query.user;
+  if (!requestUserId) {
+    return res.status(400).json({ success: false, error: 'User context is required' });
+  }
+
+  if (!process.env.TOGETHER_API_KEY) {
+    return res.status(503).json({ success: false, error: 'LLM estimation service is not configured' });
+  }
+
+  const itemId = req.params.itemId;
+  if (!itemId) {
+    return res.status(400).json({ success: false, error: 'Item ID is required' });
+  }
+
+  try {
+    const itemRecord = await knex('items')
+      .select({
+        id: 'items.id',
+        name: 'items.name',
+        description: 'items.description',
+        quantity: 'items.quantity',
+        weight_lbs: 'items.weight_lbs',
+        length_in: 'items.length_in',
+        width_in: 'items.width_in',
+        height_in: 'items.height_in',
+        notes: 'items.notes',
+        material: 'items.material',
+        primary_color: 'items.primary_color',
+        tags: 'items.tags',
+        estimated_value: 'items.estimated_value',
+        picture_url: 'items.picture_url',
+        collection_name: 'collections.name',
+        container_name: 'containers.name',
+        location_name: 'locations.name'
+      })
+      .leftJoin('permissions', function() {
+        this.on('permissions.resource_id', '=', 'items.id')
+          .andOn('permissions.resource_type', '=', knex.raw('?', ['item']));
+      })
+      .leftJoin('collections', 'collections.id', 'items.collection_id')
+      .leftJoin('locations', 'locations.id', 'collections.location_id')
+      .leftJoin('containers', 'containers.id', 'items.container_id')
+      .where('items.id', itemId)
+      .andWhere('permissions.user_id', requestUserId)
+      .first();
+
+    if (!itemRecord) {
+      return res.status(404).json({ success: false, error: 'Item not found or not accessible' });
+    }
+
+    const overrideFields = req.body?.overrideFields || {};
+    const tags = normalizeTags(itemRecord.tags);
+    const contextSnapshot = buildEstimationContext(
+      {
+        ...itemRecord,
+        tags
+      },
+      overrideFields
+    );
+
+    const estimationResult = await generateItemEstimate(contextSnapshot, {
+      model: req.body?.model
+    });
+
+    const estimate = estimationResult.estimate || {};
+    const payload = {
+      item_id: itemRecord.id,
+      user_id: requestUserId,
+      provider: estimationResult.provider,
+      model: estimationResult.model,
+      prompt: estimationResult.prompt,
+      request_context: contextSnapshot,
+      response_text: estimationResult.rawText,
+      response_json: estimationResult.parsed || null,
+      estimated_weight_lbs: estimate.weight_lbs?.value ?? null,
+      estimated_length_in: estimate.dimensions?.length_in?.value ?? null,
+      estimated_width_in: estimate.dimensions?.width_in?.value ?? null,
+      estimated_height_in: estimate.dimensions?.height_in?.value ?? null,
+      volume_cuft: estimate.volume_cuft ?? null,
+      confidence:
+        estimate.confidence ??
+        estimate.weight_lbs?.confidence ??
+        estimate.dimensions?.length_in?.confidence ??
+        null,
+      notes: estimate.notes || null,
+      token_usage: estimationResult.usage || null
+    };
+
+    const inserted = await knex('item_estimate_events').insert(payload).returning(['id', 'created_at']);
+    const logEntry = inserted?.[0] || null;
+
+    return res.json({
+      success: true,
+      estimate: {
+        id: logEntry?.id ?? null,
+        provider: estimationResult.provider,
+        model: estimationResult.model,
+        created_at: logEntry?.created_at ?? null,
+        weight_lbs: estimate.weight_lbs || null,
+        dimensions: estimate.dimensions || null,
+        volume_cuft: estimate.volume_cuft ?? null,
+        confidence: estimate.confidence ?? null,
+        notes: estimate.notes || null
+      }
+    });
+  } catch (error) {
+    console.error('[items] Failed to generate AI estimate:', error);
+    return res.status(502).json({
+      success: false,
+      error: error.message || 'Failed to generate estimate'
+    });
   }
 });
 

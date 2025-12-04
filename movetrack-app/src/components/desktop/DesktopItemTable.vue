@@ -1,11 +1,166 @@
 <script setup lang="ts">
-    import { Ref, computed, ref, watch } from 'vue';
+    import { Ref, computed, ref, watch, reactive } from 'vue';
     import { inventoryStore } from '../../stores/InventoryStore';
     import { QTableProps, useQuasar } from 'quasar';
     import ContainerSelect from './ContainerSelect.vue';
     import { storeToRefs } from 'pinia';
 
     const store = inventoryStore();
+
+    type EstimateValue = {
+        value: number | null;
+        confidence?: number | null;
+    };
+
+    interface InlineEstimate {
+        weight_lbs?: EstimateValue | null;
+        dimensions?: {
+            length_in?: EstimateValue | null;
+            width_in?: EstimateValue | null;
+            height_in?: EstimateValue | null;
+        } | null;
+        volume_cuft?: number | null;
+        notes?: string | null;
+    }
+
+    type EstimateState = {
+        loading: boolean;
+        estimate: InlineEstimate | null;
+        error: string | null;
+    };
+
+    const aiRowStates = reactive<Record<number, EstimateState>>({});
+
+    const ensureRowState = (id: number): EstimateState => {
+        if (!aiRowStates[id]) {
+            aiRowStates[id] = { loading: false, estimate: null, error: null };
+        }
+        return aiRowStates[id];
+    };
+
+    const getRowEstimateState = (id: number) => ensureRowState(id);
+
+    const buildItemOverrides = (itemId: number) => {
+        const item = store.items.find((entry) => entry.value === itemId);
+        if (!item) return {};
+        return {
+            name: item.label,
+            description: item.description,
+            quantity: item.quantity,
+            material: item.material,
+            primary_color: item.primary_color,
+            tags: item.tags || [],
+            notes: item.notes,
+            weight_lbs: item.weight_lbs,
+            length_in: item.length_in,
+            width_in: item.width_in,
+            height_in: item.height_in
+        };
+    };
+
+    const formatEstimateValue = (value?: number | null, unit?: string) => {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+            return '—';
+        }
+        const numeric = Number(value);
+        const rounded =
+            Math.abs(numeric - Math.round(numeric)) < 0.01
+                ? Math.round(numeric).toString()
+                : numeric.toFixed(1);
+        return unit ? `${rounded} ${unit}` : rounded;
+    };
+
+    const formatEstimateDimensions = (estimate?: InlineEstimate | null) => {
+        if (!estimate?.dimensions) return '—';
+        const length = estimate.dimensions.length_in?.value;
+        const width = estimate.dimensions.width_in?.value;
+        const height = estimate.dimensions.height_in?.value;
+        if (
+            length === null || length === undefined ||
+            width === null || width === undefined ||
+            height === null || height === undefined
+        ) {
+            return '—';
+        }
+        return `${formatEstimateValue(length)}" × ${formatEstimateValue(width)}" × ${formatEstimateValue(height)}"`;
+    };
+
+    const requestAiEstimateForTableRow = async (itemId: number) => {
+        if (!props.user) {
+            $q.notify({ type: 'warning', message: 'Sign in to request AI suggestions.' });
+            return;
+        }
+        const state = ensureRowState(itemId);
+        state.loading = true;
+        state.error = null;
+        try {
+            const response = await store.requestItemEstimate(String(itemId), {
+                overrideFields: buildItemOverrides(itemId)
+            });
+            if (response?.estimate) {
+                state.estimate = response.estimate;
+                state.error = null;
+            } else {
+                state.estimate = null;
+                state.error = 'No estimate returned.';
+            }
+        } catch (error: any) {
+            console.error('[DesktopItemTable] AI estimate failed', error);
+            state.estimate = null;
+            state.error = error?.response?.data?.error || error?.message || 'Unable to fetch estimate.';
+        } finally {
+            state.loading = false;
+        }
+    };
+
+    const applyAiEstimateForTableRow = async (itemId: number) => {
+        if (!props.user) return;
+        const suggestion = ensureRowState(itemId).estimate;
+        if (!suggestion) return;
+        const item = store.items.find((entry) => entry.value === itemId);
+        if (!item) return;
+
+        const payload: Record<string, any> = {};
+        if (suggestion.weight_lbs?.value) {
+            payload.weightLbs = suggestion.weight_lbs.value;
+        }
+        const length = suggestion.dimensions?.length_in?.value;
+        const width = suggestion.dimensions?.width_in?.value;
+        const height = suggestion.dimensions?.height_in?.value;
+        if (length && width && height) {
+            payload.lengthIn = length;
+            payload.widthIn = width;
+            payload.heightIn = height;
+        }
+
+        if (Object.keys(payload).length === 0) {
+            $q.notify({ type: 'warning', message: 'Estimate did not include usable values.' });
+            return;
+        }
+
+        try {
+            await store.updateItem(
+                itemId,
+                props.user,
+                item.label,
+                item.description || '',
+                item.quantity || 1,
+                item.collection,
+                item.container ?? undefined,
+                undefined,
+                payload
+            );
+            $q.notify({ type: 'positive', message: 'Estimate applied' });
+        } catch (error) {
+            console.error('[DesktopItemTable] failed to apply estimate', error);
+            $q.notify({ type: 'negative', message: 'Unable to apply estimate' });
+        }
+    };
+
+    const props = defineProps({
+        user: String,
+        // search: String
+    })
 
     const deleteItemDialog = ref(false)
     const moveItemDialog = ref(false)
@@ -127,11 +282,6 @@
     }
 
     const search = ref('')
-
-    const props = defineProps({
-        user: String,
-        // search: String
-    })
 
     const columns: QTableProps['columns'] = [
         { name: 'selection', align: 'left', label: '', field: 'selection', sortable: false, required: false },
@@ -455,7 +605,49 @@
             </q-td>
 
             <q-td key="weight_lbs" :props="props">
-                {{ props.row.weight_lbs ? props.row.weight_lbs + ' lbs' : '—' }}
+                <div class="weight-cell">
+                    <span>{{ props.row.weight_lbs ? props.row.weight_lbs + ' lbs' : '—' }}</span>
+                    <q-btn
+                        v-if="!props.row.weight_lbs || !props.row.dimensions"
+                        flat
+                        dense
+                        round
+                        size="sm"
+                        color="primary"
+                        icon="auto_fix_high"
+                        data-ignore-row-click
+                        :loading="getRowEstimateState(props.row.value).loading"
+                        @click.stop="requestAiEstimateForTableRow(props.row.value)"
+                    >
+                        <q-tooltip>Suggest weight &amp; dimensions</q-tooltip>
+                    </q-btn>
+                </div>
+                <div
+                    v-if="getRowEstimateState(props.row.value).estimate"
+                    class="ai-suggestion-inline"
+                >
+                    <div class="ai-inline-summary">
+                        ≈ {{ formatEstimateValue(getRowEstimateState(props.row.value).estimate?.weight_lbs?.value, 'lbs') }}
+                        <span class="text-grey-5">•</span>
+                        {{ formatEstimateDimensions(getRowEstimateState(props.row.value).estimate) }}
+                    </div>
+                    <q-btn
+                        flat
+                        dense
+                        size="sm"
+                        color="primary"
+                        data-ignore-row-click
+                        icon="playlist_add"
+                        label="Apply"
+                        @click.stop="applyAiEstimateForTableRow(props.row.value)"
+                    />
+                </div>
+                <div
+                    v-else-if="getRowEstimateState(props.row.value).error"
+                    class="text-negative text-caption q-mt-xs"
+                >
+                    {{ getRowEstimateState(props.row.value).error }}
+                </div>
             </q-td>
 
             <q-td key="dimensions" :props="props">
@@ -664,5 +856,29 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.weight-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-suggestion-inline {
+  margin-top: 4px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #d0def6;
+  background: #eef4ff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-inline-summary {
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f172a;
 }
 </style>

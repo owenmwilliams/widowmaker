@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick, reactive } from 'vue';
 import { inventoryStore } from '../../stores/InventoryStore';
 import { useDataQuality } from '../../composables/useDataQuality';
 import { useDuplicateDetection } from '../../composables/useDuplicateDetection';
@@ -195,6 +195,173 @@ const getIssueModelValue = (itemId: number, issueKey: string) => {
       return item.container ?? null;
     default:
       return '';
+  }
+};
+
+type EstimateValue = {
+  value: number | null;
+  confidence?: number | null;
+};
+
+interface InlineEstimate {
+  weight_lbs?: EstimateValue | null;
+  dimensions?: {
+    length_in?: EstimateValue | null;
+    width_in?: EstimateValue | null;
+    height_in?: EstimateValue | null;
+  } | null;
+  volume_cuft?: number | null;
+  notes?: string | null;
+  confidence?: number | null;
+}
+
+type EstimateState = {
+  loading: boolean;
+  estimate: InlineEstimate | null;
+  error: string | null;
+};
+
+const aiEstimateStates = reactive<Record<number, EstimateState>>({});
+
+const ensureEstimateState = (itemId: number): EstimateState => {
+  if (!aiEstimateStates[itemId]) {
+    aiEstimateStates[itemId] = {
+      loading: false,
+      estimate: null,
+      error: null
+    };
+  }
+  return aiEstimateStates[itemId];
+};
+
+const getEstimateState = (itemId: number) => ensureEstimateState(itemId);
+
+const buildOverrideContext = (itemId: number) => {
+  const item = store.items.find((entry) => entry.value === itemId);
+  if (!item) return {};
+  return {
+    name: item.label,
+    description: item.description,
+    quantity: item.quantity,
+    notes: item.notes,
+    material: item.material,
+    primary_color: item.primary_color,
+    tags: item.tags || [],
+    weight_lbs: item.weight_lbs,
+    length_in: item.length_in,
+    width_in: item.width_in,
+    height_in: item.height_in
+  };
+};
+
+const formatEstimateValue = (value?: number | null, unit?: string) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '—';
+  }
+  const numeric = Number(value);
+  const rounded =
+    Math.abs(numeric - Math.round(numeric)) < 0.01
+      ? Math.round(numeric).toString()
+      : numeric.toFixed(1);
+  return unit ? `${rounded} ${unit}` : rounded;
+};
+
+const formatEstimateDimensions = (estimate?: InlineEstimate | null) => {
+  if (!estimate?.dimensions) return '—';
+  const length = estimate.dimensions.length_in?.value;
+  const width = estimate.dimensions.width_in?.value;
+  const height = estimate.dimensions.height_in?.value;
+  if (
+    length === null ||
+    length === undefined ||
+    width === null ||
+    width === undefined ||
+    height === null ||
+    height === undefined
+  ) {
+    return '—';
+  }
+  return `${formatEstimateValue(length)}" × ${formatEstimateValue(width)}" × ${formatEstimateValue(height)}"`;
+};
+
+const requestAiEstimateForItem = async (itemId: number) => {
+  if (!props.user) {
+    $q.notify({ type: 'warning', message: 'Sign in to request AI estimates.' });
+    return;
+  }
+  const state = ensureEstimateState(itemId);
+  state.loading = true;
+  state.error = null;
+  try {
+    const response = await store.requestItemEstimate(String(itemId), {
+      overrideFields: buildOverrideContext(itemId)
+    });
+    if (response?.estimate) {
+      state.estimate = response.estimate;
+      state.error = null;
+    } else {
+      state.estimate = null;
+      state.error = 'No estimate returned.';
+    }
+  } catch (error: any) {
+    console.error('[ReviewQueue] AI estimate failed', error);
+    state.estimate = null;
+    state.error = error?.response?.data?.error || error?.message || 'Unable to fetch estimate.';
+  } finally {
+    state.loading = false;
+  }
+};
+
+const applyAiEstimateToItem = async (itemId: number) => {
+  if (!props.user) return;
+  const suggestion = ensureEstimateState(itemId).estimate;
+  if (!suggestion) return;
+  const item = store.items.find((entry) => entry.value === itemId);
+  if (!item) return;
+
+  const payload: Record<string, any> = {};
+  if (suggestion.weight_lbs?.value) {
+    payload.weightLbs = suggestion.weight_lbs.value;
+  }
+  const length = suggestion.dimensions?.length_in?.value;
+  const width = suggestion.dimensions?.width_in?.value;
+  const height = suggestion.dimensions?.height_in?.value;
+  if (length && width && height) {
+    payload.lengthIn = length;
+    payload.widthIn = width;
+    payload.heightIn = height;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    $q.notify({
+      type: 'warning',
+      message: 'Estimate did not contain usable values.'
+    });
+    return;
+  }
+
+  try {
+    await store.updateItem(
+      itemId,
+      props.user,
+      item.label,
+      item.description || '',
+      item.quantity || 1,
+      item.collection,
+      item.container ?? undefined,
+      undefined,
+      payload
+    );
+    $q.notify({
+      type: 'positive',
+      message: 'Estimate applied'
+    });
+  } catch (error) {
+    console.error('[ReviewQueue] Failed to apply AI estimate', error);
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to apply estimate'
+    });
   }
 };
 
@@ -658,17 +825,61 @@ const keepBothItems = (pairKey: string) => {
 
             <template #body-cell-actions="props">
               <q-td :props="props">
-                <q-btn
-                  flat
-                  dense
-                  round
-                  color="negative"
-                  icon="delete"
-                  size="sm"
-                  @click="handleDeleteItem(props.row.id, props.row.name)"
-                >
-                  <q-tooltip>Delete item</q-tooltip>
-                </q-btn>
+                <div class="actions-cell">
+                  <div class="action-buttons">
+                    <q-btn
+                      flat
+                      dense
+                      round
+                      color="primary"
+                      icon="auto_fix_high"
+                      size="sm"
+                      data-ignore-row-click
+                      :loading="getEstimateState(props.row.id).loading"
+                      @click.stop="requestAiEstimateForItem(props.row.id)"
+                    >
+                      <q-tooltip>Suggest weight &amp; size</q-tooltip>
+                    </q-btn>
+                    <q-btn
+                      flat
+                      dense
+                      round
+                      color="negative"
+                      icon="delete"
+                      size="sm"
+                      data-ignore-row-click
+                      @click.stop="handleDeleteItem(props.row.id, props.row.name)"
+                    >
+                      <q-tooltip>Delete item</q-tooltip>
+                    </q-btn>
+                  </div>
+                  <div
+                    v-if="getEstimateState(props.row.id).estimate"
+                    class="ai-suggestion-pill"
+                  >
+                    <div class="pill-summary">
+                      ≈ {{ formatEstimateValue(getEstimateState(props.row.id).estimate?.weight_lbs?.value, 'lbs') }}
+                      <span class="text-grey-5">•</span>
+                      {{ formatEstimateDimensions(getEstimateState(props.row.id).estimate) }}
+                    </div>
+                    <q-btn
+                      flat
+                      dense
+                      size="sm"
+                      color="primary"
+                      data-ignore-row-click
+                      label="Apply"
+                      icon="playlist_add"
+                      @click.stop="applyAiEstimateToItem(props.row.id)"
+                    />
+                  </div>
+                  <div
+                    v-else-if="getEstimateState(props.row.id).error"
+                    class="text-negative text-caption q-mt-xs"
+                  >
+                    {{ getEstimateState(props.row.id).error }}
+                  </div>
+                </div>
               </q-td>
             </template>
 
@@ -967,6 +1178,34 @@ const keepBothItems = (pairKey: string) => {
   min-width: 320px;
   max-width: 420px;
   padding: 16px;
+}
+
+.actions-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.ai-suggestion-pill {
+  border: 1px solid #d0def6;
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: #eef4ff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-suggestion-pill .pill-summary {
+  font-size: 12px;
+  color: #0f172a;
+  font-weight: 600;
 }
 
 .filter-section + .filter-section {

@@ -582,7 +582,7 @@ const handlePhotoItemAdded = async (item: InventoryItem) => {
 
   $q.notify({
     type: "positive",
-    message: `${item.label || item.name || "Item"} added to inventory!`,
+    message: `${item.name || "Item"} added to inventory!`,
     position: "bottom",
     timeout: 2000,
   });

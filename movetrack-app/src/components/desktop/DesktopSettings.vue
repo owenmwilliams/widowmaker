@@ -15,11 +15,11 @@ const props = defineProps<{
 const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
 
 const currentVisionProvider = ref<string>('gemini');
-const editingLocationId = ref<number | null>(null);
+const editingLocationId = ref<string | null>(null);
 const locationEditorVisible = ref(false);
 const locationEditorMode = ref<'add' | 'edit'>('add');
 const locationDeleteDialog = ref(false);
-const locationToDelete = ref<{ id: number; name: string } | null>(null);
+const locationToDelete = ref<{ id: string; name: string } | null>(null);
 interface LocationEditorPayload {
   name: string;
   address1: string;
@@ -117,15 +117,14 @@ const applyOnboardingLocation = () => {
   if (typeof window === 'undefined') return;
   const storedId = localStorage.getItem('desktop_onboarding_location_id');
   if (!storedId) return;
-  const numericId = parseInt(storedId, 10);
-  const target = locations.value.find(loc => String(loc.value) === storedId || Number(loc.value) === numericId);
+  const target = locations.value.find(loc => String(loc.value) === storedId);
   if (target) {
-    openEditLocation(Number(target.value));
+    openEditLocation(String(target.value));
     localStorage.removeItem('desktop_onboarding_location_id');
   }
 };
 
-const openEditLocation = (id: number) => {
+const openEditLocation = (id: string) => {
   const location = locations.value.find(loc => loc.value === id);
   if (!location) {
     return;
@@ -153,7 +152,7 @@ const handleLocationEditorSave = async (payload: LocationEditorPayload) => {
     $q.loading.show({ message: editingLocationId.value ? 'Updating location...' : 'Adding location...' });
 
     if (editingLocationId.value !== null) {
-      const existing = locations.value.find(loc => Number(loc.value) === Number(editingLocationId.value));
+      const existing = locations.value.find(loc => String(loc.value) === String(editingLocationId.value));
       await store.updateLocation(
         editingLocationId.value,
         props.user,
@@ -213,7 +212,7 @@ const handleLocationEditorSave = async (payload: LocationEditorPayload) => {
   }
 };
 
-const deleteLocation = (id: number) => {
+const deleteLocation = (id: string) => {
   const location = locations.value.find(l => l.value === id);
   if (location) {
     locationToDelete.value = { id, name: location.label || 'this location' };
@@ -233,7 +232,7 @@ const handleLocationDeleted = () => {
   // so no need to call a fetch method here.
 };
 
-const markPrimary = async (id: number | null) => {
+const markPrimary = async (id: string | null) => {
   if (id === null || primaryLocationId.value === id) {
     return;
   }

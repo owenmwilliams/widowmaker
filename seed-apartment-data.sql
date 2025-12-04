@@ -3,28 +3,9 @@
 
 \connect movetrack_db;
 
--- Step 1: Create or get the user (using UUID)
--- First, let's insert the user if they don't exist
-INSERT INTO users (user_id, email, first_name, last_name, email_verified_at, created_at, updated_at)
-VALUES (
-    '550e8400-e29b-41d4-a716-446655440000'::uuid,
-    'owen@we3kings.dev',
-    'Owen',
-    'Williams',
-    NOW(),
-    NOW(),
-    NOW()
-)
-ON CONFLICT (email) DO UPDATE SET
-    first_name = 'Owen',
-    last_name = 'Williams',
-    updated_at = NOW()
-RETURNING user_id;
-
--- For the rest of the script, we'll use this user_id
 DO $$
 DECLARE
-    v_user_id UUID := '550e8400-e29b-41d4-a716-446655440000'::uuid;
+    v_user_id UUID;
     v_seattle_apt_id BIGINT;
     v_kitchen_id BIGINT;
     v_living_room_id BIGINT;
@@ -50,6 +31,20 @@ DECLARE
     v_office_box2_id BIGINT;
 
 BEGIN
+    -- Step 1: Create or get the user
+    INSERT INTO users (email, first_name, last_name, email_verified_at, created_at, updated_at)
+    VALUES ('owen@we3kings.dev', 'Owen', 'Williams', NOW(), NOW(), NOW())
+    ON CONFLICT (email) DO UPDATE SET
+        first_name = 'Owen',
+        last_name = 'Williams',
+        updated_at = NOW()
+    RETURNING user_id INTO v_user_id;
+
+    -- If the user already existed, the RETURNING clause in the ON CONFLICT block doesn't fire on some PG versions.
+    -- So, we select it if v_user_id is still NULL.
+    IF v_user_id IS NULL THEN
+        SELECT user_id INTO v_user_id FROM users WHERE email = 'owen@we3kings.dev';
+    END IF;
     -- Step 2: Create Seattle Apartment Location
     INSERT INTO locations (user_id, name, location_type, description, address, city, state, zip, country, created_at, updated_at)
     VALUES (

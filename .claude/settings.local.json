@@ -1,10 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find:*)",
-      "Bash(npm restart)",
-      "Bash(npm run build:*)",
-      "Bash(git add:*)"
+      "Bash(git commit:*)",
+      "Bash(gcloud logging read:*)",
+      "Bash(npm run dev:*)",
+      "Bash(PGPASSWORD=changeme123 psql:*)",
+      "Bash(node -e:*)",
+      "Bash(cat:*)",
+      "Bash(git restore:*)",
+      "Bash(gcloud secrets versions access:*)"
     ],
     "deny": [],
     "ask": []

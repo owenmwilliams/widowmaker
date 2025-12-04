@@ -14,6 +14,31 @@ const store = inventoryStore();
 const $q = useQuasar();
 
 const editMode = ref(false);
+
+type EstimateValue = {
+  value: number | null;
+  confidence?: number | null;
+};
+
+type AiEstimateResult = {
+  id?: number | null;
+  provider?: string;
+  model?: string;
+  created_at?: string | null;
+  weight_lbs?: EstimateValue | null;
+  dimensions?: {
+    length_in?: EstimateValue | null;
+    width_in?: EstimateValue | null;
+    height_in?: EstimateValue | null;
+  } | null;
+  volume_cuft?: number | null;
+  confidence?: number | null;
+  notes?: string | null;
+};
+
+const aiEstimate = ref<AiEstimateResult | null>(null);
+const aiEstimateLoading = ref(false);
+const aiEstimateError = ref<string | null>(null);
 const resolveUserId = () => {
   if (store.itemDetailsUser) {
     return store.itemDetailsUser;
@@ -264,6 +289,151 @@ const tagsAsArray = computed(() =>
     .filter((tag) => tag.length > 0)
 );
 
+watch(
+  () => [selectedItem.value?.value, isCreateMode.value],
+  () => {
+    aiEstimate.value = null;
+    aiEstimateError.value = null;
+  }
+);
+
+const canRequestAiEstimate = computed(
+  () => !!selectedItem.value && !isCreateMode.value
+);
+
+const buildEstimateOverrides = () => ({
+  name: form.name,
+  description: form.description,
+  quantity: form.quantity,
+  notes: form.notes,
+  material: form.material,
+  primary_color: form.primaryColor,
+  tags: tagsAsArray.value,
+  weight_lbs: form.weightLbs,
+  length_in: form.lengthIn,
+  width_in: form.widthIn,
+  height_in: form.heightIn
+});
+
+const requestAiEstimate = async () => {
+  if (!selectedItem.value || !canRequestAiEstimate.value) {
+    return;
+  }
+  aiEstimateLoading.value = true;
+  aiEstimateError.value = null;
+  try {
+    const response = await store.requestItemEstimate(
+      selectedItem.value.value,
+      {
+        overrideFields: buildEstimateOverrides()
+      }
+    );
+    if (response?.estimate) {
+      aiEstimate.value = response.estimate;
+    } else {
+      aiEstimate.value = null;
+      aiEstimateError.value = 'No estimate returned. Try again.';
+    }
+  } catch (error: any) {
+    console.error('[ItemDetailsModal] Failed to fetch AI estimate', error);
+    aiEstimate.value = null;
+    aiEstimateError.value =
+      error?.response?.data?.error ||
+      error?.message ||
+      'Unable to fetch estimate.';
+  } finally {
+    aiEstimateLoading.value = false;
+  }
+};
+
+const formatEstimateValue = (value?: number | null, unit?: string) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '—';
+  }
+  const numeric = Number(value);
+  const display =
+    Math.abs(numeric - Math.round(numeric)) < 0.01
+      ? Math.round(numeric).toString()
+      : numeric.toFixed(1);
+  return unit ? `${display} ${unit}` : display;
+};
+
+const formatConfidence = (value?: number | null) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return null;
+  }
+  return `${Math.round(Number(value) * 100)}% confidence`;
+};
+
+const formatEstimateDimensions = (dims?: {
+  length_in?: EstimateValue | null;
+  width_in?: EstimateValue | null;
+  height_in?: EstimateValue | null;
+}) => {
+  if (!dims) {
+    return '—';
+  }
+  const length = dims.length_in?.value;
+  const width = dims.width_in?.value;
+  const height = dims.height_in?.value;
+  if (
+    length === null ||
+    length === undefined ||
+    width === null ||
+    width === undefined ||
+    height === null ||
+    height === undefined
+  ) {
+    return '—';
+  }
+  const lDisplay = formatEstimateValue(length).replace('—', '').replace(' lbs', '');
+  const wDisplay = formatEstimateValue(width).replace('—', '');
+  const hDisplay = formatEstimateValue(height).replace('—', '');
+  if (!lDisplay || !wDisplay || !hDisplay) {
+    return '—';
+  }
+  return `${lDisplay}" × ${wDisplay}" × ${hDisplay}"`;
+};
+
+const applyAiEstimate = () => {
+  if (!aiEstimate.value) {
+    return;
+  }
+  const suggestion = aiEstimate.value;
+  if (
+    suggestion.weight_lbs?.value !== undefined &&
+    suggestion.weight_lbs?.value !== null
+  ) {
+    form.weightLbs = Number(suggestion.weight_lbs.value);
+  }
+  if (
+    suggestion.dimensions?.length_in?.value !== undefined &&
+    suggestion.dimensions?.length_in?.value !== null
+  ) {
+    form.lengthIn = Number(suggestion.dimensions.length_in.value);
+  }
+  if (
+    suggestion.dimensions?.width_in?.value !== undefined &&
+    suggestion.dimensions?.width_in?.value !== null
+  ) {
+    form.widthIn = Number(suggestion.dimensions.width_in.value);
+  }
+  if (
+    suggestion.dimensions?.height_in?.value !== undefined &&
+    suggestion.dimensions?.height_in?.value !== null
+  ) {
+    form.heightIn = Number(suggestion.dimensions.height_in.value);
+  }
+  if (suggestion.notes && !form.notes) {
+    form.notes = suggestion.notes;
+  }
+  $q.notify({
+    type: 'positive',
+    message: 'Estimate applied to the form',
+    position: 'bottom'
+  });
+};
+
 const startEdit = () => {
   editMode.value = true;
   store.itemDetailsMode = 'edit';
@@ -411,6 +581,8 @@ const saveItem = async () => {
 const handleClose = () => {
   editMode.value = false;
   resetPhotoState();
+  aiEstimate.value = null;
+  aiEstimateError.value = null;
   store.closeItemDetailsModal();
 };
 
@@ -842,6 +1014,86 @@ onBeforeUnmount(() => {
                   color="red"
                 />
               </div>
+              <div class="col-12" v-if="canRequestAiEstimate">
+                <q-card flat bordered class="ai-estimate-card">
+                  <q-card-section class="q-pa-sm">
+                    <div class="row items-center justify-between q-mb-xs">
+                      <div class="text-caption text-weight-medium text-primary">
+                        AI estimate via Together.ai
+                      </div>
+                      <q-btn
+                        flat
+                        dense
+                        color="primary"
+                        icon="auto_fix_high"
+                        label="Suggest weight & size"
+                        :loading="aiEstimateLoading"
+                        @click="requestAiEstimate"
+                      />
+                    </div>
+                    <div class="text-caption text-grey-7">
+                      Generates a quick starting point. Review before applying.
+                    </div>
+                    <q-banner
+                      v-if="aiEstimateError"
+                      dense
+                      rounded
+                      class="bg-negative text-white q-mt-sm"
+                    >
+                      {{ aiEstimateError }}
+                    </q-banner>
+                    <div v-if="aiEstimate" class="ai-estimate-result q-mt-sm">
+                      <div class="row q-col-gutter-md">
+                        <div class="col-12 col-sm-4">
+                          <div class="ai-estimate-label">Weight</div>
+                          <div class="ai-estimate-value">
+                            {{ formatEstimateValue(aiEstimate.weight_lbs?.value, 'lbs') }}
+                          </div>
+                          <div
+                            v-if="formatConfidence(aiEstimate.weight_lbs?.confidence)"
+                            class="ai-estimate-conf"
+                          >
+                            {{ formatConfidence(aiEstimate.weight_lbs?.confidence) }}
+                          </div>
+                        </div>
+                        <div class="col-12 col-sm-5">
+                          <div class="ai-estimate-label">Dimensions</div>
+                          <div class="ai-estimate-value">
+                            {{ formatEstimateDimensions(aiEstimate.dimensions || undefined) }}
+                          </div>
+                          <div
+                            v-if="formatConfidence(aiEstimate.dimensions?.length_in?.confidence)"
+                            class="ai-estimate-conf"
+                          >
+                            {{ formatConfidence(aiEstimate.dimensions?.length_in?.confidence) }}
+                          </div>
+                        </div>
+                        <div class="col-12 col-sm-3">
+                          <div class="ai-estimate-label">Volume</div>
+                          <div class="ai-estimate-value">
+                            {{ formatEstimateValue(aiEstimate.volume_cuft ?? null, 'cu ft') }}
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        class="text-caption text-grey-7 q-mt-xs"
+                        v-if="aiEstimate.notes"
+                      >
+                        {{ aiEstimate.notes }}
+                      </div>
+                      <q-btn
+                        flat
+                        dense
+                        color="primary"
+                        class="q-mt-sm"
+                        icon="playlist_add"
+                        label="Apply to fields"
+                        @click="applyAiEstimate"
+                      />
+                    </div>
+                  </q-card-section>
+                </q-card>
+              </div>
               <div class="col-12 col-md-3">
                 <q-input dense v-model="form.material" label="Material" outlined />
               </div>
@@ -937,6 +1189,28 @@ onBeforeUnmount(() => {
 
 .details-view {
   padding-bottom: 8px;
+}
+
+.ai-estimate-card {
+  background: #f8fafc;
+}
+
+.ai-estimate-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.ai-estimate-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.ai-estimate-conf {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .detail-grid {

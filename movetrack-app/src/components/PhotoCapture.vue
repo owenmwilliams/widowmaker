@@ -181,6 +181,15 @@ const createNewCollection = async () => {
     return;
   }
 
+  if (!props.user) {
+    $q.notify({
+      type: "negative",
+      message: "You must be logged in to create a collection.",
+      position: "bottom",
+    });
+    return;
+  }
+
   try {
     $q.loading.show({
       message: "Creating collection...",
@@ -189,11 +198,11 @@ const createNewCollection = async () => {
     await store.createCollection(
       props.user,
       newCollectionName.value,
-      newCollectionLocation.value,
-      ""
+      "",
+      newCollectionLocation.value
     );
 
-    await store.getCollections(props.user);
+    await store.loadInventory(props.user);
 
     // Find the newly created collection and select it
     const newCollection = store.collections.find(
@@ -381,17 +390,17 @@ const potentialMatches = computed(() => {
 
   return store.items
     .map((item) => {
-      const tokens = tokenize(item.label);
+      const tokens = tokenize(item.name);
       const score = similarityScore(targetTokens, tokens);
       const isExact =
         newItem.value?.name?.trim().toLowerCase() ===
-        item.label?.trim().toLowerCase();
+        item.name?.trim().toLowerCase();
       const sameCollection =
         !!activeCollectionId.value &&
         item.collection === activeCollectionId.value;
       return {
         id: item.value,
-        name: item.label,
+        name: item.name,
         collection:
           store.collections.find((c) => c.value === item.collection)?.label ||
           "Unassigned",
@@ -409,7 +418,7 @@ const potentialMatches = computed(() => {
     .slice(0, 3);
 });
 
-const handleUseExistingItem = (itemId: number) => {
+const handleUseExistingItem = (itemId: string) => {
   if (!props.user) {
     $q.notify({
       type: "warning",
@@ -876,35 +885,24 @@ const saveItem = async () => {
 
   if (!shouldCreateInInventory.value) {
     const payload: InventoryItem = {
-      value: "",
-      label: newItem.value.name,
-      collection: selectedCollectionId.value,
-      container: store.activeContainer?.value || null,
-      location: null,
-      quantity: newItem.value.qty || 1,
-      description: newItem.value.description || "",
-      picture_url: capturedImage.value || null,
-      material: newItem.value.material || "",
-      primary_color: newItem.value.primaryColor || "",
+      id: 0, // Placeholder ID
+      name: newItem.value.name || "Unnamed Item",
+      qty: newItem.value.qty || 1,
+      size: `${editDimensions.value.length || 0}"x${
+        editDimensions.value.width || 0
+      }"x${editDimensions.value.height || 0}"`,
+      weight: `${editWeight.value || 0} lbs`,
+      image: capturedImage.value || "",
       tags: newItem.value.tags || [],
-      fragile: editFragile.value,
-      priority: null,
-      weight_lbs: editWeight.value || null,
-      dimensions: `${editDimensions.value.length || 0}"×${editDimensions.value.width || 0}"×${editDimensions.value.height || 0}"`,
-      length_in: editDimensions.value.length || null,
-      width_in: editDimensions.value.width || null,
-      height_in: editDimensions.value.height || null,
-      estimated_value: null,
-      notes: newItem.value.notes || "",
-      created_at: null,
-      qr_code: null,
-      qr_url: null,
+      material: newItem.value.material || "",
+      primaryColor: newItem.value.primaryColor || "",
+      description: newItem.value.description || "",
     };
 
     emit("item-added", payload, { onboarding: true });
     $q.notify({
       type: "positive",
-      message: `${payload.label} ready to be saved with onboarding.`,
+      message: `${payload.name} ready to be saved with onboarding.`,
       position: "bottom",
       timeout: 2000,
     });
