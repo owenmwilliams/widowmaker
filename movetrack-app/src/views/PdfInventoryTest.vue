@@ -8,12 +8,28 @@ import autoTable from 'jspdf-autotable';
 const store = inventoryStore();
 const { items, locationValues, collectionValues, containerValues } = storeToRefs(store);
 
+// PDF configuration types
+type PdfType = 'customer-shopping' | 'mover-bidding' | 'confirmation';
+
+interface PdfConfig {
+  type: PdfType;
+  includePricing?: boolean;
+  includeCustomerContact?: boolean;
+  showEstimates?: boolean;
+  brandingLevel?: 'minimal' | 'standard' | 'prominent';
+  customFooter?: string;
+  rfqNumber?: string;
+  targetPriceRange?: { min: number; max: number };
+  serviceLevel?: 'basic' | 'premium' | 'white-glove';
+}
+
 // Test data mode
 type TestScenario = 'real' | 'small' | 'medium' | 'large' | 'boxes' | 'furniture' | 'mixed';
 const testScenario = ref<TestScenario>('real');
 const selectedLocation = ref<string | null>(null);
 const includeImages = ref(true);
 const imageGridSize = ref<'small' | 'medium' | 'large'>('medium');
+const pdfType = ref<PdfType>('customer-shopping');
 
 // Dummy move details data
 const dummyMoveDetails = {
@@ -319,10 +335,23 @@ const loadImageAsBase64 = async (url: string): Promise<string | null> => {
   }
 };
 
-// Generate PDF
-const generatePDF = async () => {
+// Generate PDF with configuration
+const generatePDF = async (config: PdfConfig = { type: 'customer-shopping' }) => {
   const doc = new jsPDF();
   let yPos = 20;
+
+  // Apply default config values
+  const pdfConfig: Required<PdfConfig> = {
+    type: config.type,
+    includePricing: config.includePricing ?? (config.type === 'customer-shopping'),
+    includeCustomerContact: config.includeCustomerContact ?? (config.type !== 'mover-bidding'),
+    showEstimates: config.showEstimates ?? true,
+    brandingLevel: config.brandingLevel ?? 'standard',
+    customFooter: config.customFooter ?? '',
+    rfqNumber: config.rfqNumber ?? '',
+    targetPriceRange: config.targetPriceRange ?? { min: 0, max: 0 },
+    serviceLevel: config.serviceLevel ?? 'basic'
+  };
 
   // Helper function to add section header
   const addSectionHeader = (text: string) => {
@@ -339,11 +368,22 @@ const generatePDF = async () => {
     doc.setTextColor(0, 0, 0);
   };
 
-  // Title
+  // Title based on PDF type
+  const getTitle = () => {
+    switch (pdfConfig.type) {
+      case 'customer-shopping':
+        return 'Moving Inventory & Quote';
+      case 'mover-bidding':
+        return `Request for Quote${pdfConfig.rfqNumber ? ` #${pdfConfig.rfqNumber}` : ''}`;
+      case 'confirmation':
+        return 'Move Quote Service - Confirmation';
+    }
+  };
+
   doc.setFontSize(20);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(25, 118, 210);
-  doc.text('Moving Inventory & Quote', 15, yPos);
+  doc.text(getTitle(), 15, yPos);
   yPos += 8;
 
   doc.setFontSize(10);
@@ -352,15 +392,31 @@ const generatePDF = async () => {
   doc.text(`Generated: ${new Date().toLocaleDateString()}`, 15, yPos);
   yPos += 10;
 
-  // SECTION 1: Contact Information
-  addSectionHeader('Customer Information');
-  doc.setFontSize(10);
-  doc.text(`Name: ${dummyMoveDetails.customer.name}`, 20, yPos);
-  yPos += 5;
-  doc.text(`Email: ${dummyMoveDetails.customer.email}`, 20, yPos);
-  yPos += 5;
-  doc.text(`Phone: ${dummyMoveDetails.customer.phone}`, 20, yPos);
-  yPos += 10;
+  // SECTION 1: Contact Information (conditional based on PDF type)
+  if (pdfConfig.includeCustomerContact) {
+    addSectionHeader('Customer Information');
+    doc.setFontSize(10);
+    doc.text(`Name: ${dummyMoveDetails.customer.name}`, 20, yPos);
+    yPos += 5;
+    doc.text(`Email: ${dummyMoveDetails.customer.email}`, 20, yPos);
+    yPos += 5;
+    doc.text(`Phone: ${dummyMoveDetails.customer.phone}`, 20, yPos);
+    yPos += 10;
+  } else if (pdfConfig.type === 'mover-bidding') {
+    // For mover-bidding PDFs, show ReloPrep contact instead
+    addSectionHeader('Quote Request Information');
+    doc.setFontSize(10);
+    doc.text(`Request submitted via: ReloPrep`, 20, yPos);
+    yPos += 5;
+    doc.text(`Quote responses to: quotes@reloprep.com`, 20, yPos);
+    yPos += 5;
+    if (pdfConfig.rfqNumber) {
+      doc.text(`RFQ Number: ${pdfConfig.rfqNumber}`, 20, yPos);
+      yPos += 5;
+    }
+    doc.text(`Quote deadline: ${new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString()}`, 20, yPos);
+    yPos += 10;
+  }
 
   // SECTION 2: Move Overview (Distance/Route & Dates)
   addSectionHeader('Move Overview');
@@ -391,20 +447,47 @@ const generatePDF = async () => {
   doc.text(`Delivery Date: ${dummyMoveDetails.moveDate.deliveryDate.toLocaleDateString()}`, 20, yPos);
   yPos += 10;
 
-  // SECTION 3: Cost Information
-  addSectionHeader('Cost Summary');
-  doc.setFontSize(10);
-  doc.text(`Estimated Total Cost: $${dummyMoveDetails.estimatedCost.toLocaleString()}`, 20, yPos);
-  yPos += 5;
-  doc.text(`Deposit Paid: $${dummyMoveDetails.deposit.toLocaleString()}`, 20, yPos);
-  yPos += 5;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  const remainingBalance = dummyMoveDetails.estimatedCost - dummyMoveDetails.deposit;
-  doc.text(`Balance Due: $${remainingBalance.toLocaleString()}`, 20, yPos);
-  yPos += 10;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
+  // SECTION 3: Cost Information (conditional based on PDF type)
+  if (pdfConfig.includePricing && pdfConfig.type === 'customer-shopping') {
+    addSectionHeader('Estimated Cost Range');
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'italic');
+    doc.text('These are estimated ranges based on industry averages.', 20, yPos);
+    yPos += 5;
+    doc.text('Actual quotes from movers may vary.', 20, yPos);
+    yPos += 8;
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Estimated Range: $${Math.round(dummyMoveDetails.estimatedCost * 0.85).toLocaleString()} - $${Math.round(dummyMoveDetails.estimatedCost * 1.15).toLocaleString()}`, 20, yPos);
+    yPos += 10;
+  } else if (pdfConfig.type === 'confirmation') {
+    addSectionHeader('Quote Service Summary');
+    doc.setFontSize(10);
+    const serviceDetails = {
+      'basic': { quotes: 3, price: 49, turnaround: '48 hours' },
+      'premium': { quotes: 5, price: 99, turnaround: '24 hours' },
+      'white-glove': { quotes: 'Unlimited', price: 199, turnaround: '12 hours' }
+    };
+    const service = serviceDetails[pdfConfig.serviceLevel];
+    doc.text(`Service Level: ${pdfConfig.serviceLevel.charAt(0).toUpperCase() + pdfConfig.serviceLevel.slice(1)}`, 20, yPos);
+    yPos += 5;
+    doc.text(`Expected Quotes: ${service.quotes}`, 20, yPos);
+    yPos += 5;
+    doc.text(`Turnaround Time: ${service.turnaround}`, 20, yPos);
+    yPos += 5;
+    if (pdfConfig.targetPriceRange && pdfConfig.targetPriceRange.min > 0) {
+      doc.setFont('helvetica', 'bold');
+      doc.text(`Target Price Range: $${pdfConfig.targetPriceRange.min.toLocaleString()} - $${pdfConfig.targetPriceRange.max.toLocaleString()}`, 20, yPos);
+      yPos += 5;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'italic');
+      doc.text('We aim to beat this range by 15-20%', 20, yPos);
+      yPos += 8;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+    }
+    yPos += 5;
+  }
 
   // SECTION 4: Top-line Inventory Stats
   addSectionHeader('Inventory Summary');
@@ -612,14 +695,38 @@ const generatePDF = async () => {
     doc.setFontSize(8);
     doc.setTextColor(150, 150, 150);
     doc.text(`Page ${i} of ${pageCount}`, 105, 285, { align: 'center' });
-    doc.text('Moving Inventory & Quote • Generated by ReloPrep', 105, 290, { align: 'center' });
+
+    // Footer text based on PDF type
+    let footerText = 'Generated by ReloPrep';
+    if (pdfConfig.type === 'mover-bidding') {
+      footerText = 'Quote Request via ReloPrep • Respond to quotes@reloprep.com';
+    } else if (pdfConfig.type === 'confirmation') {
+      footerText = 'ReloPrep Quote Shopping Service • www.reloprep.com';
+    } else if (pdfConfig.brandingLevel === 'prominent') {
+      footerText = 'Powered by ReloPrep • Your Moving Companion';
+    } else if (pdfConfig.customFooter) {
+      footerText = pdfConfig.customFooter;
+    }
+
+    doc.text(footerText, 105, 290, { align: 'center' });
   }
 
   // Save PDF
-  const filename = testScenario.value === 'real' && selectedLocation.value
-    ? `Moving-Quote-${locationValues.value.find(l => l.value === selectedLocation.value)?.label}-${new Date().toISOString().split('T')[0]}.pdf`
-    : `Moving-Quote-Test-${testScenario.value}-${new Date().toISOString().split('T')[0]}.pdf`;
-  doc.save(filename);
+  const getFilename = () => {
+    const date = new Date().toISOString().split('T')[0];
+    const location = locationValues.value.find(l => l.value === selectedLocation.value)?.label || testScenario.value;
+
+    switch (pdfConfig.type) {
+      case 'customer-shopping':
+        return `Moving-Quote-${location}-${date}.pdf`;
+      case 'mover-bidding':
+        return `RFQ-${pdfConfig.rfqNumber || date}-${location}.pdf`;
+      case 'confirmation':
+        return `Quote-Service-Confirmation-${date}.pdf`;
+    }
+  };
+
+  doc.save(getFilename());
 };
 </script>
 
@@ -676,7 +783,22 @@ const generatePDF = async () => {
           </div>
 
           <div class="config-section">
-            <h3>PDF Options</h3>
+            <h3>PDF Type & Options</h3>
+
+            <div class="config-row">
+              <div class="config-label">PDF Type:</div>
+              <q-btn-toggle
+                v-model="pdfType"
+                :options="[
+                  { label: 'Customer Shopping', value: 'customer-shopping' },
+                  { label: 'Mover Bidding', value: 'mover-bidding' },
+                  { label: 'Service Confirmation', value: 'confirmation' }
+                ]"
+                toggle-color="primary"
+                spread
+                style="min-width: 500px"
+              />
+            </div>
 
             <div class="config-row">
               <div class="config-label">Include Images:</div>
@@ -727,7 +849,7 @@ const generatePDF = async () => {
               size="lg"
               icon="picture_as_pdf"
               :disable="(testScenario === 'real' && !selectedLocation) || itemsInLocation.length === 0"
-              @click="generatePDF"
+              @click="generatePDF({ type: pdfType })"
             />
           </div>
 
