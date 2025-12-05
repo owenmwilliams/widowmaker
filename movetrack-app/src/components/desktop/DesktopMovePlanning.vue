@@ -3391,7 +3391,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
   // Show dialog with pricing tiers
   const dialog = $q.dialog({
-    title: 'ReloPrep Quote Shopping Service',
+    title: 'Get Quotes ASAP',
     message: `
       <style>
         .pricing-tier {
@@ -3496,14 +3496,14 @@ const initiateQuoteShoppingCheckout = async () => {
         }
       </style>
       <div class="text-center q-mb-md text-grey-7">
-        <p>We'll shop your move to multiple vetted moving companies and send you the best quotes.</p>
-        ${isPro.value ? '<p class="text-positive text-weight-bold">✓ Pro discount applied to all tiers</p>' : ''}
+        <p style="font-size: 1.05rem; margin-bottom: 8px;">Let ReloPrep shop your move to multiple vetted companies and deliver the best quotes straight to your inbox.</p>
+        ${isPro.value ? '<p class="text-positive text-weight-bold" style="margin-top: 12px;">✓ Pro discount applied to all tiers</p>' : ''}
       </div>
       <div class="pricing-tiers">
         ${tiersHtml}
       </div>
       <div class="text-caption text-grey-6 text-center q-mt-md">
-        <strong>What happens next:</strong> After payment, we'll generate a specialized RFQ PDF and send it to our network of vetted moving companies. You'll receive quotes directly via email within the turnaround time.
+        <strong>How it works:</strong> After payment, we create a detailed RFQ from your inventory and send it to our network of vetted moving companies. Quotes arrive in your inbox within the turnaround time—no calls, no hassle.
       </div>
     `,
     html: true,
@@ -3524,20 +3524,29 @@ const initiateQuoteShoppingCheckout = async () => {
 
     // Show confirmation
     $q.dialog({
-      title: 'Confirm Quote Shopping Service',
+      title: 'Confirm Your Order',
       message: `
-        <div class="q-mb-md">
-          <strong>Service:</strong> ${tier.charAt(0).toUpperCase() + tier.slice(1)} Quote Shopping<br/>
-          <strong>Price:</strong> $${price}${isPro.value ? ' (Pro discount)' : ''}<br/>
-          <strong>Move:</strong> ${originLocation.value?.nickname || 'Origin'} → ${destinationLocation.value?.nickname || 'Destination'}
+        <div class="q-mb-md" style="font-size: 1.05rem;">
+          <div style="margin-bottom: 12px;">
+            <strong style="color: #3b82f6;">${tier.charAt(0).toUpperCase() + tier.slice(1)} Quote Shopping</strong>
+          </div>
+          <div style="margin-bottom: 8px;">
+            <strong>Price:</strong> $${price}${isPro.value ? ' <span style="color: #10b981; font-weight: 600;">(Pro discount)</span>' : ''}
+          </div>
+          <div style="margin-bottom: 8px;">
+            <strong>Move:</strong> ${originLocation.value?.nickname || 'Origin'} → ${destinationLocation.value?.nickname || 'Destination'}
+          </div>
         </div>
         <div class="text-caption text-grey-7">
-          In production, this will redirect to Stripe Checkout. After payment, you'll receive:
+          <strong>What you'll receive:</strong>
           <ul class="q-mt-sm">
-            <li>Service confirmation email with receipt</li>
-            <li>Confirmation PDF with service details</li>
+            <li>Instant service confirmation email</li>
             <li>Quotes delivered within the turnaround time</li>
+            <li>Direct email support throughout the process</li>
           </ul>
+          <div style="margin-top: 12px; font-style: italic;">
+            In production, clicking below will redirect to secure Stripe checkout.
+          </div>
         </div>
       `,
       html: true,
@@ -4421,18 +4430,6 @@ onMounted(() => {
             >
               <q-tooltip>Upgrade to Pro to download inventory PDF for quotes</q-tooltip>
             </q-btn>
-
-            <!-- Quote Shopping Service Button -->
-            <q-btn
-              flat
-              color="secondary"
-              icon="search"
-              label="Or have ReloPrep shop for quotes"
-              class="full-width q-mt-sm"
-              @click="initiateQuoteShoppingCheckout"
-            >
-              <q-tooltip>Pay ReloPrep to find the best quotes for you{{ isPro ? ' (Pro discount available)' : '' }}</q-tooltip>
-            </q-btn>
           </div>
         </div>
 
@@ -4459,22 +4456,17 @@ onMounted(() => {
 
               <q-separator class="q-my-md" />
 
-              <!-- Secure This Price Button -->
+              <!-- Get Quotes Button -->
               <q-btn
                 unelevated
-                icon="lock_clock"
-                label="Secure This Price"
-                class="full-width q-mb-sm download-quote-btn"
+                icon="search"
+                label="Get Quotes ASAP"
+                class="full-width q-mb-md download-quote-btn"
                 size="lg"
-                @click="initiateStripeCheckout"
+                @click="initiateQuoteShoppingCheckout"
               >
-                <q-tooltip>Get matched with a vetted mover - Pay 15% deposit to lock in this rate</q-tooltip>
+                <q-tooltip>Have ReloPrep shop for the best quotes{{ isPro ? ' (Pro discount available)' : '' }}</q-tooltip>
               </q-btn>
-
-              <!-- Deposit Amount Info -->
-              <div class="text-caption text-grey-7 text-center q-mb-sm">
-                Deposit: ${{ (costEstimates.reloprep.high * 0.15).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} (15%)
-              </div>
 
               <!-- Quote Validity Note -->
               <div class="text-caption text-grey-6 q-mt-md text-left">
