@@ -3392,6 +3392,7 @@ const initiateQuoteShoppingCheckout = async () => {
   // Show dialog with pricing tiers
   const dialog = $q.dialog({
     title: 'Get Quotes ASAP',
+    class: 'quote-shopping-dialog',
     message: `
       <style>
         .pricing-tiers {
@@ -4966,6 +4967,26 @@ onMounted(() => {
 
   </div>
 </template>
+
+<style>
+/* Global dialog styling for quote shopping modal */
+.quote-shopping-dialog .q-dialog__inner {
+  width: 70vw !important;
+  max-width: 70vw !important;
+  height: 60vh !important;
+  margin-top: 20vh !important;
+}
+
+.quote-shopping-dialog .q-card {
+  max-height: 60vh !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.quote-shopping-dialog .q-card__section {
+  overflow-y: auto !important;
+}
+</style>
 
 <style scoped>
 .move-planning-container {
