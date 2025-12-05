@@ -3281,6 +3281,300 @@ const initiateStripeCheckout = async () => {
   });
 };
 
+// Initiate Quote Shopping Service Checkout
+const initiateQuoteShoppingCheckout = async () => {
+  if (!estimatedDistance.value || !costEstimates.value) {
+    Notify.create({
+      type: 'warning',
+      message: 'Please select origin and destination locations first',
+      timeout: 3000
+    });
+    return;
+  }
+
+  // Service pricing tiers with Pro discounts
+  const serviceTiers = [
+    {
+      name: 'Basic',
+      price: isPro.value ? 39 : 49,
+      originalPrice: 49,
+      quotes: 3,
+      turnaround: '48 hours',
+      icon: 'person',
+      color: 'grey-7',
+      description: 'Get started with competitive quotes',
+      features: [
+        '3 vetted moving company quotes',
+        '48-hour turnaround time',
+        'Price comparison & recommendations',
+        'Email support'
+      ]
+    },
+    {
+      name: 'Premium',
+      price: isPro.value ? 79 : 99,
+      originalPrice: 99,
+      quotes: 5,
+      turnaround: '24 hours',
+      icon: 'verified',
+      color: 'primary',
+      description: 'More quotes, faster results',
+      features: [
+        '5 vetted moving company quotes',
+        '24-hour turnaround time',
+        'Detailed comparison matrix',
+        'Priority email & chat support',
+        'Negotiation assistance'
+      ],
+      recommended: true
+    },
+    {
+      name: 'White Glove',
+      price: isPro.value ? 159 : 199,
+      originalPrice: 199,
+      quotes: 'Unlimited',
+      turnaround: '12 hours',
+      icon: 'workspace_premium',
+      color: 'amber-9',
+      description: 'Full-service quote concierge',
+      features: [
+        'Unlimited quotes until you find the perfect match',
+        '12-hour turnaround time',
+        'Dedicated quote specialist',
+        'Phone support & consultation',
+        'Professional negotiation',
+        'Move coordination assistance'
+      ]
+    }
+  ];
+
+  // Build HTML for pricing tiers
+  const tiersHtml = serviceTiers.map(tier => `
+    <div class="pricing-tier ${tier.recommended ? 'pricing-tier--recommended' : ''}" data-tier="${tier.name.toLowerCase()}">
+      ${tier.recommended ? '<div class="recommended-badge">MOST POPULAR</div>' : ''}
+      <div class="tier-header">
+        <q-icon name="${tier.icon}" size="32px" color="${tier.color}" />
+        <div class="tier-name">${tier.name}</div>
+        ${isPro.value && tier.price < tier.originalPrice ? `
+          <div class="tier-price-original">$${tier.originalPrice}</div>
+          <div class="tier-price">$${tier.price}<span class="pro-badge">PRO</span></div>
+        ` : `
+          <div class="tier-price">$${tier.price}</div>
+        `}
+        <div class="tier-description">${tier.description}</div>
+      </div>
+      <div class="tier-body">
+        <div class="tier-summary">
+          <strong>${tier.quotes} quotes</strong> • ${tier.turnaround}
+        </div>
+        <ul class="tier-features">
+          ${tier.features.map(f => `<li>${f}</li>`).join('')}
+        </ul>
+      </div>
+      <q-btn
+        unelevated
+        color="${tier.color}"
+        label="Choose ${tier.name}"
+        class="full-width tier-btn"
+        onclick="window.quoteShoppingTierSelected('${tier.name.toLowerCase()}', ${tier.price})"
+      />
+    </div>
+  `).join('');
+
+  // Create a promise to handle tier selection
+  const tierSelectionPromise = new Promise<{ tier: string; price: number }>((resolve) => {
+    (window as any).quoteShoppingTierSelected = (tier: string, price: number) => {
+      resolve({ tier, price });
+      delete (window as any).quoteShoppingTierSelected;
+    };
+  });
+
+  // Show dialog with pricing tiers
+  const dialog = $q.dialog({
+    title: 'ReloPrep Quote Shopping Service',
+    message: `
+      <style>
+        .pricing-tier {
+          border: 2px solid #e5e7eb;
+          border-radius: 12px;
+          padding: 20px;
+          margin-bottom: 16px;
+          background: white;
+          transition: all 0.2s ease;
+          cursor: pointer;
+        }
+        .pricing-tier:hover {
+          border-color: #3b82f6;
+          box-shadow: 0 8px 20px rgba(59, 130, 246, 0.15);
+          transform: translateY(-2px);
+        }
+        .pricing-tier--recommended {
+          border: 2px solid #3b82f6;
+          position: relative;
+          box-shadow: 0 8px 20px rgba(59, 130, 246, 0.2);
+        }
+        .recommended-badge {
+          position: absolute;
+          top: -12px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+          color: white;
+          padding: 4px 12px;
+          border-radius: 12px;
+          font-size: 0.7rem;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+        }
+        .tier-header {
+          text-align: center;
+          border-bottom: 1px solid #e5e7eb;
+          padding-bottom: 16px;
+          margin-bottom: 16px;
+        }
+        .tier-name {
+          font-size: 1.5rem;
+          font-weight: 700;
+          margin: 8px 0;
+          color: #1f2937;
+        }
+        .tier-price-original {
+          font-size: 1.2rem;
+          color: #9ca3af;
+          text-decoration: line-through;
+          margin-bottom: 4px;
+        }
+        .tier-price {
+          font-size: 2rem;
+          font-weight: 700;
+          color: #3b82f6;
+          margin-bottom: 8px;
+        }
+        .pro-badge {
+          font-size: 0.7rem;
+          background: linear-gradient(135deg, #10b981, #059669);
+          color: white;
+          padding: 2px 8px;
+          border-radius: 8px;
+          margin-left: 8px;
+          font-weight: 700;
+        }
+        .tier-description {
+          color: #6b7280;
+          font-size: 0.9rem;
+          margin-top: 4px;
+        }
+        .tier-summary {
+          text-align: center;
+          padding: 12px;
+          background: #f9fafb;
+          border-radius: 8px;
+          margin-bottom: 12px;
+          color: #374151;
+        }
+        .tier-features {
+          list-style: none;
+          padding: 0;
+          margin: 0 0 16px 0;
+        }
+        .tier-features li {
+          padding: 8px 0;
+          padding-left: 24px;
+          position: relative;
+          color: #4b5563;
+          font-size: 0.9rem;
+        }
+        .tier-features li:before {
+          content: '✓';
+          position: absolute;
+          left: 0;
+          color: #10b981;
+          font-weight: 700;
+        }
+        .tier-btn {
+          margin-top: 12px;
+        }
+      </style>
+      <div class="text-center q-mb-md text-grey-7">
+        <p>We'll shop your move to multiple vetted moving companies and send you the best quotes.</p>
+        ${isPro.value ? '<p class="text-positive text-weight-bold">✓ Pro discount applied to all tiers</p>' : ''}
+      </div>
+      <div class="pricing-tiers">
+        ${tiersHtml}
+      </div>
+      <div class="text-caption text-grey-6 text-center q-mt-md">
+        <strong>What happens next:</strong> After payment, we'll generate a specialized RFQ PDF and send it to our network of vetted moving companies. You'll receive quotes directly via email within the turnaround time.
+      </div>
+    `,
+    html: true,
+    cancel: {
+      label: 'Cancel',
+      color: 'grey-7',
+      flat: true
+    },
+    persistent: true
+  });
+
+  // Wait for tier selection
+  try {
+    const { tier, price } = await tierSelectionPromise;
+
+    // Close the dialog
+    dialog.hide();
+
+    // Show confirmation
+    $q.dialog({
+      title: 'Confirm Quote Shopping Service',
+      message: `
+        <div class="q-mb-md">
+          <strong>Service:</strong> ${tier.charAt(0).toUpperCase() + tier.slice(1)} Quote Shopping<br/>
+          <strong>Price:</strong> $${price}${isPro.value ? ' (Pro discount)' : ''}<br/>
+          <strong>Move:</strong> ${originLocation.value?.nickname || 'Origin'} → ${destinationLocation.value?.nickname || 'Destination'}
+        </div>
+        <div class="text-caption text-grey-7">
+          In production, this will redirect to Stripe Checkout. After payment, you'll receive:
+          <ul class="q-mt-sm">
+            <li>Service confirmation email with receipt</li>
+            <li>Confirmation PDF with service details</li>
+            <li>Quotes delivered within the turnaround time</li>
+          </ul>
+        </div>
+      `,
+      html: true,
+      ok: {
+        label: 'Proceed to Checkout',
+        color: 'primary'
+      },
+      cancel: {
+        label: 'Go Back',
+        flat: true
+      }
+    }).onOk(async () => {
+      // Simulate successful payment
+      Notify.create({
+        type: 'positive',
+        message: 'Quote Shopping Service Activated!',
+        caption: `We'll start shopping for quotes immediately. Expect ${tier === 'white-glove' ? 'unlimited' : serviceTiers.find(t => t.name.toLowerCase() === tier)?.quotes} quotes within ${serviceTiers.find(t => t.name.toLowerCase() === tier)?.turnaround}.`,
+        timeout: 5000
+      });
+
+      // TODO: In production:
+      // 1. Create Stripe checkout session via API with quote shopping service
+      // 2. Include service tier and pricing
+      // 3. After payment, generate confirmation PDF using pdfGenerator service
+      // 4. Generate RFQ PDF for moving companies (mover-bidding type)
+      // 5. Send RFQ to vetted moving companies
+      // 6. Email customer with confirmation and service details
+    }).onCancel(() => {
+      // Reopen the pricing dialog
+      initiateQuoteShoppingCheckout();
+    });
+  } catch (error) {
+    // User cancelled or error occurred
+    console.log('Quote shopping cancelled');
+  }
+};
+
 // Listen for plan preview changes
 onMounted(() => {
   const handleStorage = (event: StorageEvent) => {
@@ -4126,6 +4420,18 @@ onMounted(() => {
               color="grey-7"
             >
               <q-tooltip>Upgrade to Pro to download inventory PDF for quotes</q-tooltip>
+            </q-btn>
+
+            <!-- Quote Shopping Service Button -->
+            <q-btn
+              flat
+              color="secondary"
+              icon="search"
+              label="Or have ReloPrep shop for quotes"
+              class="full-width q-mt-sm"
+              @click="initiateQuoteShoppingCheckout"
+            >
+              <q-tooltip>Pay ReloPrep to find the best quotes for you{{ isPro ? ' (Pro discount available)' : '' }}</q-tooltip>
             </q-btn>
           </div>
         </div>
