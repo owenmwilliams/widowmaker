@@ -3394,14 +3394,22 @@ const initiateQuoteShoppingCheckout = async () => {
     title: 'Get Quotes ASAP',
     message: `
       <style>
+        .pricing-tiers {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 16px;
+          margin: 0 -16px;
+        }
         .pricing-tier {
           border: 2px solid #e5e7eb;
           border-radius: 12px;
-          padding: 20px;
-          margin-bottom: 16px;
+          padding: 16px;
           background: white;
           transition: all 0.2s ease;
           cursor: pointer;
+          display: flex;
+          flex-direction: column;
+          min-height: 420px;
         }
         .pricing-tier:hover {
           border-color: #3b82f6;
@@ -3415,74 +3423,84 @@ const initiateQuoteShoppingCheckout = async () => {
         }
         .recommended-badge {
           position: absolute;
-          top: -12px;
+          top: -10px;
           left: 50%;
           transform: translateX(-50%);
           background: linear-gradient(135deg, #3b82f6, #1d4ed8);
           color: white;
-          padding: 4px 12px;
-          border-radius: 12px;
-          font-size: 0.7rem;
+          padding: 3px 10px;
+          border-radius: 10px;
+          font-size: 0.65rem;
           font-weight: 700;
           letter-spacing: 0.5px;
+          white-space: nowrap;
         }
         .tier-header {
           text-align: center;
           border-bottom: 1px solid #e5e7eb;
-          padding-bottom: 16px;
-          margin-bottom: 16px;
+          padding-bottom: 12px;
+          margin-bottom: 12px;
         }
         .tier-name {
-          font-size: 1.5rem;
+          font-size: 1.2rem;
           font-weight: 700;
-          margin: 8px 0;
+          margin: 6px 0;
           color: #1f2937;
         }
         .tier-price-original {
-          font-size: 1.2rem;
+          font-size: 1rem;
           color: #9ca3af;
           text-decoration: line-through;
-          margin-bottom: 4px;
+          margin-bottom: 2px;
         }
         .tier-price {
-          font-size: 2rem;
+          font-size: 1.75rem;
           font-weight: 700;
           color: #3b82f6;
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
         .pro-badge {
-          font-size: 0.7rem;
+          font-size: 0.65rem;
           background: linear-gradient(135deg, #10b981, #059669);
           color: white;
-          padding: 2px 8px;
-          border-radius: 8px;
-          margin-left: 8px;
+          padding: 2px 6px;
+          border-radius: 6px;
+          margin-left: 6px;
           font-weight: 700;
         }
         .tier-description {
           color: #6b7280;
-          font-size: 0.9rem;
+          font-size: 0.8rem;
           margin-top: 4px;
+          line-height: 1.3;
+        }
+        .tier-body {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
         }
         .tier-summary {
           text-align: center;
-          padding: 12px;
+          padding: 8px;
           background: #f9fafb;
-          border-radius: 8px;
-          margin-bottom: 12px;
+          border-radius: 6px;
+          margin-bottom: 10px;
           color: #374151;
+          font-size: 0.85rem;
         }
         .tier-features {
           list-style: none;
           padding: 0;
-          margin: 0 0 16px 0;
+          margin: 0 0 12px 0;
+          flex: 1;
         }
         .tier-features li {
-          padding: 8px 0;
-          padding-left: 24px;
+          padding: 5px 0;
+          padding-left: 20px;
           position: relative;
           color: #4b5563;
-          font-size: 0.9rem;
+          font-size: 0.8rem;
+          line-height: 1.4;
         }
         .tier-features li:before {
           content: '✓';
@@ -3490,9 +3508,10 @@ const initiateQuoteShoppingCheckout = async () => {
           left: 0;
           color: #10b981;
           font-weight: 700;
+          font-size: 0.85rem;
         }
         .tier-btn {
-          margin-top: 12px;
+          margin-top: auto;
         }
       </style>
       <div class="text-center q-mb-md text-grey-7">
