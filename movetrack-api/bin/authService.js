@@ -84,6 +84,14 @@ function generateToken() {
 }
 
 /**
+ * Hash a token using SHA-256 before storing in database
+ * This ensures that even if the database is compromised, the tokens cannot be used
+ */
+function hashToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+/**
  * Generate JWT session token
  */
 function generateSessionToken(userId, email) {
@@ -128,16 +136,19 @@ async function createMagicLinkToken(email, ipAddress, userAgent) {
 
         // Generate magic link token
         const token = generateToken();
+        const hashedToken = hashToken(token); // Hash token before storing
+
         // Store expiry as UTC timestamp by converting to ISO string
         const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MINUTES * 60 * 1000).toISOString();
 
-        // Store token in database
+        // Store HASHED token in database (security: db breach won't expose active tokens)
         await db.none(
             `INSERT INTO auth_tokens (user_id, token, token_type, expires_at, ip_address, user_agent)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [user.user_id, token, 'magic_link', expiresAt, ipAddress, userAgent]
+            [user.user_id, hashedToken, 'magic_link', expiresAt, ipAddress, userAgent]
         );
 
+        // Return the UNHASHED token to send via email (only time it exists in plaintext)
         return { success: true, token, userId: user.user_id };
     } catch (error) {
         console.error('Error creating magic link token:', error);
@@ -150,26 +161,29 @@ async function createMagicLinkToken(email, ipAddress, userAgent) {
  */
 async function verifyMagicLinkToken(token, ipAddress, userAgent) {
     try {
+        // Hash the token to compare against database (tokens are stored hashed)
+        const hashedToken = hashToken(token);
+
         // First check if token exists at all
         const tokenCheck = await db.oneOrNone(
             `SELECT at.expires_at, at.used_at, NOW() as current_time
              FROM auth_tokens at
              WHERE at.token = $1 AND at.token_type = 'magic_link'`,
-            [token]
+            [hashedToken]
         );
 
         // Find valid magic link token
         const hasOnboarding = await hasOnboardingColumn();
         const onboardingSelect = hasOnboarding ? ', u.onboarding_completed' : ', NULL::boolean AS onboarding_completed';
         const authToken = await db.oneOrNone(
-            `SELECT at.*, u.email, u.first_name, u.last_name${onboardingSelect}
+            `SELECT at.*, u.email, u.first_name, u.last_name${onboardingSelect}, u.email_verified_at
              FROM auth_tokens at
              JOIN users u ON at.user_id = u.user_id
              WHERE at.token = $1
              AND at.token_type = 'magic_link'
              AND at.expires_at > NOW()
              AND at.used_at IS NULL`,
-            [token]
+            [hashedToken]
         );
 
         if (!authToken) {
@@ -180,23 +194,30 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
         }
 
         // Mark token as used
-        await db.none('UPDATE auth_tokens SET used_at = NOW() WHERE token = $1', [token]);
+        await db.none('UPDATE auth_tokens SET used_at = NOW() WHERE token = $1', [hashedToken]);
 
         // Update user's last login
         await db.none('UPDATE users SET last_login_at = NOW() WHERE user_id = $1', [authToken.user_id]);
 
+        // Mark email as verified on first login (prevents typo attacks)
+        await db.none(
+            'UPDATE users SET email_verified_at = NOW() WHERE user_id = $1 AND email_verified_at IS NULL',
+            [authToken.user_id]
+        );
+
         // Log successful login
         await logLoginAttempt(authToken.user_id, 'magic_link', true, ipAddress, userAgent);
 
-        // Generate session token
+        // Generate session token (JWT)
         const sessionToken = generateSessionToken(authToken.user_id, authToken.email);
+        const hashedSessionToken = hashToken(sessionToken); // Hash session token before storing
         const sessionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
 
-        // Store session token
+        // Store HASHED session token (JWTs are also hashed for defense-in-depth)
         await db.none(
             `INSERT INTO auth_tokens (user_id, token, token_type, expires_at, ip_address, user_agent)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [authToken.user_id, sessionToken, 'session', sessionExpiresAt, ipAddress, userAgent]
+            [authToken.user_id, hashedSessionToken, 'session', sessionExpiresAt, ipAddress, userAgent]
         );
 
         const flags = await getPlanForEmail(authToken.email);
@@ -210,6 +231,7 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
                 firstName: authToken.first_name,
                 lastName: authToken.last_name,
                 onboarding_completed: !!authToken.onboarding_completed,
+                emailVerified: !!authToken.email_verified_at,
                 plan: flags.plan,
                 is_admin: flags.is_admin
             }
@@ -457,12 +479,15 @@ async function logLoginAttempt(userId, loginMethod, success, ipAddress, userAgen
  */
 async function logout(sessionToken) {
     try {
+        // Hash the session token to find it in database (tokens are stored hashed)
+        const hashedSessionToken = hashToken(sessionToken);
+
         // Mark session token as used (effectively invalidating it)
         await db.none(
             `UPDATE auth_tokens
              SET used_at = NOW()
              WHERE token = $1 AND token_type = 'session'`,
-            [sessionToken]
+            [hashedSessionToken]
         );
         return { success: true };
     } catch (error) {

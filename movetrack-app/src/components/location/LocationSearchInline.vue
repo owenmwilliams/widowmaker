@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, toRaw } from 'vue';
+import { useLocationForm } from '../../composables/useLocationForm';
 
 declare global {
   interface Window {
@@ -45,6 +46,7 @@ const defaultForm = (): LocationForm => ({
 });
 
 const form = reactive<LocationForm>(defaultForm());
+const { ensureCoordinates } = useLocationForm(() => form);
 const manualEntryOpen = ref(true); // Default to open so users can type directly
 const verifying = ref(false);
 const verificationError = ref<string | null>(null);
@@ -343,6 +345,12 @@ onBeforeUnmount(() => {
   }
   if (manualGeocodeTimeout) {
     clearTimeout(manualGeocodeTimeout);
+  }
+});
+
+defineExpose({
+  async ensureLatLng() {
+    return ensureCoordinates(geocodeManualAddress);
   }
 });
 </script>

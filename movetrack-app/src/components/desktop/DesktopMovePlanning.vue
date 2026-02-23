@@ -10,6 +10,107 @@ import RouteMap from '../RouteMap.vue';
 import DesktopMoveDay from './DesktopMoveDay.vue';
 import WaypointManager from '../WaypointManager.vue';
 import LocationEditorDialog from '../location/LocationEditorDialog.vue';
+import QuoteShoppingModal from '../QuoteShoppingModal.vue';
+
+// TypeScript interfaces for store items
+interface InventoryItem {
+  value?: string | number;
+  label?: string;
+  collection?: string | number;
+  container?: string | number | null;
+  weight_lbs?: number | string;
+  length_in?: number | string | null;
+  width_in?: number | string | null;
+  height_in?: number | string | null;
+  dimensions?: string;
+  quantity?: number | string;
+  fragile?: boolean;
+  tags?: string[];
+  picture_url?: string | null;
+  description?: string;
+}
+
+interface InventoryContainer {
+  value?: string | number;
+  label?: string;
+  location?: string | number;
+  collection?: string | number;
+  box_size?: string;
+  length_in?: number | string | null;
+  width_in?: number | string | null;
+  height_in?: number | string | null;
+  inner_length_in?: number | string;
+  inner_width_in?: number | string;
+  inner_height_in?: number | string;
+  dimensions?: string | {
+    length?: number | string;
+    width?: number | string;
+    height?: number | string;
+  };
+}
+
+interface InventoryLocation {
+  value?: string | number;
+  label?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+  lat?: number | null;
+  lng?: number | null;
+  fullAddress?: string;
+}
+
+interface RouteData {
+  distance_miles?: number;
+  route_polyline?: string;
+  duration_hours?: number;
+}
+
+interface MoveLocationData {
+  location_role: string;
+  location_id: string | number;
+  lat?: number | string | null;
+  lng?: number | string | null;
+  entry_type?: string | null;
+  number_of_flights?: number | null;
+  has_elevator?: boolean;
+  elevator_type?: string | null;
+  elevator_distance?: number | null;
+  elevator_reservation_required?: boolean;
+  parking_situation?: string | null;
+  parking_distance?: number | null;
+  entry_challenges?: string | string[];
+  access_notes?: string | null;
+}
+
+interface UserData {
+  plan?: string;
+  user_id?: string;
+  userId?: string;
+  is_admin?: boolean;
+  [key: string]: unknown;
+}
+
+interface MoveDaySession {
+  id: number;
+  saved_move_id?: string | number;
+  session_name?: string;
+  session_date?: string;
+  [key: string]: unknown;
+}
+
+interface SavedMove {
+  id: number;
+  name?: string;
+  [key: string]: unknown;
+}
+
+interface QPopupProxy {
+  hide: () => void;
+  show: () => void;
+}
 
 const props = defineProps({
   user: String
@@ -33,6 +134,7 @@ const originLocation = ref<string | null>(null);
 const destinationLocation = ref<string | null>(null);
 const moveDate = ref<string | null>(null);
 const moveEndDate = ref<string | null>(null);
+const timingFlexibility = ref<'exact' | 'flexible_3days' | 'flexible_7days'>('exact');
 const numHelpers = ref(2);
 
 const formatDateLabel = (value: string | null) => {
@@ -65,6 +167,107 @@ const normalizeDateInput = (value?: string | null) => {
   }
   return parsed.toISOString().split('T')[0];
 };
+
+// Timing flexibility computed
+const isFlexible = computed(() => {
+  return timingFlexibility.value === 'flexible_3days' || timingFlexibility.value === 'flexible_7days';
+});
+
+// Warning system
+interface MoveWarning {
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+}
+
+const moveWarnings = computed<MoveWarning[]>(() => {
+  const warnings: MoveWarning[] = [];
+
+  // Continental US validation
+  const originLoc = locationValues.value.find(l => l.value === originLocation.value);
+  const destLoc = locationValues.value.find(l => l.value === destinationLocation.value);
+
+  const isNonContinentalUS = (location: InventoryLocation | undefined) => {
+    if (!location) return false;
+    const state = location.state?.toUpperCase();
+    if (!state) return false;
+    const nonContinentalStates = ['AK', 'HI', 'PR', 'GU', 'VI', 'AS', 'MP'];
+    return nonContinentalStates.includes(state);
+  };
+
+  if (originLoc && isNonContinentalUS(originLoc)) {
+    warnings.push({
+      severity: 'error',
+      message: 'We currently support estimates only within the continental United States (lower 48 states). For Alaska, Hawaii, territories, or international moves, please contact movers directly.'
+    });
+  }
+
+  if (destLoc && isNonContinentalUS(destLoc)) {
+    warnings.push({
+      severity: 'error',
+      message: 'We currently support estimates only within the continental United States (lower 48 states). For Alaska, Hawaii, territories, or international moves, please contact movers directly.'
+    });
+  }
+
+  // Storage gap detection
+  if (moveDate.value && moveEndDate.value) {
+    const startDate = new Date(moveDate.value);
+    const endDate = new Date(moveEndDate.value);
+    const gapDays = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (gapDays > 7) {
+      warnings.push({
+        severity: 'warning',
+        message: `Your move-out and move-in dates are ${gapDays} days apart. Our estimate does not include storage costs, which may be required if belongings need to be held between homes.`
+      });
+    }
+  }
+
+  // Van line timing flexibility warning
+  const distance = estimatedDistance.value || 0;
+  if (distance >= 500 && !isFlexible.value) {
+    warnings.push({
+      severity: 'info',
+      message: 'Van line services usually require flexible delivery windows. Based on your exact dates, we\'re showing dedicated options only. If you can be flexible with your dates (±3-7 days), van lines may offer significant cost savings.'
+    });
+  }
+
+  return warnings;
+});
+
+// Check if we have a blocking error
+const hasBlockingError = computed(() => {
+  return moveWarnings.value.some(w => w.severity === 'error');
+});
+
+// DIY Alternative Options
+interface DiyOption {
+  provider: string;
+  label: string;
+  url: string;
+  description: string;
+}
+
+const diyOptions = computed<DiyOption[]>(() => {
+  const distance = estimatedDistance.value || 0;
+
+  // Only show DIY options if there's a distance calculated
+  if (distance === 0) return [];
+
+  return [
+    {
+      provider: 'U-Haul',
+      label: 'DIY Truck Rental',
+      url: 'https://www.uhaul.com/',
+      description: 'Rent a truck and drive yourself. Best for those willing to handle the physical work and driving to save money.'
+    },
+    {
+      provider: 'PODS',
+      label: 'Container Service',
+      url: 'https://www.pods.com/',
+      description: 'You pack, they drive. Great when you need flexible timing or temporary storage between homes.'
+    }
+  ];
+});
 
 // Additional move details for PDF
 const packingServicesRequired = ref<'none' | 'partial' | 'full'>('none');
@@ -118,7 +321,7 @@ watch(moveDate, (newStart) => {
   }
 });
 
-const userData = ref<any>({});
+const userData = ref<UserData>({});
 if (typeof window !== 'undefined') {
   try {
     userData.value = JSON.parse(localStorage.getItem('user_data') || '{}');
@@ -194,14 +397,14 @@ interface LocationEditorResult {
 const openLocationDialog = () => {
   showLocationDialog.value = true;
 };
-const moveDatePopup = ref<any>(null);
-const moveEndDatePopup = ref<any>(null);
-const newMoveOutPopup = ref<any>(null);
-const newMoveInPopup = ref<any>(null);
+const moveDatePopup = ref<QPopupProxy | null>(null);
+const moveEndDatePopup = ref<QPopupProxy | null>(null);
+const newMoveOutPopup = ref<QPopupProxy | null>(null);
+const newMoveInPopup = ref<QPopupProxy | null>(null);
 
 // Ref for DesktopMoveDay component
 const moveDayRef = ref<InstanceType<typeof DesktopMoveDay> | null>(null);
-const moveDaySessions = computed<any[]>(() => moveDayRef.value?.moveSessions || []);
+const moveDaySessions = computed<MoveDaySession[]>(() => moveDayRef.value?.moveSessions || []);
 const filteredMoveDaySessions = computed(() => {
   if (!currentSavedMoveId.value) return [];
   return moveDaySessions.value.filter(session => String(session.saved_move_id) === String(currentSavedMoveId.value));
@@ -221,7 +424,7 @@ const handleMoveDaySessionSelect = (sessionId: number | null) => {
 };
 
 // Parse item dimensions helper
-const parseItemDimensions = (item: any) => {
+const parseItemDimensions = (item: InventoryItem | InventoryContainer): { length: number; width: number; height: number } | null => {
   if (
     item.length_in != null &&
     item.width_in != null &&
@@ -257,9 +460,73 @@ const itemsInOriginLocation = computed(() => {
   return store.items.filter(item => collectionsInOrigin.includes(item.collection));
 });
 
+const containerAggregatesInOrigin = computed(() => {
+  if (!originLocation.value) return [];
+
+  const aggregates = new Map<string, { container: InventoryContainer; items: InventoryItem[] }>();
+  itemsInOriginLocation.value.forEach((item) => {
+    if (!item.container) return;
+    const normalizedId = String(item.container);
+    const container = store.containers.find(
+      (c) => c.value === normalizedId && c.location === originLocation.value
+    );
+    if (!container) return;
+    if (!aggregates.has(normalizedId)) {
+      aggregates.set(normalizedId, { container, items: [] });
+    }
+    aggregates.get(normalizedId)?.items.push(item);
+  });
+  return Array.from(aggregates.values());
+});
+
+const looseItemsInOrigin = computed(() =>
+  itemsInOriginLocation.value.filter((item) => !item.container)
+);
+
+const getContainerDimensions = (container: InventoryContainer): { length: number; width: number; height: number } | null => {
+  if (
+    container?.inner_length_in &&
+    container?.inner_width_in &&
+    container?.inner_height_in
+  ) {
+    return {
+      length: Number(container.inner_length_in),
+      width: Number(container.inner_width_in),
+      height: Number(container.inner_height_in)
+    };
+  }
+  if (
+    container?.dimensions &&
+    typeof container.dimensions === 'object' &&
+    container.dimensions.length &&
+    container.dimensions.width &&
+    container.dimensions.height
+  ) {
+    return {
+      length: Number(container.dimensions.length),
+      width: Number(container.dimensions.width),
+      height: Number(container.dimensions.height)
+    };
+  }
+  return null;
+};
+
+const containerVolumeWarnings = computed(() =>
+  containerAggregatesInOrigin.value
+    .filter(entry => !getContainerDimensions(entry.container))
+    .map(entry => entry.container.label || entry.container.value)
+);
+
 // Calculate total volume (only for items in origin location)
 const totalVolumeCuFt = computed(() => {
-  return itemsInOriginLocation.value.reduce((sum, item) => {
+  const containerVolume = containerAggregatesInOrigin.value.reduce((sum, entry) => {
+    const dims = getContainerDimensions(entry.container);
+    if (!dims) return sum;
+    const volumeCuFt = (dims.length * dims.width * dims.height) / 1728;
+    return sum + volumeCuFt;
+  }, 0);
+
+  const looseVolume = looseItemsInOrigin.value.reduce((sum, item) => {
     const dims = parseItemDimensions(item);
     if (!dims) return sum;
     const volumeCubicInches = dims.length * dims.width * dims.height;
@@ -267,15 +534,28 @@ const totalVolumeCuFt = computed(() => {
     const quantity = Number(item.quantity) || 1;
     return sum + (volumeCubicFeet * quantity);
   }, 0);
+
+  return containerVolume + looseVolume;
 });
 
 // Calculate total weight (only for items in origin location)
 const totalWeightLbs = computed(() => {
-  return itemsInOriginLocation.value.reduce((sum, item) => {
+  const containerWeight = containerAggregatesInOrigin.value.reduce((sum, entry) => {
+    const itemsWeight = entry.items.reduce((acc, item) => {
+      const weight = Number(item.weight_lbs) || 0;
+      const quantity = Number(item.quantity) || 1;
+      return acc + (weight * quantity);
+    }, 0);
+    return sum + itemsWeight + 2; // add 2 lb tare weight per box
+  }, 0);
+
+  const looseWeight = looseItemsInOrigin.value.reduce((sum, item) => {
     const weight = Number(item.weight_lbs) || 0;
     const quantity = Number(item.quantity) || 1;
     return sum + (weight * quantity);
   }, 0);
+
+  return containerWeight + looseWeight;
 });
 
 // Total item count (only for items in origin location)
@@ -760,7 +1040,7 @@ const colAdjustment = computed(() => {
 });
 
 // Helper to format address for geocoding
-const formatAddress = (location: any): string | null => {
+const formatAddress = (location: InventoryLocation | undefined): string | null => {
   if (!location) return null;
 
   const parts: string[] = [];
@@ -779,7 +1059,7 @@ const distanceCache = ref<Record<string, number>>({});
 // Calculate distance between origin and destination using Google Maps Directions API
 const estimatedDistance = ref<number | null>(null);
 const isCalculatingDistance = ref(false);
-const routeData = ref<any>(null);
+const routeData = ref<RouteData | null>(null);
 const useTruckRoute = ref(true);
 const avoidTolls = ref(false);
 
@@ -838,7 +1118,7 @@ const handleRouteUpdated = (data: RouteUpdateData) => {
 };
 
 // Generate move schedule from calculated route
-const waypointManagerRef = ref<any>(null);
+const waypointManagerRef = ref<InstanceType<typeof WaypointManager> | null>(null);
 const generatingSchedule = ref(false);
 const showScheduleDialog = ref(false);
 const anchorDateType = ref<'move-out' | 'move-in'>('move-out');
@@ -907,12 +1187,21 @@ const generateMoveSchedule = async (clearExisting: boolean = false) => {
       ]
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error generating schedule:', error);
+    let errorMessage = 'Failed to generate schedule';
+    let errorCaption: string | undefined = undefined;
+
+    if (axios.isAxiosError(error) && error.response?.data) {
+      const data = error.response.data as { error?: string; details?: string };
+      errorMessage = data.error || errorMessage;
+      errorCaption = data.details;
+    }
+
     $q.notify({
       type: 'negative',
-      message: error.response?.data?.error || 'Failed to generate schedule',
-      caption: error.response?.data?.details
+      message: errorMessage,
+      caption: errorCaption
     });
   } finally {
     generatingSchedule.value = false;
@@ -1044,8 +1333,256 @@ watch([useTruckRoute, avoidTolls], () => {
   }
 });
 
+// Dedicated movers pricing calculation
+interface DedicatedMoversPricingParams {
+  distance: number;
+  totalHours: number;
+  weight: number;
+  volume: number;
+  colMultiplier: number;
+  totalPackingHours: number;
+  professionalMaterialsCost: number;
+  furnitureBreakdownTime: number;
+  furniturePadsCost: number;
+  shrinkWrapCost: number;
+  cornerProtectorsCost: number;
+  packingServicesRequired: 'none' | 'partial' | 'full';
+}
+
+interface DedicatedMoversPricingResult {
+  professionalLow: number;
+  professionalHigh: number;
+  packingCostLow: number;
+  packingCostHigh: number;
+  adjustedPackingCostLow: number;
+  adjustedPackingCostHigh: number;
+  partialPackingMaterials: number;
+}
+
+const calculateDedicatedMoversCost = (params: DedicatedMoversPricingParams): DedicatedMoversPricingResult => {
+  const {
+    distance,
+    totalHours,
+    weight,
+    volume,
+    colMultiplier,
+    totalPackingHours,
+    professionalMaterialsCost,
+    furnitureBreakdownTime,
+    furniturePadsCost,
+    shrinkWrapCost,
+    cornerProtectorsCost,
+    packingServicesRequired
+  } = params;
+
+  let professionalLow, professionalHigh, packingCostLow, packingCostHigh;
+
+  if (distance < 100) {
+    // Local move: hourly rate
+    const hourlyRate = 150; // $150/hour for 2-person crew (2024 rates)
+    professionalLow = hourlyRate * totalHours * 0.9 * colMultiplier;
+    professionalHigh = hourlyRate * totalHours * 1.4 * colMultiplier;
+
+    // Packing service: $50-75/hour per packer + materials (with 110% upcharge)
+    packingCostLow = (totalPackingHours * 50) + professionalMaterialsCost;
+    packingCostHigh = (totalPackingHours * 75) + professionalMaterialsCost;
+  } else {
+    // Long distance: More realistic formula based on distance + weight/volume
+    // Base rate: $2-3 per pound for cross-country
+    const baseCostPerPound = distance > 2000 ? 2.5 : (distance > 1000 ? 1.5 : 1.0);
+
+    // Volume-based alternative (whichever is higher)
+    const volumeCostMultiplier = distance > 2000 ? 12 : (distance > 1000 ? 10 : 8);
+
+    const weightBased = weight * baseCostPerPound;
+    const volumeBased = volume * volumeCostMultiplier;
+    const baseCost = Math.max(weightBased, volumeBased);
+
+    // Add distance-based surcharge for very long moves
+    const distanceSurcharge = distance > 2000 ? 1500 : (distance > 1000 ? 800 : 0);
+
+    professionalLow = (baseCost + distanceSurcharge) * 0.85 * colMultiplier;
+    professionalHigh = (baseCost + distanceSurcharge) * 1.25 * colMultiplier;
+
+    // Packing for long distance: labor + materials (with 110% upcharge)
+    // $60-85/hour per packer for long distance (higher skilled)
+    packingCostLow = (totalPackingHours * 60) + professionalMaterialsCost;
+    packingCostHigh = (totalPackingHours * 85) + professionalMaterialsCost;
+  }
+
+  // Adjust packing costs based on packingServicesRequired toggle
+  let adjustedPackingCostLow = 0;
+  let adjustedPackingCostHigh = 0;
+  let partialPackingMaterials = 0;
+
+  if (packingServicesRequired === 'full') {
+    // Full packing: all labor + all materials
+    adjustedPackingCostLow = packingCostLow;
+    adjustedPackingCostHigh = packingCostHigh;
+  } else if (packingServicesRequired === 'partial') {
+    // Partial packing: furniture protection only (no box packing labor)
+    // Only include furniture protection materials + minimal labor for wrapping
+    partialPackingMaterials = (furniturePadsCost + shrinkWrapCost + cornerProtectorsCost) * 1.10;
+    const furnitureWrappingHours = furnitureBreakdownTime; // Just furniture wrapping, no box packing
+
+    if (distance < 100) {
+      adjustedPackingCostLow = (furnitureWrappingHours * 50) + partialPackingMaterials;
+      adjustedPackingCostHigh = (furnitureWrappingHours * 75) + partialPackingMaterials;
+    } else {
+      adjustedPackingCostLow = (furnitureWrappingHours * 60) + partialPackingMaterials;
+      adjustedPackingCostHigh = (furnitureWrappingHours * 85) + partialPackingMaterials;
+    }
+  }
+  // else 'none': packing costs remain 0
+
+  return {
+    professionalLow,
+    professionalHigh,
+    packingCostLow,
+    packingCostHigh,
+    adjustedPackingCostLow,
+    adjustedPackingCostHigh,
+    partialPackingMaterials
+  };
+};
+
+// Van line pricing calculation
+interface VanLinePricingParams {
+  distance: number;
+  weight: number;
+  volume: number;
+  colMultiplier: number;
+  adjustedPackingCostLow: number;
+  adjustedPackingCostHigh: number;
+  totalDifficultyPremium: number;
+  professionalLow: number;
+  professionalHigh: number;
+  miscCosts: number;
+  multiStopPremium: number;
+  isFlexible: boolean;
+  intermediateStops: number;
+}
+
+interface VanLinePricingResult {
+  vanLineTotalLow: number;
+  vanLineTotalHigh: number;
+  adjustedVanLineLow: number;
+  adjustedVanLineHigh: number;
+  chargeableWeight: number;
+  deliveryWindow: string;
+  breakdown: {
+    linehaul: number;
+    fuelSurcharge: number;
+    destinationLabor: number;
+    shuttleFee: number;
+  };
+}
+
+const calculateVanLineCost = (params: VanLinePricingParams): VanLinePricingResult => {
+  const {
+    distance,
+    weight,
+    volume,
+    colMultiplier,
+    adjustedPackingCostLow,
+    adjustedPackingCostHigh,
+    totalDifficultyPremium,
+    professionalLow,
+    professionalHigh,
+    miscCosts,
+    multiStopPremium,
+    isFlexible,
+    intermediateStops
+  } = params;
+
+  // 1. Chargeable Weight: Greater of actual weight or volumetric weight (7 lbs/cu ft)
+  const chargeableWeight = Math.max(weight, volume * 7);
+
+  // 2. Linehaul Rate: Lower tariff for shared load, tiered by distance
+  // Rates: >2000mi: $0.75/lb, >1000mi: $0.85/lb, <1000mi: $1.00/lb
+  const vanLineRatePerLb = distance > 2000 ? 0.75 : (distance > 1000 ? 0.85 : 1.00);
+  const linehaul = chargeableWeight * vanLineRatePerLb;
+
+  // 3. Mandatory Fees
+  const fuelSurcharge = linehaul * 0.12; // 12% Fuel Surcharge
+  const destinationLabor = chargeableWeight * 0.25; // $0.25/lb for destination services
+
+  // 4. Shuttle / Access Fees for High CoL Areas
+  // If CoL multiplier > 1.3 (e.g. SF, NYC), assume shuttle or long carry is needed
+  const shuttleFee = colMultiplier > 1.3 ? 750 : 0;
+
+  // 5. Delivery Window Calculation
+  const deliveryWindowMin = Math.max(5, Math.ceil(distance / 500) + 2);
+  const deliveryWindowMax = Math.max(14, Math.ceil(distance / 300) + 5);
+  const deliveryWindow = `${deliveryWindowMin}-${deliveryWindowMax} days`;
+
+  // Total Van Line Cost
+  const vanLineBase = linehaul + fuelSurcharge + destinationLabor + shuttleFee;
+  // Apply CoL multiplier to the base cost as well to reflect local labor rates
+  const vanLineTotalLow = (vanLineBase * colMultiplier) + adjustedPackingCostLow + (totalDifficultyPremium * 1.2);
+  const vanLineTotalHigh = (vanLineBase * 1.25 * colMultiplier) + adjustedPackingCostHigh + (totalDifficultyPremium * 1.2);
+
+  // Van line vs dedicated cost guardrail
+  // For long-distance, heavy, flexible moves, ensure van lines are cheaper
+  let adjustedVanLineLow = vanLineTotalLow;
+  let adjustedVanLineHigh = vanLineTotalHigh;
+
+  const shouldVanLinesBeCheaper = distance >= 500 && weight >= 2000 && isFlexible && intermediateStops === 0;
+
+  if (shouldVanLinesBeCheaper) {
+    const dedicatedMid = (professionalLow + adjustedPackingCostLow + miscCosts + totalDifficultyPremium + multiStopPremium +
+                          professionalHigh + adjustedPackingCostHigh + miscCosts + totalDifficultyPremium + multiStopPremium) / 2;
+    const vanMid = (vanLineTotalLow + vanLineTotalHigh) / 2;
+    const ratio = vanMid / dedicatedMid;
+
+    // If van lines are more expensive than 95% of dedicated, adjust them down
+    if (ratio > 0.95) {
+      const adjustmentFactor = 0.95 / ratio;
+      adjustedVanLineLow = vanLineTotalLow * adjustmentFactor;
+      adjustedVanLineHigh = vanLineTotalHigh * adjustmentFactor;
+    }
+  }
+
+  return {
+    vanLineTotalLow,
+    vanLineTotalHigh,
+    adjustedVanLineLow,
+    adjustedVanLineHigh,
+    chargeableWeight,
+    deliveryWindow,
+    breakdown: {
+      linehaul,
+      fuelSurcharge,
+      destinationLabor,
+      shuttleFee
+    }
+  };
+};
+
 // Cost estimates
 const costEstimates = computed(() => {
+  // Return empty estimates if we have a blocking error
+  if (hasBlockingError.value) {
+    return {
+      diy: { total: 0, breakdown: {} },
+      professional: {
+        movingOnly: { low: 0, high: 0, average: 0 },
+        packing: { low: 0, high: 0, average: 0, hours: 0, breakdown: {} },
+        misc: { tolls: 0, hotels: 0, total: 0 },
+        difficulty: { origin: {}, destination: {}, total: 0 },
+        multiStop: { stops: 0, premium: 0 },
+        additionalBoxCost: { low: 0, high: 0 },
+        furnitureAssembly: { low: 0, high: 0 },
+        total: { low: 0, high: 0, average: 0 },
+        dedicated: { available: false, low: 0, high: 0 },
+        vanLine: { available: false, low: 0, high: 0, chargeableWeight: 0, deliveryWindow: '', breakdown: {} }
+      },
+      reloprep: { low: 0, high: 0, average: 0, savings: 0 },
+      comparison: { diyVsProfessional: 0, reloprepVsProfessional: 0 },
+      packingLevel: 'none'
+    };
+  }
+
   const weight = totalWeightLbs.value;
   const volume = totalVolumeCuFt.value;
   const distance = estimatedDistance.value || 0;
@@ -1103,7 +1640,6 @@ const costEstimates = computed(() => {
   const totalPackingHours = smallBoxTime + mediumBoxTime + largeBoxTime + furnitureBreakdownTime;
 
   // Professional Move Costs (more realistic for 2024)
-  let professionalLow, professionalHigh, packingCostLow, packingCostHigh;
   const colMultiplier = colAdjustment.value;
 
   // Professional movers upcharge 110% on materials
@@ -1166,63 +1702,23 @@ const costEstimates = computed(() => {
   const intermediateStops = moveLocations.value.filter(loc => loc.role === 'intermediate' && loc.location).length;
   const multiStopPremium = intermediateStops * 175;
 
-  if (distance < 100) {
-    // Local move: hourly rate
-    const hourlyRate = 150; // $150/hour for 2-person crew (2024 rates)
-    professionalLow = hourlyRate * totalHours * 0.9 * colMultiplier;
-    professionalHigh = hourlyRate * totalHours * 1.4 * colMultiplier;
+  // Calculate dedicated movers pricing using separate function
+  const dedicatedPricing = calculateDedicatedMoversCost({
+    distance,
+    totalHours,
+    weight,
+    volume,
+    colMultiplier,
+    totalPackingHours,
+    professionalMaterialsCost,
+    furnitureBreakdownTime,
+    furniturePadsCost,
+    shrinkWrapCost,
+    cornerProtectorsCost,
+    packingServicesRequired: packingServicesRequired.value
+  });
 
-    // Packing service: $50-75/hour per packer + materials (with 110% upcharge)
-    packingCostLow = (totalPackingHours * 50) + professionalMaterialsCost;
-    packingCostHigh = (totalPackingHours * 75) + professionalMaterialsCost;
-  } else {
-    // Long distance: More realistic formula based on distance + weight/volume
-    // Base rate: $2-3 per pound for cross-country
-    const baseCostPerPound = distance > 2000 ? 2.5 : (distance > 1000 ? 1.5 : 1.0);
-
-    // Volume-based alternative (whichever is higher)
-    const volumeCostMultiplier = distance > 2000 ? 12 : (distance > 1000 ? 10 : 8);
-
-    const weightBased = weight * baseCostPerPound;
-    const volumeBased = volume * volumeCostMultiplier;
-    const baseCost = Math.max(weightBased, volumeBased);
-
-    // Add distance-based surcharge for very long moves
-    const distanceSurcharge = distance > 2000 ? 1500 : (distance > 1000 ? 800 : 0);
-
-    professionalLow = (baseCost + distanceSurcharge) * 0.85 * colMultiplier;
-    professionalHigh = (baseCost + distanceSurcharge) * 1.25 * colMultiplier;
-
-    // Packing for long distance: labor + materials (with 110% upcharge)
-    // $60-85/hour per packer for long distance (higher skilled)
-    packingCostLow = (totalPackingHours * 60) + professionalMaterialsCost;
-    packingCostHigh = (totalPackingHours * 85) + professionalMaterialsCost;
-  }
-
-  // Adjust packing costs based on packingServicesRequired toggle
-  let adjustedPackingCostLow = 0;
-  let adjustedPackingCostHigh = 0;
-  let partialPackingMaterials = 0;
-
-  if (packingServicesRequired.value === 'full') {
-    // Full packing: all labor + all materials
-    adjustedPackingCostLow = packingCostLow;
-    adjustedPackingCostHigh = packingCostHigh;
-  } else if (packingServicesRequired.value === 'partial') {
-    // Partial packing: furniture protection only (no box packing labor)
-    // Only include furniture protection materials + minimal labor for wrapping
-    partialPackingMaterials = (furniturePadsCost + shrinkWrapCost + cornerProtectorsCost) * 1.10;
-    const furnitureWrappingHours = furnitureBreakdownTime; // Just furniture wrapping, no box packing
-
-    if (distance < 100) {
-      adjustedPackingCostLow = (furnitureWrappingHours * 50) + partialPackingMaterials;
-      adjustedPackingCostHigh = (furnitureWrappingHours * 75) + partialPackingMaterials;
-    } else {
-      adjustedPackingCostLow = (furnitureWrappingHours * 60) + partialPackingMaterials;
-      adjustedPackingCostHigh = (furnitureWrappingHours * 85) + partialPackingMaterials;
-    }
-  }
-  // else 'none': packing costs remain 0
+  const { professionalLow, professionalHigh, packingCostLow, packingCostHigh, adjustedPackingCostLow, adjustedPackingCostHigh, partialPackingMaterials } = dedicatedPricing;
 
   // Market average (moving + packing based on selection + tolls/hotels + difficulty + multi-stop)
   const marketMovingAverage = (professionalLow + professionalHigh) / 2;
@@ -1230,33 +1726,24 @@ const costEstimates = computed(() => {
   const miscCosts = estimatedTolls + hotelCosts;
   const marketTotalAverage = marketMovingAverage + marketPackingAverage + miscCosts + totalDifficultyPremium + multiStopPremium;
 
-  // --- Consolidated Shipment (Van Line) Logic ---
-  // 1. Chargeable Weight: Greater of actual weight or volumetric weight (7 lbs/cu ft)
-  const chargeableWeight = Math.max(weight, volume * 7);
+  // Calculate van line pricing using separate function
+  const vanLinePricing = calculateVanLineCost({
+    distance,
+    weight,
+    volume,
+    colMultiplier,
+    adjustedPackingCostLow,
+    adjustedPackingCostHigh,
+    totalDifficultyPremium,
+    professionalLow,
+    professionalHigh,
+    miscCosts,
+    multiStopPremium,
+    isFlexible: isFlexible.value,
+    intermediateStops
+  });
 
-  // 2. Linehaul Rate: Lower tariff for shared load, tiered by distance
-  // Rates: >2000mi: $0.75/lb, >1000mi: $0.85/lb, <1000mi: $1.00/lb (Increased base rates)
-  const vanLineRatePerLb = distance > 2000 ? 0.75 : (distance > 1000 ? 0.85 : 1.00);
-  const linehaul = chargeableWeight * vanLineRatePerLb;
-
-  // 3. Mandatory Fees
-  const fuelSurcharge = linehaul * 0.12; // Increased to 12% Fuel Surcharge
-  const destinationLabor = chargeableWeight * 0.25; // Increased to $0.25/lb for destination services
-
-  // 4. Shuttle / Access Fees for High CoL Areas
-  // If CoL multiplier > 1.3 (e.g. SF, NYC), assume shuttle or long carry is needed
-  const shuttleFee = colMultiplier > 1.3 ? 750 : 0;
-
-  // 5. Delivery Window Calculation
-  const deliveryWindowMin = Math.max(5, Math.ceil(distance / 500) + 2);
-  const deliveryWindowMax = Math.max(14, Math.ceil(distance / 300) + 5);
-  const deliveryWindowStr = `${deliveryWindowMin}-${deliveryWindowMax} days`;
-
-  // Total Van Line Cost
-  const vanLineBase = linehaul + fuelSurcharge + destinationLabor + shuttleFee;
-  // Apply CoL multiplier to the base cost as well to reflect local labor rates
-  const vanLineTotalLow = (vanLineBase * colMultiplier) + adjustedPackingCostLow + (totalDifficultyPremium * 1.2);
-  const vanLineTotalHigh = (vanLineBase * 1.25 * colMultiplier) + adjustedPackingCostHigh + (totalDifficultyPremium * 1.2);
+  const { adjustedVanLineLow, adjustedVanLineHigh, chargeableWeight, deliveryWindow: deliveryWindowStr, breakdown: vanLineBreakdown } = vanLinePricing;
 
   // ReloPrep estimate: Range from 80%-95% based on CoL adjustment
   // Lower CoL (colMultiplier < 1) = better savings (closer to 80%)
@@ -1345,17 +1832,12 @@ const costEstimates = computed(() => {
         high: professionalHigh + adjustedPackingCostHigh + miscCosts + totalDifficultyPremium + multiStopPremium
       },
       vanLine: {
-        available: distance >= 250 && intermediateStops === 0,
-        low: distance >= 250 && intermediateStops === 0 ? vanLineTotalLow : 0,
-        high: distance >= 250 && intermediateStops === 0 ? vanLineTotalHigh : 0,
+        available: distance >= 250 && intermediateStops === 0 && (distance < 500 || isFlexible.value),
+        low: distance >= 250 && intermediateStops === 0 && (distance < 500 || isFlexible.value) ? adjustedVanLineLow : 0,
+        high: distance >= 250 && intermediateStops === 0 && (distance < 500 || isFlexible.value) ? adjustedVanLineHigh : 0,
         chargeableWeight: chargeableWeight,
         deliveryWindow: deliveryWindowStr,
-        breakdown: {
-          linehaul: linehaul,
-          fuelSurcharge: fuelSurcharge,
-          destinationLabor: destinationLabor,
-          shuttleFee: shuttleFee
-        }
+        breakdown: vanLineBreakdown
       }
     },
     reloprep: {
@@ -1736,7 +2218,7 @@ const downloadInventoryPdf = async () => {
 };
 
 // Saved moves functionality
-const savedMoves = ref<any[]>([]);
+const savedMoves = ref<SavedMove[]>([]);
 const currentSavedMoveId = ref<number | null>(null);
 const showNewMoveDialog = ref(false);
 const newMoveForm = ref({
@@ -1755,7 +2237,7 @@ const saveMoveFormModel = ref({
 interface MoveLocation {
   id: number;
   role: 'origin' | 'intermediate' | 'destination';
-  location: any | null;
+  location: string | number | null;
   lat: number | null;
   lng: number | null;
   // Access details
@@ -2368,15 +2850,17 @@ const loadMove = async (moveId: number) => {
     // Check if we have move_locations data from the API (new multi-location model)
     if (move.move_locations && move.move_locations.length > 0) {
       // Use move_locations data - this includes intermediate locations
-      move.move_locations.forEach((ml: any) => {
+      move.move_locations.forEach((ml: MoveLocationData) => {
         // Parse entry_challenges if it's a string
-        let entryChallenges = ml.entry_challenges || [];
-        if (typeof entryChallenges === 'string') {
+        let entryChallenges: string[] = [];
+        if (typeof ml.entry_challenges === 'string') {
           try {
-            entryChallenges = JSON.parse(entryChallenges);
+            entryChallenges = JSON.parse(ml.entry_challenges);
           } catch {
             entryChallenges = [];
           }
+        } else if (Array.isArray(ml.entry_challenges)) {
+          entryChallenges = ml.entry_challenges;
         }
 
         moveLocations.value.push({
@@ -2385,23 +2869,23 @@ const loadMove = async (moveId: number) => {
           location: ml.location_id,
           lat: normalizeCoordinate(ml.lat),
           lng: normalizeCoordinate(ml.lng),
-          entryType: ml.entry_type,
-          numberOfFlights: ml.number_of_flights,
-          hasElevator: ml.has_elevator,
-          elevatorType: ml.elevator_type,
-          elevatorDistance: ml.elevator_distance,
-          elevatorReservationRequired: ml.elevator_reservation_required,
-          parkingSituation: ml.parking_situation,
-          parkingDistance: ml.parking_distance,
+          entryType: ml.entry_type ?? null,
+          numberOfFlights: ml.number_of_flights ?? null,
+          hasElevator: ml.has_elevator ?? false,
+          elevatorType: ml.elevator_type ?? null,
+          elevatorDistance: ml.elevator_distance ?? null,
+          elevatorReservationRequired: ml.elevator_reservation_required ?? false,
+          parkingSituation: ml.parking_situation ?? null,
+          parkingDistance: ml.parking_distance ?? null,
           entryChallenges: entryChallenges,
-          accessNotes: ml.access_notes || ''
+          accessNotes: ml.access_notes ?? ''
         });
 
         // Also set legacy refs for origin/destination
         if (ml.location_role === 'origin') {
-          originLocation.value = ml.location_id;
+          originLocation.value = String(ml.location_id);
         } else if (ml.location_role === 'destination') {
-          destinationLocation.value = ml.location_id;
+          destinationLocation.value = String(ml.location_id);
         }
       });
     } else {
@@ -3292,257 +3776,14 @@ const initiateQuoteShoppingCheckout = async () => {
     return;
   }
 
-  // Service pricing tiers with Pro discounts
-  const serviceTiers = [
-    {
-      name: 'Basic',
-      price: isPro.value ? 39 : 49,
-      originalPrice: 49,
-      quotes: 3,
-      turnaround: '48 hours',
-      icon: 'person',
-      color: 'grey-7',
-      description: 'Get started with competitive quotes',
-      features: [
-        '3 vetted moving company quotes',
-        '48-hour turnaround time',
-        'Price comparison & recommendations',
-        'Email support'
-      ]
-    },
-    {
-      name: 'Premium',
-      price: isPro.value ? 79 : 99,
-      originalPrice: 99,
-      quotes: 5,
-      turnaround: '24 hours',
-      icon: 'verified',
-      color: 'primary',
-      description: 'More quotes, faster results',
-      features: [
-        '5 vetted moving company quotes',
-        '24-hour turnaround time',
-        'Detailed comparison matrix',
-        'Priority email & chat support',
-        'Negotiation assistance'
-      ],
-      recommended: true
-    },
-    {
-      name: 'White Glove',
-      price: isPro.value ? 159 : 199,
-      originalPrice: 199,
-      quotes: 'Unlimited',
-      turnaround: '12 hours',
-      icon: 'workspace_premium',
-      color: 'amber-9',
-      description: 'Full-service quote concierge',
-      features: [
-        'Unlimited quotes until you find the perfect match',
-        '12-hour turnaround time',
-        'Dedicated quote specialist',
-        'Phone support & consultation',
-        'Professional negotiation',
-        'Move coordination assistance'
-      ]
+  // Show quote shopping modal using the component
+  $q.dialog({
+    component: QuoteShoppingModal,
+    componentProps: {
+      isPro: isPro.value
     }
-  ];
-
-  // Build HTML for pricing tiers
-  const tiersHtml = serviceTiers.map(tier => `
-    <div class="pricing-tier ${tier.recommended ? 'pricing-tier--recommended' : ''}" data-tier="${tier.name.toLowerCase()}">
-      ${tier.recommended ? '<div class="recommended-badge">MOST POPULAR</div>' : ''}
-      <div class="tier-header">
-        <q-icon name="${tier.icon}" size="32px" color="${tier.color}" />
-        <div class="tier-name">${tier.name}</div>
-        ${isPro.value && tier.price < tier.originalPrice ? `
-          <div class="tier-price-original">$${tier.originalPrice}</div>
-          <div class="tier-price">$${tier.price}<span class="pro-badge">PRO</span></div>
-        ` : `
-          <div class="tier-price">$${tier.price}</div>
-        `}
-        <div class="tier-description">${tier.description}</div>
-      </div>
-      <div class="tier-body">
-        <div class="tier-summary">
-          <strong>${tier.quotes} quotes</strong> • ${tier.turnaround}
-        </div>
-        <ul class="tier-features">
-          ${tier.features.map(f => `<li>${f}</li>`).join('')}
-        </ul>
-      </div>
-      <q-btn
-        unelevated
-        color="${tier.color}"
-        label="Choose ${tier.name}"
-        class="full-width tier-btn"
-        onclick="window.quoteShoppingTierSelected('${tier.name.toLowerCase()}', ${tier.price})"
-      />
-    </div>
-  `).join('');
-
-  // Create a promise to handle tier selection
-  const tierSelectionPromise = new Promise<{ tier: string; price: number }>((resolve) => {
-    (window as any).quoteShoppingTierSelected = (tier: string, price: number) => {
-      resolve({ tier, price });
-      delete (window as any).quoteShoppingTierSelected;
-    };
-  });
-
-  // Show dialog with pricing tiers
-  const dialog = $q.dialog({
-    title: 'Get Quotes ASAP',
-    class: 'quote-shopping-dialog',
-    message: `
-      <style>
-        .pricing-tiers {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 16px;
-          margin: 0 -16px;
-        }
-        .pricing-tier {
-          border: 2px solid #e5e7eb;
-          border-radius: 12px;
-          padding: 16px;
-          background: white;
-          transition: all 0.2s ease;
-          cursor: pointer;
-          display: flex;
-          flex-direction: column;
-          min-height: 420px;
-        }
-        .pricing-tier:hover {
-          border-color: #3b82f6;
-          box-shadow: 0 8px 20px rgba(59, 130, 246, 0.15);
-          transform: translateY(-2px);
-        }
-        .pricing-tier--recommended {
-          border: 2px solid #3b82f6;
-          position: relative;
-          box-shadow: 0 8px 20px rgba(59, 130, 246, 0.2);
-        }
-        .recommended-badge {
-          position: absolute;
-          top: -10px;
-          left: 50%;
-          transform: translateX(-50%);
-          background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-          color: white;
-          padding: 3px 10px;
-          border-radius: 10px;
-          font-size: 0.65rem;
-          font-weight: 700;
-          letter-spacing: 0.5px;
-          white-space: nowrap;
-        }
-        .tier-header {
-          text-align: center;
-          border-bottom: 1px solid #e5e7eb;
-          padding-bottom: 12px;
-          margin-bottom: 12px;
-        }
-        .tier-name {
-          font-size: 1.2rem;
-          font-weight: 700;
-          margin: 6px 0;
-          color: #1f2937;
-        }
-        .tier-price-original {
-          font-size: 1rem;
-          color: #9ca3af;
-          text-decoration: line-through;
-          margin-bottom: 2px;
-        }
-        .tier-price {
-          font-size: 1.75rem;
-          font-weight: 700;
-          color: #3b82f6;
-          margin-bottom: 6px;
-        }
-        .pro-badge {
-          font-size: 0.65rem;
-          background: linear-gradient(135deg, #10b981, #059669);
-          color: white;
-          padding: 2px 6px;
-          border-radius: 6px;
-          margin-left: 6px;
-          font-weight: 700;
-        }
-        .tier-description {
-          color: #6b7280;
-          font-size: 0.8rem;
-          margin-top: 4px;
-          line-height: 1.3;
-        }
-        .tier-body {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-        }
-        .tier-summary {
-          text-align: center;
-          padding: 8px;
-          background: #f9fafb;
-          border-radius: 6px;
-          margin-bottom: 10px;
-          color: #374151;
-          font-size: 0.85rem;
-        }
-        .tier-features {
-          list-style: none;
-          padding: 0;
-          margin: 0 0 12px 0;
-          flex: 1;
-        }
-        .tier-features li {
-          padding: 5px 0;
-          padding-left: 20px;
-          position: relative;
-          color: #4b5563;
-          font-size: 0.8rem;
-          line-height: 1.4;
-        }
-        .tier-features li:before {
-          content: '✓';
-          position: absolute;
-          left: 0;
-          color: #10b981;
-          font-weight: 700;
-          font-size: 0.85rem;
-        }
-        .tier-btn {
-          margin-top: auto;
-        }
-      </style>
-      <div class="text-center q-mb-md text-grey-7">
-        <p style="font-size: 1.05rem; margin-bottom: 8px;">Let ReloPrep shop your move to multiple vetted companies and deliver the best quotes straight to your inbox.</p>
-        ${isPro.value ? '<p class="text-positive text-weight-bold" style="margin-top: 12px;">✓ Pro discount applied to all tiers</p>' : ''}
-      </div>
-      <div class="pricing-tiers">
-        ${tiersHtml}
-      </div>
-      <div class="text-caption text-grey-6 text-center q-mt-md">
-        <strong>How it works:</strong> After payment, we create a detailed RFQ from your inventory and send it to our network of vetted moving companies. Quotes arrive in your inbox within the turnaround time—no calls, no hassle.
-      </div>
-    `,
-    html: true,
-    cancel: {
-      label: 'Cancel',
-      color: 'grey-7',
-      flat: true
-    },
-    persistent: true
-  });
-
-  // Wait for tier selection
-  try {
-    const { tier, price } = await tierSelectionPromise;
-
-    // Close the dialog
-    dialog.hide();
-
-    // Show confirmation
+  }).onOk(({ tier, price }: { tier: string; price: number }) => {
+    // Show confirmation dialog
     $q.dialog({
       title: 'Confirm Your Order',
       message: `
@@ -3580,10 +3821,18 @@ const initiateQuoteShoppingCheckout = async () => {
       }
     }).onOk(async () => {
       // Simulate successful payment
+      const tierLabels: { [key: string]: { quotes: string | number; turnaround: string } } = {
+        'basic': { quotes: 3, turnaround: '48 hours' },
+        'premium': { quotes: 5, turnaround: '24 hours' },
+        'white glove': { quotes: 'unlimited', turnaround: '12 hours' }
+      };
+
+      const tierInfo = tierLabels[tier];
+
       Notify.create({
         type: 'positive',
         message: 'Quote Shopping Service Activated!',
-        caption: `We'll start shopping for quotes immediately. Expect ${tier === 'white-glove' ? 'unlimited' : serviceTiers.find(t => t.name.toLowerCase() === tier)?.quotes} quotes within ${serviceTiers.find(t => t.name.toLowerCase() === tier)?.turnaround}.`,
+        caption: `We'll start shopping for quotes immediately. Expect ${tierInfo.quotes} quotes within ${tierInfo.turnaround}.`,
         timeout: 5000
       });
 
@@ -3598,10 +3847,7 @@ const initiateQuoteShoppingCheckout = async () => {
       // Reopen the pricing dialog
       initiateQuoteShoppingCheckout();
     });
-  } catch (error) {
-    // User cancelled or error occurred
-    console.log('Quote shopping cancelled');
-  }
+  });
 };
 
 // Listen for plan preview changes
@@ -3765,6 +4011,28 @@ onMounted(() => {
                 </q-popup-proxy>
               </q-input>
             </div>
+            <div class="col-12 col-md-3">
+              <q-select
+                v-model="timingFlexibility"
+                :options="[
+                  { label: 'Exact dates only', value: 'exact' },
+                  { label: 'Flexible ±3 days', value: 'flexible_3days' },
+                  { label: 'Flexible ±7 days', value: 'flexible_7days' }
+                ]"
+                option-label="label"
+                option-value="value"
+                emit-value
+                map-options
+                label="Date Flexibility"
+                outlined
+                dense
+                hint="Flexibility can reduce costs for long-distance moves"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="date_range" />
+                </template>
+              </q-select>
+            </div>
             <div class="col-12 col-md-2">
               <q-input
                 v-model.number="numHelpers"
@@ -3819,6 +4087,30 @@ onMounted(() => {
           </div>
         </q-card-section>
       </q-card>
+
+      <!-- Warnings Section -->
+      <div v-if="moveWarnings.length > 0" class="q-mt-md">
+        <q-banner
+          v-for="(warning, index) in moveWarnings"
+          :key="index"
+          :class="{
+            'bg-red-1 text-red-9': warning.severity === 'error',
+            'bg-orange-1 text-orange-9': warning.severity === 'warning',
+            'bg-blue-1 text-blue-9': warning.severity === 'info'
+          }"
+          dense
+          rounded
+          class="q-mb-sm"
+        >
+          <template v-slot:avatar>
+            <q-icon
+              :name="warning.severity === 'error' ? 'error' : warning.severity === 'warning' ? 'warning' : 'info'"
+              :color="warning.severity === 'error' ? 'red' : warning.severity === 'warning' ? 'orange' : 'blue'"
+            />
+          </template>
+          {{ warning.message }}
+        </q-banner>
+      </div>
     </div>
 
     <!-- Row 2: Locations Cards -->
@@ -4028,6 +4320,16 @@ onMounted(() => {
       <q-card flat bordered class="content-card">
         <q-card-section>
           <div class="text-h6 text-primary q-mb-md">Truck Recommendation</div>
+          <q-banner
+            v-if="containerVolumeWarnings.length"
+            dense
+            rounded
+            class="bg-warning text-white q-mb-md"
+          >
+            Missing box dimensions for:
+            {{ containerVolumeWarnings.join(', ') }}.
+            Add length/width/height to improve accuracy.
+          </q-banner>
 
           <div class="truck-details">
             <div class="text-h4 text-weight-bold text-primary q-mb-xs">{{ truckRecommendation.size }}</div>
@@ -4491,7 +4793,7 @@ onMounted(() => {
               <!-- Quote Validity Note -->
               <div class="text-caption text-grey-6 q-mt-md text-left">
                 <strong>Price Guarantee:</strong> ReloPrep connects you with a 
-                licensed, vetted moving partner. This quoted price is guaranteed 
+                licensed, vetted moving partner. With White Glove Service, this quoted price is guaranteed 
                 based exclusively on the inventory detailed in your PDF and the 
                 access conditions you described. Your deposit secures this 
                 service and is ReloPrep's non-refundable brokerage fee. The 
@@ -4504,6 +4806,39 @@ onMounted(() => {
               
             </q-card-section>
           </q-card>
+        </div>
+      </div>
+
+      <!-- Static Disclaimer -->
+      <div v-if="estimatedDistance" class="q-pa-md">
+        <q-card flat bordered class="bg-grey-1">
+          <q-card-section class="q-pa-md">
+            <div class="text-caption text-grey-8">
+              <strong>Important:</strong> These prices are estimates for standard residential moves within the continental U.S. Final quotes may differ based on your exact inventory, building access (stairs, elevators, long walks), parking/permits, specialty items (pianos, safes, etc.), and any storage needed between homes.
+            </div>
+          </q-card-section>
+        </q-card>
+      </div>
+
+      <!-- DIY Options Section -->
+      <div v-if="estimatedDistance && diyOptions.length > 0" class="q-pa-md">
+        <div class="text-h6 text-grey-8 q-mb-md">Looking to save more? DIY options</div>
+        <div class="row q-col-gutter-md">
+          <div v-for="option in diyOptions" :key="option.provider" class="col-12 col-md-6">
+            <q-card flat bordered class="cursor-pointer" @click="window.open(option.url, '_blank')">
+              <q-card-section>
+                <div class="text-subtitle1 text-weight-bold text-primary q-mb-xs">
+                  {{ option.label }}
+                  <q-icon name="open_in_new" size="xs" class="q-ml-xs" />
+                </div>
+                <div class="text-caption text-grey-7 q-mb-sm">{{ option.provider }}</div>
+                <div class="text-body2">{{ option.description }}</div>
+                <div class="text-caption text-grey-6 q-mt-sm">
+                  We may earn a referral fee if you book through this link. This doesn't change your price.
+                </div>
+              </q-card-section>
+            </q-card>
+          </div>
         </div>
       </div>
 
@@ -4967,26 +5302,6 @@ onMounted(() => {
 
   </div>
 </template>
-
-<style>
-/* Global dialog styling for quote shopping modal */
-.quote-shopping-dialog .q-dialog__inner {
-  width: 70vw !important;
-  max-width: 70vw !important;
-  height: 60vh !important;
-  margin-top: 20vh !important;
-}
-
-.quote-shopping-dialog .q-card {
-  max-height: 60vh !important;
-  display: flex !important;
-  flex-direction: column !important;
-}
-
-.quote-shopping-dialog .q-card__section {
-  overflow-y: auto !important;
-}
-</style>
 
 <style scoped>
 .move-planning-container {

@@ -5,6 +5,7 @@ import { useQuasar } from "quasar";
 import { onboardingStore } from "../../stores/OnboardingStore";
 import { inventoryStore } from "../../stores/InventoryStore";
 import LocationSearchInline from "../../components/location/LocationSearchInline.vue";
+import { useLocationForm } from "../../composables/useLocationForm";
 
 const emit = defineEmits<{ "app:loading": (value: boolean) => void }>();
 emit("app:loading", false);
@@ -33,10 +34,13 @@ const locationForm = ref<LocationForm>({
   state: store.locationState || "",
   zip: store.locationZip || "",
   country: "USA",
-  lat: null,
-  lng: null,
+  lat: store.locationLat ?? null,
+  lng: store.locationLng ?? null,
   formattedAddress: store.locationAddress || ""
 });
+const { manualAddressComplete } = useLocationForm(() => locationForm.value);
+const locationSearchRef = ref<InstanceType<typeof LocationSearchInline> | null>(null);
+const $q = useQuasar();
 
 const displayedBedrooms = ref(store.bedroomCount ?? 1);
 
@@ -80,12 +84,7 @@ const canContinue = computed(() => {
   const form = locationForm.value;
   return (
     form.name.trim().length > 0 &&
-    form.address1.trim().length > 0 &&
-    form.city.trim().length > 0 &&
-    form.state.trim().length > 0 &&
-    form.zip.trim().length > 0 &&
-    form.lat != null &&
-    form.lng != null
+    manualAddressComplete.value
   );
 });
 
@@ -113,7 +112,6 @@ onMounted(() => {
 });
 
 const inventory = inventoryStore();
-const $q = useQuasar();
 const isMobile = $q.platform.is.mobile === true;
 const isMobilePlatform = () => isMobile;
 const userId = ref<string | null>(null);
@@ -131,6 +129,16 @@ const isSaving = ref(false);
 
 const handleNext = async () => {
   if (isSaving.value) return;
+  if (locationForm.value.lat == null || locationForm.value.lng == null) {
+    const ensured = await locationSearchRef.value?.ensureLatLng?.();
+    if (!ensured || locationForm.value.lat == null || locationForm.value.lng == null) {
+      $q.notify({
+        type: "negative",
+        message: "We couldn't verify this address. Please refine it or adjust the map pin."
+      });
+      return;
+    }
+  }
   const form = locationForm.value;
   store.setLocation({
     name: form.name.trim(),
@@ -139,6 +147,8 @@ const handleNext = async () => {
     city: form.city.trim(),
     state: form.state.trim(),
     zip: form.zip.trim(),
+    lat: form.lat,
+    lng: form.lng
   });
   store.setRooms([...store.selectedRooms]);
   router.push({ name: "onboarding-first-item" });
@@ -156,7 +166,13 @@ const handleNext = async () => {
       </p>
 
       <div class="form-grid">
-        <LocationSearchInline v-model="locationForm" />
+        <LocationSearchInline v-model="locationForm" ref="locationSearchRef" />
+        <div
+          class="text-caption q-mt-sm"
+          :class="manualAddressComplete ? 'text-positive' : 'text-negative'"
+        >
+          Street, city, state, and ZIP must be filled in before continuing.
+        </div>
       </div>
 
       <div class="section">

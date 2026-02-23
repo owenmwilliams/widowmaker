@@ -8,7 +8,13 @@
       "Bash(node -e:*)",
       "Bash(cat:*)",
       "Bash(git restore:*)",
-      "Bash(gcloud secrets versions access:*)"
+      "Bash(gcloud secrets versions access:*)",
+      "Bash(npm install:*)",
+      "Bash(node scripts/testTokenHashing.js:*)",
+      "Bash(node scripts/migrateTokenHashing.js:*)",
+      "Bash(node scripts/testMagicLinkFlow.js:*)",
+      "Bash(node scripts/verifyEmailVerification.js:*)",
+      "Bash(tree:*)"
     ],
     "deny": [],
     "ask": []

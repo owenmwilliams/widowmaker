@@ -1,9 +1,12 @@
 const Anthropic = require('@anthropic-ai/sdk');
 const OpenAI = require('openai');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { HfInference } = require('@huggingface/inference');
 const fetch = require('node-fetch');
+const sharp = require('sharp');
 const { Storage } = require('@google-cloud/storage');
 const path = require('path');
+const { jsonrepair } = require('jsonrepair');
 
 // Initialize GCS client for fetching images from URLs
 const isLocalEnvironment = process.env.NODE_ENV !== 'production';
@@ -22,6 +25,12 @@ let anthropicClient = null;
 let openaiClient = null;
 let geminiClient = null;
 
+const huggingFaceToken = process.env.HUGGINGFACE_API_TOKEN || process.env.HUGGING_FACE_API_TOKEN;
+const florenceModelId = process.env.HUGGINGFACE_FLORENCE_MODEL || 'microsoft/Florence-2-base';
+const nemotronModelId = process.env.HUGGINGFACE_NEMOTRON_MODEL || 'nvidia/Nemotron-4-140B-Vision-Instruction';
+const samModelId = process.env.SAM_MODEL_ID || 'facebook/sam-vit-base';
+const hfInference = huggingFaceToken ? new HfInference(huggingFaceToken) : null;
+
 // Only initialize if API keys are provided
 if (process.env.ANTHROPIC_API_KEY) {
     anthropicClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -38,12 +47,10 @@ if (process.env.GOOGLE_AI_API_KEY) {
     console.log('Google Gemini Vision configured');
 }
 
-const huggingFaceToken = process.env.HUGGINGFACE_API_TOKEN || process.env.HUGGING_FACE_API_TOKEN;
-const florenceModelId = process.env.HUGGINGFACE_FLORENCE_MODEL || 'microsoft/Florence-2-base';
-const nemotronModelId = process.env.HUGGINGFACE_NEMOTRON_MODEL || 'nvidia/Nemotron-4-140B-Vision-Instruction';
-
 if (huggingFaceToken) {
-    console.log(`HuggingFace Vision configured - Models: ${florenceModelId}, ${nemotronModelId}`);
+    console.log(
+      `HuggingFace Vision configured - Models: ${florenceModelId}, ${nemotronModelId}, SAM: ${samModelId}`
+    );
 }
 
 // Together.ai configuration
@@ -109,6 +116,24 @@ async function fetchImageAsBase64(imageUrl) {
     console.error('Error fetching image from URL:', error);
     throw new Error(`Failed to fetch image from URL: ${error.message}`);
   }
+}
+
+function parseBase64Image(input, fallbackMime = 'image/png') {
+  if (!input || typeof input !== 'string') {
+    throw new Error('Image payload is required');
+  }
+  if (input.startsWith('data:')) {
+    const [metadata, data] = input.split(',');
+    const match = metadata.match(/^data:(.*?);base64$/);
+    return {
+      buffer: Buffer.from(data, 'base64'),
+      mimeType: match ? match[1] : fallbackMime
+    };
+  }
+  return {
+    buffer: Buffer.from(input, 'base64'),
+    mimeType: fallbackMime
+  };
 }
 
 /**
@@ -464,8 +489,31 @@ async function callTogetherVision(modelId, imageSource, mimeType, prompt, maxTok
         const textContent = result.choices[0].message.content;
 
         // Remove markdown code blocks if present
-        const jsonText = textContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const parsedData = JSON.parse(jsonText);
+        const jsonText = textContent
+            .replace(/```json/gi, '```')
+            .replace(/```/g, '')
+            .trim();
+
+        let parsedData;
+        try {
+            parsedData = JSON.parse(jsonText);
+        } catch (parseError) {
+            console.warn('Together.ai JSON parse failed, attempting repair', {
+                message: parseError.message,
+                preview: jsonText.slice(0, 400)
+            });
+            try {
+                const repaired = jsonrepair(jsonText);
+                parsedData = JSON.parse(repaired);
+            } catch (repairError) {
+                console.error('Together.ai JSON repair failed', {
+                    repairError: repairError.message,
+                    originalError: parseError.message,
+                    preview: jsonText.slice(0, 400)
+                });
+                throw new Error(`Together.ai response parsing failed: ${repairError.message} (original: ${parseError.message})`);
+            }
+        }
 
         return {
             success: true,
@@ -515,8 +563,13 @@ async function analyzeWithTogether(base64Image, mimeType) {
 /**
  * Analyze multi-item photo using Together.ai Scout (Free tier)
  */
-async function analyzeMultiItemWithTogetherScout(base64Image, mimeType) {
-    const result = await callTogetherVision(togetherScoutModel, base64Image, mimeType, MULTI_ITEM_VISION_PROMPT);
+async function analyzeMultiItemWithTogetherScout(base64Image, mimeType, promptOverride) {
+    const result = await callTogetherVision(
+        togetherScoutModel,
+        base64Image,
+        mimeType,
+        promptOverride || MULTI_ITEM_VISION_PROMPT
+    );
     if (result.success) {
         result.provider = 'together-scout';
     }
@@ -526,8 +579,13 @@ async function analyzeMultiItemWithTogetherScout(base64Image, mimeType) {
 /**
  * Analyze multi-item photo using Together.ai Qwen (Paid tier)
  */
-async function analyzeMultiItemWithTogetherQwen(base64Image, mimeType) {
-    const result = await callTogetherVision(togetherQwenModel, base64Image, mimeType, MULTI_ITEM_VISION_PROMPT);
+async function analyzeMultiItemWithTogetherQwen(base64Image, mimeType, promptOverride) {
+    const result = await callTogetherVision(
+        togetherQwenModel,
+        base64Image,
+        mimeType,
+        promptOverride || MULTI_ITEM_VISION_PROMPT
+    );
     if (result.success) {
         result.provider = 'together-qwen';
     }
@@ -1028,8 +1086,9 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt =
 /**
  * Main function to analyze photo for multiple items
  */
-async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null) {
+async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, options = {}) {
     const providerToUse = provider || currentProvider;
+    const promptOverride = options.prompt;
 
     console.log(`Analyzing photo for multiple items with provider: ${providerToUse}`);
 
@@ -1044,9 +1103,9 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null) {
             return await analyzeMultiItemWithGemini(base64Image, mimeType);
         case 'together':
         case 'scout':
-            return await analyzeMultiItemWithTogetherScout(base64Image, mimeType);
+            return await analyzeMultiItemWithTogetherScout(base64Image, mimeType, promptOverride);
         case 'qwen':
-            return await analyzeMultiItemWithTogetherQwen(base64Image, mimeType);
+            return await analyzeMultiItemWithTogetherQwen(base64Image, mimeType, promptOverride);
         case 'florence':
             return await analyzeMultiItemWithFlorence(base64Image, mimeType);
         case 'nemotron':
@@ -1099,8 +1158,121 @@ function getAvailableProviders() {
 module.exports = {
     analyzeItemPhoto,
     analyzeMultiItemPhoto,
+    refineDetectionsWithSAM,
     setProvider,
     getCurrentProvider,
     getAvailableProviders,
     VISION_PROMPT,
+    MULTI_ITEM_VISION_PROMPT,
 };
+async function refineDetectionsWithSAM(imageInput, detections = []) {
+    if (!hfInference) {
+        throw new Error('Hugging Face SAM not configured');
+    }
+    if (!Array.isArray(detections) || detections.length === 0) {
+        return detections;
+    }
+    const { buffer } = parseBase64Image(imageInput);
+    const segmentation = await hfInference.imageSegmentation({
+        model: samModelId,
+        data: buffer
+    });
+    if (!Array.isArray(segmentation) || segmentation.length === 0) {
+        return detections;
+    }
+    const maskBoxes = [];
+    for (const entry of segmentation) {
+        if (!entry?.mask) continue;
+        const bbox = await maskToBoundingBox(entry.mask);
+        if (bbox) {
+            maskBoxes.push({
+                bbox,
+                score: entry.score || 0
+            });
+        }
+    }
+    if (!maskBoxes.length) {
+        return detections;
+    }
+    return detections.map((det) => {
+        if (!det?.boundingBox) return det;
+        const best = maskBoxes
+            .map((mask) => ({
+                mask,
+                iou: computeBoxIoU(det.boundingBox, mask.bbox)
+            }))
+            .sort((a, b) => b.iou - a.iou)[0];
+        if (!best || best.iou <= 0) {
+            return det;
+        }
+        return {
+            ...det,
+            boundingBox: best.mask.bbox,
+            refined: true,
+            samScore: best.mask.score
+        };
+    });
+}
+
+async function maskToBoundingBox(maskDataUrl) {
+    if (!maskDataUrl || typeof maskDataUrl !== 'string') return null;
+    const base64 = maskDataUrl.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64, 'base64');
+    const image = sharp(buffer);
+    const metadata = await image.metadata();
+    const { width, height } = metadata;
+    if (!width || !height) return null;
+    const raw = await image.ensureAlpha().raw().toBuffer();
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const idx = (y * width + x) * 4 + 3;
+            if (raw[idx] > 10) {
+                if (x < minX) minX = x;
+                if (y < minY) minY = y;
+                if (x > maxX) maxX = x;
+                if (y > maxY) maxY = y;
+            }
+        }
+    }
+    if (maxX === -1 || maxY === -1) {
+        return null;
+    }
+    return {
+        x: clamp01(minX / width),
+        y: clamp01(minY / height),
+        width: clamp01((maxX - minX + 1) / width),
+        height: clamp01((maxY - minY + 1) / height)
+    };
+}
+
+function computeBoxIoU(a, b) {
+    if (!a || !b) return 0;
+    const ax1 = a.x ?? 0;
+    const ay1 = a.y ?? 0;
+    const ax2 = ax1 + (a.width ?? 0);
+    const ay2 = ay1 + (a.height ?? 0);
+    const bx1 = b.x ?? 0;
+    const by1 = b.y ?? 0;
+    const bx2 = bx1 + (b.width ?? 0);
+    const by2 = by1 + (b.height ?? 0);
+    const interWidth = Math.max(0, Math.min(ax2, bx2) - Math.max(ax1, bx1));
+    const interHeight = Math.max(0, Math.min(ay2, by2) - Math.max(ay1, by1));
+    const intersection = interWidth * interHeight;
+    const union =
+        (a.width ?? 0) * (a.height ?? 0) +
+        (b.width ?? 0) * (b.height ?? 0) -
+        intersection;
+    if (union <= 0) return 0;
+    return intersection / union;
+}
+
+function clamp01(value) {
+    if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+    if (value < 0) return 0;
+    if (value > 1) return 1;
+    return value;
+}

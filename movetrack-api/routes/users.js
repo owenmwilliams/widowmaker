@@ -33,30 +33,27 @@ const storage = new Storage(storageOptions);
 
 var jsonParser = bodyParser.json();
 
-/* GET users listing. */
-router.get('/', async function(req, res, next) {
-  var user_id = req.query.user_id
+/* GET current user profile. */
+router.get('/', authService.authenticate, async function(req, res, next) {
+  const userId = req.user?.user_id;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   try {
-    await knex('users')
-      .select('first_name', 'last_name', 'user_name')
-      .where(
-        knex.raw('id = ?', user_id)
-      )
-    // await db.oneOrNone('SELECT first_name, last_name, user_name FROM users WHERE user_id = $1', [user_id])
-    .then(result => {
-      if (result.length > 0) {
-        res.send(result[0])
-      } else {
-        res.send('nodata')
-      }
-    })
-    .catch(function (err) {
-      return next(err);
-    });
-  }
-  catch(e) {
-    res.send(e)
+    const user = await knex('users')
+      .select('user_id', 'first_name', 'last_name', 'user_name')
+      .where({ user_id: userId })
+      .first();
+
+    if (user) {
+      res.send(user);
+    } else {
+      res.send('nodata');
+    }
+  } catch (err) {
+    return next(err);
   }
 });
 

@@ -27,6 +27,8 @@ type OnboardingDraft = {
   locationCity?: string;
   locationState?: string;
   locationZip?: string;
+  locationLat?: number | null;
+  locationLng?: number | null;
   locationId?: string | null;
   selectedRooms?: string[];
   importDraft?: Record<string, any>;
@@ -79,6 +81,8 @@ export const onboardingStore = defineStore("onboarding", {
       locationCity: draft.locationCity ?? "",
       locationState: draft.locationState ?? "",
       locationZip: draft.locationZip ?? "",
+      locationLat: draft.locationLat ?? null,
+      locationLng: draft.locationLng ?? null,
       locationId: draft.locationId ?? null,
       selectedRooms: draft.selectedRooms ?? [],
       importDraft: draft.importDraft ?? {},
@@ -106,6 +110,8 @@ export const onboardingStore = defineStore("onboarding", {
         locationCity: this.locationCity,
         locationState: this.locationState,
         locationZip: this.locationZip,
+        locationLat: this.locationLat,
+        locationLng: this.locationLng,
         locationId: this.locationId,
         selectedRooms: this.selectedRooms,
         importDraft: this.importDraft,
@@ -146,6 +152,8 @@ export const onboardingStore = defineStore("onboarding", {
       city: string;
       state: string;
       zip: string;
+      lat?: number | null;
+      lng?: number | null;
     }) {
       this.locationName = payload.name;
       this.locationAddress = payload.address;
@@ -153,6 +161,8 @@ export const onboardingStore = defineStore("onboarding", {
       this.locationCity = payload.city;
       this.locationState = payload.state;
       this.locationZip = payload.zip;
+      this.locationLat = payload.lat ?? null;
+      this.locationLng = payload.lng ?? null;
       this.persistDraft();
     },
     setLocationId(value: string | null) {

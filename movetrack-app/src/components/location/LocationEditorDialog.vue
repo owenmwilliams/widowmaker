@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, defineEmits, defineProps, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { Notify } from 'quasar';
+import { useLocationForm } from '../../composables/useLocationForm';
 
 declare global {
   interface Window {
@@ -54,6 +55,7 @@ const form = ref<LocationForm>({
   lng: null,
   formattedAddress: null
 });
+const { manualAddressComplete } = useLocationForm(() => form.value);
 
 // UI State
 const isSaving = ref(false);
@@ -89,11 +91,7 @@ const dialogTitle = computed(() => {
 const canSave = computed(() => {
   return Boolean(
     form.value.name.trim() &&
-    form.value.address1.trim() &&
-    form.value.city.trim() &&
-    form.value.state.trim() &&
-    form.value.lat != null &&
-    form.value.lng != null &&
+    manualAddressComplete.value &&
     !verifying.value &&
     !isSaving.value
   );
@@ -439,6 +437,12 @@ const submit = async () => {
                   <div class="col-12 col-md-6">
                     <q-input v-model="form.country" label="Country" outlined dense bg-color="white" />
                   </div>
+                </div>
+                <div
+                  class="text-caption q-mt-sm"
+                  :class="manualAddressComplete ? 'text-positive' : 'text-negative'"
+                >
+                  Address, city, state, and ZIP are required before saving.
                 </div>
               </q-card>
             </q-expansion-item>

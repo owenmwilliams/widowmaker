@@ -583,6 +583,13 @@ router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
   }
 
   try {
+    console.log('[AI Estimate] Incoming request:', {
+      itemId,
+      requestUserId,
+      hasUserFromToken: Boolean(req.user?.user_id),
+      bodyUser: req.body?.user,
+      queryUser: req.query?.user
+    });
     const itemRecord = await knex('items')
       .select({
         id: 'items.id',
@@ -615,6 +622,7 @@ router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
       .first();
 
     if (!itemRecord) {
+      console.warn('[AI Estimate] Item not found or inaccessible', { itemId, requestUserId });
       return res.status(404).json({ success: false, error: 'Item not found or not accessible' });
     }
 
@@ -674,7 +682,12 @@ router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
       }
     });
   } catch (error) {
-    console.error('[items] Failed to generate AI estimate:', error);
+    console.error('[items] Failed to generate AI estimate:', {
+      itemId,
+      requestUserId,
+      message: error?.message,
+      stack: error?.stack
+    });
     return res.status(502).json({
       success: false,
       error: error.message || 'Failed to generate estimate'
