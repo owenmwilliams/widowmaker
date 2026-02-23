@@ -142,6 +142,12 @@ const router = createRouter({
             beforeEnter: authGuard
           },
           {
+            path: "/mobile-live-scan",
+            name: "mobile-live-scan",
+            component: () => import('../views/MobileLiveScan.vue'),
+            beforeEnter: authGuard
+          },
+          {
             path: "/progress-button",
             name: "progress-button-test",
             component: ProgressButtonTest
