@@ -11,25 +11,20 @@ const upload = multer({
   limits: { fileSize: 15 * 1024 * 1024 } // 15MB max frame
 });
 
-const devOnly = process.env.NODE_ENV === 'development';
-
-// In-memory storage for sessions/items (dev sandbox only)
+// In-memory storage for sessions/items (admin sandbox only)
 const sessions = new Map();
 const TRACK_MEMORY_MS = 15000;
 const MIN_CONFIDENCE = 0.4;
 const MIN_FRAME_INTERVAL_MS = 2200;
 
-const requireDev = (req, res, next) => {
-  if (!devOnly) {
-    return res.status(404).json({
-      success: false,
-      error: 'Vision Lab Video is only available in development mode.'
-    });
+function ensureAdmin(req, res, next) {
+  if (!req.user || !req.user.is_admin) {
+    return res.status(403).json({ success: false, error: 'Admins only' });
   }
   next();
-};
+}
 
-router.use(requireDev);
+router.use(ensureAdmin);
 
 router.get('/prompt', (req, res) => {
   res.json({ prompt: visionService.MULTI_ITEM_VISION_PROMPT });

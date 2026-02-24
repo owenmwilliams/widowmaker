@@ -13,20 +13,17 @@ const upload = multer({
   limits: { fileSize: 500 * 1024 * 1024 }
 });
 
-// Dev-only guard
-const requireDev = (req, res, next) => {
-  if (process.env.NODE_ENV !== 'development') {
-    return res.status(404).json({
-      success: false,
-      error: 'This endpoint is only available in development mode.'
-    });
+// Admin-only guard
+function ensureAdmin(req, res, next) {
+  if (!req.user || !req.user.is_admin) {
+    return res.status(403).json({ success: false, error: 'Admins only' });
   }
   next();
-};
+}
 
-router.use(requireDev);
+router.use(ensureAdmin);
 
-// In-memory session store (dev sandbox only)
+// In-memory session store (admin sandbox only)
 const sessions = new Map();
 
 // ─── POST /sessions ───────────────────────────────────────────────────────────

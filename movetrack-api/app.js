@@ -174,13 +174,12 @@ app.use('/billing', billingRouter)
 app.use('/admin', adminRouter)
 app.use('/reloprep', reloprepRouter)
 
-if (process.env.NODE_ENV === 'development') {
-  const visionLabVideoRouter = require('./routes/visionLabVideo');
-  app.use('/vision-lab-video', visionLabVideoRouter);
+// Experimental vision features - admin only
+const visionLabVideoRouter = require('./routes/visionLabVideo');
+app.use('/vision-lab-video', visionLabVideoRouter);
 
-  const video12labsRouter = require('./routes/video12labs');
-  app.use('/video-12labs', video12labsRouter);
-}
+const video12labsRouter = require('./routes/video12labs');
+app.use('/video-12labs', video12labsRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

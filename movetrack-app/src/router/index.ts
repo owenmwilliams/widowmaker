@@ -126,27 +126,28 @@ const router = createRouter({
       component: VisionLab,
       beforeEnter: adminGuard,
     },
+    // Experimental features - admin only
+    {
+      path: "/vision-lab-video",
+      name: "vision-lab-video",
+      component: () => import('../views/VisionLabVideo.vue'),
+      beforeEnter: adminGuard
+    },
+    {
+      path: "/vision-lab-12labs",
+      name: "vision-lab-12labs",
+      component: () => import('../views/VisionLab12Labs.vue'),
+      beforeEnter: adminGuard
+    },
+    {
+      path: "/mobile-live-scan",
+      name: "mobile-live-scan",
+      component: () => import('../views/MobileLiveScan.vue'),
+      beforeEnter: adminGuard
+    },
     // Test pages - only available in development
     ...(import.meta.env.MODE === 'development'
       ? [
-          {
-            path: "/vision-lab-video",
-            name: "vision-lab-video",
-            component: () => import('../views/VisionLabVideo.vue'),
-            beforeEnter: authGuard
-          },
-          {
-            path: "/vision-lab-12labs",
-            name: "vision-lab-12labs",
-            component: () => import('../views/VisionLab12Labs.vue'),
-            beforeEnter: authGuard
-          },
-          {
-            path: "/mobile-live-scan",
-            name: "mobile-live-scan",
-            component: () => import('../views/MobileLiveScan.vue'),
-            beforeEnter: authGuard
-          },
           {
             path: "/progress-button",
             name: "progress-button-test",
