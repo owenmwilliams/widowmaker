@@ -7,13 +7,14 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		80003E212F1584B60015D652 /* widowmaker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = widowmaker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		80003E9F2F1586240015D652 /* widowmaker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = widowmaker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		80003EA02F1586620015D652 /* widowmaker-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "widowmaker-Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		80003E232F1584B60015D652 /* widowmaker */ = {
+		80003E872F15852B0015D652 /* MoveTrack */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = widowmaker;
+			path = MoveTrack;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -32,17 +33,10 @@
 		80003E182F1584B60015D652 = {
 			isa = PBXGroup;
 			children = (
-				80003E232F1584B60015D652 /* widowmaker */,
-				80003E222F1584B60015D652 /* Products */,
+				80003EA02F1586620015D652 /* widowmaker-Info.plist */,
+				80003E872F15852B0015D652 /* MoveTrack */,
+				80003E9F2F1586240015D652 /* widowmaker.app */,
 			);
-			sourceTree = "<group>";
-		};
-		80003E222F1584B60015D652 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				80003E212F1584B60015D652 /* widowmaker.app */,
-			);
-			name = Products;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -61,13 +55,13 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				80003E232F1584B60015D652 /* widowmaker */,
+				80003E872F15852B0015D652 /* MoveTrack */,
 			);
 			name = widowmaker;
 			packageProductDependencies = (
 			);
 			productName = widowmaker;
-			productReference = 80003E212F1584B60015D652 /* widowmaker.app */;
+			productReference = 80003E9F2F1586240015D652 /* widowmaker.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -95,7 +89,7 @@
 			mainGroup = 80003E182F1584B60015D652;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
-			productRefGroup = 80003E222F1584B60015D652 /* Products */;
+			productRefGroup = 80003E182F1584B60015D652;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -253,6 +247,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "widowmaker-Info.plist";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to photograph items for your inventory.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access to your photo library to select photos for your items.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -284,6 +281,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "widowmaker-Info.plist";
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to photograph items for your inventory.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access to your photo library to select photos for your items.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

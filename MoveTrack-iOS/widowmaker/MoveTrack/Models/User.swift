@@ -22,10 +22,10 @@ struct User: Codable, Identifiable {
         case email
         case firstName
         case lastName
-        case onboardingCompleted = "onboarding_completed"
+        case onboardingCompleted
         case emailVerified
         case plan
-        case isAdmin = "is_admin"
+        case isAdmin
     }
 
     var displayName: String {
@@ -48,6 +48,13 @@ struct AuthResponse: Codable {
     let sessionToken: String?
     let user: User?
     let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case success
+        case sessionToken
+        case user
+        case error
+    }
 }
 
 struct MagicLinkResponse: Codable {

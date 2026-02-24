@@ -2,18 +2,44 @@
 
 A native Swift/SwiftUI application for MoveTrack inventory management.
 
-**Status:** ✅ Ready for Testing
+**Status:** 🔧 Login Working - Testing in Progress
 **Created:** December 26, 2025
+**Last Updated:** February 2026
 **Platform:** iOS 15.0+
 **Language:** Swift 5.9+
 **UI Framework:** SwiftUI
 
 ---
 
+## 🗺️ Current Status (February 2026)
+
+### Where We Left Off
+The Xcode project is set up in `MoveTrack-iOS/widowmaker/widowmaker.xcodeproj` and builds successfully. We were in the middle of getting the copy/paste login code flow working.
+
+**Last known issue being debugged:**
+- API returns valid JSON with `session_token` and full `user` object
+- iOS was failing to decode `user_id` field
+- Root cause: Swift's `.convertFromSnakeCase` decoder strategy pre-converts keys to camelCase before matching CodingKeys, so CodingKeys must reference camelCase names (e.g. `userId`) not snake_case originals (e.g. `user_id`)
+- Fix applied in `User.swift` CodingKeys — needs a rebuild and fresh test to verify
+
+**To pick back up:**
+1. Open `MoveTrack-iOS/widowmaker/widowmaker.xcodeproj` in Xcode
+2. Build and run on iPhone simulator (⌘R)
+3. Request a magic link email, copy the token from the link
+4. Paste into "Have a code?" field and tap "Log In with Code"
+5. Check Xcode console for `✅ [AuthViewModel] User authenticated:` — that's success
+
+**API changes made (requires restart of API server):**
+- `routes/auth.js` — route now returns `session_token` (snake_case) not `sessionToken`
+- `bin/authService.js` — both `verifyMagicLinkToken` and `getUserFromToken` now return consistent snake_case field names
+
+---
+
 ## 📱 Features Implemented
 
 ### ✅ Core Features
-- [x] Magic link email authentication with deep linking
+- [x] Magic link email authentication
+- [x] Copy/paste login code (fallback for simulator testing)
 - [x] Secure session token storage in Keychain
 - [x] Browse locations, collections (rooms), and items
 - [x] View item details with photos
@@ -21,6 +47,7 @@ A native Swift/SwiftUI application for MoveTrack inventory management.
 - [x] Pull-to-refresh on all lists
 - [x] Async/await API integration
 - [x] Proper error handling and loading states
+- [x] Detailed console logging for debugging
 
 ### ⏳ Coming Soon
 - [ ] Camera integration for photos
@@ -109,21 +136,30 @@ See [QUICKSTART.md](QUICKSTART.md) for complete step-by-step instructions.
 
 ## 🔑 Authentication Flow
 
-1. **User enters email** in LoginView
-2. **API sends magic link** to email
-3. **User clicks link** (format: `movetrack://login?token=...`)
-4. **iOS opens app** via URL scheme
-5. **App verifies token** with API
+### Option A: Copy/Paste Code (Recommended for Simulator)
+1. **User enters email** and taps "Send Magic Link"
+2. **API sends magic link** to email - check email for the token
+3. **Copy the token** from the magic link URL (the part after `?token=`)
+4. **Paste into "Have a code?" field** in the app
+5. **Tap "Log In with Code"**
 6. **Session token saved** in Keychain (secure)
-7. **User authenticated** - shows main app
 
-### Testing Authentication
+### Option B: Deep Link
+1. **User enters email** and taps "Send Magic Link"
+2. **Click the email link** on the same device
+3. **iOS opens app** via `movetrack://` URL scheme
+4. **Token verified automatically**
+
+### Testing Authentication in Simulator
 
 ```bash
-# Start API
+# Start API (use your startup script or:)
 cd movetrack-api && npm start
 
-# Get magic link token from API logs, then:
+# Request a magic link, then grab the token from the API logs
+# Paste it into the "Have a code?" field in the app
+
+# OR trigger via deep link:
 xcrun simctl openurl booted "movetrack://login?token=YOUR_TOKEN_HERE"
 ```
 
@@ -184,7 +220,7 @@ Backend API
 ## 📡 API Integration
 
 ### Base URL
-- **Development:** `http://localhost:3050`
+- **Development:** `http://127.0.0.1:3050` (must use IP, not `localhost`, for iOS simulator)
 - **Production:** `https://movetrack-api-7hwn7ggbiq-uc.a.run.app`
 
 ### Key Endpoints Used
@@ -232,11 +268,11 @@ See `Services/InventoryService.swift` for complete API.
 ### Manual Testing Checklist
 
 **Authentication:**
-- [ ] Login screen appears
-- [ ] Can enter email
-- [ ] Magic link sent confirmation
+- [x] Login screen appears
+- [x] Can enter email
+- [x] Magic link sent confirmation
+- [ ] Token verification works (in progress - see Current Status)
 - [ ] Deep link opens app
-- [ ] Token verification works
 - [ ] User session persists on restart
 - [ ] Logout clears session
 
@@ -295,9 +331,19 @@ Fix: Add Apple ID
 
 **Network errors / "Invalid URL"**
 ```
-Fix: Ensure API is running
-→ cd movetrack-api && npm start
-→ Check Constants.swift has correct URL
+Fix: Ensure API is running and use 127.0.0.1 not localhost
+→ Constants.swift: apiBaseURL = "http://127.0.0.1:3050" (NOT localhost)
+→ Info.plist: NSAllowsLocalNetworking = true + NSExceptionDomains for localhost
+→ iOS simulator requires 127.0.0.1 to reach host machine
+```
+
+**"Failed to decode response: The data couldn't be read because it is missing"**
+```
+This was the main bug we fixed. Cause was a CodingKeys mismatch:
+- The APIClient uses .convertFromSnakeCase decoder strategy
+- This auto-converts user_id → userId, first_name → firstName, etc.
+- CodingKeys must map to the CONVERTED camelCase names, not original snake_case
+- Example: case id = "userId" (NOT "user_id")
 ```
 
 **"Unauthorized" after login**
@@ -441,6 +487,6 @@ Proprietary - MoveTrack / ReloPrep
 
 ---
 
-**Status:** Ready for Testing ✅
-**Last Updated:** December 26, 2025
+**Status:** 🔧 Login debugging in progress
+**Last Updated:** February 2026
 **Version:** 1.0.0 (MVP)

@@ -85,11 +85,32 @@ class APIClient {
             request.httpBody = try encoder.encode(body)
         }
 
-        // Log request
+        // Log request with detailed information
+        print("🌐 ============ API REQUEST ============")
         print("📤 \(method) \(url.absoluteString)")
+        print("🔧 Base URL: \(baseURL)")
+        print("📍 Endpoint: \(endpoint)")
+        print("🔑 Requires Auth: \(requiresAuth)")
+
+        // Log all headers
+        print("📋 Headers:")
+        if let headers = request.allHTTPHeaderFields {
+            for (key, value) in headers {
+                // Mask the actual token for security, but show if it exists
+                if key == "Authorization" {
+                    print("  \(key): Bearer [TOKEN EXISTS: \(!value.isEmpty)]")
+                } else {
+                    print("  \(key): \(value)")
+                }
+            }
+        } else {
+            print("  [No headers]")
+        }
+
         if let bodyData = request.httpBody, let bodyString = String(data: bodyData, encoding: .utf8) {
             print("📦 Body: \(bodyString)")
         }
+        print("======================================")
 
         do {
             let (data, response) = try await session.data(for: request)
@@ -128,9 +149,25 @@ class APIClient {
                 throw APIError.serverError("Server error: \(httpResponse.statusCode)")
             }
         } catch let error as APIError {
+            print("❌ API Error: \(error.localizedDescription)")
             throw error
         } catch {
-            print("❌ Network error: \(error)")
+            print("🔴 ============ NETWORK ERROR ============")
+            print("❌ Error Type: \(type(of: error))")
+            print("❌ Error: \(error)")
+            print("❌ Localized Description: \(error.localizedDescription)")
+
+            // Try to get more details from NSError
+            let nsError = error as NSError
+            print("❌ Domain: \(nsError.domain)")
+            print("❌ Code: \(nsError.code)")
+            print("❌ User Info: \(nsError.userInfo)")
+
+            if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                print("❌ Underlying Error: \(underlyingError)")
+            }
+            print("=========================================")
+
             throw APIError.networkError(error)
         }
     }

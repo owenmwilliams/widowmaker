@@ -14,35 +14,53 @@ class AuthService {
 
     // MARK: - Request Magic Link
     func requestMagicLink(email: String) async throws -> MagicLinkResponse {
+        print("🔐 [AuthService] Requesting magic link for: \(email)")
+
         struct RequestBody: Encodable {
             let email: String
         }
 
-        let response: MagicLinkResponse = try await APIClient.shared.post(
-            Constants.Endpoints.requestMagicLink,
-            body: RequestBody(email: email),
-            requiresAuth: false
-        )
+        do {
+            let response: MagicLinkResponse = try await APIClient.shared.post(
+                Constants.Endpoints.requestMagicLink,
+                body: RequestBody(email: email),
+                requiresAuth: false
+            )
 
-        return response
+            print("✅ [AuthService] Magic link request successful")
+            return response
+        } catch {
+            print("❌ [AuthService] Magic link request failed: \(error)")
+            throw error
+        }
     }
 
     // MARK: - Verify Magic Link
     func verifyMagicLink(token: String) async throws -> AuthResponse {
+        print("🔐 [AuthService] Verifying magic link token: \(token.prefix(10))...")
+
         let queryItems = [URLQueryItem(name: "token", value: token)]
 
-        let response: AuthResponse = try await APIClient.shared.get(
-            Constants.Endpoints.verifyMagicLink,
-            queryItems: queryItems,
-            requiresAuth: false
-        )
+        do {
+            let response: AuthResponse = try await APIClient.shared.get(
+                Constants.Endpoints.verifyMagicLink,
+                queryItems: queryItems,
+                requiresAuth: false
+            )
 
-        // If successful, save session token
-        if response.success, let sessionToken = response.sessionToken {
-            _ = KeychainService.shared.save(sessionToken, forKey: Constants.sessionTokenKey)
+            // If successful, save session token
+            if response.success, let sessionToken = response.sessionToken {
+                let saved = KeychainService.shared.save(sessionToken, forKey: Constants.sessionTokenKey)
+                print("✅ [AuthService] Magic link verified successfully. Session token saved: \(saved)")
+            } else {
+                print("⚠️ [AuthService] Magic link verification response success=false")
+            }
+
+            return response
+        } catch {
+            print("❌ [AuthService] Magic link verification failed: \(error)")
+            throw error
         }
-
-        return response
     }
 
     // MARK: - Get Current User

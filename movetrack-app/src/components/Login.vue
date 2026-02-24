@@ -127,13 +127,17 @@ const verifyMagicLink = async (token: string) => {
     });
 
     if (response.data.success) {
+      const sessionToken = response.data.sessionToken || response.data.session_token;
+      if (!sessionToken) {
+        throw new Error('Missing session token in auth response');
+      }
       // Store session token and user data
-      localStorage.setItem('session_token', response.data.sessionToken);
+      localStorage.setItem('session_token', sessionToken);
       localStorage.setItem('user_data', JSON.stringify(response.data.user));
 
       // Development-only: Backup to sessionStorage for HMR resilience
       if (isDevelopment) {
-        sessionStorage.setItem('dev_session_backup', response.data.sessionToken);
+        sessionStorage.setItem('dev_session_backup', sessionToken);
         sessionStorage.setItem('dev_user_backup', JSON.stringify(response.data.user));
         console.log('[Dev Session] Session backed up to sessionStorage');
       }

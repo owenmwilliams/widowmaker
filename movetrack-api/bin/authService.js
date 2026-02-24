@@ -224,14 +224,14 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
 
         return {
             success: true,
-            sessionToken,
+            session_token: sessionToken,
             user: {
-                userId: authToken.user_id,
+                user_id: authToken.user_id,
                 email: authToken.email,
-                firstName: authToken.first_name,
-                lastName: authToken.last_name,
+                first_name: authToken.first_name,
+                last_name: authToken.last_name,
                 onboarding_completed: !!authToken.onboarding_completed,
-                emailVerified: !!authToken.email_verified_at,
+                email_verified: !!authToken.email_verified_at,
                 plan: flags.plan,
                 is_admin: flags.is_admin
             }
@@ -518,7 +518,7 @@ async function getUserFromToken(sessionToken) {
         console.log('[getUserFromToken] Fetching user from database by userId:', decoded.userId);
         // user_id is UUID type
         const user = await db.oneOrNone(
-            `SELECT user_id, email, first_name, last_name${onboardingSelect}
+            `SELECT user_id, email, first_name, last_name, email_verified_at${onboardingSelect}
              FROM users
              WHERE user_id = $1::uuid`,
             [decoded.userId]
@@ -534,12 +534,12 @@ async function getUserFromToken(sessionToken) {
         const flags = await getPlanForEmail(user.email);
 
         return {
-            userId: user.user_id,
-            user_id: user.user_id, // Add both formats for compatibility
+            user_id: user.user_id,
             email: user.email,
-            firstName: user.first_name,
-            lastName: user.last_name,
+            first_name: user.first_name,
+            last_name: user.last_name,
             onboarding_completed: !!user.onboarding_completed,
+            email_verified: !!user.email_verified_at,
             plan: flags.plan,
             is_admin: flags.is_admin
         };

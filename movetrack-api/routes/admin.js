@@ -20,7 +20,9 @@ const storageOptions = {
 };
 
 if (isLocalEnvironment) {
-  storageOptions.keyFilename = path.join(__dirname, '../devkeys/take-stock-364901-c11c49339bff.json');
+  const localKeyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+    || path.join(__dirname, '../devkeys/service-account.json');
+  storageOptions.keyFilename = localKeyPath;
 }
 
 const storage = new Storage(storageOptions);

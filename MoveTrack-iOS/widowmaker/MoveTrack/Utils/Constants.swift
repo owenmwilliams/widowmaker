@@ -10,7 +10,7 @@ import Foundation
 struct Constants {
     // MARK: - API Configuration
     #if DEBUG
-    static let apiBaseURL = "http://localhost:3050"
+    static let apiBaseURL = "http://127.0.0.1:3050"
     #else
     static let apiBaseURL = "https://movetrack-api-7hwn7ggbiq-uc.a.run.app"
     #endif

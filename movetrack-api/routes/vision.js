@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const vision = require('@google-cloud/vision');
 const visionService = require('../bin/visionService');
 const { authenticate, resolveEffectivePlan } = require('../bin/authService');
@@ -27,7 +28,7 @@ const usageTableReady = ensureUsageTable();
 // };
 
 // if (isLocalEnvironment) {
-//   storageOptions.keyFilename = path.join(__dirname, '../devkeys/take-stock-364901-c11c49339bff.json');
+//   storageOptions.keyFilename = path.join(__dirname, '../devkeys/service-account.json');
 // }
 
 // Create a Vision API client using the default service account identity
@@ -35,9 +36,14 @@ const usageTableReady = ensureUsageTable();
 // Load the service account key JSON if in local/demo environment
 let visionClient;
 if (process.env.NODE_ENV !== 'production' || process.env.NODE_ENV === 'demo') {
-  const serviceAccountKeyPath = path.join(__dirname, '../devkeys/take-stock-364901-c11c49339bff.json');
-  const serviceAccountKey = require(serviceAccountKeyPath);
-  visionClient = new vision.ImageAnnotatorClient({ credentials: serviceAccountKey });
+  const localKeyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+    || path.join(__dirname, '../devkeys/service-account.json');
+  if (localKeyPath && fs.existsSync(localKeyPath)) {
+    const serviceAccountKey = require(localKeyPath);
+    visionClient = new vision.ImageAnnotatorClient({ credentials: serviceAccountKey });
+  } else {
+    visionClient = new vision.ImageAnnotatorClient();
+  }
 } else {
   // Initialize the Google Cloud Vision API client without credentials (for production)
   visionClient = new vision.ImageAnnotatorClient();

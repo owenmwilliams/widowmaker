@@ -10,7 +10,9 @@ import SwiftUI
 struct LoginView: View {
     @StateObject private var viewModel: AuthViewModel
     @State private var email = ""
+    @State private var token = ""
     @State private var showMagicLinkSent = false
+    @State private var showTokenInput = false
 
     init(viewModel: AuthViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -81,6 +83,56 @@ struct LoginView: View {
                         .padding(.horizontal)
                 }
 
+                // Divider
+                HStack {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.3))
+                        .frame(height: 1)
+                    Text("OR")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.3))
+                        .frame(height: 1)
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+
+                // Token Input (Copy/Paste Code)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Have a code?")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+
+                    TextField("Paste your login code here", text: $token)
+                        .textContentType(.oneTimeCode)
+                        .autocapitalization(.none)
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
+                }
+                .padding(.horizontal)
+
+                // Verify Token Button
+                Button(action: verifyToken) {
+                    HStack {
+                        if viewModel.isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                        } else {
+                            Text("Log In with Code")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(token.isEmpty || viewModel.isLoading ? Color.gray : Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(12)
+                }
+                .disabled(token.isEmpty || viewModel.isLoading)
+                .padding(.horizontal)
+
                 Spacer()
 
                 // Info Text
@@ -106,6 +158,12 @@ struct LoginView: View {
             if viewModel.errorMessage == nil {
                 showMagicLinkSent = true
             }
+        }
+    }
+
+    private func verifyToken() {
+        Task {
+            await viewModel.verifyMagicLink(token: token.trimmingCharacters(in: .whitespacesAndNewlines))
         }
     }
 }

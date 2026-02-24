@@ -11,7 +11,10 @@ struct LocationsListView: View {
     @StateObject private var viewModel: LocationsViewModel
     @EnvironmentObject var authViewModel: AuthViewModel
 
+    let userId: UUID
+
     init(userId: UUID) {
+        self.userId = userId
         _viewModel = StateObject(wrappedValue: LocationsViewModel(userId: userId))
     }
 
@@ -62,7 +65,7 @@ struct LocationsListView: View {
         List(viewModel.locations) { location in
             NavigationLink(
                 destination: CollectionsListView(
-                    userId: authViewModel.currentUser!.id,
+                    userId: userId,
                     locationId: location.id,
                     locationName: location.name
                 )
@@ -109,8 +112,8 @@ struct LocationRow: View {
                 }
             }
 
-            if let address = location.fullAddress, !address.isEmpty {
-                Text(address)
+            if !location.fullAddress.isEmpty {
+                Text(location.fullAddress)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

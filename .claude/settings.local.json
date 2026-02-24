@@ -14,7 +14,12 @@
       "Bash(node scripts/migrateTokenHashing.js:*)",
       "Bash(node scripts/testMagicLinkFlow.js:*)",
       "Bash(node scripts/verifyEmailVerification.js:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(lsof:*)",
+      "Bash(grep:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

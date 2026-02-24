@@ -23,15 +23,17 @@ const storageOptions = {
 };
 
 if (isLocalEnvironment) {
-  storageOptions.keyFilename = path.join(__dirname, '../devkeys/take-stock-364901-c11c49339bff.json');
+  const localKeyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+    || path.join(__dirname, '../devkeys/service-account.json');
+  storageOptions.keyFilename = localKeyPath;
 }
 
 const storage = new Storage(storageOptions);
 
 // Set up Google Cloud Storage client
 // const storage = new Storage({
-//   keyFilename: path.join(__dirname, '../devkeys/take-stock-364901-c11c49339bff.json'),
-//   projectId: 'take-stock-364901'
+//   keyFilename: path.join(__dirname, '../devkeys/service-account.json'),
+//   projectId: 'widowmaker-477505'
 // });
 
 // Set up Multer for handling file uploads

@@ -72,9 +72,11 @@ router.get('/verify-magic-link', async function(req, res, next) {
             return res.status(400).json({ success: false, error: result.error });
         }
 
+        const sessionToken = result.session_token || result.sessionToken;
         res.json({
             success: true,
-            sessionToken: result.sessionToken,
+            session_token: sessionToken,
+            sessionToken,
             user: result.user
         });
     } catch (error) {
