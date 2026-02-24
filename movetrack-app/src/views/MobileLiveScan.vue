@@ -214,17 +214,29 @@ async function enrichDetection(det: Detection) {
     if (!cropCtx) return;
 
     cropCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
-    const dataUrl = cropCanvas.toDataURL('image/jpeg', 0.85);
 
-    // Send to Claude for enrichment
+    // Convert canvas to blob for multipart upload
+    const blob = await new Promise<Blob>((resolve) => {
+      cropCanvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.85);
+    });
+
+    // Send to Claude for enrichment using multipart upload
+    const formData = new FormData();
+    formData.append('image', blob, 'detection.jpg');
+
     const res = await axios.post(
       `${API_BASE}/vision/analyze-item`,
-      { imageUrl: dataUrl, mimeType: 'image/jpeg' },
-      { headers: buildHeaders() }
+      formData,
+      {
+        headers: {
+          ...buildHeaders(),
+          'Content-Type': 'multipart/form-data'
+        }
+      }
     );
 
-    det.enriched = res.data;
-    $q.notify({ message: `Enriched: ${res.data.name}`, type: 'positive', icon: 'auto_awesome' });
+    det.enriched = res.data.data;
+    $q.notify({ message: `Enriched: ${res.data.data.name}`, type: 'positive', icon: 'auto_awesome' });
   } catch (err: any) {
     console.error('Enrichment failed:', err);
     $q.notify({ message: 'Failed to enrich item', type: 'warning' });
