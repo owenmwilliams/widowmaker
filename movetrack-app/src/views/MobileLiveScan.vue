@@ -48,6 +48,12 @@ let model: cocoSsd.ObjectDetection | null = null;
 let stream: MediaStream | null = null;
 let animationFrameId: number | null = null;
 
+// Detection filtering and persistence
+const MIN_SIZE_PERCENT = 0.10; // 10% of frame
+const MAX_SIZE_PERCENT = 0.60; // 60% of frame
+const TRACK_PERSISTENCE_MS = 3000; // Keep detections for 3 seconds
+const trackMap = new Map<string, { detection: Detection; lastSeen: number }>();
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
   await loadModel();
@@ -113,6 +119,8 @@ function stopScanning() {
     cancelAnimationFrame(animationFrameId);
     animationFrameId = null;
   }
+  trackMap.clear();
+  detections.value = [];
 }
 
 async function detectObjects() {
@@ -127,6 +135,9 @@ async function detectObjects() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
 
+  const frameArea = canvas.width * canvas.height;
+  const now = Date.now();
+
   // Run detection
   const predictions = await model.detect(video);
 
@@ -134,17 +145,56 @@ async function detectObjects() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-  // Update detections (filter out locked ones to avoid duplicates)
+  // Filter predictions by size and confidence
   const lockedClasses = new Set(lockedDetections.value.map(d => d.class));
-  detections.value = predictions
-    .filter(pred => !lockedClasses.has(pred.class) && pred.score > 0.5)
-    .map((pred, idx) => ({
-      id: `det-${Date.now()}-${idx}`,
-      class: pred.class,
-      score: pred.score,
-      bbox: pred.bbox,
-      locked: false
-    }));
+  const validPredictions = predictions.filter(pred => {
+    if (lockedClasses.has(pred.class)) return false;
+    if (pred.score < 0.5) return false;
+
+    const [x, y, w, h] = pred.bbox;
+    const bboxArea = w * h;
+    const sizePercent = bboxArea / frameArea;
+
+    return sizePercent >= MIN_SIZE_PERCENT && sizePercent <= MAX_SIZE_PERCENT;
+  });
+
+  // Update or create tracks
+  validPredictions.forEach((pred, idx) => {
+    const trackKey = pred.class;
+    const existing = trackMap.get(trackKey);
+
+    if (existing && pred.score > existing.detection.score) {
+      // Update existing track with better detection
+      existing.detection.score = pred.score;
+      existing.detection.bbox = pred.bbox;
+      existing.lastSeen = now;
+    } else if (!existing) {
+      // Create new track
+      trackMap.set(trackKey, {
+        detection: {
+          id: `det-${now}-${idx}`,
+          class: pred.class,
+          score: pred.score,
+          bbox: pred.bbox,
+          locked: false
+        },
+        lastSeen: now
+      });
+    } else {
+      // Refresh timestamp even if score is lower
+      existing.lastSeen = now;
+    }
+  });
+
+  // Clean up stale tracks
+  for (const [key, track] of trackMap.entries()) {
+    if (now - track.lastSeen > TRACK_PERSISTENCE_MS) {
+      trackMap.delete(key);
+    }
+  }
+
+  // Update detections from active tracks
+  detections.value = Array.from(trackMap.values()).map(t => t.detection);
 
   // Draw bounding boxes
   detections.value.forEach(det => drawBbox(ctx, det, '#00bcd4'));
