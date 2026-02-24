@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useQuasar } from 'quasar';
+import { useRouter } from 'vue-router';
 import VisionProviderToggle from '../VisionProviderToggle.vue';
 import MobileAdd from './MobileAdd.vue';
 import LocationDeleteDialog from '../location/LocationDeleteDialog.vue';
@@ -16,6 +17,7 @@ const emit = defineEmits<{
 
 const store = inventoryStore();
 const $q = useQuasar();
+const router = useRouter();
 
 const currentVisionProvider = ref<string>('gemini');
 
@@ -87,6 +89,51 @@ const handleLocationDeleted = async () => {
   await store.loadInventory(props.user);
   locationDeleteDialog.value = false;
   locationToDelete.value = null;
+};
+
+const isAdmin = computed(() => {
+  try {
+    const raw = localStorage.getItem('user_data');
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed?.is_admin === true;
+  } catch {
+    return false;
+  }
+});
+
+const adminFeatures = [
+  {
+    name: 'Mobile Live Scan',
+    description: 'Real-time object detection using TensorFlow.js COCO-SSD with Claude enrichment',
+    icon: 'camera_enhance',
+    route: '/mobile-live-scan',
+    badge: 'Experimental'
+  },
+  {
+    name: 'Twelve Labs Video',
+    description: 'Full video analysis using Twelve Labs Pegasus model for inventory extraction',
+    icon: 'video_library',
+    route: '/vision-lab-12labs',
+    badge: 'Experimental'
+  },
+  {
+    name: 'Frame-based Vision',
+    description: 'Client-side frame extraction with blur/entropy scoring and Claude analysis',
+    icon: 'movie_filter',
+    route: '/vision-lab-video',
+    badge: 'Dev Only'
+  },
+  {
+    name: 'Vision Lab',
+    description: 'Admin testing interface for image analysis experiments',
+    icon: 'science',
+    route: '/vision-lab',
+    badge: 'Admin Only'
+  }
+];
+
+const navigateToFeature = (route: string) => {
+  router.push(route);
 };
 </script>
 
@@ -172,11 +219,11 @@ const handleLocationDeleted = async () => {
         <div class="text-caption text-grey-7 q-mt-sm q-mb-md">
           Add, rename, or delete collections across your locations.
         </div>
-        <q-btn 
-          color="primary" 
-          label="Add Collection" 
-          icon="add" 
-          outline 
+        <q-btn
+          color="primary"
+          label="Add Collection"
+          icon="add"
+          outline
           class="full-width q-mb-md"
           @click="openManageDialog('collection')"
         />
@@ -207,6 +254,42 @@ const handleLocationDeleted = async () => {
           </q-item>
         </q-list>
       </div>
+
+      <!-- Admin Features Section (only visible to admins) -->
+      <template v-if="isAdmin">
+        <q-separator class="q-my-lg" />
+
+        <div class="settings-section">
+          <div class="section-header">
+            <q-icon name="engineering" size="md" color="deep-orange" />
+            <div class="text-h6 q-ml-sm">Admin Features</div>
+          </div>
+          <div class="text-caption text-grey-7 q-mt-sm q-mb-md">
+            Experimental vision analysis tools for testing and development.
+          </div>
+          <q-list bordered class="manage-list">
+            <q-item
+              v-for="feature in adminFeatures"
+              :key="feature.route"
+              clickable
+              @click="navigateToFeature(feature.route)"
+            >
+              <q-item-section avatar>
+                <q-icon :name="feature.icon" color="primary" />
+              </q-item-section>
+              <q-item-section>
+                <q-item-label>{{ feature.name }}</q-item-label>
+                <q-item-label caption class="text-caption">
+                  {{ feature.description }}
+                </q-item-label>
+              </q-item-section>
+              <q-item-section side>
+                <q-badge :color="feature.badge === 'Experimental' ? 'orange' : 'deep-orange'" :label="feature.badge" />
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </div>
+      </template>
     </q-card-section>
   </q-card>
 
