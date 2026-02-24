@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useQuasar } from 'quasar';
-import * as cocoSsd from '@tensorflow-models/coco-ssd';
-import '@tensorflow/tfjs-backend-webgl';
 import axios from 'axios';
+import { createDetector, Detector, DetectorType, HOUSEHOLD_ITEMS } from '../utils/detectors';
 
-type Detection = {
+type SavedItem = {
   id: string;
   class: string;
   score: number;
-  bbox: [number, number, number, number]; // [x, y, width, height]
-  locked: boolean;
+  bbox: [number, number, number, number];
+  snapshotUrl: string; // Base64 data URL of cropped image
+  enriching: boolean;
   enriched?: {
     name: string;
     material: string;
@@ -37,26 +37,27 @@ const buildHeaders = () => {
 const videoRef = ref<HTMLVideoElement | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 
+const detectorType = ref<DetectorType>('coco-ssd');
 const modelLoading = ref(true);
 const cameraReady = ref(false);
 const scanning = ref(false);
 
-const detections = ref<Detection[]>([]);
-const lockedDetections = ref<Detection[]>([]);
+const detections = ref<any[]>([]);
+const savedItems = ref<SavedItem[]>([]);
 
-let model: cocoSsd.ObjectDetection | null = null;
+let detector: Detector | null = null;
 let stream: MediaStream | null = null;
 let animationFrameId: number | null = null;
 
 // Detection filtering and persistence
-const MIN_SIZE_PERCENT = 0.10; // 10% of frame
-const MAX_SIZE_PERCENT = 0.60; // 60% of frame
-const TRACK_PERSISTENCE_MS = 3000; // Keep detections for 3 seconds
-const trackMap = new Map<string, { detection: Detection; lastSeen: number }>();
+const MIN_SIZE_PERCENT = 0.10;
+const MAX_SIZE_PERCENT = 0.60;
+const TRACK_PERSISTENCE_MS = 3000;
+const trackMap = new Map<string, { detection: any; lastSeen: number }>();
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────────
 onMounted(async () => {
-  await loadModel();
+  await loadDetector();
   await startCamera();
 });
 
@@ -65,18 +66,33 @@ onUnmounted(() => {
   stopCamera();
 });
 
-// ── Model Loading ─────────────────────────────────────────────────────────────
-async function loadModel() {
+// ── Detector Loading ──────────────────────────────────────────────────────────
+async function loadDetector() {
   try {
-    $q.notify({ message: 'Loading AI model...', type: 'info', timeout: 2000 });
-    model = await cocoSsd.load();
+    const name = detectorType.value === 'coco-ssd' ? 'COCO-SSD' : 'OwlViT';
+    $q.notify({ message: `Loading ${name}...`, type: 'info', timeout: 2000 });
+
+    detector = createDetector(detectorType.value);
+    await detector.load();
+
     modelLoading.value = false;
-    $q.notify({ message: 'Model ready!', type: 'positive', icon: 'check_circle' });
+    $q.notify({ message: `${name} ready!`, type: 'positive', icon: 'check_circle' });
   } catch (err: any) {
-    console.error('Failed to load COCO-SSD:', err);
-    $q.notify({ message: 'Failed to load AI model', type: 'negative' });
+    console.error('Failed to load detector:', err);
+    $q.notify({ message: 'Failed to load detector', type: 'negative' });
     modelLoading.value = false;
   }
+}
+
+async function switchDetector(type: DetectorType) {
+  if (scanning.value) {
+    $q.notify({ message: 'Stop scanning before switching models', type: 'warning' });
+    return;
+  }
+
+  detectorType.value = type;
+  modelLoading.value = true;
+  await loadDetector();
 }
 
 // ── Camera ────────────────────────────────────────────────────────────────────
@@ -108,7 +124,7 @@ function stopCamera() {
 
 // ── Scanning Loop ─────────────────────────────────────────────────────────────
 function startScanning() {
-  if (!model || !videoRef.value || !canvasRef.value) return;
+  if (!detector || !videoRef.value || !canvasRef.value) return;
   scanning.value = true;
   detectObjects();
 }
@@ -124,7 +140,7 @@ function stopScanning() {
 }
 
 async function detectObjects() {
-  if (!scanning.value || !model || !videoRef.value || !canvasRef.value) return;
+  if (!scanning.value || !detector || !videoRef.value || !canvasRef.value) return;
 
   const video = videoRef.value;
   const canvas = canvasRef.value;
@@ -139,17 +155,17 @@ async function detectObjects() {
   const now = Date.now();
 
   // Run detection
-  const predictions = await model.detect(video);
+  const predictions = await detector.detect(video);
 
   // Clear canvas and draw video frame
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
   // Filter predictions by size and confidence
-  const lockedClasses = new Set(lockedDetections.value.map(d => d.class));
+  const savedClasses = new Set(savedItems.value.map(d => d.class));
   const validPredictions = predictions.filter(pred => {
-    if (lockedClasses.has(pred.class)) return false;
-    if (pred.score < 0.5) return false;
+    if (savedClasses.has(pred.class)) return false;
+    if (pred.score < 0.15) return false; // Lower threshold for OwlViT
 
     const [x, y, w, h] = pred.bbox;
     const bboxArea = w * h;
@@ -164,24 +180,20 @@ async function detectObjects() {
     const existing = trackMap.get(trackKey);
 
     if (existing && pred.score > existing.detection.score) {
-      // Update existing track with better detection
       existing.detection.score = pred.score;
       existing.detection.bbox = pred.bbox;
       existing.lastSeen = now;
     } else if (!existing) {
-      // Create new track
       trackMap.set(trackKey, {
         detection: {
           id: `det-${now}-${idx}`,
           class: pred.class,
           score: pred.score,
-          bbox: pred.bbox,
-          locked: false
+          bbox: pred.bbox
         },
         lastSeen: now
       });
     } else {
-      // Refresh timestamp even if score is lower
       existing.lastSeen = now;
     }
   });
@@ -198,27 +210,28 @@ async function detectObjects() {
 
   // Draw bounding boxes
   detections.value.forEach(det => drawBbox(ctx, det, '#00bcd4'));
-  lockedDetections.value.forEach(det => drawBbox(ctx, det, '#4caf50'));
+  savedItems.value.forEach(item => drawBbox(ctx, item, '#4caf50'));
 
   animationFrameId = requestAnimationFrame(detectObjects);
 }
 
-function drawBbox(ctx: CanvasRenderingContext2D, det: Detection, color: string) {
+function drawBbox(ctx: CanvasRenderingContext2D, det: any, color: string) {
   const [x, y, width, height] = det.bbox;
   ctx.strokeStyle = color;
   ctx.lineWidth = 3;
   ctx.strokeRect(x, y, width, height);
 
   ctx.fillStyle = color;
-  ctx.fillRect(x, y - 24, ctx.measureText(det.class).width + 10, 24);
+  const text = det.enriched?.name || det.class;
+  ctx.fillRect(x, y - 24, ctx.measureText(text).width + 10, 24);
   ctx.fillStyle = 'white';
   ctx.font = '16px sans-serif';
-  ctx.fillText(det.class, x + 5, y - 6);
+  ctx.fillText(text, x + 5, y - 6);
 }
 
 // ── Canvas Interaction ────────────────────────────────────────────────────────
 function handleCanvasTap(event: MouseEvent) {
-  if (!canvasRef.value) return;
+  if (!canvasRef.value || !videoRef.value) return;
 
   const canvas = canvasRef.value;
   const rect = canvas.getBoundingClientRect();
@@ -231,48 +244,59 @@ function handleCanvasTap(event: MouseEvent) {
   for (const det of detections.value) {
     const [bx, by, bw, bh] = det.bbox;
     if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
-      lockDetection(det);
+      saveDetection(det);
       break;
     }
   }
 }
 
-async function lockDetection(det: Detection) {
-  det.locked = true;
-  lockedDetections.value.push(det);
-  detections.value = detections.value.filter(d => d.id !== det.id);
-
-  $q.notify({ message: `Locked ${det.class}`, type: 'info', icon: 'lock' });
-
-  // Enrich with Claude in background
-  enrichDetection(det);
-}
-
-async function enrichDetection(det: Detection) {
+function saveDetection(det: any) {
   if (!videoRef.value || !canvasRef.value) return;
 
+  const video = videoRef.value;
+  const [x, y, w, h] = det.bbox;
+
+  // Crop and save snapshot
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width = w;
+  cropCanvas.height = h;
+  const cropCtx = cropCanvas.getContext('2d');
+  if (!cropCtx) return;
+
+  cropCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
+  const snapshotUrl = cropCanvas.toDataURL('image/jpeg', 0.85);
+
+  // Add to saved items (without enrichment)
+  const savedItem: SavedItem = {
+    id: det.id,
+    class: det.class,
+    score: det.score,
+    bbox: det.bbox,
+    snapshotUrl,
+    enriching: false
+  };
+
+  savedItems.value.unshift(savedItem);
+
+  // Remove from active detections
+  trackMap.delete(det.class);
+  detections.value = detections.value.filter(d => d.id !== det.id);
+
+  $q.notify({ message: `Saved ${det.class}`, type: 'positive', icon: 'save' });
+}
+
+async function enrichItem(item: SavedItem) {
+  if (item.enriched || item.enriching) return;
+
+  item.enriching = true;
+
   try {
-    // Crop the detected region from the video frame
-    const video = videoRef.value;
-    const canvas = canvasRef.value;
-    const [x, y, w, h] = det.bbox;
+    // Convert data URL to blob
+    const response = await fetch(item.snapshotUrl);
+    const blob = await response.blob();
 
-    const cropCanvas = document.createElement('canvas');
-    cropCanvas.width = w;
-    cropCanvas.height = h;
-    const cropCtx = cropCanvas.getContext('2d');
-    if (!cropCtx) return;
-
-    cropCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
-
-    // Convert canvas to blob for multipart upload
-    const blob = await new Promise<Blob>((resolve) => {
-      cropCanvas.toBlob((b) => resolve(b!), 'image/jpeg', 0.85);
-    });
-
-    // Send to Claude for enrichment using multipart upload
     const formData = new FormData();
-    formData.append('image', blob, 'detection.jpg');
+    formData.append('image', blob, 'item.jpg');
 
     const res = await axios.post(
       `${API_BASE}/vision/analyze-item`,
@@ -285,22 +309,23 @@ async function enrichDetection(det: Detection) {
       }
     );
 
-    det.enriched = res.data.data;
+    item.enriched = res.data.data;
     $q.notify({ message: `Enriched: ${res.data.data.name}`, type: 'positive', icon: 'auto_awesome' });
   } catch (err: any) {
     console.error('Enrichment failed:', err);
-    $q.notify({ message: 'Failed to enrich item', type: 'warning' });
+    $q.notify({ message: 'Enrichment failed', type: 'warning' });
+  } finally {
+    item.enriching = false;
   }
 }
 
-function unlockDetection(det: Detection) {
-  lockedDetections.value = lockedDetections.value.filter(d => d.id !== det.id);
-  $q.notify({ message: `Unlocked ${det.class}`, type: 'info' });
+function removeSavedItem(item: SavedItem) {
+  savedItems.value = savedItems.value.filter(i => i.id !== item.id);
 }
 
 // ── Save to Inventory ─────────────────────────────────────────────────────────
 async function saveToInventory() {
-  const enrichedItems = lockedDetections.value.filter(d => d.enriched);
+  const enrichedItems = savedItems.value.filter(i => i.enriched);
   if (enrichedItems.length === 0) {
     $q.notify({ message: 'No enriched items to save', type: 'warning' });
     return;
@@ -308,28 +333,66 @@ async function saveToInventory() {
 
   $q.notify({ message: `Saving ${enrichedItems.length} items...`, type: 'info' });
 
-  // TODO: Call your items API to save
-  // For now, just show success
+  // TODO: Call items API
   $q.notify({
-    message: `${enrichedItems.length} items saved!`,
+    message: `${enrichedItems.length} items saved to inventory!`,
     type: 'positive',
     icon: 'check_circle'
   });
 
-  lockedDetections.value = [];
+  savedItems.value = savedItems.value.filter(i => !i.enriched);
 }
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 const canScan = computed(() => !modelLoading.value && cameraReady.value);
-const enrichedCount = computed(() => lockedDetections.value.filter(d => d.enriched).length);
+const enrichedCount = computed(() => savedItems.value.filter(i => i.enriched).length);
+const detectorName = computed(() => detector?.getName() || 'Loading...');
+const detectorDesc = computed(() => detector?.getDescription() || '');
 </script>
 
 <template>
   <div class="mobile-live-scan">
     <!-- Header -->
     <div class="header q-pa-md bg-primary text-white">
-      <div class="text-h6">Live Scan</div>
-      <div class="text-caption">Point camera at items to detect</div>
+      <div class="row items-center justify-between">
+        <div>
+          <div class="text-h6">Live Scan</div>
+          <div class="text-caption">{{ detectorName }}: {{ detectorDesc }}</div>
+        </div>
+        <q-btn-dropdown
+          flat
+          dense
+          icon="model_training"
+          label="Model"
+          dropdown-icon="expand_more"
+          :disable="scanning"
+        >
+          <q-list>
+            <q-item
+              clickable
+              v-close-popup
+              @click="switchDetector('coco-ssd')"
+              :active="detectorType === 'coco-ssd'"
+            >
+              <q-item-section>
+                <q-item-label>COCO-SSD</q-item-label>
+                <q-item-label caption>Fast (80 objects)</q-item-label>
+              </q-item-section>
+            </q-item>
+            <q-item
+              clickable
+              v-close-popup
+              @click="switchDetector('owlvit')"
+              :active="detectorType === 'owlvit'"
+            >
+              <q-item-section>
+                <q-item-label>OwlViT</q-item-label>
+                <q-item-label caption>Household items (~{{ HOUSEHOLD_ITEMS.length }} categories)</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </q-btn-dropdown>
+      </div>
     </div>
 
     <!-- Camera View -->
@@ -341,7 +404,7 @@ const enrichedCount = computed(() => lockedDetections.value.filter(d => d.enrich
       <div v-if="modelLoading || !cameraReady" class="loading-overlay">
         <q-spinner-dots size="3rem" color="white" />
         <div class="text-white text-h6 q-mt-md">
-          {{ modelLoading ? 'Loading AI model...' : 'Starting camera...' }}
+          {{ modelLoading ? 'Loading detector...' : 'Starting camera...' }}
         </div>
       </div>
     </div>
@@ -368,26 +431,52 @@ const enrichedCount = computed(() => lockedDetections.value.filter(d => d.enrich
         />
       </div>
 
-      <!-- Locked items -->
-      <div v-if="lockedDetections.length > 0" class="locked-items">
+      <!-- Saved items -->
+      <div v-if="savedItems.length > 0" class="saved-items">
         <div class="text-subtitle2 text-grey-8 q-mb-sm">
-          Detected Items ({{ lockedDetections.length }})
+          Saved Items ({{ savedItems.length }})
           <span class="text-caption text-positive q-ml-xs">{{ enrichedCount }} enriched</span>
         </div>
         <q-list dense bordered separator>
-          <q-item v-for="det in lockedDetections" :key="det.id">
+          <q-item v-for="item in savedItems" :key="item.id">
             <q-item-section avatar>
-              <q-icon :name="det.enriched ? 'check_circle' : 'hourglass_empty'" :color="det.enriched ? 'positive' : 'grey'" />
+              <q-img :src="item.snapshotUrl" width="50px" height="50px" />
             </q-item-section>
             <q-item-section>
-              <q-item-label>{{ det.enriched?.name || det.class }}</q-item-label>
-              <q-item-label caption v-if="det.enriched">
-                {{ det.enriched.material }} · {{ det.enriched.estimatedWeight }} lbs
+              <q-item-label>{{ item.enriched?.name || item.class }}</q-item-label>
+              <q-item-label caption v-if="item.enriched">
+                {{ item.enriched.material }} · {{ item.enriched.estimatedWeight }} lbs
               </q-item-label>
-              <q-item-label caption v-else>Processing...</q-item-label>
+              <q-item-label caption v-else-if="item.enriching">
+                Enriching...
+              </q-item-label>
+              <q-item-label caption v-else>
+                Not enriched
+              </q-item-label>
             </q-item-section>
             <q-item-section side>
-              <q-btn flat dense round icon="close" size="sm" @click="unlockDetection(det)" />
+              <div class="row q-gutter-xs">
+                <q-btn
+                  v-if="!item.enriched && !item.enriching"
+                  flat
+                  dense
+                  round
+                  icon="auto_awesome"
+                  size="sm"
+                  color="primary"
+                  @click="enrichItem(item)"
+                >
+                  <q-tooltip>Enrich with AI</q-tooltip>
+                </q-btn>
+                <q-btn
+                  flat
+                  dense
+                  round
+                  icon="close"
+                  size="sm"
+                  @click="removeSavedItem(item)"
+                />
+              </div>
             </q-item-section>
           </q-item>
         </q-list>
@@ -456,7 +545,7 @@ const enrichedCount = computed(() => lockedDetections.value.filter(d => d.enrich
   overflow-y: auto;
 }
 
-.locked-items {
+.saved-items {
   border-top: 1px solid #e0e0e0;
   padding-top: 1rem;
 }
