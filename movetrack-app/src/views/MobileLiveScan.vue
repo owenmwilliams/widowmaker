@@ -130,8 +130,9 @@ async function detectObjects() {
   // Run detection
   const predictions = await model.detect(video);
 
-  // Clear canvas
+  // Clear canvas and draw video frame
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
   // Update detections (filter out locked ones to avoid duplicates)
   const lockedClasses = new Set(lockedDetections.value.map(d => d.class));
