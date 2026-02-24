@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { GOOGLE_MAPS_API_KEY, isGoogleMapsConfigured } = require('../config/google');
+const { authenticate } = require('../bin/authService');
+
+router.use(authenticate);
 
 // Helper function to format duration from seconds to human-readable string
 function formatDuration(seconds) {

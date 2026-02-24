@@ -3,6 +3,7 @@ var router = express.Router();
 const pgp = require('pg-promise')();
 var bodyParser = require('body-parser');
 var conn = require('../bin/db');
+const { authenticate } = require('../bin/authService');
 
 const db = conn.db;
 
@@ -17,6 +18,7 @@ const knex = require('knex')({
 });
 
 var jsonParser = bodyParser.json();
+router.use(authenticate);
 
 /* GET all hierarchy items. */
 // THIS IS USED BY THE APPLICATION TO GET THE HIERARCHY OF ITEMS
@@ -26,10 +28,10 @@ var jsonParser = bodyParser.json();
 // and (c) all collections without any associations
 // and (d) all locations without any associations
 router.get('/', jsonParser, async function(req, res, next) {
-  const userId = req.query.user;
+  const userId = req.user?.user_id;
 
   if (!userId) {
-    return res.status(400).json({ error: 'User id is required' });
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   try {

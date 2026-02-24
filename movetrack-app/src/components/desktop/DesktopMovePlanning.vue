@@ -1280,13 +1280,18 @@ const calculateDistance = async () => {
 
   try {
     isCalculatingDistance.value = true;
+    const sessionToken = localStorage.getItem('session_token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (sessionToken) {
+      headers.Authorization = `Bearer ${sessionToken}`;
+    }
 
     // Call backend API to calculate distance with route geometry
     const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/calculate-distance`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         origin: originAddress,
         destination: destAddress,

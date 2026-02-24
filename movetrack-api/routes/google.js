@@ -1,13 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios'); // You need to install axios with npm or yarn
+const { authenticate } = require('../bin/authService');
 
 // Define your Google Books API key
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY;
+
+router.use(authenticate);
 
 // Create a POST route for searching books
 router.post('/search-books', async (req, res) => {
   try {
+    if (!GOOGLE_BOOKS_API_KEY) {
+      return res.status(503).json({ error: 'Google Books API is not configured' });
+    }
     const query = req.body.query;
 
     // Make a POST request to Google Books API
@@ -32,6 +39,9 @@ router.post('/search-books', async (req, res) => {
 // Create a POST route for address validation
 router.post('/validate-address', async (req, res) => {
   try {
+    if (!GOOGLE_API_KEY) {
+      return res.status(503).json({ error: 'Google Address Validation API is not configured' });
+    }
 
     const postData = {
       address: {

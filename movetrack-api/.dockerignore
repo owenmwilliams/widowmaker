@@ -8,3 +8,4 @@ README.md
 *.log
 coverage
 .vscode
+devkeys/

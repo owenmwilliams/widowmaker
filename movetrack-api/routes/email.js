@@ -9,17 +9,34 @@ const multer = require('multer');
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
+function buildTransporter() {
+    const host = process.env.SMTP_HOST || 'smtp.sendgrid.net';
+    const port = Number(process.env.SMTP_PORT || 587);
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+
+    if (!user || !pass) {
+        return null;
+    }
+
+    return nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: {
+            user,
+            pass
+        }
+    });
+}
+
 router.post('/send', (req, res) => {
     const { name, email, message } = req.body;
 
-    // Set up Nodemailer (use your email settings)
-    const transporter = nodemailer.createTransport({
-        service: 'gmail', // Use your email provider
-        auth: {
-            user: 'owen@we3kings.dev',
-            pass: '<REDACTED>'
-        }
-    });
+    const transporter = buildTransporter();
+    if (!transporter) {
+        return res.status(503).json({ error: 'Email service is not configured' });
+    }
 
     const mailOptions = {
         from: `${name} <support@we3kings.dev>`,
@@ -41,15 +58,10 @@ router.post('/send', (req, res) => {
 
 router.post('/send/attachments', upload.array('attachments'), (req, res) => {
     const { name, email, message } = req.body;
-  
-    // Set up Nodemailer (use your email settings)
-    const transporter = nodemailer.createTransport({
-      service: 'gmail', // Use your email provider
-      auth: {
-        user: 'owen@we3kings.dev', // Replace with your email address
-        pass: '<REDACTED>' // Replace with your email password
-      }
-    });
+    const transporter = buildTransporter();
+    if (!transporter) {
+        return res.status(503).json({ error: 'Email service is not configured' });
+    }
   
     const mailOptions = {
         from: `${name} <dispute@we3kings.dev>`, // Replace with your email address

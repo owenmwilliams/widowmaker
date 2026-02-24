@@ -34,9 +34,10 @@ if (isLocalEnvironment) {
 const storage = new Storage(storageOptions);
 
 var jsonParser = bodyParser.json();
+router.use(authService.authenticate);
 
 /* GET current user profile. */
-router.get('/', authService.authenticate, async function(req, res, next) {
+router.get('/', async function(req, res, next) {
   const userId = req.user?.user_id;
 
   if (!userId) {
@@ -100,34 +101,49 @@ router.post('/post', jsonParser, async function(req, res, next) {
   // const insertQuery = pgp.helpers.insert(userData, null, 'users');
   
   try {
+    const userId = req.user?.user_id;
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const updatePayload = {
+      user_name: req.query.username,
+      first_name: req.query.firstname,
+      last_name: req.query.lastname,
+      email: req.query.email,
+      phone: req.query.phone
+    };
+
+    Object.keys(updatePayload).forEach((key) => {
+      if (updatePayload[key] === undefined) {
+        delete updatePayload[key];
+      }
+    });
+
     await knex('users')
       .insert({
-        id: req.query.user_id,
-        user_name: req.query.username,
-        first_name: req.query.firstname,
-        last_name: req.query.lastname,
-        email: req.query.email,
-        phone: req.query.phone
+        user_id: userId,
+        ...updatePayload
       })
+      .onConflict('user_id')
+      .merge(updatePayload);
 
-    // await db.none(insertQuery)
-    .then(() => {
-      res.sendStatus(200)
-    })
-    .catch(function (err) {
-      return next(err)
-    });
-  }
-  catch(e) {
-    res.send(e)
+    res.sendStatus(200);
+  } catch (e) {
+    return next(e);
   }
 });
 
 router.put('/name', jsonParser, async function(req, res, next) {
-  const { user_id, first_name, last_name } = req.body || {};
+  const { first_name, last_name } = req.body || {};
+  const userId = req.user?.user_id;
 
-  if (!user_id || !first_name || typeof first_name !== 'string' || !first_name.trim()) {
-    return res.status(400).json({ error: 'user_id and first_name are required' });
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  if (!first_name || typeof first_name !== 'string' || !first_name.trim()) {
+    return res.status(400).json({ error: 'first_name is required' });
   }
 
   try {
@@ -136,7 +152,7 @@ router.put('/name', jsonParser, async function(req, res, next) {
         first_name: first_name.trim(),
         last_name: typeof last_name === 'string' ? last_name.trim() : null
       })
-      .where({ user_id })
+      .where({ user_id: userId })
       .returning(['user_id', 'first_name', 'last_name']);
 
     if (!result || !result.length) {
@@ -150,7 +166,7 @@ router.put('/name', jsonParser, async function(req, res, next) {
   }
 });
 
-router.put('/onboarding', authService.authenticate, async function(req, res) {
+router.put('/onboarding', async function(req, res) {
   try {
     const userId = req.user?.user_id;
     if (!userId) {
@@ -180,7 +196,7 @@ router.put('/onboarding', authService.authenticate, async function(req, res) {
  * - All saved moves and move sessions
  * - User account record
  */
-router.delete('/account', authService.authenticate, async function(req, res) {
+router.delete('/account', async function(req, res) {
   const userId = req.user?.user_id;
 
   if (!userId) {

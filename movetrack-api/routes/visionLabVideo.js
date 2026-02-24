@@ -3,6 +3,7 @@ const multer = require('multer');
 const bodyParser = require('body-parser');
 const { v4: uuidv4 } = require('uuid');
 const visionService = require('../bin/visionService');
+const { authenticate } = require('../bin/authService');
 
 const router = express.Router();
 const jsonParser = bodyParser.json({ limit: '25mb' });
@@ -24,6 +25,7 @@ function ensureAdmin(req, res, next) {
   next();
 }
 
+router.use(authenticate);
 router.use(ensureAdmin);
 
 router.get('/prompt', (req, res) => {

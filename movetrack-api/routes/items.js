@@ -107,12 +107,15 @@ function buildEstimationContext(record, overrides = {}) {
 
 /* GET items listing. */
 router.get('/', jsonParser, async function(req, res, next) {
-  var user_id = req.query.user
+  const userId = req.user?.user_id;
   var location_id = req.query.location
   var collection_id = req.query.collection
   var container_id = req.query.container
 
   try {
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     await knex
       .select({
         id: 'items.id',
@@ -133,7 +136,7 @@ router.get('/', jsonParser, async function(req, res, next) {
       .leftJoin('collections', 'collections.location_id', 'locations.id')
       .leftJoin('containers', 'containers.collection_id', 'collections.id')
       .leftJoin('items', 'items.container_id', 'containers.id')
-      .where(knex.raw('permissions.user_id = ?', user_id))
+      .where(knex.raw('permissions.user_id = ?', userId))
       .andWhere(knex.raw('locations.id = ?', location_id))
       .andWhere(knex.raw('collections.id = ?', collection_id))
       .andWhere(knex.raw('containers.id = ?', container_id))
@@ -154,10 +157,13 @@ router.get('/', jsonParser, async function(req, res, next) {
 /* GET items listing. */
 // THIS IS USED BY THE APPLICATION TO GET A SINGLE ITEM
 router.get('/single', jsonParser, async function(req, res, next) {
-  var user_id = req.query.user
+  const userId = req.user?.user_id;
   var item_id = req.query.item
 
   try {
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     await knex
       .select({
         location_id: 'locations.id',
@@ -200,7 +206,7 @@ router.get('/single', jsonParser, async function(req, res, next) {
       .leftJoin('collections', 'collections.id', 'items.collection_id')
       .leftJoin('containers', 'containers.id', 'items.container_id')
       .leftJoin('locations', 'locations.id', 'collections.location_id')
-      .where(knex.raw('permissions.user_id = ?', user_id))
+      .where(knex.raw('permissions.user_id = ?', userId))
       .andWhere(knex.raw('items.id = ?', item_id))
     .then(data => {
       res.send(data)
@@ -215,9 +221,12 @@ router.get('/single', jsonParser, async function(req, res, next) {
 });
 
 router.get('/all', jsonParser, async function(req, res, next) {
-  var user_id = req.query.user
+  const userId = req.user?.user_id;
 
   try {
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
     await knex('locations')
       .distinct({
         location_id: 'locations.id',
@@ -241,7 +250,7 @@ router.get('/all', jsonParser, async function(req, res, next) {
       .leftJoin('containers', 'containers.collection_id', 'collections.id')
       .leftJoin('items', 'items.container_id', 'containers.id')
       .whereNotNull('items.id')
-      .andWhere(knex.raw('permissions.user_id = ?', user_id))
+      .andWhere(knex.raw('permissions.user_id = ?', userId))
     .then(function (data) {
       res.send(data)
     })
@@ -283,9 +292,34 @@ router.post('/post', jsonParser, async function(req, res, next) {
     if (!req.query.collection) {
       return res.status(400).json({ error: 'collection is required for items' });
     }
+    const userId = req.user?.user_id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const collection = await knex('collections')
+      .select('id')
+      .where({ id: req.query.collection, user_id: userId })
+      .first();
+
+    if (!collection) {
+      return res.status(403).json({ error: 'Not authorized to use this collection' });
+    }
+
+    if (req.query.container) {
+      const container = await knex('containers')
+        .select('id')
+        .where({ id: req.query.container, user_id: userId })
+        .first();
+
+      if (!container) {
+        return res.status(403).json({ error: 'Not authorized to use this container' });
+      }
+    }
 
     var params = {
-      user_id: req.query.user,
+      user_id: userId,
       name: req.query.name,
       description: req.query.description,
       quantity: req.query.quantity,
@@ -375,11 +409,11 @@ router.post('/post', jsonParser, async function(req, res, next) {
         await knex('permissions')
           .transacting(trx)
           .insert({
-            user_id: req.query.user,
+            user_id: userId,
             resource_id: item.id,
             resource_type: 'item',
             permission_level: 'owner',
-            granted_by: req.query.user,
+            granted_by: userId,
           });
 
         return item;
@@ -401,18 +435,41 @@ router.post('/post', jsonParser, async function(req, res, next) {
 // THIS IS USED BY THE APPLICATION TO DELETE AN ITEM
 router.delete('/delete', jsonParser, async function(req, res, next) {
   try {
+    const userId = req.user?.user_id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const itemId = req.query.item_id;
+    if (!itemId) {
+      return res.status(400).json({ error: 'item_id is required' });
+    }
+
+    const ownedItem = await knex('items')
+      .select('id')
+      .where({ id: itemId, user_id: userId })
+      .first();
+
+    if (!ownedItem) {
+      return res.status(404).json({ error: 'Item not found' });
+    }
+
     knex.transaction(async trx => {
       await knex('permissions')
       .transacting(trx)
       .where({
-        resource_id: req.query.item_id,
+        resource_id: itemId,
         resource_type: 'item'
       })
       .del()
 
       await knex('items')
       .transacting(trx)
-      .where('id', req.query.item_id)
+      .where({
+        id: itemId,
+        user_id: userId
+      })
       .del()
 
       .then(trx.commit)
@@ -439,15 +496,15 @@ router.put('/update', jsonParser, async function(req, res, next) {
         message: 'Cannot update without specifying which item to update'
       });
     }
+    const userId = req.user?.user_id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
     // CRITICAL FIX: Only update fields that are explicitly provided
     // Do NOT set fields to null unless explicitly requested
     var params = {}
-
-    // Required fields for identification
-    if (req.query.user !== undefined) {
-      params.user_id = req.query.user
-    }
 
     // Only update these fields if they are provided
     if (req.query.name !== undefined) {
@@ -460,11 +517,30 @@ router.put('/update', jsonParser, async function(req, res, next) {
       params.quantity = req.query.quantity
     }
     if (req.query.collection !== undefined) {
+      const collection = await knex('collections')
+        .select('id')
+        .where({ id: req.query.collection, user_id: userId })
+        .first();
+
+      if (!collection) {
+        return res.status(403).json({ error: 'Not authorized to use this collection' });
+      }
+
       params.collection_id = req.query.collection
     }
 
     // Only update these if explicitly provided (don't force null)
     if (req.query.container !== undefined) {
+      if (req.query.container) {
+        const container = await knex('containers')
+          .select('id')
+          .where({ id: req.query.container, user_id: userId })
+          .first();
+
+        if (!container) {
+          return res.status(403).json({ error: 'Not authorized to use this container' });
+        }
+      }
       params.container_id = req.query.container
     }
 
@@ -532,13 +608,16 @@ router.put('/update', jsonParser, async function(req, res, next) {
     }
 
     // Log the update for debugging/audit purposes
-    console.log(`[ITEMS UPDATE] User: ${req.query.user}, Item ID: ${req.query.item_id}, Fields: ${Object.keys(params).join(', ')}`);
+    console.log(`[ITEMS UPDATE] User: ${userId}, Item ID: ${req.query.item_id}, Fields: ${Object.keys(params).join(', ')}`);
 
     knex.transaction(async trx => {
       await knex('items')
       .transacting(trx)
       .update(params)
-      .where('id', req.query.item_id)
+      .where({
+        id: req.query.item_id,
+        user_id: userId
+      })
       .then(trx.commit)
       .catch(trx.rollback);
     })
@@ -568,9 +647,9 @@ router.put('/update', jsonParser, async function(req, res, next) {
 });
 
 router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
-  const requestUserId = req.user?.user_id || req.body?.user || req.query.user;
+  const requestUserId = req.user?.user_id;
   if (!requestUserId) {
-    return res.status(400).json({ success: false, error: 'User context is required' });
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
 
   if (!process.env.TOGETHER_API_KEY) {
@@ -586,9 +665,7 @@ router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
     console.log('[AI Estimate] Incoming request:', {
       itemId,
       requestUserId,
-      hasUserFromToken: Boolean(req.user?.user_id),
-      bodyUser: req.body?.user,
-      queryUser: req.query?.user
+      hasUserFromToken: Boolean(req.user?.user_id)
     });
     const itemRecord = await knex('items')
       .select({
@@ -698,9 +775,9 @@ router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
 router.post('/:id/qr', jsonParser, async function(req, res) {
   try {
     const { id } = req.params;
-    const userId = req.query.user || req.user?.user_id;
+    const userId = req.user?.user_id;
     if (!userId) {
-      return res.status(400).json({ error: 'user is required' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const item = await knex('items')

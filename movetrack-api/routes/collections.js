@@ -5,6 +5,7 @@ var router = express.Router();
 const pgp = require('pg-promise')();
 var bodyParser = require('body-parser');
 var conn = require('../bin/db');
+const { authenticate } = require('../bin/authService');
 
 const db = conn.db;
 
@@ -19,11 +20,16 @@ const knex = require('knex')({
 });
 
 var jsonParser = bodyParser.json();
+router.use(authenticate);
 
 /* GET collections listing with parents. */
 router.get('/', jsonParser, async function(req, res, next) {
-  var user_id = req.query.user
+  const userId = req.user?.user_id;
   var location_id = req.query.location
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   try {
     await knex
@@ -44,7 +50,7 @@ router.get('/', jsonParser, async function(req, res, next) {
       .leftJoin('containers', 'containers.collection_id', 'collections.id')
       .leftJoin('items', 'items.container_id', 'containers.id')
       .where(
-        knex.raw('permissions.user_id = ?', user_id)
+        knex.raw('permissions.user_id = ?', userId)
       )
       .andWhere(
         knex.raw('locations.id = ?', location_id)
@@ -64,8 +70,12 @@ router.get('/', jsonParser, async function(req, res, next) {
 
 /* GET collection listing. */
 router.get('/single', jsonParser, async function(req, res, next) {
-  var user_id = req.query.user
+  const userId = req.user?.user_id;
   var collection_id = req.query.collection
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   try {
     await knex
@@ -81,7 +91,7 @@ router.get('/single', jsonParser, async function(req, res, next) {
             .andOn('permissions.resource_type', '=', knex.raw('?', ['location']))
       })
       .leftJoin('collections', 'collections.location_id', 'locations.id')
-      .where(knex.raw('permissions.user_id = ?', user_id))
+      .where(knex.raw('permissions.user_id = ?', userId))
       .andWhere(knex.raw('collections.id = ?', collection_id))
     .then(data => {
       res.send(data)
@@ -97,7 +107,11 @@ router.get('/single', jsonParser, async function(req, res, next) {
 
 /* GET all collections. */
 router.get('/all', jsonParser, async function(req, res, next) {
-  var user_id = req.query.user
+  const userId = req.user?.user_id;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
 
   try {
     await knex
@@ -120,7 +134,7 @@ router.get('/all', jsonParser, async function(req, res, next) {
       .leftJoin('items', 'items.container_id', 'containers.id')
       .whereNotNull('collections.id')
       .andWhere(
-        knex.raw('permissions.user_id = ?', user_id)
+        knex.raw('permissions.user_id = ?', userId)
       )
       .groupBy('locations.id', 'locations.name', 'collections.id', 'collections.name', 'collections.description')
     .then(data => {
@@ -137,7 +151,11 @@ router.get('/all', jsonParser, async function(req, res, next) {
 
 /* GET all collections grouped. */
 router.get('/all/grouped', jsonParser, async function(req, res, next) {
-  var user_id = req.query.user
+  const userId = req.user?.user_id;
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
   try {
     await knex.with(
       'ONE',
@@ -153,7 +171,7 @@ router.get('/all/grouped', jsonParser, async function(req, res, next) {
             LEFT JOIN collections ON collections.location_id = locations.id
         WHERE permissions.user_id = ?
             AND collections.id IS NOT NULL`,
-        user_id
+        userId
       )
     )
     .select('location_id', 'location_name', 
@@ -180,13 +198,27 @@ router.post('/post', jsonParser, async function(req, res, next) {
     if (!req.query.location) {
       return res.status(400).json({ error: 'location is required for collections' });
     }
+    const userId = req.user?.user_id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const location = await knex('locations')
+      .select('id')
+      .where({ id: req.query.location, user_id: userId })
+      .first();
+
+    if (!location) {
+      return res.status(403).json({ error: 'Not authorized to use this location' });
+    }
 
     knex
       .transaction(async (trx) => {
         const [collection] = await knex('collections')
           .transacting(trx)
           .insert({
-            user_id: req.query.user,
+            user_id: userId,
             name: req.query.name,
             description: req.query.description,
             location_id: req.query.location,
@@ -196,11 +228,11 @@ router.post('/post', jsonParser, async function(req, res, next) {
         await knex('permissions')
           .transacting(trx)
           .insert({
-            user_id: req.query.user,
+            user_id: userId,
             resource_id: collection.id,
             resource_type: 'collection',
             permission_level: 'owner',
-            granted_by: req.query.user,
+            granted_by: userId,
           });
 
         return collection;
@@ -221,28 +253,57 @@ router.post('/post', jsonParser, async function(req, res, next) {
 // THIS IS USED BY THE APPLICATION TO DELETE A COLLECTION
 router.delete('/delete', jsonParser, async function(req, res, next) {
   try {
+    const userId = req.user?.user_id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const collectionId = req.query.collection_id;
+    if (!collectionId) {
+      return res.status(400).json({ error: 'collection_id is required' });
+    }
+
+    const ownedCollection = await knex('collections')
+      .select('id')
+      .where({ id: collectionId, user_id: userId })
+      .first();
+
+    if (!ownedCollection) {
+      return res.status(404).json({ error: 'Collection not found' });
+    }
+
     knex.transaction(async trx => {
       await knex('permissions')
       .transacting(trx)
       .where({
-        resource_id: req.query.collection_id,
+        resource_id: collectionId,
         resource_type: 'collection'
       })
       .del()
 
       await knex('items')
       .transacting(trx)
-      .where('items.collection_id', req.query.collection_id)
+      .where({
+        collection_id: collectionId,
+        user_id: userId
+      })
       .del()
 
       await knex('containers')
       .transacting(trx)
-      .where('containers.collection_id', req.query.collection_id)
+      .where({
+        collection_id: collectionId,
+        user_id: userId
+      })
       .del()
 
       await knex('collections')
       .transacting(trx)
-      .where('id', req.query.collection_id)
+      .where({
+        id: collectionId,
+        user_id: userId
+      })
       .del()
 
       .then(trx.commit)
@@ -262,9 +323,30 @@ router.delete('/delete', jsonParser, async function(req, res, next) {
 // THIS IS USED BY THE APPLICATION TO EDIT A COLLECTION
 router.put('/update', jsonParser, async function(req, res, next) {
   try {
+    const userId = req.user?.user_id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const collectionId = req.query.collection_id;
+    if (!collectionId) {
+      return res.status(400).json({ error: 'collection_id is required' });
+    }
+
+    if (req.query.location !== undefined) {
+      const location = await knex('locations')
+        .select('id')
+        .where({ id: req.query.location, user_id: userId })
+        .first();
+
+      if (!location) {
+        return res.status(403).json({ error: 'Not authorized to use this location' });
+      }
+    }
+
     // Build update object dynamically
     const updateData = {
-      user_id: req.query.user,
       name: req.query.name,
       description: req.query.description,
     };
@@ -278,7 +360,10 @@ router.put('/update', jsonParser, async function(req, res, next) {
       await knex('collections')
       .transacting(trx)
       .update(updateData)
-      .where('id', req.query.collection_id)
+      .where({
+        id: collectionId,
+        user_id: userId
+      })
 
       .then(trx.commit)
       .catch(trx.rollback);

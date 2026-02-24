@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs/promises');
 const fetch = require('node-fetch');
 const visionService = require('../bin/visionService');
+const { authenticate } = require('../bin/authService');
 
 const CONFIG_PATH = path.join(__dirname, '../data/visionLab.json');
 
@@ -23,6 +24,7 @@ function ensureAdmin(req, res, next) {
   next();
 }
 
+router.use(authenticate);
 router.use(ensureAdmin);
 
 router.get('/', async (req, res) => {

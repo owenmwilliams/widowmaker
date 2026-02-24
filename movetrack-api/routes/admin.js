@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Storage } = require('@google-cloud/storage');
 const path = require('path');
+const { authenticate } = require('../bin/authService');
 const knex = require('knex')({
   client: 'pg',
   connection: {
@@ -26,6 +27,14 @@ if (isLocalEnvironment) {
 }
 
 const storage = new Storage(storageOptions);
+
+router.use(authenticate);
+router.use((req, res, next) => {
+  if (!req.user?.is_admin) {
+    return res.status(403).json({ error: 'Admins only' });
+  }
+  next();
+});
 
 // Configuration
 const MAX_AGE_HOURS = parseInt(process.env.MAX_AGE_HOURS || '48', 10);

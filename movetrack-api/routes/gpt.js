@@ -2,6 +2,7 @@ var express = require('express');
 var router = express.Router();
 const OpenAI = require('openai');
 const multer = require('multer');
+const { authenticate } = require('../bin/authService');
 
 // Initialize OpenAI only if API key is provided
 let openai = null;
@@ -10,6 +11,8 @@ if (process.env.OPENAI_API_KEY) {
         apiKey: process.env.OPENAI_API_KEY,
     });
 }
+
+router.use(authenticate);
 
 // POST route to analyze an uploaded image
 router.post('/object', async (req, res) => {
