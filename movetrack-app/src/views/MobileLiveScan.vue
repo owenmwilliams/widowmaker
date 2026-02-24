@@ -214,12 +214,12 @@ async function enrichDetection(det: Detection) {
     if (!cropCtx) return;
 
     cropCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
-    const base64 = cropCanvas.toDataURL('image/jpeg', 0.85).split(',')[1];
+    const dataUrl = cropCanvas.toDataURL('image/jpeg', 0.85);
 
     // Send to Claude for enrichment
     const res = await axios.post(
       `${API_BASE}/vision/analyze-item`,
-      { image: base64, mimeType: 'image/jpeg' },
+      { imageUrl: dataUrl, mimeType: 'image/jpeg' },
       { headers: buildHeaders() }
     );
 
