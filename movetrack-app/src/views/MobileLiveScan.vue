@@ -37,7 +37,7 @@ const buildHeaders = () => {
 const videoRef = ref<HTMLVideoElement | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 
-const detectorType = ref<DetectorType>('coco-ssd');
+const detectorType = ref<DetectorType>('yolo-world');
 const modelLoading = ref(true);
 const cameraReady = ref(false);
 const scanning = ref(false);
@@ -69,7 +69,11 @@ onUnmounted(() => {
 // ── Detector Loading ──────────────────────────────────────────────────────────
 async function loadDetector() {
   try {
-    const name = detectorType.value === 'coco-ssd' ? 'COCO-SSD' : 'OwlViT';
+    const nameMap = {
+      'coco-ssd': 'COCO-SSD',
+      'yolo-world': 'YOLO-World'
+    };
+    const name = nameMap[detectorType.value];
     $q.notify({ message: `Loading ${name}...`, type: 'info', timeout: 2000 });
 
     detector = createDetector(detectorType.value);
@@ -382,12 +386,12 @@ const detectorDesc = computed(() => detector?.getDescription() || '');
             <q-item
               clickable
               v-close-popup
-              @click="switchDetector('owlvit')"
-              :active="detectorType === 'owlvit'"
+              @click="switchDetector('yolo-world')"
+              :active="detectorType === 'yolo-world'"
             >
               <q-item-section>
-                <q-item-label>OwlViT</q-item-label>
-                <q-item-label caption>Household items (~{{ HOUSEHOLD_ITEMS.length }} categories)</q-item-label>
+                <q-item-label>YOLO-World</q-item-label>
+                <q-item-label caption>{{ HOUSEHOLD_ITEMS.length }} household items (~30 FPS)</q-item-label>
               </q-item-section>
             </q-item>
           </q-list>
