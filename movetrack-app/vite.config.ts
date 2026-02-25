@@ -36,6 +36,11 @@ export default defineConfig({
     target: ["ES2022"], // 👈 build.target
   },
 
+  worker: {
+    format: 'es',
+    plugins: () => [],
+  },
+
   server: {
     proxy: {
       '/api': {
