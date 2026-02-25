@@ -22,136 +22,36 @@ from ultralytics import YOLO
 
 # ─── Comprehensive Household Items Vocabulary (100 items) ────────────────────
 
+# ─── PRUNED VOCABULARY (20 items) ───────────────────────────────────────────
+# Reduced from 100 to 20 items for mobile performance
+# Each item name adds overhead - keeping only the most common moving items
+
 HOUSEHOLD_ITEMS = [
-    # Unknown/Generic
-    "unknown item",
-    "box",
-    "container",
-
-    # Furniture - Living Room
+    # Most common moving items (ordered by frequency)
+    "box",                    # #1 most common
+    "chair",
+    "table",
     "sofa",
-    "couch",
-    "sectional sofa",
-    "loveseat",
-    "armchair",
-    "recliner",
-    "coffee table",
-    "ottoman",
-    "end table",
-    "side table",
-    "console table",
-    "tv stand",
-    "entertainment center",
-    "bookshelf",
-    "bookcase",
-
-    # Furniture - Bedroom
     "bed",
-    "bed frame",
-    "mattress",
-    "box spring",
-    "nightstand",
-    "bedside table",
     "dresser",
-    "chest of drawers",
-    "wardrobe",
-    "armoire",
-    "vanity",
-    "linens",
-
-    # Furniture - Dining
-    "dining table",
-    "dining chair",
-    "bar stool",
-    "china cabinet",
-    "buffet",
-    "sideboard",
-
-    # Furniture - Office
     "desk",
-    "office chair",
-    "filing cabinet",
-
-    # Storage & Organization
-    "moving box",
-    "plastic bin",
-    "storage container",
-    "tote",
-    "basket",
-    "laundry basket",
-    "hamper",
-    "chest",
-
-    # Lighting
-    "floor lamp",
-    "table lamp",
-    "desk lamp",
-    "chandelier",
-    "pendant light",
-    "ceiling fan",
-
-    # Electronics
-    "television",
-    "monitor",
-    "computer",
-    "laptop",
-    "desktop computer",
-    "printer",
-    "speaker",
-    "stereo",
-    "gaming console",
-    "router",
-    "electronic device",
-
-    # Appliances - Kitchen
-    "refrigerator",
-    "stove",
-    "oven",
-    "microwave",
-    "dishwasher",
-    "coffee maker",
-    "toaster",
-    "blender",
-    "food processor",
-    "stand mixer",
-
-    # Appliances - Laundry
-    "washing machine",
-    "dryer",
-
-    # Textiles & Soft Goods
-    "rug",
-    "carpet",
-    "curtains",
-    "drapes",
-    "blinds",
-    "pillow",
-    "cushion",
-
-    # Decor & Accessories
+    "bookshelf",
+    "lamp",
     "mirror",
-    "artwork",
-    "vase",
-    "plant",
-    "potted plant",
-    "clock",
-    "sculpture",
-
-    # Outdoor & Miscellaneous
+    "television",
+    "mattress",
+    "nightstand",
+    "rug",
+    "cabinet",
+    "refrigerator",
+    "washer",
+    "dryer",
     "bicycle",
-    "sports equipment",
-    "suitcase",
-    "luggage",
-    "vacuum cleaner",
-    "fan",
-    "heater",
-    "air conditioner",
-    "tool box",
-    "ladder",
+    "unknown item",           # Catch-all
 ]
 
-# Verify we have 100 items
-assert len(HOUSEHOLD_ITEMS) == 100, f"Expected 100 items, got {len(HOUSEHOLD_ITEMS)}"
+# Verify we have 20 items
+assert len(HOUSEHOLD_ITEMS) == 20, f"Expected 20 items, got {len(HOUSEHOLD_ITEMS)}"
 
 print(f"✓ Loaded {len(HOUSEHOLD_ITEMS)} household items")
 print(f"  First 5: {HOUSEHOLD_ITEMS[:5]}")
@@ -174,13 +74,19 @@ print("✓ Vocabulary set")
 
 # ─── Export to ONNX ───────────────────────────────────────────────────────────
 
-print("\n💾 Exporting to ONNX...")
+print("\n💾 Exporting to ONNX (optimized for mobile)...")
+print("  - Input size: 320x320 (4x memory reduction)")
+print("  - FP32 precision (INT8/FP16 quantization requires onnxruntime-tools)")
+print("")
+
 success = model.export(
     format="onnx",
-    imgsz=640,  # Standard YOLO size
-    dynamic=True,  # Support variable input sizes
+    imgsz=320,  # Reduced from 640 (4x less memory)
+    dynamic=False,  # Fixed size for better optimization
     simplify=True,  # Optimize for inference
     opset=12,  # ONNX opset version (compatible with onnxruntime-web)
+    # Note: For INT8/FP16 quantization, use onnxruntime-tools after export:
+    # python -m onnxruntime.quantization.preprocess --input yolov8s-worldv2.onnx --output yolov8s-worldv2-int8.onnx
 )
 
 if success:

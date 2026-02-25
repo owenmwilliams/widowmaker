@@ -37,135 +37,46 @@ export interface Detector {
   getDescription(): string;
 }
 
-// ─── Comprehensive Household Items (100 items) ───────────────────────────────
+// ─── Essential Household Items (20 items - pruned for performance) ───────────
 
 export const HOUSEHOLD_ITEMS = [
-  // Unknown/Generic
-  'unknown item',
-  'box',
-  'container',
-
-  // Furniture - Living Room
+  // Most common moving items (ordered by frequency)
+  'box',                    // #1 most common
+  'chair',
+  'table',
   'sofa',
-  'couch',
-  'sectional sofa',
-  'loveseat',
-  'armchair',
-  'recliner',
-  'coffee table',
-  'ottoman',
-  'end table',
-  'side table',
-  'console table',
-  'tv stand',
-  'entertainment center',
-  'bookshelf',
-  'bookcase',
-
-  // Furniture - Bedroom
   'bed',
-  'bed frame',
-  'mattress',
-  'box spring',
-  'nightstand',
-  'bedside table',
   'dresser',
-  'chest of drawers',
-  'wardrobe',
-  'armoire',
-  'vanity',
-  'linens',
-
-  // Furniture - Dining
-  'dining table',
-  'dining chair',
-  'bar stool',
-  'china cabinet',
-  'buffet',
-  'sideboard',
-
-  // Furniture - Office
   'desk',
-  'office chair',
-  'filing cabinet',
-
-  // Storage & Organization
-  'moving box',
-  'plastic bin',
-  'storage container',
-  'tote',
-  'basket',
-  'laundry basket',
-  'hamper',
-  'chest',
-
-  // Lighting
-  'floor lamp',
-  'table lamp',
-  'desk lamp',
-  'chandelier',
-  'pendant light',
-  'ceiling fan',
-
-  // Electronics
-  'television',
-  'monitor',
-  'computer',
-  'laptop',
-  'desktop computer',
-  'printer',
-  'speaker',
-  'stereo',
-  'gaming console',
-  'router',
-  'electronic device',
-
-  // Appliances - Kitchen
-  'refrigerator',
-  'stove',
-  'oven',
-  'microwave',
-  'dishwasher',
-  'coffee maker',
-  'toaster',
-  'blender',
-  'food processor',
-  'stand mixer',
-
-  // Appliances - Laundry
-  'washing machine',
-  'dryer',
-
-  // Textiles & Soft Goods
-  'rug',
-  'carpet',
-  'curtains',
-  'drapes',
-  'blinds',
-  'pillow',
-  'cushion',
-
-  // Decor & Accessories
+  'bookshelf',
+  'lamp',
   'mirror',
-  'artwork',
-  'vase',
-  'plant',
-  'potted plant',
-  'clock',
-  'sculpture',
-
-  // Outdoor & Miscellaneous
+  'television',
+  'mattress',
+  'nightstand',
+  'rug',
+  'cabinet',
+  'refrigerator',
+  'washer',
+  'dryer',
   'bicycle',
-  'sports equipment',
-  'suitcase',
-  'luggage',
-  'vacuum cleaner',
-  'fan',
-  'heater',
-  'air conditioner',
-  'tool box',
-  'ladder',
+  'unknown item',           // Catch-all
 ] as const;
+
+// Full vocabulary available for model re-export if needed (commented out for reference)
+// 'couch', 'sectional sofa', 'loveseat', 'armchair', 'recliner', 'coffee table',
+// 'ottoman', 'end table', 'side table', 'console table', 'tv stand', 'entertainment center',
+// 'bookcase', 'bed frame', 'box spring', 'bedside table', 'chest of drawers', 'wardrobe',
+// 'armoire', 'vanity', 'linens', 'dining table', 'dining chair', 'bar stool', 'china cabinet',
+// 'buffet', 'sideboard', 'office chair', 'filing cabinet', 'moving box', 'plastic bin',
+// 'storage container', 'tote', 'basket', 'laundry basket', 'hamper', 'chest', 'floor lamp',
+// 'table lamp', 'desk lamp', 'chandelier', 'pendant light', 'ceiling fan', 'monitor',
+// 'computer', 'laptop', 'desktop computer', 'printer', 'speaker', 'stereo', 'gaming console',
+// 'router', 'electronic device', 'stove', 'oven', 'microwave', 'dishwasher', 'coffee maker',
+// 'toaster', 'blender', 'food processor', 'stand mixer', 'washing machine', 'carpet',
+// 'curtains', 'drapes', 'blinds', 'pillow', 'cushion', 'artwork', 'vase', 'plant',
+// 'potted plant', 'clock', 'sculpture', 'sports equipment', 'suitcase', 'luggage',
+// 'vacuum cleaner', 'fan', 'heater', 'air conditioner', 'tool box', 'ladder'
 
 // ─── COCO-SSD Detector ────────────────────────────────────────────────────────
 
@@ -259,7 +170,7 @@ export class OwlVitDetector implements Detector {
 export class YoloWorldDetector implements Detector {
   private session: ort.InferenceSession | null = null;
   private readonly modelUrl: string;
-  private readonly inputSize = 640;
+  private readonly inputSize = 320; // Reduced from 640 (4x memory reduction)
   private readonly confidenceThreshold = 0.25;
   private readonly iouThreshold = 0.45;
   private preprocessCanvas: HTMLCanvasElement | null = null;
