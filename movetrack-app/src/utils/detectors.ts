@@ -171,10 +171,16 @@ export type YoloWorldVersion = 'v1' | 'v2';
 
 export class YoloWorldDetector implements Detector {
   private worker: Worker | null = null;
+  private session: ort.InferenceSession | null = null; // Fallback for iOS
   private readonly modelUrl: string;
   private readonly inputSize: number;
   private readonly version: YoloWorldVersion;
   private loadPromise: Promise<void> | null = null;
+  private useWorker = true; // Will be set to false if Worker fails
+  private preprocessCanvas: HTMLCanvasElement | null = null;
+  private preprocessCtx: CanvasRenderingContext2D | null = null;
+  private readonly confidenceThreshold = 0.25;
+  private readonly iouThreshold = 0.45;
 
   constructor(version: YoloWorldVersion = 'v1', customModelUrl?: string) {
     this.version = version;
@@ -196,20 +202,24 @@ export class YoloWorldDetector implements Detector {
   async load(): Promise<void> {
     if (this.loadPromise) return this.loadPromise;
 
-    this.loadPromise = new Promise((resolve, reject) => {
-      console.log(`[YOLO-World] Creating Web Worker for ${this.version}...`);
+    this.loadPromise = new Promise(async (resolve, reject) => {
+      console.log(`[YOLO-World] Loading ${this.version}...`);
 
+      // Try Web Worker first (better performance on supported browsers)
       try {
-        // Create worker (Vite will handle bundling)
+        console.log(`[YOLO-World] Attempting Web Worker...`);
         this.worker = new Worker(
           new URL('../workers/yolo-world.worker.ts', import.meta.url),
           { type: 'module' }
         );
 
-        // Add error handler for worker errors
+        // Set up error handler
         this.worker.onerror = (error) => {
-          console.error('[YOLO-World] Worker error:', error);
-          reject(new Error(`Worker error: ${error.message || 'Unknown error'}`));
+          console.warn('[YOLO-World] Worker failed, falling back to main thread:', error);
+          this.worker = null;
+          this.useWorker = false;
+          // Fall through to main thread loading below
+          this.loadMainThread().then(resolve).catch(reject);
         };
 
         // Set up message handler for load response
@@ -218,10 +228,16 @@ export class YoloWorldDetector implements Detector {
             this.worker!.removeEventListener('message', loadHandler);
 
             if (e.data.success) {
-              console.log(`[YOLO-World] Worker loaded model with ${e.data.backend} backend`);
+              console.log(`[YOLO-World] Worker loaded successfully with ${e.data.backend} backend`);
+              this.useWorker = true;
               resolve();
             } else {
-              reject(new Error(e.data.error));
+              // Worker failed (likely iOS - no OffscreenCanvas support)
+              console.warn('[YOLO-World] Worker load failed, falling back to main thread:', e.data.error);
+              this.worker?.terminate();
+              this.worker = null;
+              this.useWorker = false;
+              this.loadMainThread().then(resolve).catch(reject);
             }
           }
         };
@@ -237,17 +253,64 @@ export class YoloWorldDetector implements Detector {
           }
         });
       } catch (error) {
-        console.error('[YOLO-World] Failed to create worker:', error);
-        reject(error);
+        // Worker creation failed, use main thread
+        console.warn('[YOLO-World] Worker not available, using main thread:', error);
+        this.useWorker = false;
+        try {
+          await this.loadMainThread();
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
       }
     });
 
     return this.loadPromise;
   }
 
-  async detect(video: HTMLVideoElement): Promise<Detection[]> {
-    if (!this.worker) throw new Error('Worker not initialized');
+  // Main thread fallback for iOS
+  private async loadMainThread(): Promise<void> {
+    console.log(`[YOLO-World] Loading on main thread (iOS fallback)...`);
 
+    try {
+      // Try WebGL first (GPU), fallback to WASM
+      try {
+        this.session = await ort.InferenceSession.create(this.modelUrl, {
+          executionProviders: ['webgl'],
+          graphOptimizationLevel: 'all',
+          executionMode: 'parallel',
+          enableMemPattern: true,
+          enableCpuMemArena: true
+        });
+        console.log('[YOLO-World] Main thread loaded with WebGL (GPU)');
+      } catch (webglError) {
+        console.warn('[YOLO-World] WebGL failed, trying WASM:', webglError);
+        this.session = await ort.InferenceSession.create(this.modelUrl, {
+          executionProviders: ['wasm'],
+          graphOptimizationLevel: 'all',
+          enableMemPattern: true,
+          enableCpuMemArena: true
+        });
+        console.log('[YOLO-World] Main thread loaded with WASM (CPU)');
+      }
+    } catch (error) {
+      console.error('[YOLO-World] Main thread load failed:', error);
+      throw error;
+    }
+  }
+
+  async detect(video: HTMLVideoElement): Promise<Detection[]> {
+    if (this.useWorker && this.worker) {
+      return this.detectWorker(video);
+    } else if (this.session) {
+      return this.detectMainThread(video);
+    } else {
+      throw new Error('Model not loaded');
+    }
+  }
+
+  // Worker-based detection
+  private detectWorker(video: HTMLVideoElement): Promise<Detection[]> {
     return new Promise((resolve, reject) => {
       // Extract frame as ImageData
       const canvas = document.createElement('canvas');
@@ -281,19 +344,163 @@ export class YoloWorldDetector implements Detector {
         }
       };
 
-      this.worker.addEventListener('message', detectHandler);
+      this.worker!.addEventListener('message', detectHandler);
 
       // Send frame to worker (use transferable for zero-copy)
-      // Note: After transfer, imageData.data will be unusable in main thread
-      this.worker.postMessage({
+      this.worker!.postMessage({
         type: 'detect',
         payload: {
           imageData: imageData.data,
           width: canvas.width,
           height: canvas.height
         }
-      }, [imageData.data.buffer]); // Transfer ArrayBuffer ownership to worker
+      }, [imageData.data.buffer]);
     });
+  }
+
+  // Main thread fallback detection (iOS)
+  private async detectMainThread(video: HTMLVideoElement): Promise<Detection[]> {
+    if (!this.session) throw new Error('Session not loaded');
+
+    let input: ort.Tensor | null = null;
+    try {
+      input = this.preprocessImage(video);
+      const outputs = await this.session.run({ images: input });
+      const detections = this.postprocess(outputs.output0, video.videoWidth, video.videoHeight);
+      return detections;
+    } finally {
+      if (input) {
+        try {
+          // @ts-ignore
+          input.dispose?.();
+        } catch (e) {
+          // Ignore
+        }
+      }
+    }
+  }
+
+  // Preprocessing for main thread
+  private preprocessImage(video: HTMLVideoElement): ort.Tensor {
+    if (!this.preprocessCanvas) {
+      this.preprocessCanvas = document.createElement('canvas');
+      this.preprocessCanvas.width = this.inputSize;
+      this.preprocessCanvas.height = this.inputSize;
+      this.preprocessCtx = this.preprocessCanvas.getContext('2d', {
+        willReadFrequently: true,
+        alpha: false
+      });
+    }
+
+    const canvas = this.preprocessCanvas;
+    const ctx = this.preprocessCtx;
+    if (!ctx) throw new Error('Failed to get canvas context');
+
+    // Draw video frame with letterboxing
+    const scale = Math.min(this.inputSize / video.videoWidth, this.inputSize / video.videoHeight);
+    const scaledWidth = video.videoWidth * scale;
+    const scaledHeight = video.videoHeight * scale;
+    const offsetX = (this.inputSize - scaledWidth) / 2;
+    const offsetY = (this.inputSize - scaledHeight) / 2;
+
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, this.inputSize, this.inputSize);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'low';
+    ctx.drawImage(video, offsetX, offsetY, scaledWidth, scaledHeight);
+
+    const imageData = ctx.getImageData(0, 0, this.inputSize, this.inputSize);
+    const pixels = imageData.data;
+
+    const tensorData = new Float32Array(3 * this.inputSize * this.inputSize);
+    const pixelCount = this.inputSize * this.inputSize;
+
+    for (let i = 0; i < pixelCount; i++) {
+      const pixelIndex = i * 4;
+      tensorData[i] = pixels[pixelIndex] / 255.0;
+      tensorData[i + pixelCount] = pixels[pixelIndex + 1] / 255.0;
+      tensorData[i + 2 * pixelCount] = pixels[pixelIndex + 2] / 255.0;
+    }
+
+    return new ort.Tensor('float32', tensorData, [1, 3, this.inputSize, this.inputSize]);
+  }
+
+  // Postprocessing for main thread
+  private postprocess(output: ort.Tensor, originalWidth: number, originalHeight: number): Detection[] {
+    const data = output.data as Float32Array;
+    const dims = output.dims;
+    const numClasses = dims[1] - 4;
+    const numDetections = dims[2];
+
+    const detections: Detection[] = [];
+    const scale = Math.min(this.inputSize / originalWidth, this.inputSize / originalHeight);
+
+    for (let i = 0; i < numDetections; i++) {
+      const x = data[i];
+      const y = data[numDetections + i];
+      const w = data[2 * numDetections + i];
+      const h = data[3 * numDetections + i];
+
+      let maxScore = 0;
+      let maxClass = 0;
+      for (let c = 0; c < numClasses; c++) {
+        const score = data[(4 + c) * numDetections + i];
+        if (score > maxScore) {
+          maxScore = score;
+          maxClass = c;
+        }
+      }
+
+      if (maxScore < this.confidenceThreshold) continue;
+
+      const x1 = (x - w / 2) / scale;
+      const y1 = (y - h / 2) / scale;
+      const width = w / scale;
+      const height = h / scale;
+
+      detections.push({
+        class: HOUSEHOLD_ITEMS[maxClass] || 'unknown item',
+        score: maxScore,
+        bbox: [x1, y1, width, height]
+      });
+    }
+
+    return this.nonMaxSuppression(detections);
+  }
+
+  private nonMaxSuppression(detections: Detection[]): Detection[] {
+    detections.sort((a, b) => b.score - a.score);
+    const keep: Detection[] = [];
+
+    while (detections.length > 0) {
+      const best = detections.shift()!;
+      keep.push(best);
+      detections = detections.filter(det => {
+        const iou = this.calculateIoU(best.bbox, det.bbox);
+        return iou < this.iouThreshold;
+      });
+    }
+
+    return keep;
+  }
+
+  private calculateIoU(box1: BoundingBox, box2: BoundingBox): number {
+    const [x1, y1, w1, h1] = box1;
+    const [x2, y2, w2, h2] = box2;
+
+    const left = Math.max(x1, x2);
+    const top = Math.max(y1, y2);
+    const right = Math.min(x1 + w1, x2 + w2);
+    const bottom = Math.min(y1 + h1, y2 + h2);
+
+    if (right < left || bottom < top) return 0;
+
+    const intersectionArea = (right - left) * (bottom - top);
+    const box1Area = w1 * h1;
+    const box2Area = w2 * h2;
+    const unionArea = box1Area + box2Area - intersectionArea;
+
+    return intersectionArea / unionArea;
   }
 
   dispose(): void {
@@ -302,6 +509,17 @@ export class YoloWorldDetector implements Detector {
       this.worker.terminate();
       this.worker = null;
     }
+    if (this.session) {
+      try {
+        // @ts-ignore
+        this.session.release?.();
+      } catch (e) {
+        // Ignore
+      }
+      this.session = null;
+    }
+    this.preprocessCanvas = null;
+    this.preprocessCtx = null;
     this.loadPromise = null;
   }
 
@@ -310,10 +528,11 @@ export class YoloWorldDetector implements Detector {
   }
 
   getDescription(): string {
+    const mode = this.useWorker ? 'Worker' : 'iOS fallback';
     if (this.version === 'v2') {
-      return `Optimized (20 items, 320px) - ~25-30 FPS with Web Worker`;
+      return `Optimized (20 items, 320px) - ${mode}`;
     } else {
-      return `Original (100 items, 640px) - ~15-20 FPS with Web Worker`;
+      return `Original (100 items, 640px) - ${mode}`;
     }
   }
 }
