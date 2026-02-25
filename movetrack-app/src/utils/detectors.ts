@@ -183,8 +183,8 @@ export class YoloWorldDetector implements Detector {
       this.modelUrl = customModelUrl;
       this.inputSize = 320; // Assume custom model is optimized
     } else if (version === 'v2') {
-      // V2: 20 items, 320x320 (optimized for mobile)
-      this.modelUrl = 'https://storage.googleapis.com/widowmaker-site-images/models/yolo_world_household_v2.onnx';
+      // V2: 20 items, 320x320 (optimized for mobile, INT8 quantized)
+      this.modelUrl = 'https://storage.googleapis.com/widowmaker-site-images/models/yolo_world_household_v2_int8.onnx';
       this.inputSize = 320;
     } else {
       // V1: 100 items, 640x640 (original)
