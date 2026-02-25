@@ -37,8 +37,7 @@ export default defineConfig({
   },
 
   worker: {
-    format: 'es',
-    plugins: () => [],
+    format: 'es'
   },
 
   server: {
