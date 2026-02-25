@@ -5,7 +5,7 @@
 -- Create move_sessions table to track active moves
 CREATE TABLE IF NOT EXISTS move_sessions (
   id BIGSERIAL PRIMARY KEY,
-  owner VARCHAR NOT NULL,
+  user_id BIGINT NOT NULL,
   saved_move_id BIGINT REFERENCES saved_moves(id),
   status VARCHAR(50) NOT NULL DEFAULT 'pending', -- pending, in_progress, loading, in_transit, unloading, completed, cancelled
   move_date DATE,
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS move_crew (
 );
 
 -- Add indexes for performance
-CREATE INDEX IF NOT EXISTS idx_move_sessions_owner ON move_sessions(owner);
+CREATE INDEX IF NOT EXISTS idx_move_sessions_user_id ON move_sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_move_sessions_status ON move_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_move_sessions_date ON move_sessions(move_date);
 CREATE INDEX IF NOT EXISTS idx_box_scans_session ON box_scans(move_session_id);

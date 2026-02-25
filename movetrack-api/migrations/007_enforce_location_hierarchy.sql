@@ -41,16 +41,16 @@ WHERE collections.location_id IS NULL;
 DO $$
 DECLARE
     default_location_id INTEGER;
-    owner_name VARCHAR;
+    owner_id BIGINT;
 BEGIN
     -- For each collection without a location
-    FOR owner_name IN
-        SELECT DISTINCT owner FROM collections WHERE location_id IS NULL
+    FOR owner_id IN
+        SELECT DISTINCT user_id FROM collections WHERE location_id IS NULL AND user_id IS NOT NULL
     LOOP
         -- Find or create a default location for this owner
         SELECT id INTO default_location_id
         FROM locations
-        WHERE owner = owner_name
+        WHERE user_id = owner_id
         ORDER BY
             CASE WHEN location_type = 'primary_residence' THEN 1
                  WHEN location_type = 'residence' THEN 2
@@ -61,17 +61,17 @@ BEGIN
 
         -- If no location exists for this owner, create one
         IF default_location_id IS NULL THEN
-            INSERT INTO locations (owner, name, location_type, description, created_at)
-            VALUES (owner_name, 'Primary Location', 'primary_residence', 'Default location for unassigned collections', NOW())
+            INSERT INTO locations (user_id, name, location_type, description, created_at)
+            VALUES (owner_id, 'Primary Location', 'primary_residence', 'Default location for unassigned collections', NOW())
             RETURNING id INTO default_location_id;
 
-            RAISE NOTICE 'Created default location % for owner %', default_location_id, owner_name;
+            RAISE NOTICE 'Created default location % for user_id %', default_location_id, owner_id;
         END IF;
 
         -- Update collections for this owner
         UPDATE collections
         SET location_id = default_location_id
-        WHERE owner = owner_name AND location_id IS NULL;
+        WHERE user_id = owner_id AND location_id IS NULL;
     END LOOP;
 END $$;
 
@@ -82,7 +82,7 @@ DECLARE
     orphaned_items_count INTEGER;
     orphaned_containers_count INTEGER;
     default_collection_id INTEGER;
-    owner_name VARCHAR;
+    owner_id BIGINT;
 BEGIN
     -- Check for orphaned items
     SELECT COUNT(*) INTO orphaned_items_count
@@ -93,13 +93,13 @@ BEGIN
         RAISE NOTICE 'Found % orphaned items without a collection', orphaned_items_count;
 
         -- For each owner with orphaned items, create or use default collection
-        FOR owner_name IN
-            SELECT DISTINCT owner FROM items WHERE collection_id IS NULL
+        FOR owner_id IN
+            SELECT DISTINCT user_id FROM items WHERE collection_id IS NULL AND user_id IS NOT NULL
         LOOP
             -- Find or create a default collection
             SELECT id INTO default_collection_id
             FROM collections
-            WHERE owner = owner_name
+            WHERE user_id = owner_id
             ORDER BY created_at ASC
             LIMIT 1;
 
@@ -109,11 +109,11 @@ BEGIN
                 BEGIN
                     SELECT id INTO default_loc_id
                     FROM locations
-                    WHERE owner = owner_name
+                    WHERE user_id = owner_id
                     LIMIT 1;
 
-                    INSERT INTO collections (owner, name, description, location_id, created_at)
-                    VALUES (owner_name, 'Uncategorized', 'Default collection for unassigned items', default_loc_id, NOW())
+                    INSERT INTO collections (user_id, name, description, location_id, created_at)
+                    VALUES (owner_id, 'Uncategorized', 'Default collection for unassigned items', default_loc_id, NOW())
                     RETURNING id INTO default_collection_id;
                 END;
             END IF;
@@ -121,9 +121,9 @@ BEGIN
             -- Assign orphaned items to the default collection
             UPDATE items
             SET collection_id = default_collection_id
-            WHERE owner = owner_name AND collection_id IS NULL;
+            WHERE user_id = owner_id AND collection_id IS NULL;
 
-            RAISE NOTICE 'Assigned orphaned items for owner % to collection %', owner_name, default_collection_id;
+            RAISE NOTICE 'Assigned orphaned items for user_id % to collection %', owner_id, default_collection_id;
         END LOOP;
     END IF;
 
@@ -136,20 +136,20 @@ BEGIN
         RAISE NOTICE 'Found % orphaned containers without a collection', orphaned_containers_count;
 
         -- Similar logic for containers
-        FOR owner_name IN
-            SELECT DISTINCT owner FROM containers WHERE collection_id IS NULL
+        FOR owner_id IN
+            SELECT DISTINCT user_id FROM containers WHERE collection_id IS NULL AND user_id IS NOT NULL
         LOOP
             SELECT id INTO default_collection_id
             FROM collections
-            WHERE owner = owner_name
+            WHERE user_id = owner_id
             ORDER BY created_at ASC
             LIMIT 1;
 
             UPDATE containers
             SET collection_id = default_collection_id
-            WHERE owner = owner_name AND collection_id IS NULL;
+            WHERE user_id = owner_id AND collection_id IS NULL;
 
-            RAISE NOTICE 'Assigned orphaned containers for owner % to collection %', owner_name, default_collection_id;
+            RAISE NOTICE 'Assigned orphaned containers for user_id % to collection %', owner_id, default_collection_id;
         END LOOP;
     END IF;
 END $$;
