@@ -254,6 +254,8 @@ export class YoloWorldDetector implements Detector {
   private readonly inputSize = 640;
   private readonly confidenceThreshold = 0.25;
   private readonly iouThreshold = 0.45;
+  private preprocessCanvas: HTMLCanvasElement | null = null;
+  private preprocessCtx: CanvasRenderingContext2D | null = null;
 
   constructor(modelUrl?: string) {
     // Default to GCS-hosted model (49MB)
@@ -281,25 +283,49 @@ export class YoloWorldDetector implements Detector {
   async detect(video: HTMLVideoElement): Promise<Detection[]> {
     if (!this.session) throw new Error('Model not loaded');
 
-    // Preprocess: extract frame and prepare input tensor
-    const input = this.preprocessImage(video);
+    let input: ort.Tensor | null = null;
+    try {
+      // Preprocess: extract frame and prepare input tensor
+      input = this.preprocessImage(video);
 
-    // Run inference
-    const outputs = await this.session.run({ images: input });
-    const output = outputs.output0;
+      // Run inference
+      const outputs = await this.session.run({ images: input });
+      const output = outputs.output0;
 
-    // Postprocess: parse detections and apply NMS
-    const detections = this.postprocess(output, video.videoWidth, video.videoHeight);
+      // Postprocess: parse detections and apply NMS
+      const detections = this.postprocess(output, video.videoWidth, video.videoHeight);
 
-    return detections;
+      return detections;
+    } finally {
+      // Always dispose tensors to prevent memory leaks
+      if (input) {
+        try {
+          // @ts-ignore - ONNX Runtime Web doesn't expose dispose in types but it exists
+          input.dispose?.();
+        } catch (e) {
+          // Ignore disposal errors
+        }
+      }
+    }
+  }
+
+  dispose(): void {
+    this.session = null;
+    this.preprocessCanvas = null;
+    this.preprocessCtx = null;
   }
 
   private preprocessImage(video: HTMLVideoElement): ort.Tensor {
-    // Create canvas and resize image to 640x640
-    const canvas = document.createElement('canvas');
-    canvas.width = this.inputSize;
-    canvas.height = this.inputSize;
-    const ctx = canvas.getContext('2d');
+    // Reuse canvas to prevent memory leaks
+    if (!this.preprocessCanvas) {
+      this.preprocessCanvas = document.createElement('canvas');
+      this.preprocessCanvas.width = this.inputSize;
+      this.preprocessCanvas.height = this.inputSize;
+      this.preprocessCtx = this.preprocessCanvas.getContext('2d');
+    }
+
+    const canvas = this.preprocessCanvas;
+    const ctx = this.preprocessCtx;
     if (!ctx) throw new Error('Failed to get canvas context');
 
     // Draw video frame with letterboxing (maintain aspect ratio)

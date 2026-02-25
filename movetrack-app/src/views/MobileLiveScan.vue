@@ -37,7 +37,8 @@ const buildHeaders = () => {
 const videoRef = ref<HTMLVideoElement | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 
-const detectorType = ref<DetectorType>('yolo-world');
+// Default to COCO-SSD for stability on mobile (YOLO-World available as option)
+const detectorType = ref<DetectorType>('coco-ssd');
 const modelLoading = ref(true);
 const cameraReady = ref(false);
 const scanning = ref(false);
@@ -125,6 +126,27 @@ async function switchDetector(type: DetectorType) {
     return;
   }
 
+  // Clean up old detector
+  if (detector) {
+    try {
+      // @ts-ignore - dispose may not be in all detector interfaces
+      detector.dispose?.();
+    } catch (e) {
+      console.warn('Error disposing detector:', e);
+    }
+    detector = null;
+  }
+
+  // Warn about YOLO-World memory usage on mobile
+  if (type === 'yolo-world') {
+    $q.notify({
+      message: 'YOLO-World uses more memory. If app becomes slow or crashes, switch back to COCO-SSD.',
+      type: 'warning',
+      timeout: 5000,
+      multiLine: true
+    });
+  }
+
   detectorType.value = type;
   modelLoading.value = true;
   await loadDetector();
@@ -158,9 +180,17 @@ function stopCamera() {
 }
 
 // ── Scanning Loop ─────────────────────────────────────────────────────────────
+const TARGET_FPS = 10; // Reduced FPS for mobile stability (especially YOLO-World)
+const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+let lastFrameTime = 0;
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 3;
+
 function startScanning() {
   if (!detector || !videoRef.value || !canvasRef.value) return;
   scanning.value = true;
+  consecutiveErrors = 0;
+  lastFrameTime = 0;
   detectObjects();
 }
 
@@ -172,10 +202,23 @@ function stopScanning() {
   }
   trackMap.clear();
   detections.value = [];
+  lastFrameTime = 0;
+  consecutiveErrors = 0;
 }
 
 async function detectObjects() {
   if (!scanning.value || !detector || !videoRef.value || !canvasRef.value) return;
+
+  const now = Date.now();
+  const timeSinceLastFrame = now - lastFrameTime;
+
+  // Throttle to target FPS to prevent memory exhaustion on mobile
+  if (timeSinceLastFrame < FRAME_INTERVAL_MS) {
+    animationFrameId = requestAnimationFrame(detectObjects);
+    return;
+  }
+
+  lastFrameTime = now;
 
   const video = videoRef.value;
   const canvas = canvasRef.value;
@@ -187,10 +230,11 @@ async function detectObjects() {
   canvas.height = video.videoHeight;
 
   const frameArea = canvas.width * canvas.height;
-  const now = Date.now();
 
-  // Run detection
-  const predictions = await detector.detect(video);
+  try {
+    // Run detection with error handling
+    const predictions = await detector.detect(video);
+    consecutiveErrors = 0; // Reset error counter on success
 
   // Clear canvas and draw video frame
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -240,14 +284,38 @@ async function detectObjects() {
     }
   }
 
-  // Update detections from active tracks
-  detections.value = Array.from(trackMap.values()).map(t => t.detection);
+    // Update detections from active tracks
+    detections.value = Array.from(trackMap.values()).map(t => t.detection);
 
-  // Draw bounding boxes
-  detections.value.forEach(det => drawBbox(ctx, det, '#00bcd4'));
-  savedItems.value.forEach(item => drawBbox(ctx, item, '#4caf50'));
+    // Draw bounding boxes
+    detections.value.forEach(det => drawBbox(ctx, det, '#00bcd4'));
+    savedItems.value.forEach(item => drawBbox(ctx, item, '#4caf50'));
 
-  animationFrameId = requestAnimationFrame(detectObjects);
+  } catch (err: any) {
+    console.error('Detection error:', err);
+    consecutiveErrors++;
+
+    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+      console.error(`Stopping scan after ${MAX_CONSECUTIVE_ERRORS} consecutive errors`);
+      stopScanning();
+      $q.notify({
+        message: `Detection failed repeatedly. Model may have crashed. Try COCO-SSD instead.`,
+        type: 'negative',
+        timeout: 8000,
+        multiLine: true,
+        actions: [
+          { label: 'Switch to COCO-SSD', color: 'white', handler: () => switchDetector('coco-ssd') },
+          { label: 'Dismiss', color: 'white' }
+        ]
+      });
+      return; // Don't schedule next frame
+    }
+  }
+
+  // Schedule next frame
+  if (scanning.value) {
+    animationFrameId = requestAnimationFrame(detectObjects);
+  }
 }
 
 function drawBbox(ctx: CanvasRenderingContext2D, det: any, color: string) {
@@ -410,8 +478,8 @@ const detectorDesc = computed(() => detector?.getDescription() || '');
               :active="detectorType === 'coco-ssd'"
             >
               <q-item-section>
-                <q-item-label>COCO-SSD</q-item-label>
-                <q-item-label caption>Fast (80 objects)</q-item-label>
+                <q-item-label>COCO-SSD (Recommended)</q-item-label>
+                <q-item-label caption>Fast, stable (80 objects)</q-item-label>
               </q-item-section>
             </q-item>
             <q-item
@@ -422,7 +490,7 @@ const detectorDesc = computed(() => detector?.getDescription() || '');
             >
               <q-item-section>
                 <q-item-label>YOLO-World</q-item-label>
-                <q-item-label caption>{{ HOUSEHOLD_ITEMS.length }} household items (~30 FPS)</q-item-label>
+                <q-item-label caption>{{ HOUSEHOLD_ITEMS.length }} items (high memory)</q-item-label>
               </q-item-section>
             </q-item>
           </q-list>
