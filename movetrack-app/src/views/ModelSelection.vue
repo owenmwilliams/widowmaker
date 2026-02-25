@@ -12,6 +12,7 @@ const detectorStore = useDetectorStore();
 const loading = ref(false);
 const customUrl = ref('');
 const showCustomInput = ref(false);
+const isDevelopment = import.meta.env.MODE === 'development';
 
 interface ModelOption {
   type: DetectorType;
@@ -164,7 +165,7 @@ async function loadCustomModel() {
       </div>
 
       <!-- Custom Model (Dev Only) -->
-      <div v-if="import.meta.env.MODE === 'development'">
+      <div v-if="isDevelopment">
         <div class="text-subtitle1 text-weight-medium q-mb-md">
           Custom Model (Development)
         </div>
