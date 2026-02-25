@@ -37,8 +37,8 @@ const buildHeaders = () => {
 const videoRef = ref<HTMLVideoElement | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 
-// Default to COCO-SSD for stability on mobile (YOLO-World available as option)
-const detectorType = ref<DetectorType>('coco-ssd');
+// Default to YOLO-World with GPU acceleration (WebGL backend)
+const detectorType = ref<DetectorType>('yolo-world');
 const modelLoading = ref(true);
 const cameraReady = ref(false);
 const scanning = ref(false);
@@ -137,16 +137,6 @@ async function switchDetector(type: DetectorType) {
     detector = null;
   }
 
-  // Warn about YOLO-World memory usage on mobile
-  if (type === 'yolo-world') {
-    $q.notify({
-      message: 'YOLO-World uses more memory. If app becomes slow or crashes, switch back to COCO-SSD.',
-      type: 'warning',
-      timeout: 5000,
-      multiLine: true
-    });
-  }
-
   detectorType.value = type;
   modelLoading.value = true;
   await loadDetector();
@@ -180,7 +170,7 @@ function stopCamera() {
 }
 
 // ── Scanning Loop ─────────────────────────────────────────────────────────────
-const TARGET_FPS = 10; // Reduced FPS for mobile stability (especially YOLO-World)
+const TARGET_FPS = 15; // Optimized for GPU-accelerated YOLO-World (WebGL backend)
 const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
 let lastFrameTime = 0;
 let consecutiveErrors = 0;
@@ -299,7 +289,7 @@ async function detectObjects() {
       console.error(`Stopping scan after ${MAX_CONSECUTIVE_ERRORS} consecutive errors`);
       stopScanning();
       $q.notify({
-        message: `Detection failed repeatedly. Model may have crashed. Try COCO-SSD instead.`,
+        message: `Detection failed ${MAX_CONSECUTIVE_ERRORS} times. Your device may not support GPU acceleration. Try COCO-SSD for compatibility.`,
         type: 'negative',
         timeout: 8000,
         multiLine: true,
@@ -474,23 +464,23 @@ const detectorDesc = computed(() => detector?.getDescription() || '');
             <q-item
               clickable
               v-close-popup
-              @click="switchDetector('coco-ssd')"
-              :active="detectorType === 'coco-ssd'"
+              @click="switchDetector('yolo-world')"
+              :active="detectorType === 'yolo-world'"
             >
               <q-item-section>
-                <q-item-label>COCO-SSD (Recommended)</q-item-label>
-                <q-item-label caption>Fast, stable (80 objects)</q-item-label>
+                <q-item-label>YOLO-World (GPU Optimized)</q-item-label>
+                <q-item-label caption>{{ HOUSEHOLD_ITEMS.length }} household items</q-item-label>
               </q-item-section>
             </q-item>
             <q-item
               clickable
               v-close-popup
-              @click="switchDetector('yolo-world')"
-              :active="detectorType === 'yolo-world'"
+              @click="switchDetector('coco-ssd')"
+              :active="detectorType === 'coco-ssd'"
             >
               <q-item-section>
-                <q-item-label>YOLO-World</q-item-label>
-                <q-item-label caption>{{ HOUSEHOLD_ITEMS.length }} items (high memory)</q-item-label>
+                <q-item-label>COCO-SSD</q-item-label>
+                <q-item-label caption>Fallback (80 objects)</q-item-label>
               </q-item-section>
             </q-item>
           </q-list>
