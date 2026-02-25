@@ -167,18 +167,33 @@ export class OwlVitDetector implements Detector {
 
 // ─── YOLO-World Detector (Offline Vocabulary) ────────────────────────────────
 
+export type YoloWorldVersion = 'v1' | 'v2';
+
 export class YoloWorldDetector implements Detector {
   private session: ort.InferenceSession | null = null;
   private readonly modelUrl: string;
-  private readonly inputSize = 320; // Reduced from 640 (4x memory reduction)
+  private readonly inputSize: number;
+  private readonly version: YoloWorldVersion;
   private readonly confidenceThreshold = 0.25;
   private readonly iouThreshold = 0.45;
   private preprocessCanvas: HTMLCanvasElement | null = null;
   private preprocessCtx: CanvasRenderingContext2D | null = null;
 
-  constructor(modelUrl?: string) {
-    // Default to GCS-hosted model (49MB)
-    this.modelUrl = modelUrl || 'https://storage.googleapis.com/widowmaker-site-images/models/yolo_world_household.onnx';
+  constructor(version: YoloWorldVersion = 'v1', customModelUrl?: string) {
+    this.version = version;
+
+    if (customModelUrl) {
+      this.modelUrl = customModelUrl;
+      this.inputSize = 320; // Assume custom model is optimized
+    } else if (version === 'v2') {
+      // V2: 20 items, 320x320 (optimized for mobile)
+      this.modelUrl = 'https://storage.googleapis.com/widowmaker-site-images/models/yolo_world_household_v2.onnx';
+      this.inputSize = 320;
+    } else {
+      // V1: 100 items, 640x640 (original)
+      this.modelUrl = 'https://storage.googleapis.com/widowmaker-site-images/models/yolo_world_household.onnx';
+      this.inputSize = 640;
+    }
   }
 
   async load(): Promise<void> {
@@ -416,17 +431,21 @@ export class YoloWorldDetector implements Detector {
   }
 
   getName(): string {
-    return 'YOLO-World';
+    return this.version === 'v2' ? 'YOLO-World V2' : 'YOLO-World V1';
   }
 
   getDescription(): string {
-    return `Offline vocabulary (${HOUSEHOLD_ITEMS.length} items) - ~30 FPS`;
+    if (this.version === 'v2') {
+      return `Optimized (20 items, 320px) - ~25-30 FPS`;
+    } else {
+      return `Original (100 items, 640px) - ~15-20 FPS`;
+    }
   }
 }
 
 // ─── Detector Factory ─────────────────────────────────────────────────────────
 
-export type DetectorType = 'coco-ssd' | 'owlvit' | 'yolo-world';
+export type DetectorType = 'coco-ssd' | 'owlvit' | 'yolo-world-v1' | 'yolo-world-v2';
 
 export function createDetector(type: DetectorType, modelUrl?: string): Detector {
   switch (type) {
@@ -434,8 +453,10 @@ export function createDetector(type: DetectorType, modelUrl?: string): Detector 
       return new CocoSsdDetector();
     case 'owlvit':
       return new OwlVitDetector();
-    case 'yolo-world':
-      return new YoloWorldDetector(modelUrl);
+    case 'yolo-world-v1':
+      return new YoloWorldDetector('v1', modelUrl);
+    case 'yolo-world-v2':
+      return new YoloWorldDetector('v2', modelUrl);
     default:
       throw new Error(`Unknown detector type: ${type}`);
   }

@@ -37,8 +37,8 @@ const buildHeaders = () => {
 const videoRef = ref<HTMLVideoElement | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 
-// Default to YOLO-World with GPU acceleration (WebGL backend)
-const detectorType = ref<DetectorType>('yolo-world');
+// Default to YOLO-World V2 (optimized: 20 items, 320x320)
+const detectorType = ref<DetectorType>('yolo-world-v2');
 const modelLoading = ref(true);
 const cameraReady = ref(false);
 const scanning = ref(false);
@@ -70,9 +70,11 @@ onUnmounted(() => {
 // ── Detector Loading ──────────────────────────────────────────────────────────
 async function loadDetector() {
   try {
-    const nameMap = {
+    const nameMap: Record<DetectorType, string> = {
       'coco-ssd': 'COCO-SSD',
-      'yolo-world': 'YOLO-World'
+      'owlvit': 'OwlViT',
+      'yolo-world-v1': 'YOLO-World V1',
+      'yolo-world-v2': 'YOLO-World V2'
     };
     const name = nameMap[detectorType.value];
     $q.notify({ message: `Loading ${name}...`, type: 'info', timeout: 2000 });
@@ -461,17 +463,32 @@ const detectorDesc = computed(() => detector?.getDescription() || '');
           :disable="scanning"
         >
           <q-list>
+            <q-item-label header>YOLO-World (GPU Optimized)</q-item-label>
             <q-item
               clickable
               v-close-popup
-              @click="switchDetector('yolo-world')"
-              :active="detectorType === 'yolo-world'"
+              @click="switchDetector('yolo-world-v2')"
+              :active="detectorType === 'yolo-world-v2'"
             >
               <q-item-section>
-                <q-item-label>YOLO-World (GPU Optimized)</q-item-label>
-                <q-item-label caption>{{ HOUSEHOLD_ITEMS.length }} household items</q-item-label>
+                <q-item-label>V2 - Optimized ⚡</q-item-label>
+                <q-item-label caption>20 items, 320px (~25-30 FPS)</q-item-label>
               </q-item-section>
             </q-item>
+            <q-item
+              clickable
+              v-close-popup
+              @click="switchDetector('yolo-world-v1')"
+              :active="detectorType === 'yolo-world-v1'"
+            >
+              <q-item-section>
+                <q-item-label>V1 - Original</q-item-label>
+                <q-item-label caption>100 items, 640px (~15-20 FPS)</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-separator spaced />
+            <q-item-label header>Fallback Options</q-item-label>
             <q-item
               clickable
               v-close-popup
@@ -480,7 +497,7 @@ const detectorDesc = computed(() => detector?.getDescription() || '');
             >
               <q-item-section>
                 <q-item-label>COCO-SSD</q-item-label>
-                <q-item-label caption>Fallback (80 objects)</q-item-label>
+                <q-item-label caption>Baseline (80 objects)</q-item-label>
               </q-item-section>
             </q-item>
           </q-list>
