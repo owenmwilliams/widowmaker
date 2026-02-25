@@ -83,7 +83,38 @@ async function loadDetector() {
     $q.notify({ message: `${name} ready!`, type: 'positive', icon: 'check_circle' });
   } catch (err: any) {
     console.error('Failed to load detector:', err);
-    $q.notify({ message: 'Failed to load detector', type: 'negative' });
+    console.error('Error details:', {
+      name: err?.name,
+      message: err?.message,
+      stack: err?.stack,
+      type: detectorType.value
+    });
+
+    // Determine error type and show detailed message
+    let errorMessage = 'Failed to load detector';
+    let details = '';
+
+    if (err?.message?.includes('CORS') || err?.message?.includes('cross-origin')) {
+      errorMessage = 'CORS Error';
+      details = 'Model blocked by browser security. Check GCS CORS config.';
+    } else if (err?.message?.includes('fetch') || err?.message?.includes('network') || err?.message?.includes('Failed to fetch')) {
+      errorMessage = 'Network Error';
+      details = `Cannot download model. Check internet connection. Error: ${err?.message?.substring(0, 100)}`;
+    } else if (err?.message?.includes('backend') || err?.message?.includes('registry')) {
+      errorMessage = 'Backend Error';
+      details = 'TensorFlow.js backend not initialized. Try COCO-SSD instead.';
+    } else {
+      errorMessage = 'Model Load Failed';
+      details = `${err?.message?.substring(0, 100) || 'Unknown error'}`;
+    }
+
+    $q.notify({
+      message: `${errorMessage}: ${details}`,
+      type: 'negative',
+      timeout: 8000, // Longer timeout for mobile debugging
+      multiLine: true,
+      actions: [{ label: 'Dismiss', color: 'white' }]
+    });
     modelLoading.value = false;
   }
 }

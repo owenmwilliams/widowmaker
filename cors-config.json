@@ -1,8 +1,15 @@
 [
   {
-    "origin": ["http://localhost:5173", "http://localhost:3000", "https://movetrack.app", "https://www.movetrack.app"],
+    "origin": [
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "https://movetrack.app",
+      "https://www.movetrack.app",
+      "https://movetrack-app-7hwn7ggbiq-uc.a.run.app",
+      "https://movetrack-app-203537990119.us-central1.run.app"
+    ],
     "method": ["GET", "HEAD"],
-    "responseHeader": ["Content-Type", "Content-Length"],
+    "responseHeader": ["Content-Type", "Content-Length", "Accept-Ranges", "Content-Range"],
     "maxAgeSeconds": 3600
   }
 ]
