@@ -52,6 +52,11 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
         console.log('[YOLO-Worker] Loading model:', payload.modelUrl);
         inputSize = payload.inputSize;
 
+        // Check for OffscreenCanvas support (required for preprocessing)
+        if (typeof OffscreenCanvas === 'undefined') {
+          throw new Error('OffscreenCanvas not supported in Web Worker. iOS Safari has limited support. Try using COCO-SSD instead or use desktop browser.');
+        }
+
         // Try WebGL first (GPU), fallback to WASM
         try {
           session = await ort.InferenceSession.create(payload.modelUrl, {
@@ -88,6 +93,15 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
       try {
         const { imageData, width, height } = payload;
+
+        // Check if OffscreenCanvas is supported
+        if (typeof OffscreenCanvas === 'undefined') {
+          self.postMessage({
+            type: 'detection',
+            error: 'OffscreenCanvas not supported in this browser. Web Workers require OffscreenCanvas support.'
+          });
+          return;
+        }
 
         // Convert ImageData to tensor
         const tensor = preprocessImageData(imageData, width, height, inputSize);

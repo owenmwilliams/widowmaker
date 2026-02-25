@@ -206,6 +206,12 @@ export class YoloWorldDetector implements Detector {
           { type: 'module' }
         );
 
+        // Add error handler for worker errors
+        this.worker.onerror = (error) => {
+          console.error('[YOLO-World] Worker error:', error);
+          reject(new Error(`Worker error: ${error.message || 'Unknown error'}`));
+        };
+
         // Set up message handler for load response
         const loadHandler = (e: MessageEvent) => {
           if (e.data.type === 'loaded') {
