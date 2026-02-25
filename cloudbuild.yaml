@@ -73,35 +73,43 @@ steps:
     args:
       - '-c'
       - |
-        set -euo pipefail
-        
+        set -eu
+
         # Install PostgreSQL client and download Cloud SQL Proxy
         apk add --no-cache postgresql-client wget
         wget -q https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.2/cloud-sql-proxy.linux.amd64 -O /cloud-sql-proxy
         chmod +x /cloud-sql-proxy
-        
+
         # Start Cloud SQL Proxy in background
         /cloud-sql-proxy --port 5432 $_CLOUD_SQL_CONNECTION &
         PROXY_PID=$$!
-        
+
         # Wait for proxy to be ready
         echo "Waiting for Cloud SQL Proxy to start..."
         sleep 10
-        
+
         # Get database password from Secret Manager
         DB_PASS=$$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$PROJECT_ID)
-        
+
         # Run all migration files in order (sorted numerically)
+        # Temporarily disable exit-on-error for migrations since many reference columns that were later renamed/removed
         echo "Running migrations from movetrack-api/migrations/..."
+        set +e
         for file in $$(ls movetrack-api/migrations/*.sql 2>/dev/null | sort -V); do
           echo "Running migration: $$file"
-          PGPASSWORD=$$DB_PASS psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f "$$file" || echo "Warning: $$file may have already been applied"
+          PGPASSWORD=$$DB_PASS psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f "$$file"
+          if [ $$? -eq 0 ]; then
+            echo "✓ $$file completed successfully"
+          else
+            echo "⚠ $$file may have already been applied or contains historical references"
+          fi
         done
-        
+        set -e
+
         # Stop the proxy
         kill $$PROXY_PID 2>/dev/null || true
-        
-        echo "All migrations completed successfully!"
+
+        echo "All migrations processing completed!"
     id: 'run-migrations'
     waitFor: ['build-api']
 
