@@ -140,10 +140,16 @@ const router = createRouter({
       beforeEnter: adminGuard
     },
     {
+      path: "/model-selection",
+      name: "model-selection",
+      component: () => import('../views/ModelSelection.vue'),
+      beforeEnter: authGuard
+    },
+    {
       path: "/mobile-live-scan",
       name: "mobile-live-scan",
-      component: () => import('../views/MobileLiveScan.vue'),
-      beforeEnter: adminGuard
+      component: () => import('../views/MobileLiveScanSimple.vue'),
+      beforeEnter: authGuard
     },
     // Test pages - only available in development
     ...(import.meta.env.MODE === 'development'
