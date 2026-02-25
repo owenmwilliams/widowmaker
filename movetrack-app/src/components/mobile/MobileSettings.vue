@@ -104,9 +104,9 @@ const isAdmin = computed(() => {
 const adminFeatures = [
   {
     name: 'Mobile Live Scan',
-    description: 'Real-time object detection using TensorFlow.js COCO-SSD with Claude enrichment',
+    description: 'Real-time object detection using YOLO-World with model selection',
     icon: 'camera_enhance',
-    route: '/mobile-live-scan',
+    route: '/model-selection',
     badge: 'Experimental'
   },
   {
