@@ -41,7 +41,8 @@
       "Bash(do sleep 10)",
       "Bash(echo:*)",
       "Bash(done)",
-      "Bash(gcloud run services list:*)"
+      "Bash(gcloud run services list:*)",
+      "Bash(git config:*)"
     ],
     "deny": [],
     "ask": []

@@ -61,8 +61,9 @@ onUnmounted(() => {
 
 // Load MediaPipe ObjectDetector
 async function loadDetector() {
+  let loadingNotif: any = null;
   try {
-    $q.notify({
+    loadingNotif = $q.notify({
       message: 'Loading object detector...',
       type: 'info',
       spinner: true,
@@ -84,6 +85,12 @@ async function loadDetector() {
     });
 
     detectorReady.value = true;
+
+    // Dismiss loading notification
+    if (loadingNotif) {
+      loadingNotif();
+    }
+
     $q.notify({
       message: 'Detector ready!',
       type: 'positive',
@@ -92,6 +99,12 @@ async function loadDetector() {
     });
   } catch (err: any) {
     console.error('Failed to load detector:', err);
+
+    // Dismiss loading notification on error
+    if (loadingNotif) {
+      loadingNotif();
+    }
+
     $q.notify({
       message: `Failed to load detector: ${err.message}`,
       type: 'negative'
@@ -307,19 +320,24 @@ async function classifyItem(item: CapturedItem) {
       }
     );
 
-    item.classified = res.data;
-    item.classifying = false;
+    // API returns { success: true, data: { name, description, ... } }
+    if (res.data.success && res.data.data) {
+      item.classified = res.data.data;
+      item.classifying = false;
 
-    $q.notify({
-      message: `Classified: ${item.classified?.name || 'Unknown'}`,
-      type: 'positive',
-      icon: 'auto_awesome'
-    });
-  } catch (err) {
+      $q.notify({
+        message: `Classified: ${item.classified?.name || 'Unknown'}`,
+        type: 'positive',
+        icon: 'auto_awesome'
+      });
+    } else {
+      throw new Error(res.data.error || 'Classification failed');
+    }
+  } catch (err: any) {
     console.error('Classification failed:', err);
     item.classifying = false;
     $q.notify({
-      message: 'Classification failed',
+      message: `Classification failed: ${err.message || 'Unknown error'}`,
       type: 'negative'
     });
   }
