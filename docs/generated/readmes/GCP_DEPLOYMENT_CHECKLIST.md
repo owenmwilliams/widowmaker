@@ -203,12 +203,12 @@ substitutions:
 
 **Files to update (all have same pattern):**
 
-1. `/movetrack-app/src/components/Login.vue` (line 16)
-2. `/movetrack-app/src/stores/InventoryStore.ts` (line 8)
-3. `/movetrack-app/src/components/Items.vue` (line 12)
-4. `/movetrack-app/src/components/Profile.vue` (line 10)
-5. `/movetrack-app/src/components/mobile/PhotoAdd.vue` (line 15)
-6. `/movetrack-app/src/components/mobile/BookcaseAdd.vue` (line 10)
+1. `movetrack-app/src/components/Login.vue` (line 16)
+2. `movetrack-app/src/stores/InventoryStore.ts` (line 8)
+3. `movetrack-app/src/components/Items.vue` (line 12)
+4. `movetrack-app/src/components/Profile.vue` (line 10)
+5. `movetrack-app/src/components/mobile/PhotoAdd.vue` (line 15)
+6. `movetrack-app/src/components/mobile/BookcaseAdd.vue` (line 10)
 7. And 6 more files (see list below)
 
 **Current code:**
@@ -240,7 +240,7 @@ const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050'
 
 ### 4.4 Update CORS Configuration
 
-**File:** `/movetrack-api/app.js`
+**File:** `movetrack-api/app.js`
 
 After deployment, you'll need to add your Cloud Run URLs to CORS.
 
@@ -263,7 +263,7 @@ var corsOptions = {
   origin: [
     'http://localhost:4050',
     'http://localhost:5173',
-    'https://movetrack-app-xxxxxxxxx-uc.a.run.app',  // Your frontend URL
+    'https:/movetrack-app-xxxxxxxxx-uc.a.run.app',  // Your frontend URL
     'https://your-custom-domain.com',                 // If using custom domain
   ],
   credentials: true,
@@ -273,7 +273,7 @@ var corsOptions = {
 
 ### 4.5 Update SendGrid Email Configuration
 
-**File:** `/movetrack-api/routes/auth.js` (around line 90)
+**File:** `movetrack-api/routes/auth.js` (around line 90)
 
 **Change the email sender and magic link domain:**
 ```javascript

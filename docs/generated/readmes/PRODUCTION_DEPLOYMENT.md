@@ -142,11 +142,11 @@ OPENAI_API_KEY=your-openai-api-key-here
 cd movetrack-api
 
 # Build the container
-gcloud builds submit --tag gcr.io/YOUR-PROJECT-ID/movetrack-api
+gcloud builds submit --tag gcr.io/YOUR-PROJECT-IDmovetrack-api
 
 # Deploy to Cloud Run
 gcloud run deploy movetrack-api \
-  --image gcr.io/YOUR-PROJECT-ID/movetrack-api \
+  --image gcr.io/YOUR-PROJECT-IDmovetrack-api \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
@@ -193,10 +193,10 @@ cd movetrack-app
 npm run build
 
 # Deploy to Cloud Run
-gcloud builds submit --tag gcr.io/YOUR-PROJECT-ID/movetrack-app
+gcloud builds submit --tag gcr.io/YOUR-PROJECT-IDmovetrack-app
 
 gcloud run deploy movetrack-app \
-  --image gcr.io/YOUR-PROJECT-ID/movetrack-app \
+  --image gcr.io/YOUR-PROJECT-IDmovetrack-app \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated
@@ -451,10 +451,10 @@ Monitor these metrics:
 
 ```bash
 # Backend
-gcloud run deploy movetrack-api --image gcr.io/PROJECT/movetrack-api --platform managed --region us-central1
+gcloud run deploy movetrack-api --image gcr.io/PROJECTmovetrack-api --platform managed --region us-central1
 
 # Frontend
-gcloud run deploy movetrack-app --image gcr.io/PROJECT/movetrack-app --platform managed --region us-central1
+gcloud run deploy movetrack-app --image gcr.io/PROJECTmovetrack-app --platform managed --region us-central1
 
 # View logs
 gcloud logging tail "resource.type=cloud_run_revision AND resource.labels.service_name=movetrack-api"

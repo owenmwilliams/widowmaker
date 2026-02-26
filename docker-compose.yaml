@@ -56,7 +56,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme123}
       POSTGRES_DB: movetrack_db
     volumes:
-      - ./init-movetrack.sql:/docker-entrypoint-initdb.d/init-movetrack.sql
+      - ./db/init-movetrack.sql:/docker-entrypoint-initdb.d/init-movetrack.sql
       - movetrack_data:/var/lib/postgresql/data
     ports:
       - '5432:5432'

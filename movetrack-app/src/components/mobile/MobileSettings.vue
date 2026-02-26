@@ -104,9 +104,9 @@ const isAdmin = computed(() => {
 const adminFeatures = [
   {
     name: 'Mobile Live Scan',
-    description: 'Real-time object detection using YOLO-World with model selection',
+    description: 'Real-time object detection with MediaPipe and AI classification',
     icon: 'camera_enhance',
-    route: '/model-selection',
+    route: '/mobile-live-scan',
     badge: 'Experimental'
   },
   {

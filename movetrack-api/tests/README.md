@@ -45,7 +45,7 @@ CREATE DATABASE movetrack_test_db;
 \q
 
 # Initialize test database schema
-docker exec -i movetrack_pg psql -U movetrack_user -d movetrack_test_db < init-movetrack.sql
+docker exec -i movetrack_pg psql -U movetrack_user -d movetrack_test_db < db/init-movetrack.sql
 ```
 
 ### 3. Set Environment Variables

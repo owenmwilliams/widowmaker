@@ -1,30 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import axios from 'axios';
-import { useDetectorStore } from '../stores/DetectorStore';
-
-type SavedItem = {
-  id: string;
-  class: string;
-  score: number;
-  bbox: [number, number, number, number];
-  snapshotUrl: string;
-  enriching: boolean;
-  enriched?: {
-    name: string;
-    material: string;
-    color: string;
-    estimatedWeight: number;
-    fragile: boolean;
-    confidence: number;
-  };
-};
+import { ObjectDetector, FilesetResolver } from '@mediapipe/tasks-vision';
 
 const $q = useQuasar();
 const router = useRouter();
-const detectorStore = useDetectorStore();
 
 const API_BASE =
   import.meta.env.MODE === 'development'
@@ -36,53 +18,88 @@ const buildHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-// ── State ──────────────────────────────────────────────────────────────────────
+type CapturedItem = {
+  id: string;
+  cropUrl: string;
+  bbox: { x: number; y: number; width: number; height: number };
+  classifying: boolean;
+  classified?: {
+    name: string;
+    description: string;
+    estimatedWeight: number;
+    fragile: boolean;
+  };
+  timestamp: number;
+};
+
+// State
 const videoRef = ref<HTMLVideoElement | null>(null);
 const canvasRef = ref<HTMLCanvasElement | null>(null);
-
 const cameraReady = ref(false);
 const scanning = ref(false);
-
+const detectorReady = ref(false);
 const detections = ref<any[]>([]);
-const savedItems = ref<SavedItem[]>([]);
+const capturedItems = ref<CapturedItem[]>([]);
 
 let stream: MediaStream | null = null;
 let animationFrameId: number | null = null;
+let objectDetector: ObjectDetector | null = null;
 
-// Detection filtering and persistence
-const MIN_SIZE_PERCENT = 0.10;
-const MAX_SIZE_PERCENT = 0.60;
-const TRACK_PERSISTENCE_MS = 3000;
-const trackMap = new Map<string, { detection: any; lastSeen: number }>();
-
-// ── Computed ───────────────────────────────────────────────────────────────────
-const canScan = computed(() => cameraReady.value && detectorStore.detectorLoaded);
-const enrichedCount = computed(() => savedItems.value.filter(i => i.enriched).length);
-const detectorName = computed(() => detectorStore.detector?.getName() || 'Unknown');
-const detectorDesc = computed(() => detectorStore.detector?.getDescription() || '');
-
-// ── Lifecycle ─────────────────────────────────────────────────────────────────
+// Lifecycle
 onMounted(async () => {
-  // Check if detector is loaded
-  if (!detectorStore.detectorLoaded || !detectorStore.detector) {
-    $q.notify({
-      message: 'No model loaded. Please select a model first.',
-      type: 'warning',
-      timeout: 3000
-    });
-    router.push('/model-selection');
-    return;
-  }
-
+  await loadDetector();
   await startCamera();
 });
 
 onUnmounted(() => {
   stopScanning();
   stopCamera();
+  if (objectDetector) {
+    objectDetector.close();
+  }
 });
 
-// ── Camera ────────────────────────────────────────────────────────────────────
+// Load MediaPipe ObjectDetector
+async function loadDetector() {
+  try {
+    $q.notify({
+      message: 'Loading object detector...',
+      type: 'info',
+      spinner: true,
+      timeout: 0
+    });
+
+    const vision = await FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm'
+    );
+
+    objectDetector = await ObjectDetector.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite',
+        delegate: 'GPU'
+      },
+      scoreThreshold: 0.3,
+      maxResults: 10,
+      runningMode: 'VIDEO'
+    });
+
+    detectorReady.value = true;
+    $q.notify({
+      message: 'Detector ready!',
+      type: 'positive',
+      icon: 'check_circle',
+      timeout: 1500
+    });
+  } catch (err: any) {
+    console.error('Failed to load detector:', err);
+    $q.notify({
+      message: `Failed to load detector: ${err.message}`,
+      type: 'negative'
+    });
+  }
+}
+
+// Camera
 async function startCamera() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({
@@ -109,18 +126,16 @@ function stopCamera() {
   cameraReady.value = false;
 }
 
-// ── Scanning Loop ─────────────────────────────────────────────────────────────
-const TARGET_FPS = 15;
-const FRAME_INTERVAL_MS = 1000 / TARGET_FPS;
+// Scanning
 let lastFrameTime = 0;
-let consecutiveErrors = 0;
-const MAX_CONSECUTIVE_ERRORS = 3;
+const FRAME_INTERVAL_MS = 100; // 10 FPS
 
 function startScanning() {
-  if (!detectorStore.detector || !videoRef.value || !canvasRef.value) return;
+  if (!detectorReady.value || !objectDetector) {
+    $q.notify({ message: 'Detector not ready', type: 'warning' });
+    return;
+  }
   scanning.value = true;
-  consecutiveErrors = 0;
-  lastFrameTime = 0;
   detectObjects();
 }
 
@@ -130,80 +145,31 @@ function stopScanning() {
     cancelAnimationFrame(animationFrameId);
     animationFrameId = null;
   }
-  trackMap.clear();
   detections.value = [];
-  lastFrameTime = 0;
-  consecutiveErrors = 0;
 }
 
-async function detectObjects() {
-  if (!scanning.value || !detectorStore.detector || !videoRef.value || !canvasRef.value) return;
+function detectObjects() {
+  if (!scanning.value || !objectDetector || !videoRef.value || !canvasRef.value) return;
 
-  const now = Date.now();
-  const timeSinceLastFrame = now - lastFrameTime;
-
-  if (timeSinceLastFrame < FRAME_INTERVAL_MS) {
+  const now = performance.now();
+  if (now - lastFrameTime < FRAME_INTERVAL_MS) {
     animationFrameId = requestAnimationFrame(detectObjects);
     return;
   }
-
   lastFrameTime = now;
 
   try {
-    const predictions = await detectorStore.detector.detect(videoRef.value);
-    consecutiveErrors = 0;
+    const result = objectDetector.detectForVideo(videoRef.value, now);
 
-    const video = videoRef.value;
-    const videoWidth = video.videoWidth;
-    const videoHeight = video.videoHeight;
+    detections.value = result.detections.map(det => ({
+      category: det.categories[0]?.categoryName || 'unknown',
+      score: det.categories[0]?.score || 0,
+      bbox: det.boundingBox
+    }));
 
-    // Filter detections
-    const filtered = predictions
-      .filter(pred => {
-        const [x, y, w, h] = pred.bbox;
-        const boxArea = (w * h) / (videoWidth * videoHeight);
-        return boxArea >= MIN_SIZE_PERCENT && boxArea <= MAX_SIZE_PERCENT;
-      })
-      .map(pred => ({
-        ...pred,
-        id: `${pred.class}-${Math.round(pred.bbox[0])}-${Math.round(pred.bbox[1])}`,
-        bbox: pred.bbox
-      }));
-
-    // Update trackMap
-    const currentTime = Date.now();
-    filtered.forEach(det => {
-      trackMap.set(det.class, { detection: det, lastSeen: currentTime });
-    });
-
-    // Remove stale tracks
-    for (const [key, value] of trackMap.entries()) {
-      if (currentTime - value.lastSeen > TRACK_PERSISTENCE_MS) {
-        trackMap.delete(key);
-      }
-    }
-
-    detections.value = Array.from(trackMap.values()).map(t => t.detection);
-
-    // Render
     renderDetections();
-  } catch (err: any) {
+  } catch (err) {
     console.error('Detection error:', err);
-    consecutiveErrors++;
-
-    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-      stopScanning();
-      $q.notify({
-        message: `Detection failed ${MAX_CONSECUTIVE_ERRORS} times. Try reloading the model.`,
-        type: 'negative',
-        timeout: 5000,
-        actions: [
-          { label: 'Select Model', color: 'white', handler: () => router.push('/model-selection') },
-          { label: 'Dismiss', color: 'white' }
-        ]
-      });
-      return;
-    }
   }
 
   if (scanning.value) {
@@ -225,27 +191,27 @@ function renderDetections() {
   ctx.drawImage(video, 0, 0);
 
   detections.value.forEach(det => {
-    const [x, y, w, h] = det.bbox;
+    const box = det.bbox;
 
     ctx.strokeStyle = '#00ff00';
     ctx.lineWidth = 3;
-    ctx.strokeRect(x, y, w, h);
+    ctx.strokeRect(box.originX, box.originY, box.width, box.height);
 
     ctx.fillStyle = 'rgba(0, 255, 0, 0.3)';
-    ctx.fillRect(x, y, w, h);
+    ctx.fillRect(box.originX, box.originY, box.width, box.height);
 
     ctx.fillStyle = '#00ff00';
     ctx.font = 'bold 16px Arial';
-    const label = `${det.class} ${Math.round(det.score * 100)}%`;
+    const label = `${det.category} ${Math.round(det.score * 100)}%`;
     const textMetrics = ctx.measureText(label);
-    ctx.fillRect(x, y - 24, textMetrics.width + 10, 24);
+    ctx.fillRect(box.originX, box.originY - 24, textMetrics.width + 10, 24);
 
     ctx.fillStyle = '#000';
-    ctx.fillText(label, x + 5, y - 6);
+    ctx.fillText(label, box.originX + 5, box.originY - 6);
   });
 }
 
-// ── Item Capture ──────────────────────────────────────────────────────────────
+// Capture item on tap
 function handleCanvasTap(event: MouseEvent) {
   if (!scanning.value || detections.value.length === 0) return;
 
@@ -259,8 +225,13 @@ function handleCanvasTap(event: MouseEvent) {
   const clickY = (event.clientY - rect.top) * scaleY;
 
   for (const det of detections.value) {
-    const [x, y, w, h] = det.bbox;
-    if (clickX >= x && clickX <= x + w && clickY >= y && clickY <= y + h) {
+    const box = det.bbox;
+    if (
+      clickX >= box.originX &&
+      clickX <= box.originX + box.width &&
+      clickY >= box.originY &&
+      clickY <= box.originY + box.height
+    ) {
       captureItem(det);
       break;
     }
@@ -271,41 +242,55 @@ function captureItem(det: any) {
   const video = videoRef.value;
   if (!video) return;
 
-  const [x, y, w, h] = det.bbox;
+  const box = det.bbox;
 
+  // Create crop
   const cropCanvas = document.createElement('canvas');
-  cropCanvas.width = w;
-  cropCanvas.height = h;
+  cropCanvas.width = box.width;
+  cropCanvas.height = box.height;
   const cropCtx = cropCanvas.getContext('2d');
   if (!cropCtx) return;
 
-  cropCtx.drawImage(video, x, y, w, h, 0, 0, w, h);
-  const snapshotUrl = cropCanvas.toDataURL('image/jpeg', 0.85);
+  cropCtx.drawImage(
+    video,
+    box.originX,
+    box.originY,
+    box.width,
+    box.height,
+    0,
+    0,
+    box.width,
+    box.height
+  );
+  const cropUrl = cropCanvas.toDataURL('image/jpeg', 0.85);
 
-  const savedItem: SavedItem = {
-    id: det.id,
-    class: det.class,
-    score: det.score,
-    bbox: det.bbox,
-    snapshotUrl,
-    enriching: false
+  const item: CapturedItem = {
+    id: `item-${Date.now()}`,
+    cropUrl,
+    bbox: { x: box.originX, y: box.originY, width: box.width, height: box.height },
+    classifying: false,
+    timestamp: Date.now()
   };
 
-  savedItems.value.unshift(savedItem);
+  capturedItems.value.unshift(item);
 
-  trackMap.delete(det.class);
-  detections.value = detections.value.filter(d => d.id !== det.id);
+  $q.notify({
+    message: `Captured ${det.category}`,
+    type: 'positive',
+    icon: 'photo_camera'
+  });
 
-  $q.notify({ message: `Saved ${det.class}`, type: 'positive', icon: 'save' });
+  // Auto-classify
+  classifyItem(item);
 }
 
-async function enrichItem(item: SavedItem) {
-  if (item.enriched || item.enriching) return;
+async function classifyItem(item: CapturedItem) {
+  if (item.classified || item.classifying) return;
 
-  item.enriching = true;
+  item.classifying = true;
 
   try {
-    const response = await fetch(item.snapshotUrl);
+    const response = await fetch(item.cropUrl);
     const blob = await response.blob();
 
     const formData = new FormData();
@@ -322,31 +307,31 @@ async function enrichItem(item: SavedItem) {
       }
     );
 
-    item.enriched = res.data;
-    item.enriching = false;
+    item.classified = res.data;
+    item.classifying = false;
 
     $q.notify({
-      message: `Enriched: ${item.enriched?.name || item.class}`,
+      message: `Classified: ${item.classified?.name || 'Unknown'}`,
       type: 'positive',
       icon: 'auto_awesome'
     });
   } catch (err) {
-    console.error('Enrichment failed:', err);
-    item.enriching = false;
+    console.error('Classification failed:', err);
+    item.classifying = false;
     $q.notify({
-      message: 'Enrichment failed',
+      message: 'Classification failed',
       type: 'negative'
     });
   }
 }
 
-function removeItem(item: SavedItem) {
-  savedItems.value = savedItems.value.filter(i => i.id !== item.id);
+function removeItem(item: CapturedItem) {
+  capturedItems.value = capturedItems.value.filter(i => i.id !== item.id);
 }
 </script>
 
 <template>
-  <q-page class="mobile-live-scan">
+  <div class="mobile-live-scan">
     <!-- Header -->
     <div class="header q-pa-md bg-primary text-white">
       <div class="row items-center justify-between">
@@ -356,12 +341,12 @@ function removeItem(item: SavedItem) {
             dense
             round
             icon="arrow_back"
-            @click="router.push('/model-selection')"
+            @click="router.push('/')"
             class="q-mr-sm"
           />
           <div>
             <div class="text-h6">Live Scan</div>
-            <div class="text-caption">{{ detectorName }}: {{ detectorDesc }}</div>
+            <div class="text-caption">MediaPipe Object Detection</div>
           </div>
         </div>
       </div>
@@ -373,9 +358,11 @@ function removeItem(item: SavedItem) {
       <canvas ref="canvasRef" @click="handleCanvasTap" class="detection-canvas"></canvas>
 
       <!-- Loading overlay -->
-      <div v-if="!cameraReady" class="loading-overlay">
+      <div v-if="!cameraReady || !detectorReady" class="loading-overlay">
         <q-spinner-dots size="3rem" color="white" />
-        <div class="text-white text-h6 q-mt-md">Starting camera...</div>
+        <div class="text-white text-h6 q-mt-md">
+          {{ !cameraReady ? 'Starting camera...' : 'Loading detector...' }}
+        </div>
       </div>
     </div>
 
@@ -387,7 +374,7 @@ function removeItem(item: SavedItem) {
           color="positive"
           icon="play_arrow"
           label="Start Scanning"
-          :disable="!canScan"
+          :disable="!cameraReady || !detectorReady"
           @click="startScanning"
           class="col"
         />
@@ -401,47 +388,52 @@ function removeItem(item: SavedItem) {
         />
       </div>
 
-      <!-- Saved items -->
-      <div v-if="savedItems.length > 0" class="saved-items">
+      <!-- Captured items -->
+      <div v-if="capturedItems.length > 0" class="captured-items">
         <div class="text-subtitle2 text-grey-8 q-mb-sm">
-          Saved Items ({{ savedItems.length }})
-          <span class="text-caption text-positive q-ml-xs">{{ enrichedCount}} enriched</span>
+          Captured Items ({{ capturedItems.length }})
+          <span class="text-caption text-positive q-ml-xs">
+            {{ capturedItems.filter(i => i.classified).length }} classified
+          </span>
         </div>
 
         <div class="items-grid">
           <q-card
-            v-for="item in savedItems"
+            v-for="item in capturedItems"
             :key="item.id"
             flat
             bordered
             class="item-card"
           >
-            <img :src="item.snapshotUrl" class="item-image" />
+            <img :src="item.cropUrl" class="item-image" />
 
             <q-card-section class="q-pa-sm">
-              <div class="text-subtitle2">{{ item.enriched?.name || item.class }}</div>
-              <div class="text-caption text-grey-7">
-                Confidence: {{ Math.round(item.score * 100) }}%
+              <div class="text-subtitle2">
+                {{ item.classified?.name || 'Classifying...' }}
               </div>
 
-              <div v-if="item.enriched" class="q-mt-xs text-caption">
-                <div>Material: {{ item.enriched.material }}</div>
-                <div>Weight: ~{{ item.enriched.estimatedWeight }}lbs</div>
+              <div v-if="item.classified" class="q-mt-xs text-caption">
+                <div>{{ item.classified.description }}</div>
+                <div>Weight: ~{{ item.classified.estimatedWeight }}lbs</div>
+                <div v-if="item.classified.fragile" class="text-warning">⚠️ Fragile</div>
+              </div>
+
+              <div v-else-if="item.classifying" class="q-mt-xs">
+                <q-spinner-dots size="sm" color="primary" />
               </div>
             </q-card-section>
 
             <q-card-actions align="right" class="q-pa-sm">
               <q-btn
-                v-if="!item.enriched && !item.enriching"
+                v-if="!item.classified && !item.classifying"
                 flat
                 dense
                 size="sm"
                 color="primary"
                 icon="auto_awesome"
-                label="Enrich"
-                @click="enrichItem(item)"
+                label="Classify"
+                @click="classifyItem(item)"
               />
-              <q-spinner-dots v-if="item.enriching" size="sm" color="primary" />
               <q-btn
                 flat
                 dense
@@ -455,7 +447,7 @@ function removeItem(item: SavedItem) {
         </div>
       </div>
     </div>
-  </q-page>
+  </div>
 </template>
 
 <style scoped>
@@ -503,7 +495,7 @@ function removeItem(item: SavedItem) {
   overflow-y: auto;
 }
 
-.saved-items {
+.captured-items {
   margin-top: 1rem;
 }
 

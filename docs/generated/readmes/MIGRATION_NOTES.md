@@ -5,7 +5,7 @@ This document outlines what has been created, what needs to be updated, and impl
 ## ✅ What's Been Created
 
 ### New Workspace Structure
-- `/Users/owenwilliams/Projects/movetrack/` - New workspace directory
+- `<repo-root>/` - New workspace directory
 - Complete copy of `takestock-app` → `movetrack-app`
 - Complete copy of `takestock-api` → `movetrack-api`
 - All Web3 functionality removed from this workspace
@@ -27,9 +27,9 @@ This document outlines what has been created, what needs to be updated, and impl
 - `docker-compose.yaml`: Updated with MoveTrack branding, removed Web3, added environment variables
 - `.env.example`: Template for environment configuration
 - `.gitignore`: Standard ignores for Node.js, Docker, and sensitive files
-- `setup.sh`: Quick setup script for new users
+- `scripts/setup.sh`: Quick setup script for new users
 - `README.md`: Comprehensive documentation for moving/storage use case
-- `init-movetrack.sql`: Enhanced database initialization
+- `db/init-movetrack.sql`: Enhanced database initialization
 
 ## 🔨 What Needs to Be Implemented
 

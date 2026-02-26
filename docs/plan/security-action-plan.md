@@ -25,7 +25,7 @@ This document tracks all security improvements for the MoveTrack application bas
 **Impact:** Prevents DoS, brute force attacks, API abuse
 
 **Implementation Details:**
-- Created `/movetrack-api/config/rateLimits.js` with 8 different rate limiters:
+- Created `movetrack-api/config/rateLimits.js` with 8 different rate limiters:
   - `globalLimiter`: 100 requests/15min per IP (all routes)
   - `authLimiter`: 5 requests/hour per email (magic link requests)
   - `strictAuthLimiter`: 3 requests/hour per IP (sensitive auth)
@@ -46,7 +46,7 @@ This document tracks all security improvements for the MoveTrack application bas
 - [ ] Test that webhook endpoints are NOT rate limited
 
 **Notes:**
-- Rate limits can be adjusted in `/movetrack-api/config/rateLimits.js`
+- Rate limits can be adjusted in `movetrack-api/config/rateLimits.js`
 - Limits are conservative; can be relaxed after monitoring real usage
 - Rate limit violations are logged to console for monitoring
 
@@ -64,7 +64,7 @@ This document tracks all security improvements for the MoveTrack application bas
 3. [ ] Create new key with restrictions:
    - **Application restrictions:** HTTP referrers
    - **Allowed referrers:**
-     - `https://movetrack-app-*.run.app/*`
+     - `https:/movetrack-app-*.run.app/*`
      - `https://*.movetrack.app/*` (if custom domain)
      - `http://localhost:*/*` (development only)
    - **API restrictions:**
@@ -84,7 +84,7 @@ This document tracks all security improvements for the MoveTrack application bas
 7. [ ] Remove old key from ALL locations (search codebase)
 
 **Files to Update:**
-- `/movetrack-app/.env` (local - do not commit)
+- `movetrack-app/.env` (local - do not commit)
 - Cloud Run environment variables (production)
 - Any deployment scripts
 
@@ -115,7 +115,7 @@ This document tracks all security improvements for the MoveTrack application bas
 
 **Code Changes:**
 ```javascript
-// File: /movetrack-api/bin/authService.js
+// File: movetrack-api/bin/authService.js
 
 const crypto = require('crypto');
 
@@ -161,8 +161,8 @@ async function verifyMagicLinkToken(token) {
 ```
 
 **3.2 Created Migration Scripts** ✅
-- ✅ Created test script: `/movetrack-api/scripts/testTokenHashing.js`
-- ✅ Created migration script: `/movetrack-api/scripts/migrateTokenHashing.js`
+- ✅ Created test script: `movetrack-api/scripts/testTokenHashing.js`
+- ✅ Created migration script: `movetrack-api/scripts/migrateTokenHashing.js`
 - ✅ Chose Option 1: Invalidate all existing tokens (safest approach)
 - ✅ Ran migration successfully - invalidated 2 active tokens
 
@@ -175,9 +175,9 @@ async function verifyMagicLinkToken(token) {
 - ✅ Verify tokens in database are now 64-character SHA-256 hex strings
 
 **Files Modified:**
-- ✅ `/movetrack-api/bin/authService.js` - Added hashing to all token operations
-- ✅ `/movetrack-api/scripts/testTokenHashing.js` - Created test suite
-- ✅ `/movetrack-api/scripts/migrateTokenHashing.js` - Created migration script
+- ✅ `movetrack-api/bin/authService.js` - Added hashing to all token operations
+- ✅ `movetrack-api/scripts/testTokenHashing.js` - Created test suite
+- ✅ `movetrack-api/scripts/migrateTokenHashing.js` - Created migration script
 
 **Security Improvement:**
 - **Before:** Database breach exposes all active tokens → attacker can log in
@@ -204,7 +204,7 @@ Implemented minimal email verification that marks emails as verified on first su
 
 **Code Changes:**
 ```javascript
-// File: /movetrack-api/bin/authService.js
+// File: movetrack-api/bin/authService.js
 
 // Updated SELECT query (line 179)
 const authToken = await db.oneOrNone(
@@ -253,7 +253,7 @@ user: {
 - Manual re-verification option
 
 **Files Modified:**
-- ✅ `/movetrack-api/bin/authService.js` - Lines 179, 202-206, 234
+- ✅ `movetrack-api/bin/authService.js` - Lines 179, 202-206, 234
 
 **Testing:**
 - [x] Email is marked as verified after first login (implementation tested)
@@ -274,12 +274,12 @@ user: {
 
 **5.1 Install Helmet**
 ```bash
-cd /movetrack-api && npm install helmet
+cd movetrack-api && npm install helmet
 ```
 
 **5.2 Update app.js**
 ```javascript
-// File: /movetrack-api/app.js
+// File: movetrack-api/app.js
 
 const helmet = require('helmet');
 
@@ -342,8 +342,8 @@ app.use(helmet({
 - [ ] Test on both development and production
 
 **Files to Modify:**
-- `/movetrack-api/app.js`
-- `/movetrack-api/package.json`
+- `movetrack-api/app.js`
+- `movetrack-api/package.json`
 
 ---
 
@@ -357,12 +357,12 @@ app.use(helmet({
 Currently, any user can query any other user's profile by passing `user_id` in query parameter.
 
 **Files to Fix:**
-- `/movetrack-api/routes/users.js`
+- `movetrack-api/routes/users.js`
 
 **Code Changes:**
 
 ```javascript
-// File: /movetrack-api/routes/users.js
+// File: movetrack-api/routes/users.js
 
 const { authenticate } = require('../bin/authService');
 
@@ -436,7 +436,7 @@ router.get('/public/:userId', async function(req, res) {
 The `x-plan-preview` header allows any user to test any plan level without authentication.
 
 **File to Fix:**
-- `/movetrack-api/bin/authService.js` (in `resolveEffectivePlan` function)
+- `movetrack-api/bin/authService.js` (in `resolveEffectivePlan` function)
 
 **Options:**
 
@@ -490,12 +490,12 @@ function resolveEffectivePlan(req) {
 
 **8.1 Install Sanitization Library**
 ```bash
-cd /movetrack-api && npm install express-validator
+cd movetrack-api && npm install express-validator
 ```
 
 **8.2 Create Validation Middleware**
 ```javascript
-// File: /movetrack-api/middleware/validation.js
+// File: movetrack-api/middleware/validation.js
 
 const { body, param, query, validationResult } = require('express-validator');
 
@@ -537,7 +537,7 @@ module.exports = { validators, handleValidationErrors };
 
 **8.3 Apply to Routes**
 ```javascript
-// Example: /movetrack-api/routes/items.js
+// Example: movetrack-api/routes/items.js
 
 const { validators, handleValidationErrors } = require('../middleware/validation');
 
@@ -579,12 +579,12 @@ router.post('/',
 
 **9.1 Install Logging Library**
 ```bash
-cd /movetrack-api && npm install winston
+cd movetrack-api && npm install winston
 ```
 
 **9.2 Create Logger Configuration**
 ```javascript
-// File: /movetrack-api/config/logger.js
+// File: movetrack-api/config/logger.js
 
 const winston = require('winston');
 const path = require('path');
@@ -631,8 +631,8 @@ module.exports = logger;
 
 **9.3 Create Logs Directory**
 ```bash
-mkdir -p /movetrack-api/logs
-echo "*.log" >> /movetrack-api/logs/.gitignore
+mkdir -p movetrack-api/logs
+echo "*.log" >> movetrack-api/logs/.gitignore
 ```
 
 **9.4 Add Security Event Logging**
@@ -649,7 +649,7 @@ echo "*.log" >> /movetrack-api/logs/.gitignore
 
 **Example Usage:**
 ```javascript
-// File: /movetrack-api/bin/authService.js
+// File: movetrack-api/bin/authService.js
 
 const logger = require('../config/logger');
 
@@ -704,7 +704,7 @@ Session tokens stored in localStorage are accessible to JavaScript and vulnerabl
 **10.1 Backend Changes**
 
 ```javascript
-// File: /movetrack-api/bin/authService.js
+// File: movetrack-api/bin/authService.js
 
 function setSessionCookie(res, sessionToken) {
   res.cookie('session_token', sessionToken, {
@@ -732,14 +732,14 @@ async function verifyMagicLink(req, res) {
 
 **10.2 Update Cookie Parser Configuration**
 ```javascript
-// File: /movetrack-api/app.js
+// File: movetrack-api/app.js
 
 app.use(cookieParser(process.env.COOKIE_SECRET || 'your-secret-key'));
 ```
 
 **10.3 Update Authentication Middleware**
 ```javascript
-// File: /movetrack-api/bin/jwtMiddleware.js
+// File: movetrack-api/bin/jwtMiddleware.js
 
 async function verifyToken(req, res, next) {
   // Try cookie first, fall back to Authorization header
@@ -768,7 +768,7 @@ axios.defaults.withCredentials = true;
 
 **10.5 CORS Update**
 ```javascript
-// File: /movetrack-api/app.js
+// File: movetrack-api/app.js
 
 var corsOptions = {
   origin: /* ... existing origins ... */,

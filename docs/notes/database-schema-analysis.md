@@ -2,7 +2,7 @@
 
 ## 1. Introduction
 
-This report details the inconsistencies and design flaws found in the original `init-movetrack.sql` database schema. These issues could lead to data integrity violations, performance degradation, and application errors. A corrected schema has been created in `init-movetrack-fixed.sql` to address these problems.
+This report details the inconsistencies and design flaws found in the original `db/init-movetrack.sql` database schema. These issues could lead to data integrity violations, performance degradation, and application errors. A corrected schema has been created in `init-movetrack-fixed.sql` to address these problems.
 
 ## 2. Summary of Identified Inconsistencies
 

@@ -168,7 +168,7 @@ var corsOptions = {
     'http://localhost:5173',
     'https://www.yourdomain.com',
     'https://yourdomain.com',
-    'https://movetrack-app-XXXXX.run.app' // Your Cloud Run URL
+    'https:/movetrack-app-XXXXX.run.app' // Your Cloud Run URL
   ],
   credentials: true,
   optionsSuccessStatus: 200

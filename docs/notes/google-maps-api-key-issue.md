@@ -63,13 +63,13 @@ The Google Maps API key needs to be injected during the **Vite build process** (
       - 'build'
       - '--no-cache'
       - '--build-arg'
-      - 'VITE_API_BASE_URL=https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
+      - 'VITE_API_BASE_URL=https:/movetrack-api-7hwn7ggbiq-uc.a.run.app'
       - '--build-arg'
       - 'VITE_GOOGLE_MAPS_API_KEY=$$GOOGLE_MAPS_API_KEY'  # Double $$ to escape
       - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repomovetrack-app:$COMMIT_SHA'
       - '-t'
-      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:latest'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repomovetrack-app:latest'
       - './movetrack-app'
     secretEnv: ['GOOGLE_MAPS_API_KEY']
     id: 'build-app'
@@ -253,7 +253,7 @@ const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/calculate
 ### Evidence of Failure
 **Production URL Check**:
 ```bash
-curl -s https://movetrack-app-7hwn7ggbiq-uc.a.run.app | grep -o 'js?key=[^"&]*'
+curl -s https:/movetrack-app-7hwn7ggbiq-uc.a.run.app | grep -o 'js?key=[^"&]*'
 ```
 **Output**:
 ```
@@ -371,12 +371,12 @@ gcloud builds describe 7847279d-9dce-46de-a821-933526fef187
 ## Related Files
 
 ### Configuration
-- `/Users/owenwilliams/Projects/widowmaker/cloudbuild.yaml` (lines 15-30, 120-123)
-- `/Users/owenwilliams/Projects/widowmaker/movetrack-app/Dockerfile` (lines 15-24)
-- `/Users/owenwilliams/Projects/widowmaker/movetrack-app/.dockerignore` (excludes `.env`)
+- `<repo-root>/cloudbuild.yaml` (lines 15-30, 120-123)
+- `<repo-root>/movetrack-app/Dockerfile` (lines 15-24)
+- `<repo-root>/movetrack-app/.dockerignore` (excludes `.env`)
 
 ### Frontend Code
-- `/Users/owenwilliams/Projects/widowmaker/movetrack-app/.env` (local development only)
+- `<repo-root>/movetrack-app/.env` (local development only)
 - Any Vue component using Google Maps (references `import.meta.env.VITE_GOOGLE_MAPS_API_KEY`)
 
 ---
@@ -402,7 +402,7 @@ gcloud builds describe 7847279d-9dce-46de-a821-933526fef187
 ## Reproduction Steps
 
 ### To Verify the Issue:
-1. Visit: https://movetrack-app-7hwn7ggbiq-uc.a.run.app
+1. Visit: https:/movetrack-app-7hwn7ggbiq-uc.a.run.app
 2. Open browser DevTools → Console
 3. Observe error: `Google Maps JavaScript API error: InvalidKeyMapError`
 4. Check Network tab → Look for Google Maps script URL

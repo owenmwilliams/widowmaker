@@ -10,7 +10,7 @@ docker run --name movetrack-postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 
 docker exec movetrack-postgres psql -U postgres -c "CREATE DATABASE movetrack_db;"
 
 # Run the init script
-docker exec -i movetrack-postgres psql -U postgres -d movetrack_db < init-movetrack.sql
+docker exec -i movetrack-postgres psql -U postgres -d movetrack_db < db/init-movetrack.sql
 ```
 
 ## 2. Configure Local Environment

@@ -7,7 +7,7 @@
  * - Multiple containers per collection (boxes with realistic attributes)
  * - Multiple items per container (with realistic MoveTrack fields)
  *
- * Run with: node generate-test-data.js
+ * Run with: node scripts/generate-test-data.js
  */
 
 const http = require('http');

@@ -21,6 +21,7 @@
     "@googlemaps/js-api-loader": "^2.0.2",
     "@huggingface/inference": "^2.6.1",
     "@ionic/pwa-elements": "^3.2.2",
+    "@mediapipe/tasks-vision": "^0.10.32",
     "@quasar/extras": "^1.16.4",
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs": "^4.22.0",

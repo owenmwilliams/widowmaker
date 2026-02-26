@@ -15,7 +15,7 @@ Successfully implemented SHA-256 token hashing for all authentication tokens in 
 ## What Was Implemented
 
 ### 1. Token Hashing Function
-**File:** `/movetrack-api/bin/authService.js`
+**File:** `movetrack-api/bin/authService.js`
 
 Added `hashToken()` function that uses SHA-256 to create one-way hashes:
 
@@ -76,11 +76,11 @@ Session tokens (JWTs) are now also hashed before storage for defense-in-depth:
 
 | File | Changes |
 |------|---------|
-| `/movetrack-api/bin/authService.js` | Added `hashToken()`, updated 4 functions |
-| `/movetrack-api/scripts/testTokenHashing.js` | Created comprehensive test suite |
-| `/movetrack-api/scripts/migrateTokenHashing.js` | Created migration script |
-| `/movetrack-api/scripts/testMagicLinkFlow.js` | Created integration test |
-| `/SECURITY-ACTION-PLAN.md` | Updated with completion status |
+| `movetrack-api/bin/authService.js` | Added `hashToken()`, updated 4 functions |
+| `movetrack-api/scripts/testTokenHashing.js` | Created comprehensive test suite |
+| `movetrack-api/scripts/migrateTokenHashing.js` | Created migration script |
+| `movetrack-api/scripts/testMagicLinkFlow.js` | Created integration test |
+| `security-action-plan.md` | Updated with completion status |
 
 ---
 

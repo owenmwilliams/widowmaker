@@ -442,5 +442,5 @@ The goal is to make estimates more realistic, communicate limitations clearly, a
 
 ## Related Documents
 
-- [RESEARCH-MOVING-COST-ESTIMATION.md](./RESEARCH-MOVING-COST-ESTIMATION.md) - Research brief for pricing formula validation
-- Current implementation: [DesktopMovePlanning.vue](./movetrack-app/src/components/desktop/DesktopMovePlanning.vue)
+- [research-moving-cost-estimation.md](../research/research-moving-cost-estimation.md) - Research brief for pricing formula validation
+- Current implementation: [DesktopMovePlanning.vue](../../movetrack-app/src/components/desktop/DesktopMovePlanning.vue)

@@ -212,12 +212,12 @@ npm install --save-dev @vue/test-utils vitest @vitest/ui jsdom
 
 1. **Fix npm permissions** (if needed):
 ```bash
-sudo chown -R 501:20 "/Users/owenwilliams/.npm"
+sudo chown -R "$(id -u)":"$(id -g)" "$HOME/.npm"
 ```
 
 2. **Install test dependencies**:
 ```bash
-cd /Users/owenwilliams/Projects/movetrack/movetrack-api
+cd <repo-root>/movetrack-api
 npm install --save-dev jest supertest @types/jest @types/supertest
 ```
 
@@ -231,7 +231,7 @@ CREATE DATABASE movetrack_test_db;
 \q
 
 # Initialize schema
-docker exec -i movetrack_pg psql -U movetrack_user -d movetrack_test_db < init-movetrack.sql
+docker exec -i movetrack_pg psql -U movetrack_user -d movetrack_test_db < db/init-movetrack.sql
 ```
 
 ### Running Tests
@@ -419,7 +419,7 @@ describe('Feature/Component Name', () => {
 - API Tests: `movetrack-api/tests/README.md`
 - Jest Config: `movetrack-api/jest.config.js`
 - Test Helper Functions: `movetrack-api/tests/setup.js`
-- Database Schema: `init-movetrack.sql`
+- Database Schema: `db/init-movetrack.sql`
 - API Routes: `movetrack-api/routes/`
 
 ---

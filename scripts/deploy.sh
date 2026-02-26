@@ -146,7 +146,7 @@ case $choice in
     6)
         echo "Setting up Cloud Build trigger..."
         echo "Please visit: https://console.cloud.google.com/cloud-build/triggers"
-        echo "And follow the instructions in DEPLOYMENT.md"
+        echo "And follow the instructions in docs/generated/readmes/DEPLOYMENT.md"
         ;;
     7)
         echo "Exiting..."
@@ -159,4 +159,4 @@ case $choice in
 esac
 
 echo ""
-echo "Done! For more details, see DEPLOYMENT.md"
+echo "Done! For more details, see docs/generated/readmes/DEPLOYMENT.md"

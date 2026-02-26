@@ -159,7 +159,7 @@ import * as Keychain from 'react-native-keychain';
 
 const API_BASE_URL = __DEV__
   ? 'http://localhost:3050'
-  : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+  : 'https:/movetrack-api-7hwn7ggbiq-uc.a.run.app';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -1695,8 +1695,8 @@ Perfect for:
 
 ## 🔗 Related Documents
 
-- [Security Action Plan](./SECURITY-ACTION-PLAN.md)
-- [Token Hashing Implementation](./TOKEN-HASHING-IMPLEMENTATION.md)
+- [Security Action Plan](./security-action-plan.md)
+- [Token Hashing Implementation](./token-hashing-implementation.md)
 - API Documentation (to be created)
 - Design System (to be created)
 

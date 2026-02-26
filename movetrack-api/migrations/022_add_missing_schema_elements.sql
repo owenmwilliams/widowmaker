@@ -1,4 +1,4 @@
--- Migration 022: Add missing schema elements for parity with init-movetrack.sql
+-- Migration 022: Add missing schema elements for parity with db/init-movetrack.sql
 -- This migration adds:
 -- 1. Generic update_updated_at_column() function and triggers
 -- 2. permissions table
@@ -177,7 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_move_tasks_project ON move_tasks(move_project_id)
 CREATE INDEX IF NOT EXISTS idx_storage_units_user_id ON storage_units(user_id);
 
 -- ============================================================================
--- PART 8: Recreate views with all columns from init-movetrack.sql
+-- PART 8: Recreate views with all columns from db/init-movetrack.sql
 -- ============================================================================
 
 -- Drop and recreate containers_with_location view

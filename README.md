@@ -122,7 +122,7 @@ MoveTrack is a comprehensive inventory management system designed specifically f
 1. **Set up PostgreSQL**
    ```bash
    createdb movetrack_db
-   psql movetrack_db < init-movetrack.sql
+   psql movetrack_db < db/init-movetrack.sql
    ```
 
 2. **Install and run API**
@@ -138,6 +138,15 @@ MoveTrack is a comprehensive inventory management system designed specifically f
    npm install
    npm run dev
    ```
+
+## 📚 Documentation & Scripts
+
+- `docs/plan` - Action plans and implementation notes
+- `docs/research` - Research and analysis docs
+- `docs/notes` - Issue notes and investigations
+- `docs/generated/readmes` - Generated documentation snapshots
+- `db/` - Database initialization and seed scripts
+- `scripts/` - Helper scripts (setup, deploy, data generation)
 
 ## 📱 Mobile Development
 
