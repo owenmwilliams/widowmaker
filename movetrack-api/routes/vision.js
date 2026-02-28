@@ -402,4 +402,105 @@ router.post('/provider', verifyToken, (req, res) => {
   }
 });
 
+// POST batch analyze items
+// REQUIRES AUTHENTICATION
+// Accepts array of data URLs (base64 encoded images)
+router.post('/analyze-batch', verifyToken, async (req, res) => {
+  try {
+    const { images, category } = req.body;
+
+    if (!Array.isArray(images) || images.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'images array is required and must not be empty'
+      });
+    }
+
+    if (images.length > 50) {
+      return res.status(400).json({
+        success: false,
+        error: 'Maximum 50 images per batch'
+      });
+    }
+
+    console.log(`Batch analyzing ${images.length} items (category: ${category || 'all'})`);
+
+    // Get provider based on plan
+    const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
+    let provider = (req.query.provider || req.body.provider || '').toLowerCase();
+    const allowedBasicProviders = ['scout', 'qwen'];
+    if (plan !== 'pro') {
+      provider = allowedBasicProviders.includes(provider) ? provider : 'scout';
+    }
+
+    // Process all images in parallel
+    const results = await Promise.allSettled(
+      images.map(async (imageDataUrl, index) => {
+        try {
+          // Extract base64 and mime type from data URL
+          const isDataUrl = imageDataUrl.startsWith('data:');
+          let imageSource, mimeType;
+
+          if (isDataUrl) {
+            const [metadata, base64Data] = imageDataUrl.split(',');
+            const mimeMatch = metadata.match(/^data:(.*?);base64$/);
+            mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+            imageSource = base64Data;
+          } else {
+            // Assume it's already base64
+            imageSource = imageDataUrl;
+            mimeType = 'image/jpeg';
+          }
+
+          const result = await visionService.analyzeItemPhoto(imageSource, mimeType, provider);
+          return {
+            index,
+            ...result
+          };
+        } catch (error) {
+          console.error(`Error analyzing image ${index}:`, error);
+          return {
+            index,
+            success: false,
+            error: error.message
+          };
+        }
+      })
+    );
+
+    // Format results
+    const formattedResults = results.map((result, index) => {
+      if (result.status === 'fulfilled') {
+        return result.value;
+      } else {
+        return {
+          index,
+          success: false,
+          error: result.reason?.message || 'Unknown error'
+        };
+      }
+    });
+
+    const successCount = formattedResults.filter(r => r.success).length;
+    const failureCount = formattedResults.length - successCount;
+
+    res.json({
+      success: true,
+      results: formattedResults,
+      summary: {
+        total: images.length,
+        successful: successCount,
+        failed: failureCount,
+        provider
+      }
+    });
+  } catch (error) {
+    console.error('Batch analyze error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;

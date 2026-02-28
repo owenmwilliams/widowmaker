@@ -369,11 +369,13 @@ async function classifyItem(item: CapturedItem) {
       formData,
       {
         headers: {
-          ...buildHeaders(),
-          'Content-Type': 'multipart/form-data'
+          ...buildHeaders()
+          // Don't set Content-Type - axios sets it automatically with boundary
         }
       }
     );
+
+    console.log('Vision API response:', res.data);
 
     // API returns { success: true, data: { name, description, ... } }
     if (res.data.success && res.data.data) {
@@ -390,9 +392,10 @@ async function classifyItem(item: CapturedItem) {
     }
   } catch (err: any) {
     console.error('Classification failed:', err);
+    console.error('Error response:', err.response?.data);
     item.classifying = false;
     $q.notify({
-      message: `Classification failed: ${err.message || 'Unknown error'}`,
+      message: `Classification failed: ${err.response?.data?.error || err.message || 'Unknown error'}`,
       type: 'negative'
     });
   }
@@ -431,23 +434,90 @@ async function processSelectedItems() {
     return;
   }
 
-  $q.notify({
+  const processingNotif = $q.notify({
     message: `Processing ${selectedItems.length} furniture item${selectedItems.length > 1 ? 's' : ''}...`,
     type: 'info',
     spinner: true,
-    timeout: 2000
+    timeout: 0
   });
 
-  // Process items sequentially
-  for (const item of selectedItems) {
-    await classifyItem(item);
+  // Mark all as classifying
+  selectedItems.forEach(item => {
+    item.classifying = true;
+  });
+
+  try {
+    // Extract data URLs for batch processing
+    const images = selectedItems.map(item => item.cropUrl);
+
+    const res = await axios.post(
+      `${API_BASE}/vision/analyze-batch`,
+      { images, category: 'large_furniture' },
+      {
+        headers: buildHeaders()
+      }
+    );
+
+    console.log('Batch processing response:', res.data);
+
+    if (res.data.success && Array.isArray(res.data.results)) {
+      // Map results back to items
+      res.data.results.forEach((result, index) => {
+        const item = selectedItems[index];
+        if (!item) return;
+
+        item.classifying = false;
+
+        if (result.success && result.data) {
+          item.classified = result.data;
+          $q.notify({
+            message: `Classified: ${result.data.name}`,
+            type: 'positive',
+            icon: 'check_circle',
+            timeout: 1000
+          });
+        } else {
+          console.error(`Failed to classify item ${index}:`, result.error);
+          $q.notify({
+            message: `Failed: ${result.error || 'Unknown error'}`,
+            type: 'negative',
+            timeout: 2000
+          });
+        }
+      });
+
+      // Dismiss processing notification
+      if (processingNotif) {
+        processingNotif();
+      }
+
+      $q.notify({
+        message: `Processed ${res.data.summary.successful}/${res.data.summary.total} items`,
+        type: 'positive',
+        icon: 'check_circle'
+      });
+    } else {
+      throw new Error('Invalid response from batch endpoint');
+    }
+  } catch (err: any) {
+    console.error('Batch processing failed:', err);
+    console.error('Error response:', err.response?.data);
+
+    // Mark all as not classifying
+    selectedItems.forEach(item => {
+      item.classifying = false;
+    });
+
+    // Dismiss processing notification
+    if (processingNotif) {
+      processingNotif();
+    }
+
+    $q.notify({
+      message: `Batch processing failed: ${err.response?.data?.error || err.message || 'Unknown error'}`,
+      type: 'negative'
+    });
   }
-
-  $q.notify({
-    message: 'All items processed!',
-    type: 'positive',
-    icon: 'check_circle'
-  });
 }
 </script>
 
