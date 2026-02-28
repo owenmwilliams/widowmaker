@@ -18,10 +18,15 @@ const buildHeaders = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+type ItemCategory = 'large_furniture' | 'appliance' | 'fragile_high_value' | 'special_handling' | 'boxable_items' | 'storage_container' | 'unknown';
+
 type CapturedItem = {
   id: string;
   cropUrl: string;
   bbox: { x: number; y: number; width: number; height: number };
+  detectedLabel: string;
+  category: ItemCategory;
+  selected: boolean;
   classifying: boolean;
   classified?: {
     name: string;
@@ -31,6 +36,53 @@ type CapturedItem = {
   };
   timestamp: number;
 };
+
+// Map COCO labels to our categories
+const CATEGORY_MAP: Record<string, ItemCategory> = {
+  // Large Furniture
+  'couch': 'large_furniture',
+  'chair': 'large_furniture',
+  'dining table': 'large_furniture',
+  'bed': 'large_furniture',
+  'desk': 'large_furniture',
+  'bench': 'large_furniture',
+
+  // Appliances
+  'tv': 'appliance',
+  'laptop': 'appliance',
+  'microwave': 'appliance',
+  'oven': 'appliance',
+  'toaster': 'appliance',
+  'refrigerator': 'appliance',
+  'sink': 'appliance',
+
+  // Fragile/High Value
+  'vase': 'fragile_high_value',
+  'wine glass': 'fragile_high_value',
+  'cup': 'fragile_high_value',
+  'clock': 'fragile_high_value',
+
+  // Special Handling
+  'potted plant': 'special_handling',
+
+  // Boxable Items
+  'book': 'boxable_items',
+  'cell phone': 'boxable_items',
+  'remote': 'boxable_items',
+  'keyboard': 'boxable_items',
+  'mouse': 'boxable_items',
+  'bottle': 'boxable_items',
+  'bowl': 'boxable_items',
+
+  // Storage Containers
+  'suitcase': 'storage_container',
+  'handbag': 'storage_container',
+  'backpack': 'storage_container',
+};
+
+function getCategoryFromLabel(label: string): ItemCategory {
+  return CATEGORY_MAP[label.toLowerCase()] || 'unknown';
+}
 
 // State
 const videoRef = ref<HTMLVideoElement | null>(null);
@@ -256,6 +308,8 @@ function captureItem(det: any) {
   if (!video) return;
 
   const box = det.bbox;
+  const detectedLabel = det.category;
+  const category = getCategoryFromLabel(detectedLabel);
 
   // Create crop
   const cropCanvas = document.createElement('canvas');
@@ -281,6 +335,9 @@ function captureItem(det: any) {
     id: `item-${Date.now()}`,
     cropUrl,
     bbox: { x: box.originX, y: box.originY, width: box.width, height: box.height },
+    detectedLabel,
+    category,
+    selected: false,
     classifying: false,
     timestamp: Date.now()
   };
@@ -288,13 +345,11 @@ function captureItem(det: any) {
   capturedItems.value.unshift(item);
 
   $q.notify({
-    message: `Captured ${det.category}`,
+    message: `Captured ${detectedLabel} (${category})`,
     type: 'positive',
-    icon: 'photo_camera'
+    icon: 'photo_camera',
+    timeout: 1000
   });
-
-  // Auto-classify
-  classifyItem(item);
 }
 
 async function classifyItem(item: CapturedItem) {
@@ -346,6 +401,54 @@ async function classifyItem(item: CapturedItem) {
 function removeItem(item: CapturedItem) {
   capturedItems.value = capturedItems.value.filter(i => i.id !== item.id);
 }
+
+function toggleSelection(item: CapturedItem) {
+  item.selected = !item.selected;
+}
+
+function selectAll() {
+  capturedItems.value.forEach(item => {
+    if (item.category === 'large_furniture') {
+      item.selected = true;
+    }
+  });
+}
+
+function deselectAll() {
+  capturedItems.value.forEach(item => item.selected = false);
+}
+
+async function processSelectedItems() {
+  const selectedItems = capturedItems.value.filter(
+    item => item.selected && item.category === 'large_furniture' && !item.classified
+  );
+
+  if (selectedItems.length === 0) {
+    $q.notify({
+      message: 'No large furniture items selected',
+      type: 'warning'
+    });
+    return;
+  }
+
+  $q.notify({
+    message: `Processing ${selectedItems.length} furniture item${selectedItems.length > 1 ? 's' : ''}...`,
+    type: 'info',
+    spinner: true,
+    timeout: 2000
+  });
+
+  // Process items sequentially
+  for (const item of selectedItems) {
+    await classifyItem(item);
+  }
+
+  $q.notify({
+    message: 'All items processed!',
+    type: 'positive',
+    icon: 'check_circle'
+  });
+}
 </script>
 
 <template>
@@ -386,6 +489,7 @@ function removeItem(item: CapturedItem) {
 
     <!-- Controls -->
     <div class="controls q-pa-md">
+      <!-- Scan Controls -->
       <div class="row q-gutter-sm q-mb-md">
         <q-btn
           v-if="!scanning"
@@ -406,14 +510,52 @@ function removeItem(item: CapturedItem) {
         />
       </div>
 
+      <!-- Item Counter -->
+      <div v-if="capturedItems.length > 0" class="row items-center justify-between q-mb-md q-pa-sm bg-grey-2 rounded-borders">
+        <div class="text-h6">
+          {{ capturedItems.length }} item{{ capturedItems.length !== 1 ? 's' : '' }} captured
+        </div>
+        <div class="text-caption text-grey-7">
+          {{ capturedItems.filter(i => i.category === 'large_furniture').length }} furniture
+        </div>
+      </div>
+
       <!-- Captured items -->
       <div v-if="capturedItems.length > 0" class="captured-items">
-        <div class="text-subtitle2 text-grey-8 q-mb-sm">
-          Captured Items ({{ capturedItems.length }})
-          <span class="text-caption text-positive q-ml-xs">
-            {{ capturedItems.filter(i => i.classified).length }} classified
-          </span>
+        <!-- Batch Actions -->
+        <div class="row items-center justify-between q-mb-sm">
+          <div class="text-subtitle2 text-grey-8">
+            {{ capturedItems.filter(i => i.selected).length }} selected
+            <span class="text-caption text-grey-6 q-ml-xs">
+              ({{ capturedItems.filter(i => i.classified).length }} processed)
+            </span>
+          </div>
+          <div class="row q-gutter-xs">
+            <q-btn
+              flat
+              dense
+              size="sm"
+              label="Select Furniture"
+              @click="selectAll"
+            />
+            <q-btn
+              flat
+              dense
+              size="sm"
+              label="Clear"
+              @click="deselectAll"
+            />
+          </div>
         </div>
+
+        <q-btn
+          v-if="capturedItems.filter(i => i.selected && i.category === 'large_furniture').length > 0"
+          color="primary"
+          icon="auto_awesome"
+          :label="`Process ${capturedItems.filter(i => i.selected && i.category === 'large_furniture').length} Furniture Items`"
+          @click="processSelectedItems"
+          class="full-width q-mb-md"
+        />
 
         <div class="items-grid">
           <q-card
@@ -421,16 +563,30 @@ function removeItem(item: CapturedItem) {
             :key="item.id"
             flat
             bordered
-            class="item-card"
+            :class="['item-card', { 'selected': item.selected }]"
+            @click="toggleSelection(item)"
           >
+            <!-- Selection Checkbox -->
+            <div class="selection-indicator">
+              <q-checkbox
+                :model-value="item.selected"
+                @click.stop="toggleSelection(item)"
+                dense
+              />
+            </div>
+
             <img :src="item.cropUrl" class="item-image" />
 
             <q-card-section class="q-pa-sm">
-              <div class="text-subtitle2">
-                {{ item.classified?.name || 'Classifying...' }}
-              </div>
+              <!-- Category Badge -->
+              <q-badge
+                :color="item.category === 'large_furniture' ? 'primary' : 'grey-6'"
+                :label="item.detectedLabel"
+                class="q-mb-xs"
+              />
 
-              <div v-if="item.classified" class="q-mt-xs text-caption">
+              <div v-if="item.classified" class="text-caption">
+                <div class="text-weight-bold">{{ item.classified.name }}</div>
                 <div>{{ item.classified.description }}</div>
                 <div>Weight: ~{{ item.classified.estimatedWeight }}lbs</div>
                 <div v-if="item.classified.fragile" class="text-warning">⚠️ Fragile</div>
@@ -438,27 +594,22 @@ function removeItem(item: CapturedItem) {
 
               <div v-else-if="item.classifying" class="q-mt-xs">
                 <q-spinner-dots size="sm" color="primary" />
+                <div class="text-caption text-grey-6">Processing...</div>
+              </div>
+
+              <div v-else class="text-caption text-grey-6">
+                {{ item.category === 'large_furniture' ? 'Ready to process' : 'Not processable yet' }}
               </div>
             </q-card-section>
 
             <q-card-actions align="right" class="q-pa-sm">
-              <q-btn
-                v-if="!item.classified && !item.classifying"
-                flat
-                dense
-                size="sm"
-                color="primary"
-                icon="auto_awesome"
-                label="Classify"
-                @click="classifyItem(item)"
-              />
               <q-btn
                 flat
                 dense
                 size="sm"
                 color="negative"
                 icon="delete"
-                @click="removeItem(item)"
+                @click.stop="removeItem(item)"
               />
             </q-card-actions>
           </q-card>
@@ -525,6 +676,24 @@ function removeItem(item: CapturedItem) {
 
 .item-card {
   overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.item-card.selected {
+  border: 2px solid var(--q-primary);
+  box-shadow: 0 0 8px rgba(25, 118, 210, 0.3);
+}
+
+.selection-indicator {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  background: white;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .item-image {
