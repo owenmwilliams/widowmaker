@@ -57,11 +57,11 @@ if (huggingFaceToken) {
 
 // Together.ai configuration
 const togetherApiKey = process.env.TOGETHER_API_KEY;
-const togetherScoutModel = process.env.TOGETHER_SCOUT_MODEL || 'meta-llama/Llama-4-Scout-17B-16E-Instruct';
-const togetherQwenModel = process.env.TOGETHER_QWEN_MODEL || 'Qwen/Qwen2.5-VL-72B-Instruct';
+const togetherScoutModel = process.env.TOGETHER_SCOUT_MODEL || 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8';
+const togetherQwenModel = process.env.TOGETHER_QWEN_MODEL || 'Qwen/Qwen3-VL-8B-Instruct';
 
 if (togetherApiKey) {
-    console.log(`Together.ai Vision configured - Free: ${togetherScoutModel}, Paid: ${togetherQwenModel}`);
+    console.log(`Together.ai Vision configured - Maverick: ${togetherScoutModel}, Qwen: ${togetherQwenModel}`);
 }
 
 // Default provider (can be changed via admin settings)
