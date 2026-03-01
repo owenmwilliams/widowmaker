@@ -344,61 +344,19 @@ function captureItem(det: any) {
 
   capturedItems.value.unshift(item);
 
+  console.log('[CAPTURE] Item captured:', {
+    id: item.id,
+    label: detectedLabel,
+    category,
+    timestamp: new Date().toISOString()
+  });
+
   $q.notify({
     message: `Captured ${detectedLabel} (${category})`,
     type: 'positive',
     icon: 'photo_camera',
     timeout: 1000
   });
-}
-
-async function classifyItem(item: CapturedItem) {
-  if (item.classified || item.classifying) return;
-
-  item.classifying = true;
-
-  try {
-    const response = await fetch(item.cropUrl);
-    const blob = await response.blob();
-
-    const formData = new FormData();
-    formData.append('image', blob, 'item.jpg');
-
-    const res = await axios.post(
-      `${API_BASE}/vision/analyze-item`,
-      formData,
-      {
-        headers: {
-          ...buildHeaders()
-          // Don't set Content-Type - axios sets it automatically with boundary
-        }
-      }
-    );
-
-    console.log('Vision API response:', res.data);
-
-    // API returns { success: true, data: { name, description, ... } }
-    if (res.data.success && res.data.data) {
-      item.classified = res.data.data;
-      item.classifying = false;
-
-      $q.notify({
-        message: `Classified: ${item.classified?.name || 'Unknown'}`,
-        type: 'positive',
-        icon: 'auto_awesome'
-      });
-    } else {
-      throw new Error(res.data.error || 'Classification failed');
-    }
-  } catch (err: any) {
-    console.error('Classification failed:', err);
-    console.error('Error response:', err.response?.data);
-    item.classifying = false;
-    $q.notify({
-      message: `Classification failed: ${err.response?.data?.error || err.message || 'Unknown error'}`,
-      type: 'negative'
-    });
-  }
 }
 
 function removeItem(item: CapturedItem) {
@@ -426,6 +384,13 @@ async function processSelectedItems() {
     item => item.selected && item.category === 'large_furniture' && !item.classified
   );
 
+  console.log('[BATCH] Starting batch processing:', {
+    totalCaptured: capturedItems.value.length,
+    totalSelected: capturedItems.value.filter(i => i.selected).length,
+    furnitureSelected: selectedItems.length,
+    timestamp: new Date().toISOString()
+  });
+
   if (selectedItems.length === 0) {
     $q.notify({
       message: 'No large furniture items selected',
@@ -450,6 +415,13 @@ async function processSelectedItems() {
     // Extract data URLs for batch processing
     const images = selectedItems.map(item => item.cropUrl);
 
+    console.log('[BATCH] Sending request to /vision/analyze-batch:', {
+      imageCount: images.length,
+      category: 'large_furniture',
+      imageSizes: images.map(img => img.length),
+      endpoint: `${API_BASE}/vision/analyze-batch`
+    });
+
     const res = await axios.post(
       `${API_BASE}/vision/analyze-batch`,
       { images, category: 'large_furniture' },
@@ -458,7 +430,11 @@ async function processSelectedItems() {
       }
     );
 
-    console.log('Batch processing response:', res.data);
+    console.log('[BATCH] Response received:', {
+      success: res.data.success,
+      summary: res.data.summary,
+      resultsCount: res.data.results?.length
+    });
 
     if (res.data.success && Array.isArray(res.data.results)) {
       // Map results back to items
@@ -500,8 +476,19 @@ async function processSelectedItems() {
       throw new Error('Invalid response from batch endpoint');
     }
   } catch (err: any) {
-    console.error('Batch processing failed:', err);
-    console.error('Error response:', err.response?.data);
+    console.error('[BATCH] Processing failed:', {
+      message: err.message,
+      status: err.response?.status,
+      statusText: err.response?.statusText,
+      responseData: err.response?.data,
+      responseHeaders: err.response?.headers,
+      requestConfig: {
+        url: err.config?.url,
+        method: err.config?.method,
+        headers: err.config?.headers
+      },
+      fullError: err
+    });
 
     // Mark all as not classifying
     selectedItems.forEach(item => {
@@ -513,9 +500,15 @@ async function processSelectedItems() {
       processingNotif();
     }
 
+    const errorMessage = err.response?.data?.error
+      || err.response?.data?.message
+      || err.message
+      || 'Unknown error';
+
     $q.notify({
-      message: `Batch processing failed: ${err.response?.data?.error || err.message || 'Unknown error'}`,
-      type: 'negative'
+      message: `Batch processing failed: ${errorMessage}`,
+      type: 'negative',
+      caption: err.response?.status ? `HTTP ${err.response.status}` : undefined
     });
   }
 }

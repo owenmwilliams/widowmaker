@@ -175,6 +175,13 @@ router.post('/analyze', upload.single('file'), async (req, res) => {
 // REQUIRES AUTHENTICATION
 // Accepts either multipart file upload OR JSON with imageUrl
 router.post('/analyze-item', verifyToken, upload.single('image'), async (req, res) => {
+  const requestId = `single-${Date.now()}`;
+  console.log(`[${requestId}] === Single item analyze request ===`);
+  console.log(`[${requestId}] User:`, req.user?.user_id);
+  console.log(`[${requestId}] Has file:`, !!req.file);
+  console.log(`[${requestId}] Body keys:`, Object.keys(req.body));
+  console.log(`[${requestId}] Query params:`, req.query);
+
   try {
     let imageSource, mimeType;
 
@@ -183,23 +190,34 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
       imageSource = req.body.imageUrl;
       mimeType = req.body.mimeType || 'image/jpeg';
 
+      console.log(`[${requestId}] Image from URL:`, {
+        urlLength: imageSource.length,
+        mimeType,
+        startsWithData: imageSource.startsWith('data:'),
+        startsWithGCS: imageSource.includes('storage.googleapis.com')
+      });
+
       // Security: Only allow GCS URLs or data URLs (no arbitrary external URLs)
       const isGcsUrl = imageSource.includes('storage.googleapis.com') || imageSource.startsWith('gs://');
       const isDataUrl = imageSource.startsWith('data:');
 
       if (!isGcsUrl && !isDataUrl) {
+        console.log(`[${requestId}] ERROR: Invalid URL type`);
         return res.status(400).json({ error: 'Only Google Cloud Storage URLs or data URLs are allowed' });
       }
-
-      console.log(`Analyzing item photo from URL - Type: ${mimeType}, Provider: ${req.query.provider || req.body.provider || 'default'}`);
     }
     // Fall back to file upload (legacy flow)
     else if (req.file) {
       imageSource = req.file.buffer.toString('base64');
       mimeType = req.file.mimetype;
-      console.log(`Analyzing item photo from upload - Size: ${req.file.size} bytes, Type: ${mimeType}, Provider: ${req.query.provider || req.body.provider || 'default'}`);
+      console.log(`[${requestId}] Image from file upload:`, {
+        size: req.file.size,
+        mimeType,
+        base64Length: imageSource.length
+      });
     }
     else {
+      console.log(`[${requestId}] ERROR: No image provided`);
       return res.status(400).json({ error: 'No image provided (imageUrl or file required)' });
     }
 
@@ -212,8 +230,18 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
       provider = allowedBasicProviders.includes(provider) ? provider : 'scout';
     }
 
+    console.log(`[${requestId}] Processing:`, { plan, provider, isPro });
+
     // Call vision service (now supports both base64 and URLs)
+    console.log(`[${requestId}] Calling visionService.analyzeItemPhoto`);
     const result = await visionService.analyzeItemPhoto(imageSource, mimeType, provider);
+
+    console.log(`[${requestId}] Vision service result:`, {
+      success: result.success,
+      hasData: !!result.data,
+      provider: result.provider,
+      error: result.error
+    });
 
     if (result.success) {
       // Map AI response fields to database schema
@@ -227,15 +255,22 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
         result.data.primary_color = result.data.primary_color || null;
         result.data.tags = result.data.tags || [];
       }
+      console.log(`[${requestId}] Sending success response`);
       res.json(result);
     } else {
+      console.log(`[${requestId}] Sending error response (500):`, result.error);
       res.status(500).json(result);
     }
   } catch (error) {
-    console.error('Error analyzing item photo:', error);
+    console.error(`[${requestId}] FATAL ERROR:`, {
+      message: error.message,
+      stack: error.stack,
+      type: error.constructor.name
+    });
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      requestId
     });
   }
 });
@@ -406,10 +441,22 @@ router.post('/provider', verifyToken, (req, res) => {
 // REQUIRES AUTHENTICATION
 // Accepts array of data URLs (base64 encoded images)
 router.post('/analyze-batch', verifyToken, async (req, res) => {
+  const requestId = `batch-${Date.now()}`;
+  console.log(`[${requestId}] === Batch analyze request started ===`);
+  console.log(`[${requestId}] Request body keys:`, Object.keys(req.body));
+  console.log(`[${requestId}] User:`, req.user?.user_id);
+
   try {
     const { images, category } = req.body;
 
+    console.log(`[${requestId}] Images received:`, {
+      isArray: Array.isArray(images),
+      count: images?.length,
+      category
+    });
+
     if (!Array.isArray(images) || images.length === 0) {
+      console.log(`[${requestId}] ERROR: Invalid images array`);
       return res.status(400).json({
         success: false,
         error: 'images array is required and must not be empty'
@@ -417,13 +464,12 @@ router.post('/analyze-batch', verifyToken, async (req, res) => {
     }
 
     if (images.length > 50) {
+      console.log(`[${requestId}] ERROR: Too many images (${images.length})`);
       return res.status(400).json({
         success: false,
         error: 'Maximum 50 images per batch'
       });
     }
-
-    console.log(`Batch analyzing ${images.length} items (category: ${category || 'all'})`);
 
     // Get provider based on plan
     const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
@@ -433,10 +479,21 @@ router.post('/analyze-batch', verifyToken, async (req, res) => {
       provider = allowedBasicProviders.includes(provider) ? provider : 'scout';
     }
 
+    console.log(`[${requestId}] Processing ${images.length} items:`, {
+      category: category || 'all',
+      plan,
+      provider,
+      imageLengths: images.map((img, i) => ({ index: i, length: img?.length || 0 }))
+    });
+
     // Process all images in parallel
+    const startTime = Date.now();
     const results = await Promise.allSettled(
       images.map(async (imageDataUrl, index) => {
+        const itemId = `${requestId}-${index}`;
         try {
+          console.log(`[${itemId}] Starting analysis`);
+
           // Extract base64 and mime type from data URL
           const isDataUrl = imageDataUrl.startsWith('data:');
           let imageSource, mimeType;
@@ -446,19 +503,33 @@ router.post('/analyze-batch', verifyToken, async (req, res) => {
             const mimeMatch = metadata.match(/^data:(.*?);base64$/);
             mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
             imageSource = base64Data;
+            console.log(`[${itemId}] Extracted from data URL:`, {
+              mimeType,
+              base64Length: base64Data.length
+            });
           } else {
             // Assume it's already base64
             imageSource = imageDataUrl;
             mimeType = 'image/jpeg';
+            console.log(`[${itemId}] Using as raw base64:`, {
+              mimeType,
+              length: imageDataUrl.length
+            });
           }
 
+          console.log(`[${itemId}] Calling visionService.analyzeItemPhoto with provider: ${provider}`);
           const result = await visionService.analyzeItemPhoto(imageSource, mimeType, provider);
+          console.log(`[${itemId}] Result:`, { success: result.success, hasData: !!result.data });
+
           return {
             index,
             ...result
           };
         } catch (error) {
-          console.error(`Error analyzing image ${index}:`, error);
+          console.error(`[${itemId}] ERROR:`, {
+            message: error.message,
+            stack: error.stack
+          });
           return {
             index,
             success: false,
@@ -468,11 +539,15 @@ router.post('/analyze-batch', verifyToken, async (req, res) => {
       })
     );
 
+    const elapsedTime = Date.now() - startTime;
+    console.log(`[${requestId}] All items processed in ${elapsedTime}ms`);
+
     // Format results
     const formattedResults = results.map((result, index) => {
       if (result.status === 'fulfilled') {
         return result.value;
       } else {
+        console.error(`[${requestId}] Item ${index} rejected:`, result.reason);
         return {
           index,
           success: false,
@@ -484,21 +559,38 @@ router.post('/analyze-batch', verifyToken, async (req, res) => {
     const successCount = formattedResults.filter(r => r.success).length;
     const failureCount = formattedResults.length - successCount;
 
-    res.json({
+    console.log(`[${requestId}] Final summary:`, {
+      total: images.length,
+      successful: successCount,
+      failed: failureCount,
+      provider,
+      elapsedTime
+    });
+
+    const response = {
       success: true,
       results: formattedResults,
       summary: {
         total: images.length,
         successful: successCount,
         failed: failureCount,
-        provider
+        provider,
+        elapsedTimeMs: elapsedTime
       }
-    });
+    };
+
+    console.log(`[${requestId}] Sending response`);
+    res.json(response);
   } catch (error) {
-    console.error('Batch analyze error:', error);
+    console.error(`[${requestId}] FATAL ERROR:`, {
+      message: error.message,
+      stack: error.stack,
+      type: error.constructor.name
+    });
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
+      requestId
     });
   }
 });
