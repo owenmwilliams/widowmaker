@@ -98,23 +98,55 @@ const showDebug = ref(false);
 function addDebugLog(level: 'info' | 'error' | 'success', message: string) {
   const time = new Date().toLocaleTimeString();
   debugLogs.value.unshift({ time, level, message });
-  if (debugLogs.value.length > 20) {
-    debugLogs.value = debugLogs.value.slice(0, 20);
+  if (debugLogs.value.length > 50) {
+    debugLogs.value = debugLogs.value.slice(0, 50);
   }
-  console.log(`[${level.toUpperCase()}] ${message}`);
+  // Only log non-debug messages to avoid recursion
+  if (!message.includes('Debug console')) {
+    originalConsoleLog?.(`[${level.toUpperCase()}] ${message}`);
+  }
 }
+
+const originalConsoleLog = console.log;
 
 let stream: MediaStream | null = null;
 let animationFrameId: number | null = null;
 let objectDetector: ObjectDetector | null = null;
 
+// Intercept console errors and warnings
+const originalConsoleError = console.error;
+const originalConsoleWarn = console.warn;
+
 // Lifecycle
 onMounted(async () => {
+  // Capture console errors and warnings
+  console.error = (...args: any[]) => {
+    const message = args.map(arg =>
+      typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+    ).join(' ');
+    addDebugLog('error', message);
+    originalConsoleError.apply(console, args);
+  };
+
+  console.warn = (...args: any[]) => {
+    const message = args.map(arg =>
+      typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+    ).join(' ');
+    addDebugLog('error', `WARN: ${message}`);
+    originalConsoleWarn.apply(console, args);
+  };
+
+  addDebugLog('info', 'Debug console initialized');
+
   await loadDetector();
   await startCamera();
 });
 
 onUnmounted(() => {
+  // Restore original console methods
+  console.error = originalConsoleError;
+  console.warn = originalConsoleWarn;
+
   stopScanning();
   stopCamera();
   if (objectDetector) {
