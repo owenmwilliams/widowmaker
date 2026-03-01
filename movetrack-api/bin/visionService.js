@@ -387,7 +387,7 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT) 
         }
 
         const model = geminiClient.getGenerativeModel({
-            model: "gemini-2.0-flash-exp",
+            model: "gemini-1.5-flash",
             generationConfig: {
                 responseMimeType: "application/json"
             }
@@ -412,7 +412,7 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT) 
             success: true,
             data: data,
             provider: 'gemini',
-            model: 'gemini-2.0-flash-exp'
+            model: 'gemini-1.5-flash'
         };
     } catch (error) {
         console.error('Gemini Vision API error:', error);
@@ -930,7 +930,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType) {
         }
 
         const model = geminiClient.getGenerativeModel({
-            model: "gemini-2.0-flash-exp",
+            model: "gemini-1.5-flash",
             generationConfig: {
                 responseMimeType: "application/json",
                 maxOutputTokens: 8192  // Increase token limit to prevent truncation
@@ -993,7 +993,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType) {
             success: true,
             data: data,
             provider: 'gemini',
-            model: 'gemini-2.0-flash-exp'
+            model: 'gemini-1.5-flash'
         };
     } catch (error) {
         console.error('Gemini Multi-Item Vision API error:', error);
