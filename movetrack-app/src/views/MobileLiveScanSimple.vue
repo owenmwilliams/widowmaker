@@ -92,6 +92,17 @@ const scanning = ref(false);
 const detectorReady = ref(false);
 const detections = ref<any[]>([]);
 const capturedItems = ref<CapturedItem[]>([]);
+const debugLogs = ref<Array<{ time: string; level: string; message: string }>>([]);
+const showDebug = ref(false);
+
+function addDebugLog(level: 'info' | 'error' | 'success', message: string) {
+  const time = new Date().toLocaleTimeString();
+  debugLogs.value.unshift({ time, level, message });
+  if (debugLogs.value.length > 20) {
+    debugLogs.value = debugLogs.value.slice(0, 20);
+  }
+  console.log(`[${level.toUpperCase()}] ${message}`);
+}
 
 let stream: MediaStream | null = null;
 let animationFrameId: number | null = null;
@@ -344,12 +355,7 @@ function captureItem(det: any) {
 
   capturedItems.value.unshift(item);
 
-  console.log('[CAPTURE] Item captured:', {
-    id: item.id,
-    label: detectedLabel,
-    category,
-    timestamp: new Date().toISOString()
-  });
+  addDebugLog('info', `Captured ${detectedLabel} (${category})`);
 
   $q.notify({
     message: `Captured ${detectedLabel} (${category})`,
@@ -384,14 +390,10 @@ async function processSelectedItems() {
     item => item.selected && item.category === 'large_furniture' && !item.classified
   );
 
-  console.log('[BATCH] Starting batch processing:', {
-    totalCaptured: capturedItems.value.length,
-    totalSelected: capturedItems.value.filter(i => i.selected).length,
-    furnitureSelected: selectedItems.length,
-    timestamp: new Date().toISOString()
-  });
+  addDebugLog('info', `Starting batch: ${selectedItems.length} furniture items`);
 
   if (selectedItems.length === 0) {
+    addDebugLog('error', 'No furniture items selected');
     $q.notify({
       message: 'No large furniture items selected',
       type: 'warning'
@@ -415,12 +417,7 @@ async function processSelectedItems() {
     // Extract data URLs for batch processing
     const images = selectedItems.map(item => item.cropUrl);
 
-    console.log('[BATCH] Sending request to /vision/analyze-batch:', {
-      imageCount: images.length,
-      category: 'large_furniture',
-      imageSizes: images.map(img => img.length),
-      endpoint: `${API_BASE}/vision/analyze-batch`
-    });
+    addDebugLog('info', `Sending ${images.length} images to API`);
 
     const res = await axios.post(
       `${API_BASE}/vision/analyze-batch`,
@@ -430,11 +427,7 @@ async function processSelectedItems() {
       }
     );
 
-    console.log('[BATCH] Response received:', {
-      success: res.data.success,
-      summary: res.data.summary,
-      resultsCount: res.data.results?.length
-    });
+    addDebugLog('success', `API response: ${res.data.summary?.successful}/${res.data.summary?.total} succeeded`);
 
     if (res.data.success && Array.isArray(res.data.results)) {
       // Map results back to items
@@ -476,19 +469,11 @@ async function processSelectedItems() {
       throw new Error('Invalid response from batch endpoint');
     }
   } catch (err: any) {
-    console.error('[BATCH] Processing failed:', {
-      message: err.message,
-      status: err.response?.status,
-      statusText: err.response?.statusText,
-      responseData: err.response?.data,
-      responseHeaders: err.response?.headers,
-      requestConfig: {
-        url: err.config?.url,
-        method: err.config?.method,
-        headers: err.config?.headers
-      },
-      fullError: err
-    });
+    const errorMsg = err.response?.data?.error || err.message || 'Unknown error';
+    const status = err.response?.status || 'No status';
+
+    addDebugLog('error', `Batch failed: ${status} - ${errorMsg}`);
+    console.error('[BATCH] Full error:', err);
 
     // Mark all as not classifying
     selectedItems.forEach(item => {
@@ -500,13 +485,8 @@ async function processSelectedItems() {
       processingNotif();
     }
 
-    const errorMessage = err.response?.data?.error
-      || err.response?.data?.message
-      || err.message
-      || 'Unknown error';
-
     $q.notify({
-      message: `Batch processing failed: ${errorMessage}`,
+      message: `Batch failed: ${errorMsg}`,
       type: 'negative',
       caption: err.response?.status ? `HTTP ${err.response.status}` : undefined
     });
@@ -516,6 +496,65 @@ async function processSelectedItems() {
 
 <template>
   <div class="mobile-live-scan">
+    <!-- Debug Floating Button -->
+    <q-btn
+      round
+      color="orange"
+      icon="bug_report"
+      class="debug-fab"
+      @click="showDebug = !showDebug"
+    >
+      <q-badge v-if="debugLogs.length > 0" color="red" floating>{{ debugLogs.length }}</q-badge>
+    </q-btn>
+
+    <!-- Debug Panel -->
+    <q-drawer
+      v-model="showDebug"
+      side="right"
+      overlay
+      elevated
+      :width="300"
+      behavior="mobile"
+    >
+      <div class="q-pa-md">
+        <div class="row items-center justify-between q-mb-md">
+          <div class="text-h6">Debug Logs</div>
+          <q-btn
+            flat
+            dense
+            round
+            icon="close"
+            @click="showDebug = false"
+          />
+        </div>
+
+        <q-btn
+          flat
+          dense
+          size="sm"
+          label="Clear Logs"
+          color="negative"
+          @click="debugLogs = []"
+          class="full-width q-mb-md"
+        />
+
+        <div class="debug-logs">
+          <div
+            v-for="(log, index) in debugLogs"
+            :key="index"
+            :class="['debug-log', `log-${log.level}`]"
+          >
+            <div class="log-time">{{ log.time }}</div>
+            <div class="log-message">{{ log.message }}</div>
+          </div>
+
+          <div v-if="debugLogs.length === 0" class="text-grey-6 text-center q-pa-md">
+            No logs yet
+          </div>
+        </div>
+      </div>
+    </q-drawer>
+
     <!-- Header -->
     <div class="header q-pa-md bg-primary text-white">
       <div class="row items-center justify-between">
@@ -688,6 +727,51 @@ async function processSelectedItems() {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+}
+
+.debug-fab {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 1000;
+}
+
+.debug-logs {
+  max-height: calc(100vh - 150px);
+  overflow-y: auto;
+}
+
+.debug-log {
+  padding: 8px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  border-left: 3px solid;
+}
+
+.log-info {
+  background: #e3f2fd;
+  border-color: #2196f3;
+}
+
+.log-error {
+  background: #ffebee;
+  border-color: #f44336;
+}
+
+.log-success {
+  background: #e8f5e9;
+  border-color: #4caf50;
+}
+
+.log-time {
+  font-weight: bold;
+  margin-bottom: 2px;
+  opacity: 0.7;
+}
+
+.log-message {
+  word-break: break-word;
 }
 
 .header {
