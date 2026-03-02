@@ -16,37 +16,37 @@ steps:
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'debug-google-maps-secret'
     entrypoint: 'sh'
-    secretEnv: ['GOOGLE_MAPS_API_KEY']
+    secretEnv: ['GOOGLE_MAPS_BROWSER_KEY']
     args:
       - '-c'
       - |
-        if [ -z "$$GOOGLE_MAPS_API_KEY" ]; then
-          echo "ERROR: GOOGLE_MAPS_API_KEY is NOT set in this debug step"
+        if [ -z "$$GOOGLE_MAPS_BROWSER_KEY" ]; then
+          echo "ERROR: GOOGLE_MAPS_BROWSER_KEY is NOT set in this debug step"
           exit 1
         else
-          echo "DEBUG: GOOGLE_MAPS_API_KEY is present (value redacted), length=$${#GOOGLE_MAPS_API_KEY}"
+          echo "DEBUG: GOOGLE_MAPS_BROWSER_KEY is present (value redacted), length=$${#GOOGLE_MAPS_BROWSER_KEY}"
         fi
 
   # Build Frontend Docker image
   - name: 'gcr.io/cloud-builders/docker'
     id: 'build-app'
     entrypoint: 'sh'
-    secretEnv: ['GOOGLE_MAPS_API_KEY']
+    secretEnv: ['GOOGLE_MAPS_BROWSER_KEY']
     args:
       - '-c'
       - |
         echo "Building movetrack-app image..."
-        if [ -z "$$GOOGLE_MAPS_API_KEY" ]; then
-          echo "ERROR: GOOGLE_MAPS_API_KEY is NOT set in this build step"
+        if [ -z "$$GOOGLE_MAPS_BROWSER_KEY" ]; then
+          echo "ERROR: GOOGLE_MAPS_BROWSER_KEY is NOT set in this build step"
           exit 1
         else
-          echo "GOOGLE_MAPS_API_KEY is present (value redacted), length=$${#GOOGLE_MAPS_API_KEY}"
+          echo "GOOGLE_MAPS_BROWSER_KEY is present (value redacted), length=$${#GOOGLE_MAPS_BROWSER_KEY}"
         fi
 
         docker build \
           --no-cache \
           --build-arg VITE_API_BASE_URL="https://movetrack-api-7hwn7ggbiq-uc.a.run.app" \
-          --build-arg VITE_GOOGLE_MAPS_API_KEY="$$GOOGLE_MAPS_API_KEY" \
+          --build-arg VITE_GOOGLE_MAPS_API_KEY="$$GOOGLE_MAPS_BROWSER_KEY" \
           -t "us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:$COMMIT_SHA" \
           -t "us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-app:latest" \
           ./movetrack-app
@@ -132,7 +132,7 @@ steps:
       - '--set-env-vars'
       - 'NODE_ENV=production,MT_DATALAYER_HOSTNAME=/cloudsql/$_CLOUD_SQL_CONNECTION,MT_DATALAYER_PORT=5432,MT_DATALAYER_DATABASE=$_DB_NAME,MT_DATALAYER_USERNAME=$_DB_USER,EMAIL_FROM=owen@we3kings.dev,SMTP_HOST=smtp.sendgrid.net,SMTP_PORT=587,SMTP_USER=apikey,VISION_PROVIDER=gemini'
       - '--set-secrets'
-      - 'MT_DATALAYER_PASSWORD=movetrack-db-password:latest,JWT_SECRET=movetrack-jwt-secret:latest,SMTP_PASS=sendgrid-api-key:latest,ANTHROPIC_API_KEY=anthropic-key:latest,OPENAI_API_KEY=openai-api-key:latest,GOOGLE_AI_API_KEY=google-ai-key:latest,GOOGLE_MAPS_API_KEY=GOOGLE_MAPS_API_KEY:latest,TOGETHER_API_KEY=TOGETHER_API_KEY:latest,HUGGINGFACE_TOKEN=HUGGINGFACE_API_TOKEN:latest,TWELVE_LABS_API_KEY=TWELVE_LABS_API_KEY:latest'
+      - 'MT_DATALAYER_PASSWORD=movetrack-db-password:latest,JWT_SECRET=movetrack-jwt-secret:latest,SMTP_PASS=sendgrid-api-key:latest,ANTHROPIC_API_KEY=anthropic-key:latest,OPENAI_API_KEY=openai-api-key:latest,GOOGLE_AI_API_KEY=google-ai-key:latest,GOOGLE_MAPS_API_KEY=google-api-key:latest,GOOGLE_API_KEY=google-api-key:latest,GOOGLE_BOOKS_API_KEY=google-api-key:latest,TOGETHER_API_KEY=TOGETHER_API_KEY:latest,HUGGINGFACE_TOKEN=HUGGINGFACE_API_TOKEN:latest,TWELVE_LABS_API_KEY=TWELVE_LABS_API_KEY:latest'
     id: 'deploy-api'
     waitFor: ['push-api', 'run-migrations']
 
@@ -172,5 +172,5 @@ options:
 
 availableSecrets:
   secretManager:
-    - versionName: projects/$PROJECT_ID/secrets/GOOGLE_MAPS_API_KEY/versions/latest
-      env: 'GOOGLE_MAPS_API_KEY'
+    - versionName: projects/$PROJECT_ID/secrets/google-browser-key/versions/latest
+      env: 'GOOGLE_MAPS_BROWSER_KEY'
