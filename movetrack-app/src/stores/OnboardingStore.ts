@@ -21,6 +21,7 @@ type OnboardingDraft = {
   goal?: OnboardingGoal;
   propertyType?: PropertyType | null;
   bedroomCount?: number | null;
+  bathroomCount?: number | null;
   locationName?: string;
   locationAddress?: string;
   locationAddressTwo?: string;
@@ -75,6 +76,7 @@ export const onboardingStore = defineStore("onboarding", {
       goal: (draft.goal ?? null) as OnboardingGoal,
       propertyType: (draft.propertyType ?? null) as PropertyType,
       bedroomCount: draft.bedroomCount ?? null,
+      bathroomCount: draft.bathroomCount ?? null,
       locationName: draft.locationName ?? "",
       locationAddress: draft.locationAddress ?? "",
       locationAddressTwo: draft.locationAddressTwo ?? "",
@@ -104,6 +106,7 @@ export const onboardingStore = defineStore("onboarding", {
         goal: this.goal,
         propertyType: this.propertyType,
         bedroomCount: this.bedroomCount,
+        bathroomCount: this.bathroomCount,
         locationName: this.locationName,
         locationAddress: this.locationAddress,
         locationAddressTwo: this.locationAddressTwo,
@@ -128,9 +131,10 @@ export const onboardingStore = defineStore("onboarding", {
       this.goal = payload.goal;
       this.persistDraft();
     },
-    setHomeContext(payload: { propertyType: PropertyType; bedroomCount: number }) {
+    setHomeContext(payload: { propertyType: PropertyType; bedroomCount: number; bathroomCount?: number }) {
       this.propertyType = payload.propertyType;
       this.bedroomCount = payload.bedroomCount;
+      this.bathroomCount = payload.bathroomCount ?? null;
       this.persistDraft();
     },
     toggleRoom(room: string) {
@@ -445,6 +449,7 @@ export const onboardingStore = defineStore("onboarding", {
       this.goal = null;
       this.propertyType = null;
       this.bedroomCount = null;
+      this.bathroomCount = null;
       this.locationName = "";
       this.locationAddress = "";
       this.locationAddressTwo = "";

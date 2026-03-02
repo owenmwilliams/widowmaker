@@ -242,7 +242,7 @@ watch(uniqueRooms, (list) => {
 watch(locationOptions, (options) => {
   if (selectedLocationId.value || !options.length) return;
   selectedLocationId.value = options[0].value;
-});
+}, { immediate: true });
 
 watch(
   () => onboarding.locationId,
@@ -614,6 +614,11 @@ onMounted(async () => {
 
   if (userId.value) {
     await store.loadInventory(userId.value);
+  }
+
+  // Ensure selectedLocationId is set if not already set
+  if (!selectedLocationId.value && locationOptions.value.length > 0) {
+    selectedLocationId.value = locationOptions.value[0].value;
   }
 });
 </script>

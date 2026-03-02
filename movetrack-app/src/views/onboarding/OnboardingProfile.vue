@@ -21,6 +21,7 @@ const name = ref(store.name);
 const goal = ref<OnboardingGoal>(store.goal);
 const propertyType = ref<PropertyType>(store.propertyType ?? null);
 const bedroomCount = ref<number | null>(store.bedroomCount ?? null);
+const bathroomCount = ref<number | null>(store.bathroomCount ?? null);
 
 const goalOptions = [
   { label: "I'm moving soon", value: "move" },
@@ -49,7 +50,14 @@ const bedroomOptions = [
   { label: "4+ bedrooms", value: 4 },
 ];
 
-const canContinue = computed(() => !!name.value.trim() && !!propertyType.value && !!bedroomCount.value);
+const bathroomOptions = [
+  { label: "1 bathroom", value: 1 },
+  { label: "2 bathrooms", value: 2 },
+  { label: "3 bathrooms", value: 3 },
+  { label: "4+ bathrooms", value: 4 },
+];
+
+const canContinue = computed(() => !!name.value.trim() && !!propertyType.value && !!bedroomCount.value && !!bathroomCount.value);
 
 const selectGoal = (value: OnboardingGoal) => {
   goal.value = value;
@@ -61,6 +69,10 @@ const selectPropertyType = (value: PropertyType) => {
 
 const selectBedroomCount = (value: number) => {
   bedroomCount.value = value;
+};
+
+const selectBathroomCount = (value: number) => {
+  bathroomCount.value = value;
 };
 
 const persistName = async () => {
@@ -110,6 +122,7 @@ const handleNext = async () => {
   store.setHomeContext({
     propertyType: propertyType.value ?? "apartment",
     bedroomCount: bedroomCount.value ?? 1,
+    bathroomCount: bathroomCount.value ?? 1,
   });
 
   // Don't persist name to backend yet - wait until onboarding completion
@@ -202,6 +215,22 @@ const handleNext = async () => {
             :text-color="bedroomCount === option.value ? 'white' : 'primary'"
             :class="['pill', { active: bedroomCount === option.value }]"
             @click="selectBedroomCount(option.value)"
+          />
+        </div>
+      </div>
+
+      <div class="section" v-if="showBedroomQuestion">
+        <div class="section-label">How many bathrooms?</div>
+        <div class="pill-group">
+          <q-btn
+            v-for="option in bathroomOptions"
+            :key="option.value"
+            flat
+            :label="option.label"
+            :color="bathroomCount === option.value ? 'primary' : 'grey-6'"
+            :text-color="bathroomCount === option.value ? 'white' : 'primary'"
+            :class="['pill', { active: bathroomCount === option.value }]"
+            @click="selectBathroomCount(option.value)"
           />
         </div>
       </div>
