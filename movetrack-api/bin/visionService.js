@@ -261,7 +261,7 @@ async function analyzeWithClaude(imageSource, mimeType, prompt = VISION_PROMPT) 
         }
 
         const response = await anthropicClient.messages.create({
-            model: "claude-3-5-sonnet-20241022",
+            model: "claude-sonnet-4-6-latest",
             max_tokens: 1024,
             messages: [{
                 role: "user",
@@ -291,7 +291,7 @@ async function analyzeWithClaude(imageSource, mimeType, prompt = VISION_PROMPT) 
             success: true,
             data: result,
             provider: 'claude',
-            model: 'claude-3-5-sonnet-20241022'
+            model: 'claude-sonnet-4-6-latest'
         };
     } catch (error) {
         console.error('Claude Vision API error:', error);
@@ -387,7 +387,7 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT) 
         }
 
         const model = geminiClient.getGenerativeModel({
-            model: "gemini-1.5-flash",
+            model: "gemini-2.5-flash",
             generationConfig: {
                 responseMimeType: "application/json"
             }
@@ -412,7 +412,7 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT) 
             success: true,
             data: data,
             provider: 'gemini',
-            model: 'gemini-1.5-flash'
+            model: 'gemini-2.5-flash'
         };
     } catch (error) {
         console.error('Gemini Vision API error:', error);
@@ -739,7 +739,7 @@ async function analyzeMultiItemWithClaude(imageSource, mimeType) {
         }
 
         const response = await anthropicClient.messages.create({
-            model: "claude-3-5-sonnet-20241022",
+            model: "claude-sonnet-4-6-latest",
             max_tokens: 2048,
             messages: [{
                 role: "user",
@@ -805,7 +805,7 @@ async function analyzeMultiItemWithClaude(imageSource, mimeType) {
             success: true,
             data: result,
             provider: 'claude',
-            model: 'claude-3-5-sonnet-20241022'
+            model: 'claude-sonnet-4-6-latest'
         };
     } catch (error) {
         console.error('Claude Multi-Item Vision API error:', error);
@@ -930,7 +930,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType) {
         }
 
         const model = geminiClient.getGenerativeModel({
-            model: "gemini-1.5-flash",
+            model: "gemini-2.5-flash",
             generationConfig: {
                 responseMimeType: "application/json",
                 maxOutputTokens: 8192  // Increase token limit to prevent truncation
@@ -993,7 +993,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType) {
             success: true,
             data: data,
             provider: 'gemini',
-            model: 'gemini-1.5-flash'
+            model: 'gemini-2.5-flash'
         };
     } catch (error) {
         console.error('Gemini Multi-Item Vision API error:', error);

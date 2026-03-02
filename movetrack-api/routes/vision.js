@@ -221,16 +221,26 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
       return res.status(400).json({ error: 'No image provided (imageUrl or file required)' });
     }
 
-    // Get provider from query param or body (optional - defaults to current provider)
+    // Get provider from query param or body (optional - defaults based on plan)
     let provider = (req.query.provider || req.body.provider || '').toLowerCase();
+
+    // Check if user is admin
+    const ADMIN_USERS = (process.env.ADMIN_USERS || '').toLowerCase().split(',').map(e => e.trim()).filter(Boolean);
+    const isAdmin = req.user?.is_admin || ADMIN_USERS.includes(req.user?.email?.toLowerCase());
     const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
-    const allowedBasicProviders = ['scout', 'qwen'];
-    const isPro = plan === 'pro';
-    if (!isPro) {
-      provider = allowedBasicProviders.includes(provider) ? provider : 'scout';
+
+    if (isAdmin) {
+      // Admin: allow any provider from request or use current default
+      provider = provider || visionService.getCurrentProvider();
+    } else if (plan === 'pro') {
+      // Paid users: force Claude
+      provider = 'claude';
+    } else {
+      // Free users: force Gemini
+      provider = 'gemini';
     }
 
-    console.log(`[${requestId}] Processing:`, { plan, provider, isPro });
+    console.log(`[${requestId}] Processing:`, { plan, provider, isAdmin });
 
     // Call vision service (now supports both base64 and URLs)
     console.log(`[${requestId}] Calling visionService.analyzeItemPhoto`);
@@ -437,6 +447,75 @@ router.post('/provider', verifyToken, (req, res) => {
   }
 });
 
+// POST test provider connection (admin only)
+// REQUIRES AUTHENTICATION + ADMIN
+// Tests if a vision AI provider is working correctly
+router.post('/test-provider', verifyToken, async (req, res) => {
+  const requestId = `test-${Date.now()}`;
+  console.log(`[${requestId}] === Provider test request ===`);
+
+  try {
+    const { provider } = req.body;
+
+    if (!provider) {
+      return res.status(400).json({ error: 'Provider is required' });
+    }
+
+    // Check if user is admin
+    const ADMIN_USERS = (process.env.ADMIN_USERS || '').toLowerCase().split(',').map(e => e.trim()).filter(Boolean);
+    const isAdmin = req.user?.is_admin || ADMIN_USERS.includes(req.user?.email?.toLowerCase());
+
+    if (!isAdmin) {
+      console.log(`[${requestId}] ERROR: Non-admin user attempted to test provider`);
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    console.log(`[${requestId}] Testing provider:`, provider);
+
+    // Create minimal 1x1 pixel test image (red pixel, PNG format, base64)
+    // This is the smallest valid PNG image possible
+    const testImage = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+
+    const startTime = Date.now();
+    try {
+      const result = await visionService.analyzeItemPhoto(testImage, 'image/png', provider);
+      const elapsedTime = Date.now() - startTime;
+
+      console.log(`[${requestId}] Test result:`, {
+        success: result.success,
+        provider: result.provider,
+        model: result.model,
+        elapsedTime
+      });
+
+      res.json({
+        success: result.success,
+        provider: result.provider,
+        model: result.model,
+        elapsedTimeMs: elapsedTime,
+        error: result.error || null
+      });
+    } catch (error) {
+      const elapsedTime = Date.now() - startTime;
+      console.error(`[${requestId}] Test failed:`, error);
+
+      res.json({
+        success: false,
+        provider,
+        elapsedTimeMs: elapsedTime,
+        error: error.message
+      });
+    }
+  } catch (error) {
+    console.error(`[${requestId}] FATAL ERROR:`, error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      requestId
+    });
+  }
+});
+
 // POST batch analyze items
 // REQUIRES AUTHENTICATION
 // Accepts array of data URLs (base64 encoded images)
@@ -472,17 +551,29 @@ router.post('/analyze-batch', verifyToken, async (req, res) => {
     }
 
     // Get provider based on plan
-    const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
     let provider = (req.query.provider || req.body.provider || '').toLowerCase();
-    const allowedBasicProviders = ['scout', 'qwen'];
-    if (plan !== 'pro') {
-      provider = allowedBasicProviders.includes(provider) ? provider : 'scout';
+
+    // Check if user is admin
+    const ADMIN_USERS = (process.env.ADMIN_USERS || '').toLowerCase().split(',').map(e => e.trim()).filter(Boolean);
+    const isAdmin = req.user?.is_admin || ADMIN_USERS.includes(req.user?.email?.toLowerCase());
+    const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
+
+    if (isAdmin) {
+      // Admin: allow any provider from request or use current default
+      provider = provider || visionService.getCurrentProvider();
+    } else if (plan === 'pro') {
+      // Paid users: force Claude
+      provider = 'claude';
+    } else {
+      // Free users: force Gemini
+      provider = 'gemini';
     }
 
     console.log(`[${requestId}] Processing ${images.length} items:`, {
       category: category || 'all',
       plan,
       provider,
+      isAdmin,
       imageLengths: images.map((img, i) => ({ index: i, length: img?.length || 0 }))
     });
 
