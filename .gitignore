@@ -45,6 +45,7 @@ movetrack-app/.capacitor/
 **/google-cloud-credentials.json
 **/service-account-key.json
 movetrack-api/devkeys/*.json
+movetrack-api/start-dev.sh
 
 # OS
 .DS_Store
