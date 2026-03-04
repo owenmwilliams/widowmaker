@@ -337,7 +337,7 @@ router.post('/analyze-multi-item', verifyToken, upload.single('image'), async (r
     // Get provider from query param or body (optional - defaults to current provider)
     let provider = (req.query.provider || req.body.provider || '').toLowerCase();
     if (plan !== 'pro') {
-      provider = 'scout';
+      provider = 'gemini'; // basic plan always uses Gemini Flash
     }
 
     // Call vision service for multi-item detection (now supports both base64 and URLs)
@@ -398,7 +398,7 @@ router.get('/multi-quota', verifyToken, async (req, res) => {
 router.get('/provider', verifyToken, (req, res) => {
   const plan = (resolveEffectivePlan(req) || 'pro').toLowerCase();
   const available = visionService.getAvailableProviders();
-  const allowedBasicProviders = ['scout', 'qwen'];
+  const allowedBasicProviders = ['gemini'];
 
   if (plan === 'pro') {
     return res.json({
@@ -410,8 +410,7 @@ router.get('/provider', verifyToken, (req, res) => {
 
   const safeProviders = allowedBasicProviders.filter(p => available.includes(p));
   const list = safeProviders.length ? safeProviders : allowedBasicProviders;
-  const currentGlobal = visionService.getCurrentProvider();
-  const current = list.includes(currentGlobal) ? currentGlobal : list[0];
+  const current = 'gemini';
 
   res.json({
     current,
@@ -431,7 +430,7 @@ router.post('/provider', verifyToken, (req, res) => {
 
     provider = String(provider).toLowerCase();
     const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
-    const allowedBasicProviders = ['scout', 'qwen'];
+    const allowedBasicProviders = ['gemini'];
     if (plan !== 'pro' && !allowedBasicProviders.includes(provider)) {
       return res.status(402).json({ error: 'Upgrade to Pro to use premium AI providers.' });
     }

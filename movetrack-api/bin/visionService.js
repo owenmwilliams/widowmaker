@@ -933,6 +933,12 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType) {
             console.log('[Gemini Multi-Item] Converting URL to base64...');
             base64Image = await fetchImageAsBase64(imageSource);
             actualMimeType = mimeType || getMimeTypeFromUrl(imageSource);
+        } else if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
+            // Strip data URL prefix — Gemini expects raw base64 only
+            const [metadata, data] = imageSource.split(',');
+            base64Image = data;
+            const match = metadata.match(/^data:(.*?);base64$/);
+            if (match) actualMimeType = match[1];
         }
 
         const model = geminiClient.getGenerativeModel({
@@ -964,14 +970,42 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType) {
         const jsonText = result.response.text();
         console.log('Gemini raw response:', jsonText);
 
-        // Try to parse JSON
+        // Try to parse JSON, with extraction fallback for corrupted responses
         let data;
-        try {
-            data = JSON.parse(jsonText);
-        } catch (parseError) {
-            console.error('Failed to parse Gemini response as JSON:', parseError);
-            console.error('Response was:', jsonText);
-            throw new Error('AI returned invalid JSON format');
+        const tryParseJson = (text) => {
+            // First try direct parse
+            try { return JSON.parse(text); } catch (_) {}
+            // Extract outermost {...} block — handles trailing garbage text
+            const match = text.match(/\{[\s\S]*\}/);
+            if (match) {
+                try { return JSON.parse(match[0]); } catch (_) {}
+            }
+            return null;
+        };
+
+        data = tryParseJson(jsonText);
+
+        if (!data) {
+            // Retry once — corruption appears non-deterministic
+            console.warn('[Gemini Multi-Item] Response was unparseable, retrying once...');
+            let retryResult;
+            try {
+                retryResult = await model.generateContent([
+                    { inlineData: { data: base64Image, mimeType: actualMimeType } },
+                    { text: MULTI_ITEM_VISION_PROMPT }
+                ]);
+            } catch (retryError) {
+                throw new Error(`Gemini API error on retry: ${retryError.message}`);
+            }
+            const retryText = retryResult.response.text();
+            console.log('[Gemini Multi-Item] Retry response:', retryText);
+            data = tryParseJson(retryText);
+            if (!data) {
+                console.error('Failed to parse Gemini response as JSON after retry');
+                console.error('Original response:', jsonText);
+                console.error('Retry response:', retryText);
+                throw new Error('AI returned invalid JSON format');
+            }
         }
 
         // Validate required fields

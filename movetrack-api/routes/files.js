@@ -70,15 +70,6 @@ function generateUniqueFilename(originalName, mimetype) {
 // Route to upload a file to a Google Cloud Storage bucket
 // THI IS USED BY THE APPLICATION TO UPLOAD A FILE TO THE BUCKET
 router.post('/upload/:bucket', upload.single('file'), async (req, res) => {
-  const plan = resolveEffectivePlan(req);
-  if (plan === 'basic') {
-    // Enforce smaller size and single photo per item (handled in caller)
-    const maxSize = 3 * 1024 * 1024; // 3MB
-    if (req.file && req.file.size > maxSize) {
-      return res.status(402).json({ error: 'Basic plan upload limit is 3MB per photo. Upgrade for higher limits.' });
-    }
-  }
-
   const { bucket } = req.params;
 
   // In local development, store images as base64 data URLs instead of uploading to GCS

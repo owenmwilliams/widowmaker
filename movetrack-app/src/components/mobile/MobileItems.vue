@@ -68,6 +68,25 @@ const activeEditBool = ref(false);
 const showPhotoCapture = ref(false);
 const autoOpenCamera = ref(false);
 const pendingCaptureMode = ref<"single" | "multi" | null>(null);
+const showAddInventoryModal = ref(false);
+
+// Plan + quota state
+const userData = ref<any>({});
+if (typeof window !== 'undefined') {
+  try { userData.value = JSON.parse(localStorage.getItem('user_data') || '{}'); } catch { userData.value = {}; }
+}
+const effectivePlan = computed(() => (userData.value?.plan || 'basic').toLowerCase() as 'basic' | 'pro');
+const multiQuota = ref<{ plan: string; limit: number | null; remaining: number | null; nextReset: string | null } | null>(null);
+
+const fetchMultiQuota = async () => {
+  try {
+    const token = localStorage.getItem('session_token');
+    const response = await axios.get(`${core_url}/vision/multi-quota`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    multiQuota.value = response.data;
+  } catch { /* non-critical */ }
+};
 const currentVisionProvider = ref<string>("gemini");
 const cameraInput = ref<HTMLInputElement | null>(null);
 const savedMoves = ref<any[]>([]);
@@ -109,6 +128,26 @@ const getRouteLocationParam = (): string | null => {
     return param[0] ? String(param[0]) : null;
   }
   return typeof param === "string" && param.length > 0 ? param : null;
+};
+
+const openAddInventoryModal = () => {
+  if (store.collections.length === 0) {
+    $q.notify({
+      type: 'info',
+      message: store.locations.length === 0 ? 'Add a location first' : 'Add a room first',
+      caption: store.locations.length === 0
+        ? 'Set up your location before adding items.'
+        : 'Create a room in your location before adding items.',
+      position: 'top',
+      timeout: 0,
+      actions: [
+        { label: store.locations.length === 0 ? 'Add Location' : 'Add Collection', color: 'white', handler: () => onSelectThing(store.locations.length === 0 ? 'location' : 'collection') },
+        { label: 'Dismiss', color: 'white' },
+      ],
+    });
+    return;
+  }
+  showAddInventoryModal.value = true;
 };
 
 const openPhotoCapture = (
@@ -208,8 +247,8 @@ const hasItemsOrContainers = computed(() => {
   return store.items.length > 0 || store.containers.length > 0;
 });
 
-// Show enhanced CTA when inventory is sparse (< 4 items)
-const showEnhancedCTA = computed(() => totalItemsCount.value < 4);
+// Show enhanced CTA only when collection has no items yet
+const showEnhancedCTA = computed(() => totalItemsCount.value === 0);
 
 // Trim username for breadcrumb display
 const trimmedUsername = computed(() => {
@@ -711,6 +750,7 @@ onMounted(() => {
   store.loadInventory(props.user);
   loadSavedMoves();
   maybeLaunchCaptureFromStorage();
+  fetchMultiQuota();
 });
 
 // const consoleLog = () => {
@@ -876,6 +916,154 @@ const handleContainerHide = (containerId: string) => {
           @close="showPhotoCapture = false"
         />
       </q-card-section>
+    </q-card>
+  </q-dialog>
+
+  <!-- Add Inventory Modal -->
+  <q-dialog v-model="showAddInventoryModal" position="bottom">
+    <q-card class="add-inventory-modal">
+      <q-card-section class="add-inventory-header">
+        <div class="text-h6 text-weight-bold">Add Inventory</div>
+        <div class="text-caption text-grey-6">Choose how to add items</div>
+      </q-card-section>
+
+      <q-card-section class="add-inventory-options q-pt-none">
+        <!-- Add Single Item -->
+        <q-item
+          clickable
+          v-ripple
+          class="add-inventory-option"
+          @click="showAddInventoryModal = false; openPhotoCapture('single', { autoOpen: true })"
+        >
+          <q-item-section avatar>
+            <q-avatar color="primary" text-color="white" icon="add_a_photo" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label class="text-weight-bold">Add Single Item</q-item-label>
+            <q-item-label caption>Photograph one item at a time with AI recognition</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-icon name="chevron_right" color="grey-5" />
+          </q-item-section>
+        </q-item>
+
+        <q-separator inset="item" />
+
+        <!-- Add Multiple Items -->
+        <q-item
+          clickable
+          v-ripple
+          class="add-inventory-option"
+          @click="showAddInventoryModal = false; openPhotoCapture('multi', { autoOpen: true })"
+        >
+          <q-item-section avatar>
+            <q-avatar color="secondary" text-color="white" icon="photo_library" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label class="text-weight-bold">Add Multiple Items</q-item-label>
+            <q-item-label caption>Scan several items in one session</q-item-label>
+            <q-item-label
+              v-if="effectivePlan === 'basic' && multiQuota && multiQuota.limit !== null"
+              caption
+              class="text-orange-8 text-weight-medium"
+            >
+              {{ multiQuota.remaining }} / {{ multiQuota.limit }} scans remaining this week
+            </q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-icon name="chevron_right" color="grey-5" />
+          </q-item-section>
+        </q-item>
+
+        <q-separator inset="item" />
+
+        <!-- Scan a Room (Pro only) -->
+        <q-item
+          class="add-inventory-option"
+          :class="{ 'add-inventory-option--disabled': effectivePlan !== 'pro' }"
+          :clickable="effectivePlan === 'pro'"
+          :v-ripple="effectivePlan === 'pro'"
+        >
+          <q-item-section avatar>
+            <q-avatar
+              :color="effectivePlan === 'pro' ? 'deep-purple' : 'grey-4'"
+              :text-color="effectivePlan === 'pro' ? 'white' : 'grey-6'"
+              icon="videocam"
+            />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label :class="effectivePlan !== 'pro' ? 'text-grey-5' : 'text-weight-bold'">
+              Scan a Room
+              <q-badge v-if="effectivePlan !== 'pro'" color="deep-purple" label="Pro" class="q-ml-xs" />
+            </q-item-label>
+            <q-item-label caption :class="effectivePlan !== 'pro' ? 'text-grey-4' : ''">
+              {{ effectivePlan === 'pro' ? 'Record a video walkthrough — AI finds every item' : 'Upgrade to Pro to scan entire rooms by video' }}
+            </q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-icon :name="effectivePlan !== 'pro' ? 'lock' : 'chevron_right'" :color="effectivePlan !== 'pro' ? 'grey-4' : 'grey-5'" />
+          </q-item-section>
+        </q-item>
+
+        <!-- Get Pro CTA (non-pro users only) -->
+        <div v-if="effectivePlan !== 'pro'" class="get-pro-cta">
+          <q-btn
+            unelevated
+            color="deep-purple"
+            icon="workspace_premium"
+            label="Get Pro Now"
+            class="full-width"
+            style="border-radius: 12px; text-transform: none; font-weight: 700;"
+            href="/pricing"
+          />
+        </div>
+
+        <q-separator inset="item" />
+
+        <!-- Add Manually -->
+        <q-item
+          clickable
+          v-ripple
+          class="add-inventory-option"
+          @click="showAddInventoryModal = false; onSelectThing('item')"
+        >
+          <q-item-section avatar>
+            <q-avatar color="grey-6" text-color="white" icon="edit_note" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label class="text-weight-bold">Add Manually</q-item-label>
+            <q-item-label caption>Enter item details by hand without a photo</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-icon name="chevron_right" color="grey-5" />
+          </q-item-section>
+        </q-item>
+
+        <q-separator inset="item" />
+
+        <!-- Add Container -->
+        <q-item
+          clickable
+          v-ripple
+          class="add-inventory-option"
+          @click="showAddInventoryModal = false; onSelectThing('container')"
+        >
+          <q-item-section avatar>
+            <q-avatar color="brown-5" text-color="white" icon="inventory_2" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label class="text-weight-bold">Add Container</q-item-label>
+            <q-item-label caption>Create a box or bin to group items inside</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-icon name="chevron_right" color="grey-5" />
+          </q-item-section>
+        </q-item>
+      </q-card-section>
+
+      <q-card-actions class="add-inventory-footer">
+        <q-btn flat label="Cancel" color="grey-7" v-close-popup class="full-width" />
+      </q-card-actions>
     </q-card>
   </q-dialog>
 
@@ -1198,28 +1386,12 @@ const handleContainerHide = (containerId: string) => {
             <q-btn
               unelevated
               size="lg"
-              icon="add_a_photo"
-              label="Take Photo"
+              icon="add_circle"
+              label="Add Inventory"
               class="fab-button fab-pill"
-              @click="openPhotoCapture('single')"
+              @click="openAddInventoryModal"
             />
 
-            <div class="cta-secondary-actions">
-              <q-btn
-                flat
-                dense
-                color="primary"
-                label="Add Manually"
-                @click="onSelectThing('item')"
-              />
-              <q-btn
-                flat
-                dense
-                color="primary"
-                label="Add Container"
-                @click="onSelectThing('container')"
-              />
-            </div>
           </div>
         </div>
       </div>
@@ -1237,12 +1409,12 @@ const handleContainerHide = (containerId: string) => {
     >
       <q-btn
         unelevated
-        icon="add_a_photo"
-        label="Add photo"
+        icon="add_circle"
+        label="Add Inventory"
         class="fab-button fab-pill"
-        @click="openPhotoCapture('single')"
+        @click="openAddInventoryModal"
       >
-        <q-tooltip>Add item with AI</q-tooltip>
+        <q-tooltip>Add items to inventory</q-tooltip>
       </q-btn>
     </q-page-sticky>
   </q-layout>
@@ -1788,5 +1960,38 @@ const handleContainerHide = (containerId: string) => {
 /* Ensure FAB is above the gradient overlay */
 .q-page-sticky {
   z-index: 2;
+}
+
+/* Add Inventory Modal */
+.add-inventory-modal {
+  border-radius: 20px 20px 0 0;
+  min-width: min(100vw, 480px);
+}
+
+.add-inventory-header {
+  padding-bottom: 4px;
+}
+
+.add-inventory-options {
+  padding: 0;
+}
+
+.add-inventory-option {
+  padding: 16px 20px;
+  min-height: 72px;
+  border-radius: 0;
+}
+
+.add-inventory-option--disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.get-pro-cta {
+  padding: 12px 20px 4px;
+}
+
+.add-inventory-footer {
+  padding: 8px 16px 16px;
 }
 </style>

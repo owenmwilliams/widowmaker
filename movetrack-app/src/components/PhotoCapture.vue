@@ -845,9 +845,7 @@ const handleMultiItemCapture = async (file: File) => {
       });
     }
 
-    // Reset to mode selection
-    resetForm();
-    showModeSelection.value = true;
+    emit('close');
   } finally {
     isProcessing.value = false;
     showCamera.value = false;
