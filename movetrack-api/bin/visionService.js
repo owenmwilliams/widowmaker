@@ -384,6 +384,12 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT) 
             console.log('[Gemini] Converting URL to base64...');
             base64Image = await fetchImageAsBase64(imageSource);
             actualMimeType = mimeType || getMimeTypeFromUrl(imageSource);
+        } else if (typeof imageSource === 'string' && imageSource.startsWith('data:')) {
+            // Strip data URL prefix — Gemini expects raw base64 only
+            const [metadata, data] = imageSource.split(',');
+            base64Image = data;
+            const match = metadata.match(/^data:(.*?);base64$/);
+            if (match) actualMimeType = match[1];
         }
 
         const model = geminiClient.getGenerativeModel({

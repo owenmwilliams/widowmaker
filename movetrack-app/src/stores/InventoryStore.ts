@@ -616,12 +616,21 @@ export const inventoryStore = defineStore("inventory", () => {
         let id = value.id;
 
         params.item_id = id;
-        params.picture_url = value.url ? value.url : undefined;
+        const pictureUrl = value.url || undefined;
+
+        // Data URLs are too large for query params — send in body instead
+        let axiosBody: Record<string, string> | undefined;
+        if (pictureUrl?.startsWith('data:')) {
+          axiosBody = { picture_url: pictureUrl };
+        } else {
+          params.picture_url = pictureUrl;
+        }
 
         axios({
           method: "put",
           url: core_url + "/items/update",
           params: params,
+          data: axiosBody,
           headers: headers,
         });
         return { id };

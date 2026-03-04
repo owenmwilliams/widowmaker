@@ -569,10 +569,10 @@ async function authenticate(req, res, next) {
 
         // Attach user info to request object
         req.user = {
-            user_id: user.userId,
+            user_id: user.user_id,
             email: user.email,
-            first_name: user.firstName,
-            last_name: user.lastName,
+            first_name: user.first_name,
+            last_name: user.last_name,
             plan: user.plan,
             is_admin: user.is_admin
         };

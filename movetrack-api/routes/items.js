@@ -334,6 +334,8 @@ router.post('/post', jsonParser, async function(req, res, next) {
 
     if(req.query.picture_url) {
       params.picture_url = req.query.picture_url
+    } else if (req.body?.picture_url) {
+      params.picture_url = req.body.picture_url
     }
 
     // New MoveTrack fields

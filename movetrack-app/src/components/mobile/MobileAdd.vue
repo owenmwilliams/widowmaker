@@ -48,6 +48,66 @@
   const state = ref('');
   const zip = ref('');
 
+  // Places autocomplete
+  const placeOptions = ref<{ label: string; value: string }[]>([]);
+  const placeSearch = ref('');
+  let placeSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const apiBase = import.meta.env.MODE === 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+
+  const authHeaders = () => {
+    const token = localStorage.getItem('session_token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  const searchPlaces = (val: string, update: (fn: () => void) => void) => {
+    if (placeSearchTimer) clearTimeout(placeSearchTimer);
+    if (!val || val.length < 3) {
+      update(() => { placeOptions.value = []; });
+      return;
+    }
+    placeSearchTimer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${apiBase}/google/places-autocomplete?input=${encodeURIComponent(val)}`, {
+          headers: authHeaders()
+        });
+        const data = await res.json();
+        update(() => {
+          placeOptions.value = (data.predictions || []).map((p: any) => ({
+            label: p.description,
+            value: p.place_id
+          }));
+        });
+      } catch {
+        update(() => { placeOptions.value = []; });
+      }
+    }, 350);
+  };
+
+  const onPlaceSelect = async (selected: { label: string; value: string } | null) => {
+    if (!selected) return;
+    try {
+      const res = await fetch(`${apiBase}/google/places-details?place_id=${encodeURIComponent(selected.value)}`, {
+        headers: authHeaders()
+      });
+      const data = await res.json();
+      const components: any[] = data.result?.address_components || [];
+      const get = (type: string) =>
+        components.find((c: any) => c.types.includes(type))?.long_name ?? '';
+      const getShort = (type: string) =>
+        components.find((c: any) => c.types.includes(type))?.short_name ?? '';
+
+      const streetNumber = get('street_number');
+      const route = get('route');
+      address.value = streetNumber ? `${streetNumber} ${route}` : route;
+      city.value = get('locality') || get('sublocality') || get('postal_town');
+      state.value = getShort('administrative_area_level_1');
+      zip.value = get('postal_code');
+    } catch {
+      // silently fail — user can fill in manually
+    }
+  };
+
     
   // These are constants that populate the drop-down select menu to allow choosing a location and room
   const location: Ref<{label: string, value: string} | undefined> = ref();
@@ -282,6 +342,33 @@
           label="Description"
           type="textarea"
           @input="" />
+
+        <q-select
+          v-if="props.objectType == ObjectEnum.location"
+          v-model="placeSearch"
+          :options="placeOptions"
+          label="Search address"
+          filled
+          use-input
+          hide-selected
+          fill-input
+          input-debounce="0"
+          hint="Powered by Google"
+          @filter="searchPlaces"
+          @update:model-value="onPlaceSelect"
+          class="q-mb-sm"
+        >
+          <template #no-option>
+            <q-item>
+              <q-item-section class="text-grey">
+                Type to search for an address
+              </q-item-section>
+            </q-item>
+          </template>
+          <template #prepend>
+            <q-icon name="search" />
+          </template>
+        </q-select>
 
         <q-input
           v-if="props.objectType == ObjectEnum.location"

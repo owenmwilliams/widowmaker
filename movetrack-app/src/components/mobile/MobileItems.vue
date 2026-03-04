@@ -125,7 +125,7 @@ const openPhotoCapture = (
       position: 'top',
       timeout: 0,
       actions: [
-        { label: store.locations.length === 0 ? 'Add Location' : 'Add Room', color: 'white', handler: () => router.push({ name: 'mobile-locations' }) },
+        { label: store.locations.length === 0 ? 'Add Location' : 'Add Collection', color: 'white', handler: () => onSelectThing(store.locations.length === 0 ? 'location' : 'collection') },
         { label: 'Dismiss', color: 'white' },
       ],
     });
@@ -228,7 +228,7 @@ const collectionsForSelectedLocation = computed(() => {
 
 const shouldShowAddCollectionLanding = computed(() => {
   if (store.locations.length === 0) {
-    return false;
+    return true;
   }
   if (selectedLocationId.value) {
     return collectionsForSelectedLocation.value.length === 0;
@@ -237,6 +237,9 @@ const shouldShowAddCollectionLanding = computed(() => {
 });
 
 const addCollectionLandingTitle = computed(() => {
+  if (store.locations.length === 0) {
+    return "Add a Location to Get Started";
+  }
   if (selectedLocationId.value) {
     const loc = store.locations.find(
       (l) => l.value === selectedLocationId.value,
@@ -249,6 +252,9 @@ const addCollectionLandingTitle = computed(() => {
 });
 
 const addCollectionLandingSubtitle = computed(() => {
+  if (store.locations.length === 0) {
+    return "Add a location (e.g. your home or storage unit) to start organizing your move.";
+  }
   if (selectedLocationId.value) {
     const loc = store.locations.find(
       (l) => l.value === selectedLocationId.value,
@@ -256,9 +262,6 @@ const addCollectionLandingSubtitle = computed(() => {
     if (loc?.label) {
       return `Create a room for ${loc.label} to organize containers and items.`;
     }
-  }
-  if (store.locations.length === 0) {
-    return "Add a location first to start organizing your move.";
   }
   return "Create your first room to start building your moving inventory.";
 });
@@ -534,7 +537,7 @@ const onSelectThing = (item: string) => {
       position: 'top',
       timeout: 0,
       actions: [
-        { label: store.locations.length === 0 ? 'Add Location' : 'Add Room', color: 'white', handler: () => router.push({ name: 'mobile-locations' }) },
+        { label: store.locations.length === 0 ? 'Add Location' : 'Add Collection', color: 'white', handler: () => onSelectThing(store.locations.length === 0 ? 'location' : 'collection') },
         { label: 'Dismiss', color: 'white' },
       ],
     });
@@ -926,17 +929,25 @@ const handleContainerHide = (containerId: string) => {
       >
         <div class="landing-card">
           <div class="landing-card-content">
-            <div class="landing-eyebrow">You're almost ready</div>
+            <div class="landing-eyebrow">{{ store.locations.length === 0 ? 'Welcome' : "You're almost ready" }}</div>
             <div class="landing-title">{{ addCollectionLandingTitle }}</div>
             <div class="landing-subtitle">
               {{ addCollectionLandingSubtitle }}
             </div>
             <q-btn
+              v-if="store.locations.length === 0"
+              unelevated
+              class="landing-primary-btn fab-button fab-pill"
+              icon="place"
+              label="Add Location"
+              @click="onSelectThing('location')"
+            />
+            <q-btn
+              v-else
               unelevated
               class="landing-primary-btn fab-button fab-pill"
               icon="add"
               label="Add Collection"
-              :disable="store.locations.length === 0"
               @click="startAddCollectionFlow(selectedLocationId)"
             />
             <div class="landing-secondary" v-if="store.locations.length > 1">

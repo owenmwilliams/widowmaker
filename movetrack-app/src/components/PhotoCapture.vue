@@ -20,7 +20,7 @@ const emit = defineEmits<{
 }>();
 
 // Vision provider (passed from parent or defaults to current backend setting)
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visionProvider?: string;
   user?: string;
   autoOpen?: boolean;
@@ -29,7 +29,9 @@ const props = defineProps<{
   defaultCollectionId?: string | null;
   createInInventory?: boolean;
   suppressDirectPrompt?: boolean;
-}>();
+}>(), {
+  createInInventory: true,
+});
 
 // Camera/Photo state
 const showCamera = ref(false);

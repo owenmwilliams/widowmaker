@@ -78,4 +78,51 @@ router.post('/validate-address', async (req, res) => {
   }
 });
 
+// GET /places-autocomplete?input=...
+router.get('/places-autocomplete', async (req, res) => {
+  try {
+    if (!GOOGLE_API_KEY) {
+      return res.status(503).json({ error: 'Google API is not configured' });
+    }
+    const input = req.query.input;
+    if (!input) return res.json({ predictions: [] });
+
+    const response = await axios.get('https://maps.googleapis.com/maps/api/place/autocomplete/json', {
+      params: {
+        input,
+        types: 'address',
+        language: 'en',
+        key: GOOGLE_API_KEY
+      }
+    });
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching place autocomplete:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /places-details?place_id=...
+router.get('/places-details', async (req, res) => {
+  try {
+    if (!GOOGLE_API_KEY) {
+      return res.status(503).json({ error: 'Google API is not configured' });
+    }
+    const place_id = req.query.place_id;
+    if (!place_id) return res.status(400).json({ error: 'place_id required' });
+
+    const response = await axios.get('https://maps.googleapis.com/maps/api/place/details/json', {
+      params: {
+        place_id,
+        fields: 'address_components,formatted_address',
+        key: GOOGLE_API_KEY
+      }
+    });
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error fetching place details:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;

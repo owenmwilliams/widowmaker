@@ -35,7 +35,7 @@ async function checkUser () {
       if (response.data.user) {
         localStorage.setItem('user_data', JSON.stringify(response.data.user))
       }
-      userId.value = response.data.user.userId
+      userId.value = response.data.user.user_id || response.data.user.userId
     } else {
       localStorage.removeItem('session_token')
       localStorage.removeItem('user_data')
