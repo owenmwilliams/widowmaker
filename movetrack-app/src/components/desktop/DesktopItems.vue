@@ -169,6 +169,20 @@
   }
 
   const openAddOptions = () => {
+    if (store.collections.length === 0) {
+      $q.notify({
+        type: 'info',
+        message: 'Set up your space first',
+        caption: 'Add a location and at least one room in Settings before adding items.',
+        position: 'top',
+        timeout: 0,
+        actions: [
+          { label: 'Go to Settings', color: 'white', handler: () => changePage('settings') },
+          { label: 'Dismiss', color: 'white' },
+        ],
+      })
+      return
+    }
     showAddOptionsDialog.value = true
   }
 
