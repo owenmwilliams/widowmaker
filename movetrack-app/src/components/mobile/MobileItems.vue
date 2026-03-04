@@ -115,6 +115,22 @@ const openPhotoCapture = (
   mode?: "single" | "multi",
   options?: { autoOpen?: boolean },
 ) => {
+  if (store.collections.length === 0) {
+    $q.notify({
+      type: 'info',
+      message: store.locations.length === 0 ? 'Add a location first' : 'Add a room first',
+      caption: store.locations.length === 0
+        ? 'Set up your location before adding items.'
+        : 'Create a room in your location before adding items.',
+      position: 'top',
+      timeout: 0,
+      actions: [
+        { label: store.locations.length === 0 ? 'Add Location' : 'Add Room', color: 'white', handler: () => router.push({ name: 'mobile-locations' }) },
+        { label: 'Dismiss', color: 'white' },
+      ],
+    });
+    return;
+  }
   pendingCaptureMode.value = mode ?? null;
   autoOpenCamera.value = options?.autoOpen ?? false;
   showPhotoCapture.value = true;
@@ -508,6 +524,22 @@ const handleCameraCapture = async (event: Event) => {
 };
 
 const onSelectThing = (item: string) => {
+  if ((item === "item" || item === "container") && store.collections.length === 0) {
+    $q.notify({
+      type: 'info',
+      message: store.locations.length === 0 ? 'Add a location first' : 'Add a room first',
+      caption: store.locations.length === 0
+        ? 'Set up your location before adding items.'
+        : 'Create a room in your location before adding items.',
+      position: 'top',
+      timeout: 0,
+      actions: [
+        { label: store.locations.length === 0 ? 'Add Location' : 'Add Room', color: 'white', handler: () => router.push({ name: 'mobile-locations' }) },
+        { label: 'Dismiss', color: 'white' },
+      ],
+    });
+    return;
+  }
   // Debugging console logs
   pendingCollectionLocationId.value = null;
   if (item == "item") {
@@ -1158,7 +1190,6 @@ const handleContainerHide = (containerId: string) => {
               icon="add_a_photo"
               label="Take Photo"
               class="fab-button fab-pill"
-              :disable="store.collections.length == 0"
               @click="openPhotoCapture('single')"
             />
 
@@ -1168,7 +1199,6 @@ const handleContainerHide = (containerId: string) => {
                 dense
                 color="primary"
                 label="Add Manually"
-                :disable="store.collections.length == 0"
                 @click="onSelectThing('item')"
               />
               <q-btn
@@ -1176,7 +1206,6 @@ const handleContainerHide = (containerId: string) => {
                 dense
                 color="primary"
                 label="Add Container"
-                :disable="store.collections.length == 0"
                 @click="onSelectThing('container')"
               />
             </div>
@@ -1200,7 +1229,6 @@ const handleContainerHide = (containerId: string) => {
         icon="add_a_photo"
         label="Add photo"
         class="fab-button fab-pill"
-        :disable="store.collections.length == 0"
         @click="openPhotoCapture('single')"
       >
         <q-tooltip>Add item with AI</q-tooltip>
