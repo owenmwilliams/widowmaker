@@ -12,6 +12,7 @@
   import DesktopSettings from './DesktopSettings.vue';
   import DesktopSupport from './DesktopSupport.vue';
   import PhotoCapture from '../PhotoCapture.vue';
+  import VideoInventoryScan from '../VideoInventoryScan.vue';
   import VisionProviderToggle from '../VisionProviderToggle.vue';
   import ReloPrepLogo from '../ReloPrepLogo.vue';
   import { storeToRefs } from 'pinia';
@@ -24,6 +25,7 @@
   const dashboardTab = ref<'overview' | 'attributes' | 'duplicates'>('overview')
   const inventoryTab = ref<'items' | 'collections'>('collections')
   const showPhotoCapture = ref(false)
+  const showVideoScan = ref(false)
   const showVisionSettings = ref(false)
   const currentVisionProvider = ref<string>('gemini')
   const search = ref('')
@@ -174,6 +176,17 @@
     photoCaptureMode.value = mode
     showAddOptionsDialog.value = false
     showPhotoCapture.value = true
+  }
+
+  const handleVideoScanOption = () => {
+    showAddOptionsDialog.value = false
+    showVideoScan.value = true
+  }
+
+  const handleVideoItemsAdded = async () => {
+    showVideoScan.value = false
+    await store.loadInventory(props.user)
+    $q.notify({ type: 'positive', message: 'Inventory updated from video scan!', position: 'bottom', timeout: 3000 })
   }
 
   const handleManualAdd = () => {
@@ -406,7 +419,17 @@
                 @click="handleScanOption('multi')"
               />
               <div class="limit-tag" v-if="effectivePlan === 'basic'"><em>(3x / week)</em></div>
-              
+
+              <q-btn
+                unelevated
+                color="primary"
+                icon="videocam"
+                label="Scan by Video"
+                :disable="store.collections.length === 0 || effectivePlan !== 'pro'"
+                @click="handleVideoScanOption"
+              />
+              <div class="limit-tag" v-if="effectivePlan !== 'pro'"><em>(Pro plan)</em></div>
+
               <q-btn
                 flat
                 color="grey-7"
@@ -435,6 +458,28 @@
             <q-card-actions align="right">
               <q-btn flat label="Close" color="primary" v-close-popup />
             </q-card-actions>
+          </q-card>
+        </q-dialog>
+
+        <!-- Video Inventory Scan Dialog -->
+        <q-dialog v-model="showVideoScan" persistent>
+          <q-card style="min-width: 520px; max-width: 720px;">
+            <q-card-section class="q-pb-sm">
+              <div class="row items-center justify-between">
+                <div class="text-h6 text-primary">Scan by Video</div>
+                <q-btn flat round dense icon="close" color="grey-6" @click="showVideoScan = false" />
+              </div>
+            </q-card-section>
+            <q-separator />
+            <q-card-section>
+              <VideoInventoryScan
+                :user="props.user"
+                :effective-plan="effectivePlan"
+                :vision-provider="currentVisionProvider"
+                @close="showVideoScan = false"
+                @items-added="handleVideoItemsAdded"
+              />
+            </q-card-section>
           </q-card>
         </q-dialog>
 

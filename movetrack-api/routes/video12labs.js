@@ -14,16 +14,18 @@ const upload = multer({
   limits: { fileSize: 500 * 1024 * 1024 }
 });
 
-// Admin-only guard
-function ensureAdmin(req, res, next) {
-  if (!req.user || !req.user.is_admin) {
-    return res.status(403).json({ success: false, error: 'Admins only' });
+// Pro-or-admin guard — video scanning requires a pro plan
+function ensureProOrAdmin(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Not authenticated' });
   }
-  next();
+  const plan = req.user.plan || 'basic';
+  if (req.user.is_admin || plan === 'pro') return next();
+  return res.status(403).json({ success: false, error: 'Pro plan required for video scanning' });
 }
 
 router.use(authenticate);
-router.use(ensureAdmin);
+router.use(ensureProOrAdmin);
 
 // In-memory session store (admin sandbox only)
 const sessions = new Map();
