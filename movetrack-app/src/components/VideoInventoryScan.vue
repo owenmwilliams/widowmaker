@@ -3,7 +3,6 @@ import { ref, computed, onUnmounted } from 'vue';
 import { useQuasar } from 'quasar';
 import axios from 'axios';
 import { inventoryStore } from '../stores/InventoryStore';
-import PhotoCapture from './PhotoCapture.vue';
 
 const props = defineProps<{
   user: string;
@@ -70,8 +69,6 @@ type DetectedItem = {
 };
 
 const detectedItems = ref<DetectedItem[]>([]);
-const additionalItems = ref<any[]>([]);
-const showExtraCapture = ref(false);
 const videoGcsUrl = ref<string | null>(null);
 
 // ── Confirm ───────────────────────────────────────────────────────────────────
@@ -85,9 +82,7 @@ const collections = computed(() => store.collections);
 
 const includedDetectedItems = computed(() => detectedItems.value.filter((i) => i.include));
 
-const totalToAdd = computed(
-  () => includedDetectedItems.value.length + additionalItems.value.length,
-);
+const totalToAdd = computed(() => includedDetectedItems.value.length);
 
 const indexingElapsedLabel = computed(() => {
   const m = Math.floor(indexingElapsed.value / 60);
@@ -244,12 +239,6 @@ const decrementQty = (item: DetectedItem) => {
   item.quantity = Math.max(1, item.quantity - 1);
 };
 
-const handleExtraItem = (item: any) => {
-  additionalItems.value.push(item);
-  showExtraCapture.value = false;
-  $q.notify({ type: 'positive', message: `"${item.name}" added`, position: 'bottom', timeout: 1500 });
-};
-
 // ── Confirm ───────────────────────────────────────────────────────────────────
 const confirmItems = async () => {
   if (totalToAdd.value === 0) return;
@@ -257,20 +246,12 @@ const confirmItems = async () => {
   confirmProgress.value = 0;
   confirmTotal.value = totalToAdd.value;
 
-  const allItems = [
-    ...includedDetectedItems.value.map((i) => ({
-      name: i.name,
-      notes: i.notes,
-      quantity: i.quantity,
-      collection: i.collectionId,
-    })),
-    ...additionalItems.value.map((i) => ({
-      name: i.name || 'Item',
-      notes: '',
-      quantity: i.quantity || 1,
-      collection: i.collection || collections.value[0]?.value || '',
-    })),
-  ];
+  const allItems = includedDetectedItems.value.map((i) => ({
+    name: i.name,
+    notes: i.notes,
+    quantity: i.quantity,
+    collection: i.collectionId,
+  }));
 
   for (const item of allItems) {
     try {
@@ -336,7 +317,7 @@ onUnmounted(() => {
           </div>
           <div class="tip-body">
             <div class="tip-title">One area at a time</div>
-            <div class="tip-desc">Focus each video on a single area: one wall, one closet, one set of shelves. 30–60 seconds per area works best.</div>
+            <div class="tip-desc">Focus each video on a single area: one wall, one closet, one set of shelves. 10–15 seconds per area works best.</div>
           </div>
         </div>
 
@@ -362,7 +343,6 @@ onUnmounted(() => {
       </div>
 
       <div class="step-actions">
-        <q-btn flat color="grey-6" label="Cancel" @click="emit('close')" class="q-mr-sm" />
         <q-btn
           class="fab-button fab-pill"
           label="Got it — Start Recording"
@@ -370,6 +350,7 @@ onUnmounted(() => {
           unelevated
           @click="step = 'record'"
         />
+        <q-btn flat color="grey-6" label="Cancel" @click="emit('close')" />
       </div>
     </div>
 
@@ -426,7 +407,6 @@ onUnmounted(() => {
       </q-banner>
 
       <div class="step-actions">
-        <q-btn flat color="grey-6" label="Back" icon="arrow_back" @click="step = 'guide'" class="q-mr-sm" />
         <q-btn
           class="fab-button fab-pill"
           label="Upload & Analyze"
@@ -435,6 +415,7 @@ onUnmounted(() => {
           :disable="!selectedFile || (!!selectedFile && selectedFile.size > 500 * 1024 * 1024)"
           @click="startProcessing"
         />
+        <q-btn flat color="grey-6" label="Back" icon="arrow_back" @click="step = 'guide'" />
       </div>
     </div>
 
@@ -556,28 +537,6 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Additional items from photo -->
-      <div v-if="additionalItems.length > 0" class="additional-section q-mb-md">
-        <div class="section-label">Added by photo</div>
-        <div class="additional-list">
-          <div v-for="(item, idx) in additionalItems" :key="`extra-${idx}`" class="additional-item">
-            <q-icon name="photo_camera" size="16px" color="primary" class="q-mr-xs" />
-            <span>{{ item.name }}</span>
-            <span class="text-grey-6 q-ml-xs">×{{ item.quantity || 1 }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Add by photo button -->
-      <q-btn
-        flat
-        color="primary"
-        icon="photo_camera"
-        label="Add item by photo"
-        class="q-mb-md add-photo-btn"
-        @click="showExtraCapture = true"
-      />
-
       <!-- Post-confirm GCS video link -->
       <div v-if="confirmDone && videoGcsUrl" class="gcs-video-link q-mb-sm">
         <q-icon name="videocam" size="16px" color="primary" class="q-mr-xs" />
@@ -598,7 +557,6 @@ onUnmounted(() => {
       </div>
 
       <div class="step-actions">
-        <q-btn flat color="grey-6" label="Cancel" @click="emit('close')" class="q-mr-sm" />
         <q-btn
           class="fab-button fab-pill"
           :label="totalToAdd > 0 ? `Confirm & Add ${totalToAdd} item${totalToAdd !== 1 ? 's' : ''}` : 'Nothing selected'"
@@ -608,23 +566,9 @@ onUnmounted(() => {
           :loading="confirming"
           @click="confirmItems"
         />
+        <q-btn flat color="grey-6" label="Cancel" @click="emit('close')" />
       </div>
     </div>
-
-    <!-- Extra photo capture dialog -->
-    <q-dialog v-model="showExtraCapture" persistent>
-      <q-card style="min-width: 560px; max-width: 760px;">
-        <q-card-section>
-          <PhotoCapture
-            :vision-provider="visionProvider || 'gemini'"
-            :user="user"
-            default-capture-mode="single"
-            @item-added="handleExtraItem"
-            @close="showExtraCapture = false"
-          />
-        </q-card-section>
-      </q-card>
-    </q-dialog>
 
   </div>
 </template>
@@ -949,10 +893,15 @@ onUnmounted(() => {
 /* ── Actions bar ─────────────────────────────────────────────────────────────── */
 .step-actions {
   display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding-top: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding-top: 12px;
   margin-top: auto;
+}
+
+.step-actions .fab-button {
+  width: 100%;
 }
 
 /* ── FAB button (matches app-wide style) ─────────────────────────────────────── */

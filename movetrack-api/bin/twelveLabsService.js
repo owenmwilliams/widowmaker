@@ -160,8 +160,10 @@ async function fetchThumbnail(indexId, videoId, seconds) {
         timeout: 10000
       }
     );
-    // Response shape: { thumbnail: "https://..." }
-    return res.data?.thumbnail || null;
+    // Try multiple possible response shapes across API versions
+    const url = res.data?.thumbnail || res.data?.thumbnailUrl || res.data?.url || null;
+    console.log(`[TwelveLabs] Thumbnail for t=${seconds}s: ${url ? url.substring(0, 100) : 'null'}`);
+    return url;
   } catch (err) {
     console.warn(`[TwelveLabs] Thumbnail fetch failed for t=${seconds}s:`, err?.message);
     return null;
