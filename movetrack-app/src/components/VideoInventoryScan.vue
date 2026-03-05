@@ -182,7 +182,7 @@ const runAnalysis = async () => {
       { headers: buildHeaders() },
     );
     const items: any[] = res.data.items || [];
-    videoGcsUrl.value = res.data.video_gcs_url || null;
+    videoGcsUrl.value = res.data.video_signed_url || null;
 
     detectedItems.value = items.map((item, idx) => {
       const roomLower = (item.room || '').trim().toLowerCase();

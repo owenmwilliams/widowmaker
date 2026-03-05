@@ -1,0 +1,112 @@
+/**
+ * gcsService.js
+ *
+ * Shared Google Cloud Storage client and helpers.
+ * Centralises bucket access, signed-URL generation, and upload utilities
+ * so that files.js, video12labs.js, and future routes all share one client.
+ */
+
+const { Storage } = require('@google-cloud/storage');
+const path = require('path');
+
+const isLocalEnvironment = process.env.NODE_ENV !== 'production';
+const BUCKET = 'movetrack-item-photos';
+const PROJECT_ID = 'widowmaker-477505';
+
+// ── Storage client ────────────────────────────────────────────────────────────
+const storageOptions = { projectId: PROJECT_ID };
+
+if (isLocalEnvironment) {
+  const localKeyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+    || path.join(__dirname, '../devkeys/service-account.json');
+  storageOptions.keyFilename = localKeyPath;
+}
+
+const storage = new Storage(storageOptions);
+
+// ── Signed URLs ───────────────────────────────────────────────────────────────
+
+/** Default signed-URL lifetime: 1 hour */
+const DEFAULT_EXPIRY_MS = 60 * 60 * 1000;
+
+/**
+ * Generate a short-lived v4 signed read URL for a GCS object.
+ *
+ * @param {string} gcsPath  – Object path inside BUCKET (e.g. "users/abc/photo.jpg")
+ * @param {number} [expiresMs] – Lifetime in ms (default 1 h)
+ * @returns {Promise<string>} Signed HTTPS URL
+ */
+async function signUrl(gcsPath, expiresMs = DEFAULT_EXPIRY_MS) {
+  const [url] = await storage
+    .bucket(BUCKET)
+    .file(gcsPath)
+    .getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + expiresMs
+    });
+  return url;
+}
+
+/**
+ * Convert a public GCS URL to the object path.
+ * e.g. "https://storage.googleapis.com/movetrack-item-photos/users/x/pic.jpg"
+ *   → "users/x/pic.jpg"
+ *
+ * Returns null if the URL doesn't match the expected bucket.
+ */
+function publicUrlToPath(url) {
+  if (!url || typeof url !== 'string') return null;
+  const prefix = `https://storage.googleapis.com/${BUCKET}/`;
+  if (url.startsWith(prefix)) return url.slice(prefix.length);
+  return null;
+}
+
+/**
+ * Replace a public GCS URL with a signed URL (if it matches the bucket).
+ * Returns the original value unchanged for data-URLs, nulls, etc.
+ */
+async function signPublicUrl(publicUrl, expiresMs = DEFAULT_EXPIRY_MS) {
+  const gcsPath = publicUrlToPath(publicUrl);
+  if (!gcsPath) return publicUrl; // not a GCS URL or already signed
+  return signUrl(gcsPath, expiresMs);
+}
+
+// ── Upload helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Upload a buffer to GCS and return { gcsPath, signedUrl }.
+ * In local dev, returns a placeholder without uploading.
+ */
+async function uploadBuffer(buffer, gcsPath, contentType) {
+  if (isLocalEnvironment) {
+    return {
+      gcsPath,
+      signedUrl: `https://storage.googleapis.com/${BUCKET}/${gcsPath}`
+    };
+  }
+
+  const file = storage.bucket(BUCKET).file(gcsPath);
+  await new Promise((resolve, reject) => {
+    const stream = file.createWriteStream({
+      metadata: { contentType },
+      resumable: false
+    });
+    stream.on('error', reject);
+    stream.on('finish', resolve);
+    stream.end(buffer);
+  });
+
+  const signedUrl = await signUrl(gcsPath);
+  return { gcsPath, signedUrl };
+}
+
+module.exports = {
+  storage,
+  BUCKET,
+  isLocalEnvironment,
+  signUrl,
+  publicUrlToPath,
+  signPublicUrl,
+  uploadBuffer
+};

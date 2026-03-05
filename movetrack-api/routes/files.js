@@ -223,4 +223,30 @@ router.post('/create/:bucket', async (req, res) => {
   }
 });
 
+// ─── GET /signed-url ──────────────────────────────────────────────────────────
+// Generate a short-lived signed URL for a GCS object.
+// Accepts either ?path=users/x/photo.jpg or ?url=https://storage.googleapis.com/...
+router.get('/signed-url', async (req, res) => {
+  const { signUrl, publicUrlToPath } = require('../bin/gcsService');
+  const gcsPath = req.query.path || publicUrlToPath(req.query.url);
+
+  if (!gcsPath) {
+    return res.status(400).json({ error: 'Provide ?path= or ?url= parameter' });
+  }
+
+  // Basic ownership check: path must start with the user's folder
+  const userId = req.user?.user_id || req.user?.uid;
+  if (!userId || !gcsPath.startsWith(`users/${userId}/`)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  try {
+    const signedUrl = await signUrl(gcsPath);
+    res.json({ signed_url: signedUrl, expires_in: 3600 });
+  } catch (err) {
+    console.error('[files] Signed URL error:', err.message);
+    res.status(500).json({ error: 'Failed to generate signed URL' });
+  }
+});
+
 module.exports = router;
