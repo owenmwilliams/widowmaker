@@ -140,8 +140,18 @@ router.post('/upload/:bucket', upload.single('file'), async (req, res) => {
         // Don't fail the upload if tracking fails
       }
 
+      // Generate a signed URL for immediate display
+      let signedUrl = publicUrl;
+      try {
+        const { signUrl } = require('../bin/gcsService');
+        signedUrl = await signUrl(file.name);
+      } catch (signErr) {
+        console.warn('[GCS] Signed URL generation failed (non-fatal):', signErr.message);
+      }
+
       res.status(200).json({
         url: publicUrl,
+        signed_url: signedUrl,
         fileName: file.name,
         bucket: bucket,
         size: req.file.size

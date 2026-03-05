@@ -603,7 +603,7 @@ export const inventoryStore = defineStore("inventory", () => {
                 "Content-Type": "multipart/form-data",
               },
             }).then((value) => {
-              return value.data.url;
+              return value.data.signed_url || value.data.url;
             });
             return { url, id };
           }
@@ -817,7 +817,7 @@ export const inventoryStore = defineStore("inventory", () => {
           ...headers,
           "Content-Type": "multipart/form-data",
         },
-      }).then((value) => value.data.url);
+      }).then((value) => value.data.signed_url || value.data.url);
       params.picture_url = uploadedUrl;
     } else if (picture_url !== undefined) {
       params.picture_url = picture_url;

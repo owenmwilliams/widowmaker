@@ -94,8 +94,10 @@ async function fetchImageAsBase64(imageUrl) {
       return buffer.toString('base64');
     } else if (imageUrl.includes('storage.googleapis.com')) {
       // Parse https://storage.googleapis.com/bucket/path URL
-      const urlParts = imageUrl.split('storage.googleapis.com/')[1];
-      const [bucketName, ...filePath] = urlParts.split('/');
+      // Use URL to safely strip signed-URL query params
+      const parsed = new URL(imageUrl);
+      const pathParts = parsed.pathname.replace(/^\//, '').split('/');
+      const [bucketName, ...filePath] = pathParts;
       const fileName = filePath.join('/');
 
       const bucket = storage.bucket(bucketName);

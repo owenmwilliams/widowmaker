@@ -5,6 +5,7 @@ var bodyParser = require('body-parser');
 var conn = require('../bin/db');
 const { QR_TYPES, buildQrUrl, generateUniqueToken, extractQrToken } = require('../services/qrService');
 const { generateItemEstimate } = require('../services/itemEstimationService');
+const gcs = require('../bin/gcsService');
 
 const db = conn.db;
 
@@ -19,6 +20,20 @@ const knex = require('knex')({
 });
 
 var jsonParser = bodyParser.json();
+
+/**
+ * Replace public GCS picture_url with signed URLs in an array of items.
+ * Non-GCS URLs (data URLs, nulls) pass through unchanged.
+ */
+async function signItemUrls(items) {
+  if (!Array.isArray(items) || gcs.isLocalEnvironment) return items;
+  await Promise.all(items.map(async (item) => {
+    if (item.picture_url) {
+      item.picture_url = await gcs.signPublicUrl(item.picture_url).catch(() => item.picture_url);
+    }
+  }));
+  return items;
+}
 
 function parseDimensionString(value) {
   if (!value || typeof value !== 'string') {
@@ -140,8 +155,8 @@ router.get('/', jsonParser, async function(req, res, next) {
       .andWhere(knex.raw('locations.id = ?', location_id))
       .andWhere(knex.raw('collections.id = ?', collection_id))
       .andWhere(knex.raw('containers.id = ?', container_id))
-    .then(data => {
-      res.send(data)
+    .then(async (data) => {
+      res.send(await signItemUrls(data));
     })
     .catch(function (err) {
       return next(err);
@@ -208,8 +223,8 @@ router.get('/single', jsonParser, async function(req, res, next) {
       .leftJoin('locations', 'locations.id', 'collections.location_id')
       .where(knex.raw('permissions.user_id = ?', userId))
       .andWhere(knex.raw('items.id = ?', item_id))
-    .then(data => {
-      res.send(data)
+    .then(async (data) => {
+      res.send(await signItemUrls(data));
     })
     .catch(function (err) {
       return next(err);
@@ -251,8 +266,8 @@ router.get('/all', jsonParser, async function(req, res, next) {
       .leftJoin('items', 'items.container_id', 'containers.id')
       .whereNotNull('items.id')
       .andWhere(knex.raw('permissions.user_id = ?', userId))
-    .then(function (data) {
-      res.send(data)
+    .then(async function (data) {
+      res.send(await signItemUrls(data));
     })
     .catch(function (err) {
       return next(err);
@@ -333,9 +348,9 @@ router.post('/post', jsonParser, async function(req, res, next) {
     // Note: location is now inherited from collection, so we don't accept location_id parameter
 
     if(req.query.picture_url) {
-      params.picture_url = req.query.picture_url
+      params.picture_url = gcs.toPublicUrl(req.query.picture_url)
     } else if (req.body?.picture_url) {
-      params.picture_url = req.body.picture_url
+      params.picture_url = gcs.toPublicUrl(req.body.picture_url)
     }
 
     // New MoveTrack fields
@@ -549,7 +564,7 @@ router.put('/update', jsonParser, async function(req, res, next) {
     // Note: location is now inherited from collection, so we don't accept location_id parameter
 
     if(req.query.picture_url !== undefined) {
-      params.picture_url = req.query.picture_url
+      params.picture_url = req.query.picture_url ? gcs.toPublicUrl(req.query.picture_url) : req.query.picture_url
     }
 
     // New MoveTrack fields

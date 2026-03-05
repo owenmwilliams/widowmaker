@@ -58,8 +58,11 @@ async function signUrl(gcsPath, expiresMs = DEFAULT_EXPIRY_MS) {
 function publicUrlToPath(url) {
   if (!url || typeof url !== 'string') return null;
   const prefix = `https://storage.googleapis.com/${BUCKET}/`;
-  if (url.startsWith(prefix)) return url.slice(prefix.length);
-  return null;
+  if (!url.startsWith(prefix)) return null;
+  // Strip query params (present in signed URLs)
+  const raw = url.slice(prefix.length);
+  const qIdx = raw.indexOf('?');
+  return qIdx >= 0 ? raw.slice(0, qIdx) : raw;
 }
 
 /**
@@ -70,6 +73,16 @@ async function signPublicUrl(publicUrl, expiresMs = DEFAULT_EXPIRY_MS) {
   const gcsPath = publicUrlToPath(publicUrl);
   if (!gcsPath) return publicUrl; // not a GCS URL or already signed
   return signUrl(gcsPath, expiresMs);
+}
+
+/**
+ * Normalise any GCS URL variant to a stable public URL (for DB storage).
+ * Strips signed-URL query params. Returns non-GCS URLs unchanged.
+ */
+function toPublicUrl(url) {
+  const gcsPath = publicUrlToPath(url);
+  if (gcsPath) return `https://storage.googleapis.com/${BUCKET}/${gcsPath}`;
+  return url; // data-URL, null, or non-GCS URL
 }
 
 // ── Upload helpers ────────────────────────────────────────────────────────────
@@ -107,6 +120,7 @@ module.exports = {
   isLocalEnvironment,
   signUrl,
   publicUrlToPath,
+  toPublicUrl,
   signPublicUrl,
   uploadBuffer
 };

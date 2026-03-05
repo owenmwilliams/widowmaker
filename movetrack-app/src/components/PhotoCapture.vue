@@ -237,7 +237,8 @@ const createNewCollection = async () => {
 };
 
 // NEW: Helper function to upload image to GCS
-const uploadImageToGCS = async (blob: Blob | File): Promise<string> => {
+// Returns { url: publicUrl, signedUrl: displayUrl }
+const uploadImageToGCS = async (blob: Blob | File): Promise<{ url: string; signedUrl: string }> => {
   const sessionToken = localStorage.getItem("session_token");
   if (!sessionToken) {
     throw new Error("Please log in to upload images");
@@ -261,7 +262,10 @@ const uploadImageToGCS = async (blob: Blob | File): Promise<string> => {
   );
 
   if (response.data?.url) {
-    return response.data.url;
+    return {
+      url: response.data.url,
+      signedUrl: response.data.signed_url || response.data.url,
+    };
   }
 
   throw new Error("Failed to upload image");
@@ -653,15 +657,15 @@ const handleSingleItemCapture = async (file: File) => {
 
     // NEW FLOW: Upload image to GCS first
     console.log("[PhotoCapture] Uploading image to storage...");
-    const imageUrl = await uploadImageToGCS(file);
-    console.log("[PhotoCapture] Image uploaded:", imageUrl);
+    const { url: publicUrl, signedUrl } = await uploadImageToGCS(file);
+    console.log("[PhotoCapture] Image uploaded:", publicUrl);
 
-    // Store the GCS URL instead of base64
-    capturedImage.value = imageUrl;
+    // Store the signed URL for display
+    capturedImage.value = signedUrl;
 
-    // NEW: Call vision API with URL instead of FormData
+    // NEW: Call vision API with public URL (server downloads via GCS client)
     console.log("[PhotoCapture] Analyzing image from URL...");
-    const aiData = await analyzeItemByUrl(imageUrl);
+    const aiData = await analyzeItemByUrl(publicUrl);
 
     if (aiData) {
       // Safely extract dimensions with fallback values
@@ -682,7 +686,7 @@ const handleSingleItemCapture = async (file: File) => {
         primaryColor: aiData.color || "",
         description: aiData.reasoning || "Item detected from photo",
         tags: Array.isArray(aiData.tags) ? aiData.tags : [],
-        image: imageUrl,  // Use GCS URL instead of base64
+        image: publicUrl,  // Public URL for DB storage; display uses signedUrl
       };
 
       editDimensions.value = {
@@ -759,20 +763,20 @@ const handleMultiItemCapture = async (file: File) => {
 
     // NEW FLOW: Upload image to GCS first
     console.log("[PhotoCapture Multi] Uploading image to storage...");
-    const imageUrl = await uploadImageToGCS(file);
-    console.log("[PhotoCapture Multi] Image uploaded:", imageUrl);
+    const { url: publicUrl, signedUrl } = await uploadImageToGCS(file);
+    console.log("[PhotoCapture Multi] Image uploaded:", publicUrl);
 
-    // Store the GCS URL instead of base64
-    capturedImage.value = imageUrl;
+    // Store the signed URL for display
+    capturedImage.value = signedUrl;
 
-    // NEW: Call multi-item vision API with URL
+    // NEW: Call multi-item vision API with public URL
     const providerParam = props.visionProvider
       ? `?provider=${props.visionProvider}`
       : "";
     const response = await axios.post(
       `${core_url}/vision/analyze-multi-item${providerParam}`,
       {
-        imageUrl,
+        imageUrl: publicUrl,
         mimeType: "image/jpeg",
       },
       {
