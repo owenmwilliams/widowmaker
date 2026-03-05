@@ -184,6 +184,7 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
 
   try {
     let imageSource, mimeType;
+    const itemHint = req.body.itemHint || null;
 
     // Check for image URL in body (new flow)
     if (req.body.imageUrl) {
@@ -243,8 +244,8 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
     console.log(`[${requestId}] Processing:`, { plan, provider, isAdmin });
 
     // Call vision service (now supports both base64 and URLs)
-    console.log(`[${requestId}] Calling visionService.analyzeItemPhoto`);
-    const result = await visionService.analyzeItemPhoto(imageSource, mimeType, provider);
+    console.log(`[${requestId}] Calling visionService.analyzeItemPhoto`, itemHint ? `(hint: ${itemHint})` : '');
+    const result = await visionService.analyzeItemPhoto(imageSource, mimeType, provider, undefined, itemHint);
 
     console.log(`[${requestId}] Vision service result:`, {
       success: result.success,

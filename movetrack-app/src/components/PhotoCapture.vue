@@ -268,7 +268,7 @@ const uploadImageToGCS = async (blob: Blob | File): Promise<string> => {
 };
 
 // NEW: Analyze image by URL (upload-first flow)
-const analyzeItemByUrl = async (imageUrl: string, attempt = 1): Promise<any> => {
+const analyzeItemByUrl = async (imageUrl: string, attempt = 1, itemHint?: string): Promise<any> => {
   const sessionToken = localStorage.getItem("session_token");
   if (!sessionToken) {
     throw new Error("Please log in to analyze items");
@@ -284,6 +284,7 @@ const analyzeItemByUrl = async (imageUrl: string, attempt = 1): Promise<any> => 
       {
         imageUrl,
         mimeType: "image/jpeg",
+        ...(itemHint ? { itemHint } : {}),
       },
       {
         headers: {
@@ -306,7 +307,7 @@ const analyzeItemByUrl = async (imageUrl: string, attempt = 1): Promise<any> => 
         error,
       );
       await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
-      return analyzeItemByUrl(imageUrl, attempt + 1);
+      return analyzeItemByUrl(imageUrl, attempt + 1, itemHint);
     }
     throw error;
   }
@@ -1069,43 +1070,23 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       timeout: 1500,
     });
 
-    // NEW: Crop the image and upload to GCS
-    let croppedImageUrl: string | undefined;
+    // Use the full room photo URL (already uploaded) + item name hint — avoids
+    // cross-origin canvas taint and gives the model better context
+    let aiDetails: any = null;
     if (capturedImage.value) {
       try {
-        // Crop image from bounding box
-        const croppedBlob = await cropImageFromBoundingBox(
-          capturedImage.value,
-          item.boundingBox,
-          imageNaturalDimensions.value,
-          0.15,
-        );
-
-        // Upload cropped image to GCS
-        console.log("[Multi-Item Add] Uploading cropped image...");
-        croppedImageUrl = await uploadImageToGCS(croppedBlob);
-        console.log("[Multi-Item Add] Cropped image uploaded:", croppedImageUrl);
-      } catch (error) {
-        console.error("Failed to crop/upload image, using full image instead:", error);
-        // Fallback to full image URL if cropping/upload fails
-        croppedImageUrl = capturedImage.value;
-      }
-    }
-
-    // NEW: Analyze the cropped image using URL — cap at 5s so it never blocks the add
-    let aiDetails: any = null;
-    if (croppedImageUrl) {
-      try {
-        console.log("[Multi-Item Add] Analyzing cropped image...");
-        const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
-        aiDetails = await Promise.race([analyzeItemByUrl(croppedImageUrl), timeout]);
+        console.log("[Multi-Item Add] Analyzing with item hint:", item.name);
+        const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
+        aiDetails = await Promise.race([
+          analyzeItemByUrl(capturedImage.value, 1, item.name),
+          timeout,
+        ]);
       } catch (analysisError) {
-        console.warn(
-          "Unable to fetch AI details for multi-item capture",
-          analysisError,
-        );
+        console.warn("[Multi-Item Add] Unable to fetch AI details:", analysisError);
       }
     }
+    // Use the full image URL as the item photo (already in GCS)
+    const croppedImageUrl = capturedImage.value ?? undefined;
 
     const dimensions = aiDetails?.estimatedDimensions;
     const weightEstimate = aiDetails?.estimatedWeight;

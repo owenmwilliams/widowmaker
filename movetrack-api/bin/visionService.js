@@ -1094,22 +1094,27 @@ async function analyzeMultiItemWithNemotron(base64Image, mimeType) {
 /**
  * Main function to analyze photo with current provider
  */
-async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt = VISION_PROMPT) {
+async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt = VISION_PROMPT, itemHint = null) {
     const providerToUse = provider || currentProvider;
 
-    console.log(`Analyzing photo with provider: ${providerToUse}`);
+    // If a specific item name is provided (multi-item add flow), prepend a focus instruction
+    const effectivePrompt = itemHint
+        ? `This image may show multiple items in a room. Focus specifically on the item named "${itemHint}".\n\n${VISION_PROMPT}`
+        : prompt;
+
+    console.log(`Analyzing photo with provider: ${providerToUse}`, itemHint ? `(hint: ${itemHint})` : '');
 
     switch (providerToUse.toLowerCase()) {
         case 'claude':
-            return await analyzeWithClaude(base64Image, mimeType, prompt);
+            return await analyzeWithClaude(base64Image, mimeType, effectivePrompt);
         case 'gpt4':
         case 'openai':
-            return await analyzeWithGPT4(base64Image, mimeType, prompt);
+            return await analyzeWithGPT4(base64Image, mimeType, effectivePrompt);
         case 'gemini':
         case 'google':
-            return await analyzeWithGemini(base64Image, mimeType, prompt, 'gemini-2.5-flash');
+            return await analyzeWithGemini(base64Image, mimeType, effectivePrompt, 'gemini-2.5-flash');
         case 'gemini-pro':
-            return await analyzeWithGemini(base64Image, mimeType, prompt, 'gemini-2.5-pro');
+            return await analyzeWithGemini(base64Image, mimeType, effectivePrompt, 'gemini-2.5-pro');
         case 'together':
         case 'scout':
             return await analyzeWithTogetherScout(base64Image, mimeType, prompt);
