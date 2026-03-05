@@ -84,6 +84,7 @@ const detectedItems = ref<DetectedItem[]>([]);
 const selectedItemIndex = ref<number | null>(null);
 const imageNaturalDimensions = ref({ width: 0, height: 0 });
 const processingMultiItemIds = ref<Set<number>>(new Set());
+const addedItemsCount = ref(0);
 const nameEditIndex = ref<number | null>(null);
 const editedName = ref("");
 const isNameDialogOpen = computed({
@@ -1091,12 +1092,13 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       }
     }
 
-    // NEW: Analyze the cropped image using URL
+    // NEW: Analyze the cropped image using URL — cap at 5s so it never blocks the add
     let aiDetails: any = null;
     if (croppedImageUrl) {
       try {
         console.log("[Multi-Item Add] Analyzing cropped image...");
-        aiDetails = await analyzeItemByUrl(croppedImageUrl);
+        const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
+        aiDetails = await Promise.race([analyzeItemByUrl(croppedImageUrl), timeout]);
       } catch (analysisError) {
         console.warn(
           "Unable to fetch AI details for multi-item capture",
@@ -1162,20 +1164,10 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       timeout: 2000,
     });
 
+    addedItemsCount.value++;
+
     // Remove the item from the detected items list
     detectedItems.value.splice(index, 1);
-
-    // If no more items, close and reset
-    if (detectedItems.value.length === 0) {
-      $q.notify({
-        type: "info",
-        message: "All items added!",
-        position: "bottom",
-        timeout: 2000,
-      });
-      resetForm();
-      emit("close");
-    }
   } catch (error: any) {
     console.error("Error adding multi-item:", error);
 
@@ -1208,6 +1200,7 @@ const resetForm = () => {
   editDimensions.value = { length: 0, width: 0, height: 0 };
   editWeight.value = 0;
   editFragile.value = false;
+  addedItemsCount.value = 0;
 };
 
 // Cancel and close
@@ -1434,16 +1427,22 @@ onMounted(() => {
           </q-item>
         </q-list>
 
-        <q-btn
-          flat
-          color="grey-7"
-          label="Start Over"
-          class="q-mt-md"
-          @click="
-            resetForm();
-            showModeSelection = true;
-          "
-        />
+        <div class="row q-mt-md q-gutter-sm">
+          <q-btn
+            unelevated
+            color="primary"
+            :label="`Done${addedItemsCount > 0 ? ` (${addedItemsCount} added)` : ''}`"
+            :disable="addedItemsCount === 0 || processingMultiItemIds.size > 0"
+            class="col"
+            @click="resetForm(); emit('close')"
+          />
+          <q-btn
+            flat
+            color="grey-7"
+            label="Cancel"
+            @click="resetForm(); emit('close')"
+          />
+        </div>
       </div>
     </div>
 
