@@ -370,7 +370,7 @@ async function analyzeWithGPT4(imageSource, mimeType, prompt = VISION_PROMPT) {
  * @param {string} mimeType - MIME type of the image
  * @param {string} prompt - Analysis prompt
  */
-async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT) {
+async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT, modelId = 'gemini-2.5-flash') {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
@@ -393,7 +393,7 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT) 
         }
 
         const model = geminiClient.getGenerativeModel({
-            model: "gemini-2.5-flash",
+            model: modelId,
             generationConfig: {
                 responseMimeType: "application/json"
             }
@@ -418,7 +418,7 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT) 
             success: true,
             data: data,
             provider: 'gemini',
-            model: 'gemini-2.5-flash'
+            model: modelId
         };
     } catch (error) {
         console.error('Gemini Vision API error:', error);
@@ -919,7 +919,7 @@ async function analyzeMultiItemWithGPT4(imageSource, mimeType) {
  * @param {string} imageSource - Base64 string or URL
  * @param {string} mimeType - MIME type of the image
  */
-async function analyzeMultiItemWithGemini(imageSource, mimeType) {
+async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemini-2.5-flash') {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
@@ -942,7 +942,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType) {
         }
 
         const model = geminiClient.getGenerativeModel({
-            model: "gemini-2.5-flash",
+            model: modelId,
             generationConfig: {
                 responseMimeType: "application/json",
                 maxOutputTokens: 8192  // Increase token limit to prevent truncation
@@ -1033,7 +1033,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType) {
             success: true,
             data: data,
             provider: 'gemini',
-            model: 'gemini-2.5-flash'
+            model: modelId
         };
     } catch (error) {
         console.error('Gemini Multi-Item Vision API error:', error);
@@ -1107,7 +1107,9 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt =
             return await analyzeWithGPT4(base64Image, mimeType, prompt);
         case 'gemini':
         case 'google':
-            return await analyzeWithGemini(base64Image, mimeType, prompt);
+            return await analyzeWithGemini(base64Image, mimeType, prompt, 'gemini-2.5-flash');
+        case 'gemini-pro':
+            return await analyzeWithGemini(base64Image, mimeType, prompt, 'gemini-2.5-pro');
         case 'together':
         case 'scout':
             return await analyzeWithTogetherScout(base64Image, mimeType, prompt);
@@ -1142,7 +1144,9 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, opt
             return await analyzeMultiItemWithGPT4(base64Image, mimeType);
         case 'gemini':
         case 'google':
-            return await analyzeMultiItemWithGemini(base64Image, mimeType);
+            return await analyzeMultiItemWithGemini(base64Image, mimeType, 'gemini-2.5-flash');
+        case 'gemini-3-pro':
+            return await analyzeMultiItemWithGemini(base64Image, mimeType, 'gemini-3.1-pro-preview');
         case 'together':
         case 'scout':
             return await analyzeMultiItemWithTogetherScout(base64Image, mimeType, promptOverride);

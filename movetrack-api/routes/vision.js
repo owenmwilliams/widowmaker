@@ -233,10 +233,10 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
       // Admin: allow any provider from request or use current default
       provider = provider || visionService.getCurrentProvider();
     } else if (plan === 'pro') {
-      // Paid users: force Claude
-      provider = 'claude';
+      // Pro users: Gemini 2.5 Pro for single item
+      provider = 'gemini-pro';
     } else {
-      // Free users: force Gemini
+      // Basic users: Gemini 2.5 Flash
       provider = 'gemini';
     }
 
@@ -334,10 +334,12 @@ router.post('/analyze-multi-item', verifyToken, upload.single('image'), async (r
       }
     }
 
-    // Get provider from query param or body (optional - defaults to current provider)
+    // Get provider from query param or body (optional - defaults based on plan)
     let provider = (req.query.provider || req.body.provider || '').toLowerCase();
-    if (plan !== 'pro') {
-      provider = 'gemini'; // basic plan always uses Gemini Flash
+    if (plan === 'pro') {
+      provider = 'gemini-3-pro'; // Pro: Gemini 3.1 Pro Preview
+    } else {
+      provider = 'gemini'; // Basic: Gemini 2.5 Flash
     }
 
     // Call vision service for multi-item detection (now supports both base64 and URLs)
