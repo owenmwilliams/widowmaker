@@ -1,5 +1,4 @@
 const { TwelveLabs } = require('twelvelabs-js');
-const axios = require('axios');
 
 let client = null;
 let cachedIndexId = process.env.TWELVE_LABS_INDEX_ID || null;
@@ -141,43 +140,12 @@ async function getTaskStatus(taskId) {
 }
 
 /**
- * Fetch a thumbnail URL for a specific video timestamp from Twelve Labs.
- * @param {string} indexId
- * @param {string} videoId
- * @param {number} seconds
- * @returns {string|null} thumbnail URL or null on failure
- */
-async function fetchThumbnail(indexId, videoId, seconds) {
-  const apiKey = process.env.TWELVE_LABS_API_KEY;
-  if (!apiKey) return null;
-
-  try {
-    const res = await axios.get(
-      `https://api.twelvelabs.io/v1.3/indexes/${indexId}/videos/${videoId}/thumbnail`,
-      {
-        params: { time: seconds },
-        headers: { 'x-api-key': apiKey },
-        timeout: 10000
-      }
-    );
-    // Try multiple possible response shapes across API versions
-    const url = res.data?.thumbnail || res.data?.thumbnailUrl || res.data?.url || null;
-    console.log(`[TwelveLabs] Thumbnail for t=${seconds}s: ${url ? url.substring(0, 100) : 'null'}`);
-    return url;
-  } catch (err) {
-    console.warn(`[TwelveLabs] Thumbnail fetch failed for t=${seconds}s:`, err?.message);
-    return null;
-  }
-}
-
-/**
  * Run Pegasus analysis on an indexed video to extract a household inventory.
  * @param {string} videoId
- * @param {string} indexId - Required for thumbnail fetching
  * @param {string} [customPrompt] - Optional prompt override
  * @returns {{ rawText: string, items: Array, parseError: string|null }}
  */
-async function analyzeVideo(videoId, indexId, customPrompt) {
+async function analyzeVideo(videoId, customPrompt) {
   const prompt = customPrompt || INVENTORY_PROMPT;
   console.log(`[TwelveLabs] Analyzing videoId=${videoId}, prompt length=${prompt.length}`);
 
@@ -233,18 +201,6 @@ async function analyzeVideo(videoId, indexId, customPrompt) {
       parseError = `Could not parse response as JSON: ${err.message}`;
       console.warn('[TwelveLabs] JSON parse failed, returning raw text:', err.message);
     }
-  }
-
-  // Fetch thumbnails in parallel for items that have a timestamp
-  if (indexId && items.length > 0) {
-    const thumbnailPromises = items.map(async (item) => {
-      if (typeof item.timestamp_seconds === 'number' && item.timestamp_seconds >= 0) {
-        item.thumbnailUrl = await fetchThumbnail(indexId, videoId, item.timestamp_seconds);
-      }
-      return item;
-    });
-    items = await Promise.all(thumbnailPromises);
-    console.log(`[TwelveLabs] Thumbnail fetch complete for ${items.length} items`);
   }
 
   return { rawText, items, parseError };
