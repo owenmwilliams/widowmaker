@@ -100,10 +100,12 @@ async function uploadBuffer(buffer, gcsPath, contentType) {
   }
 
   const file = storage.bucket(BUCKET).file(gcsPath);
+  // Use resumable uploads for files >5MB (GCS non-resumable limit)
+  const useResumable = buffer.length > 5 * 1024 * 1024;
   await new Promise((resolve, reject) => {
     const stream = file.createWriteStream({
       metadata: { contentType },
-      resumable: false
+      resumable: useResumable
     });
     stream.on('error', reject);
     stream.on('finish', resolve);

@@ -26,6 +26,27 @@ function ensureProOrAdmin(req, res, next) {
   return res.status(403).json({ success: false, error: 'Pro plan required for video scanning' });
 }
 
+// ─── GET /debug/ffmpeg ────────────────────────────────────────────────────────
+// Quick diagnostic to verify ffmpeg + sharp work in this environment.
+// Placed before auth middleware so it can be hit without a token.
+router.get('/debug/ffmpeg', async (req, res) => {
+  const diag = { ffmpegPath: null, ffmpegExists: false, sharpOk: false, env: process.env.NODE_ENV };
+  try {
+    const ffmpegPath = require('ffmpeg-static');
+    diag.ffmpegPath = ffmpegPath;
+    diag.ffmpegExists = require('fs').existsSync(ffmpegPath);
+
+    // Quick sharp smoke test
+    const sharp = require('sharp');
+    const buf = await sharp({ create: { width: 4, height: 4, channels: 3, background: 'red' } }).jpeg().toBuffer();
+    diag.sharpOk = buf.length > 0;
+    diag.sharpBufferSize = buf.length;
+  } catch (err) {
+    diag.error = err.message;
+  }
+  res.json(diag);
+});
+
 router.use(authenticate);
 router.use(ensureProOrAdmin);
 
@@ -93,8 +114,8 @@ router.post('/sessions/:id/upload', upload.single('video'), async (req, res) => 
       ),
       gcs.uploadBuffer(req.file.buffer, videoGcsPath, req.file.mimetype)
         .catch((err) => {
-          console.error('[video12labs] GCS upload failed (non-fatal):', err?.message);
-          return { gcsPath: null, signedUrl: null };
+          console.error('[video12labs] GCS upload failed (non-fatal):', err?.message, err?.stack);
+          return { gcsPath: null, signedUrl: null, error: err?.message };
         })
     ]);
 
@@ -109,7 +130,8 @@ router.post('/sessions/:id/upload', upload.single('video'), async (req, res) => 
       success: true,
       task_id: tlResult.taskId,
       index_id: tlResult.indexId,
-      status: session.status
+      status: session.status,
+      gcs_upload: gcsResult.gcsPath ? 'ok' : `failed: ${gcsResult.error || 'unknown'}`
     });
   } catch (err) {
     console.error('[video12labs] Upload error:', err?.message || err);
@@ -274,26 +296,6 @@ router.post('/sessions/:id/analyze', jsonParser, async (req, res) => {
 // ─── GET /prompt ──────────────────────────────────────────────────────────────
 router.get('/prompt', (req, res) => {
   res.json({ prompt: twelveLabsService.INVENTORY_PROMPT });
-});
-
-// ─── GET /debug/ffmpeg ────────────────────────────────────────────────────────
-// Quick diagnostic to verify ffmpeg + sharp work in this environment.
-router.get('/debug/ffmpeg', async (req, res) => {
-  const diag = { ffmpegPath: null, ffmpegExists: false, sharpOk: false, env: process.env.NODE_ENV };
-  try {
-    const ffmpegPath = require('ffmpeg-static');
-    diag.ffmpegPath = ffmpegPath;
-    diag.ffmpegExists = require('fs').existsSync(ffmpegPath);
-
-    // Quick sharp smoke test
-    const sharp = require('sharp');
-    const buf = await sharp({ create: { width: 4, height: 4, channels: 3, background: 'red' } }).jpeg().toBuffer();
-    diag.sharpOk = buf.length > 0;
-    diag.sharpBufferSize = buf.length;
-  } catch (err) {
-    diag.error = err.message;
-  }
-  res.json(diag);
 });
 
 module.exports = router;
