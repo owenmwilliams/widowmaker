@@ -10,6 +10,7 @@ import MobileEditSelect from "./MobileEditSelect.vue";
 import axios from "axios";
 import ItemToggleCard from "../ItemToggleCard.vue";
 import PhotoCapture from "../PhotoCapture.vue";
+import VideoInventoryScan from "../VideoInventoryScan.vue";
 import ReloPrepLogo from "../ReloPrepLogo.vue";
 import MobileNavDrawer from "./MobileNavDrawer.vue";
 import MobileSettings from "./MobileSettings.vue";
@@ -69,6 +70,7 @@ const showPhotoCapture = ref(false);
 const autoOpenCamera = ref(false);
 const pendingCaptureMode = ref<"single" | "multi" | null>(null);
 const showAddInventoryModal = ref(false);
+const showVideoScan = ref(false);
 
 // Plan + quota state
 const userData = ref<any>({});
@@ -667,6 +669,18 @@ const handleProviderChanged = (provider: string) => {
   currentVisionProvider.value = provider;
 };
 
+const handleVideoItemsAdded = async () => {
+  showVideoScan.value = false;
+  await store.loadInventory(props.user);
+  rebuildDragLists();
+  $q.notify({
+    type: 'positive',
+    message: 'Room scan complete — items added to inventory!',
+    position: 'bottom',
+    timeout: 3000,
+  });
+};
+
 console.log("props user is: " + props.user);
 
 // Calculate container capacity info
@@ -983,6 +997,7 @@ const handleContainerHide = (containerId: string) => {
           :class="{ 'add-inventory-option--disabled': effectivePlan !== 'pro' }"
           :clickable="effectivePlan === 'pro'"
           :v-ripple="effectivePlan === 'pro'"
+          @click="effectivePlan === 'pro' && (showAddInventoryModal = false, showVideoScan = true)"
         >
           <q-item-section avatar>
             <q-avatar
@@ -1064,6 +1079,20 @@ const handleContainerHide = (containerId: string) => {
       <q-card-actions class="add-inventory-footer">
         <q-btn flat label="Cancel" color="grey-7" v-close-popup class="full-width" />
       </q-card-actions>
+    </q-card>
+  </q-dialog>
+
+  <!-- Video Inventory Scan Dialog -->
+  <q-dialog v-model="showVideoScan" maximized>
+    <q-card>
+      <q-card-section class="q-pa-none">
+        <VideoInventoryScan
+          :user="props.user"
+          :effective-plan="effectivePlan"
+          @close="showVideoScan = false"
+          @items-added="handleVideoItemsAdded"
+        />
+      </q-card-section>
     </q-card>
   </q-dialog>
 
