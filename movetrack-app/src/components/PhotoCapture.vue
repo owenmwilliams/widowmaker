@@ -1114,7 +1114,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       .filter(Boolean)
       .join("\n");
 
-    // NEW: Pass URL string instead of Blob
+    // NEW: Pass URL string instead of Blob; skipRedirect so the modal stays open
     await store.createItem(
       props.user,
       item.name,
@@ -1122,7 +1122,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       1,
       selectedCollectionId.value,
       store.activeContainer?.value,
-      croppedImageUrl,  // Pass URL string instead of Blob
+      croppedImageUrl,
       null,
       aiDetails?.fragile ?? false,
       undefined,
@@ -1134,6 +1134,7 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
       material || undefined,
       color || undefined,
       tags,
+      { skipRedirect: true },
     );
 
     $q.notify({
