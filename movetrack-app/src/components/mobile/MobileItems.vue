@@ -1084,8 +1084,8 @@ const handleContainerHide = (containerId: string) => {
 
   <!-- Video Inventory Scan Dialog -->
   <q-dialog v-model="showVideoScan" maximized>
-    <q-card>
-      <q-card-section class="q-pa-none">
+    <q-card class="fit column no-wrap">
+      <q-card-section class="q-pa-none col">
         <VideoInventoryScan
           :user="props.user"
           :effective-plan="effectivePlan"

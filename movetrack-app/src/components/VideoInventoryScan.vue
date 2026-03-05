@@ -607,15 +607,22 @@ onUnmounted(() => {
 
 <style scoped>
 .video-scan-wrap {
-  min-width: 480px;
+  width: 100%;
   max-width: 680px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* ── Step containers ─────────────────────────────────────────────────────────── */
 .step-container {
-  padding: 4px 0 8px;
+  flex: 1;
+  padding: 24px 20px 16px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .step-container--centered {
@@ -624,8 +631,7 @@ onUnmounted(() => {
 }
 
 .step-container--review {
-  max-height: 80vh;
-  overflow-y: auto;
+  /* items-list scrolls, actions stay pinned */
 }
 
 .step-eyebrow {
@@ -806,9 +812,12 @@ onUnmounted(() => {
 
 /* ── Review items list ───────────────────────────────────────────────────────── */
 .items-list {
+  flex: 1;
+  min-height: 0;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  overflow: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .item-row {
