@@ -184,6 +184,13 @@ const runAnalysis = async () => {
     const items: any[] = res.data.items || [];
     videoGcsUrl.value = res.data.video_signed_url || null;
 
+    // Log thumbnail debug info from server
+    if (res.data.thumbnail_debug) {
+      console.log('[VideoInventoryScan] Thumbnail debug:', JSON.stringify(res.data.thumbnail_debug, null, 2));
+    }
+    const thumbCount = items.filter((i: any) => i.thumbnailUrl).length;
+    console.log(`[VideoInventoryScan] ${thumbCount}/${items.length} items have thumbnailUrl`);
+
     detectedItems.value = items.map((item, idx) => {
       const roomLower = (item.room || '').trim().toLowerCase();
       const matchedCol = collections.value.find(

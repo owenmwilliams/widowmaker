@@ -180,35 +180,64 @@ router.post('/sessions/:id/analyze', jsonParser, async (req, res) => {
     );
 
     // ── Per-item thumbnail extraction ─────────────────────────────────────────
-    // Only in production where real GCS video exists. Uses a short-lived signed
-    // URL so ffmpeg can fast-seek to each timestamp without downloading the full
-    // video to disk.
-    if (!gcs.isLocalEnvironment && session.videoGcsPath && items.length > 0) {
+    // Uses a short-lived signed URL so ffmpeg can fast-seek to each timestamp
+    // without downloading the full video to disk.
+    const thumbnailDebug = {
+      attempted: false,
+      skippedReason: null,
+      totalItems: items.length,
+      successCount: 0,
+      errors: []
+    };
+
+    if (gcs.isLocalEnvironment) {
+      thumbnailDebug.skippedReason = 'local environment';
+    } else if (!session.videoGcsPath) {
+      thumbnailDebug.skippedReason = 'no video GCS path (GCS upload may have failed)';
+    } else if (items.length === 0) {
+      thumbnailDebug.skippedReason = 'no items detected';
+    }
+
+    if (!thumbnailDebug.skippedReason && session.videoGcsPath && items.length > 0) {
+      thumbnailDebug.attempted = true;
       console.log(`[video12labs] Extracting thumbnails for ${items.length} items from ${session.videoGcsPath}`);
       try {
         const videoSignedUrl = await gcs.signUrl(session.videoGcsPath);
+        console.log(`[video12labs] Video signed URL generated (${videoSignedUrl.substring(0, 80)}...)`);
         const userId = session._userId || 'unknown';
 
         const thumbnailPromises = items.map(async (item, idx) => {
           const ts = item.timestamp_seconds;
-          if (typeof ts !== 'number') return item;
+          if (typeof ts !== 'number') {
+            thumbnailDebug.errors.push(`item[${idx}]: no timestamp_seconds`);
+            return item;
+          }
 
-          const frameBuffer = await extractSharpestFrame(videoSignedUrl, ts);
-          if (!frameBuffer) return item;
+          try {
+            const frameBuffer = await extractSharpestFrame(videoSignedUrl, ts);
+            if (!frameBuffer) {
+              thumbnailDebug.errors.push(`item[${idx}] t=${ts}s: ffmpeg returned no frames`);
+              return item;
+            }
 
-          const thumbPath = `users/${userId}/room-scans/${session.id}/thumbnails/${idx}-t${ts}.jpg`;
-          const { signedUrl } = await gcs.uploadBuffer(frameBuffer, thumbPath, 'image/jpeg').catch((err) => {
-            console.warn('[video12labs] Thumbnail upload failed:', err.message);
-            return { signedUrl: null };
-          });
-          item.thumbnailUrl = signedUrl;
+            console.log(`[video12labs] Frame extracted for item[${idx}] t=${ts}s — ${frameBuffer.length} bytes`);
+            const thumbPath = `users/${userId}/room-scans/${session.id}/thumbnails/${idx}-t${ts}.jpg`;
+            const { signedUrl } = await gcs.uploadBuffer(frameBuffer, thumbPath, 'image/jpeg');
+            item.thumbnailUrl = signedUrl;
+            thumbnailDebug.successCount++;
+          } catch (itemErr) {
+            const errMsg = `item[${idx}] t=${ts}s: ${itemErr.message}`;
+            thumbnailDebug.errors.push(errMsg);
+            console.error(`[video12labs] Thumbnail error: ${errMsg}`);
+          }
           return item;
         });
 
         items = await Promise.all(thumbnailPromises);
-        console.log(`[video12labs] Thumbnails done`);
+        console.log(`[video12labs] Thumbnails done: ${thumbnailDebug.successCount}/${items.length} succeeded`);
       } catch (err) {
-        console.error('[video12labs] Thumbnail extraction failed (non-fatal):', err.message);
+        thumbnailDebug.errors.push(`top-level: ${err.message}`);
+        console.error('[video12labs] Thumbnail extraction failed:', err.message, err.stack);
       }
     }
 
@@ -231,7 +260,8 @@ router.post('/sessions/:id/analyze', jsonParser, async (req, res) => {
       raw_analysis: rawText,
       parse_error: parseError || null,
       video_gcs_path: session.videoGcsPath || null,
-      video_signed_url: videoSignedUrl
+      video_signed_url: videoSignedUrl,
+      thumbnail_debug: thumbnailDebug
     });
   } catch (err) {
     console.error('[video12labs] Analyze error:', err?.message || err);
@@ -244,6 +274,26 @@ router.post('/sessions/:id/analyze', jsonParser, async (req, res) => {
 // ─── GET /prompt ──────────────────────────────────────────────────────────────
 router.get('/prompt', (req, res) => {
   res.json({ prompt: twelveLabsService.INVENTORY_PROMPT });
+});
+
+// ─── GET /debug/ffmpeg ────────────────────────────────────────────────────────
+// Quick diagnostic to verify ffmpeg + sharp work in this environment.
+router.get('/debug/ffmpeg', async (req, res) => {
+  const diag = { ffmpegPath: null, ffmpegExists: false, sharpOk: false, env: process.env.NODE_ENV };
+  try {
+    const ffmpegPath = require('ffmpeg-static');
+    diag.ffmpegPath = ffmpegPath;
+    diag.ffmpegExists = require('fs').existsSync(ffmpegPath);
+
+    // Quick sharp smoke test
+    const sharp = require('sharp');
+    const buf = await sharp({ create: { width: 4, height: 4, channels: 3, background: 'red' } }).jpeg().toBuffer();
+    diag.sharpOk = buf.length > 0;
+    diag.sharpBufferSize = buf.length;
+  } catch (err) {
+    diag.error = err.message;
+  }
+  res.json(diag);
 });
 
 module.exports = router;
