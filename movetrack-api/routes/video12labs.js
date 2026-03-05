@@ -1,7 +1,9 @@
 const express = require('express');
 const multer = require('multer');
 const bodyParser = require('body-parser');
+const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { Storage } = require('@google-cloud/storage');
 const twelveLabsService = require('../bin/twelveLabsService');
 const { authenticate } = require('../bin/authService');
 
@@ -13,6 +15,46 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 500 * 1024 * 1024 }
 });
+
+// ── GCS client (same pattern as files.js) ────────────────────────────────────
+const isLocalEnvironment = process.env.NODE_ENV !== 'production';
+const GCS_BUCKET = 'movetrack-item-photos';
+
+const storageOptions = { projectId: 'widowmaker-477505' };
+if (isLocalEnvironment) {
+  const localKeyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+    || path.join(__dirname, '../devkeys/service-account.json');
+  storageOptions.keyFilename = localKeyPath;
+}
+const gcsStorage = new Storage(storageOptions);
+
+/**
+ * Upload a video buffer to GCS. Returns the public URL.
+ * In local dev, returns a placeholder URL instead.
+ */
+async function uploadVideoToGcs(buffer, mimeType, filename, userId, sessionId) {
+  if (isLocalEnvironment) {
+    console.log('[GCS] Local dev — skipping GCS upload, returning placeholder');
+    return `https://storage.googleapis.com/${GCS_BUCKET}/users/${userId}/room-scans/${sessionId}/${filename}`;
+  }
+
+  const gcsPath = `users/${userId}/room-scans/${sessionId}/${filename}`;
+  const file = gcsStorage.bucket(GCS_BUCKET).file(gcsPath);
+
+  await new Promise((resolve, reject) => {
+    const stream = file.createWriteStream({
+      metadata: { contentType: mimeType },
+      resumable: false
+    });
+    stream.on('error', reject);
+    stream.on('finish', resolve);
+    stream.end(buffer);
+  });
+
+  const publicUrl = `https://storage.googleapis.com/${GCS_BUCKET}/${gcsPath}`;
+  console.log(`[GCS] Uploaded video: ${gcsPath}`);
+  return publicUrl;
+}
 
 // Pro-or-admin guard — video scanning requires a pro plan
 function ensureProOrAdmin(req, res, next) {
@@ -47,7 +89,8 @@ router.post('/sessions', (req, res) => {
     items: [],
     rawAnalysis: null,
     parseError: null,
-    error: null
+    error: null,
+    videoGcsUrl: null
   });
   res.json({ success: true, session_id: id });
 });
@@ -63,7 +106,7 @@ router.get('/sessions/:id', (req, res) => {
 });
 
 // ─── POST /sessions/:id/upload ────────────────────────────────────────────────
-// Upload a video file to Twelve Labs for indexing.
+// Upload a video file to Twelve Labs for indexing, and in parallel to GCS.
 router.post('/sessions/:id/upload', upload.single('video'), async (req, res) => {
   const session = sessions.get(req.params.id);
   if (!session) {
@@ -79,22 +122,40 @@ router.post('/sessions/:id/upload', upload.single('video'), async (req, res) => 
   session.status = 'uploading';
   session.filename = req.file.originalname;
 
+  const userId = req.user?.user_id || req.user?.uid || 'unknown';
+
   try {
-    const { taskId, indexId } = await twelveLabsService.uploadVideo(
-      req.file.buffer,
-      req.file.mimetype,
-      req.file.originalname
-    );
-    session.taskId = taskId;
-    session.indexId = indexId;
+    // Upload to Twelve Labs and GCS in parallel
+    const [tlResult, gcsUrl] = await Promise.all([
+      twelveLabsService.uploadVideo(
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname
+      ),
+      uploadVideoToGcs(
+        req.file.buffer,
+        req.file.mimetype,
+        req.file.originalname,
+        userId,
+        session.id
+      ).catch((err) => {
+        console.error('[video12labs] GCS upload failed (non-fatal):', err?.message);
+        return null;
+      })
+    ]);
+
+    session.taskId = tlResult.taskId;
+    session.indexId = tlResult.indexId;
     session.status = 'indexing';
     session.uploadedAt = new Date().toISOString();
+    session.videoGcsUrl = gcsUrl;
 
     res.json({
       success: true,
-      task_id: taskId,
-      index_id: indexId,
-      status: session.status
+      task_id: tlResult.taskId,
+      index_id: tlResult.indexId,
+      status: session.status,
+      video_gcs_url: gcsUrl
     });
   } catch (err) {
     console.error('[video12labs] Upload error:', err?.message || err);
@@ -164,6 +225,7 @@ router.post('/sessions/:id/analyze', jsonParser, async (req, res) => {
   try {
     const { rawText, items, parseError } = await twelveLabsService.analyzeVideo(
       session.videoId,
+      session.indexId,
       customPrompt
     );
 
@@ -178,7 +240,8 @@ router.post('/sessions/:id/analyze', jsonParser, async (req, res) => {
       items,
       item_count: items.length,
       raw_analysis: rawText,
-      parse_error: parseError || null
+      parse_error: parseError || null,
+      video_gcs_url: session.videoGcsUrl || null
     });
   } catch (err) {
     console.error('[video12labs] Analyze error:', err?.message || err);

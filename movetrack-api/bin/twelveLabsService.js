@@ -1,25 +1,31 @@
 const { TwelveLabs } = require('twelvelabs-js');
+const axios = require('axios');
 
 let client = null;
 let cachedIndexId = process.env.TWELVE_LABS_INDEX_ID || null;
 
 // Inventory extraction prompt used by default for the /analyze endpoint
 const INVENTORY_PROMPT = `You are analyzing a home walkthrough video for a moving company inventory system.
-Your job is to identify every household item visible in this video.
+Your job is to identify household items visible in this video and produce a structured inventory.
 
-List every distinct household item you can see. Group identical items together (e.g., "Chairs x4" not four separate entries).
-
-For each item include:
-- name: descriptive item name (e.g. "3-seat sofa", "queen bed frame", "55\" TV")
-- quantity: number of identical items seen (integer, default 1)
-- room: the room or area where it appears (e.g. "living room", "bedroom", "kitchen", "garage", "unknown")
-- notes: any relevant moving detail such as "fragile", "requires disassembly", "oversized", "heavy", or "" if none
+Rules:
+- List large or heavy items individually: furniture, appliances, gym equipment, large electronics (TVs, monitors).
+- List fragile items individually: artwork, mirrors, musical instruments, glass items.
+- Consolidate small packable items by category using "~N boxes of [category]" format (e.g., "~3 boxes of books", "~2 boxes of kitchen items", "~1 box of clothing").
+- Target 15–20 total lines. Hard cap at 25 lines total.
+- Do not list the same item twice.
+- For each item, include:
+  - name: descriptive item name (e.g. "3-seat sofa", "55\" TV", "~3 boxes of books")
+  - quantity: integer count (use 1 for consolidated box entries)
+  - room: the room or area where it appears (e.g. "living room", "bedroom", "kitchen", "garage", "unknown")
+  - notes: one of "fragile", "requires disassembly", "heavy", "boxable", or "" if none
+  - timestamp_seconds: integer seconds into the video where this item is most clearly visible
 
 Return ONLY a valid JSON array with no markdown or explanation. Example:
 [
-  {"name":"3-seat sofa","quantity":1,"room":"living room","notes":"large, may require disassembly"},
-  {"name":"Coffee table","quantity":1,"room":"living room","notes":"glass top - fragile"},
-  {"name":"Dining chairs","quantity":4,"room":"dining room","notes":""}
+  {"name":"3-seat sofa","quantity":1,"room":"living room","notes":"heavy","timestamp_seconds":12},
+  {"name":"55\" TV","quantity":1,"room":"living room","notes":"fragile","timestamp_seconds":18},
+  {"name":"~3 boxes of books","quantity":1,"room":"office","notes":"boxable","timestamp_seconds":45}
 ]`;
 
 function getClient() {
@@ -135,12 +141,41 @@ async function getTaskStatus(taskId) {
 }
 
 /**
+ * Fetch a thumbnail URL for a specific video timestamp from Twelve Labs.
+ * @param {string} indexId
+ * @param {string} videoId
+ * @param {number} seconds
+ * @returns {string|null} thumbnail URL or null on failure
+ */
+async function fetchThumbnail(indexId, videoId, seconds) {
+  const apiKey = process.env.TWELVE_LABS_API_KEY;
+  if (!apiKey) return null;
+
+  try {
+    const res = await axios.get(
+      `https://api.twelvelabs.io/v1.3/indexes/${indexId}/videos/${videoId}/thumbnail`,
+      {
+        params: { time: seconds },
+        headers: { 'x-api-key': apiKey },
+        timeout: 10000
+      }
+    );
+    // Response shape: { thumbnail: "https://..." }
+    return res.data?.thumbnail || null;
+  } catch (err) {
+    console.warn(`[TwelveLabs] Thumbnail fetch failed for t=${seconds}s:`, err?.message);
+    return null;
+  }
+}
+
+/**
  * Run Pegasus analysis on an indexed video to extract a household inventory.
  * @param {string} videoId
+ * @param {string} indexId - Required for thumbnail fetching
  * @param {string} [customPrompt] - Optional prompt override
  * @returns {{ rawText: string, items: Array, parseError: string|null }}
  */
-async function analyzeVideo(videoId, customPrompt) {
+async function analyzeVideo(videoId, indexId, customPrompt) {
   const prompt = customPrompt || INVENTORY_PROMPT;
   console.log(`[TwelveLabs] Analyzing videoId=${videoId}, prompt length=${prompt.length}`);
 
@@ -160,9 +195,10 @@ async function analyzeVideo(videoId, customPrompt) {
               name: { type: 'string' },
               quantity: { type: 'integer' },
               room: { type: 'string' },
-              notes: { type: 'string' }
+              notes: { type: 'string' },
+              timestamp_seconds: { type: 'integer' }
             },
-            required: ['name', 'quantity', 'room', 'notes']
+            required: ['name', 'quantity', 'room', 'notes', 'timestamp_seconds']
           }
         }
       }
@@ -195,6 +231,18 @@ async function analyzeVideo(videoId, customPrompt) {
       parseError = `Could not parse response as JSON: ${err.message}`;
       console.warn('[TwelveLabs] JSON parse failed, returning raw text:', err.message);
     }
+  }
+
+  // Fetch thumbnails in parallel for items that have a timestamp
+  if (indexId && items.length > 0) {
+    const thumbnailPromises = items.map(async (item) => {
+      if (typeof item.timestamp_seconds === 'number' && item.timestamp_seconds >= 0) {
+        item.thumbnailUrl = await fetchThumbnail(indexId, videoId, item.timestamp_seconds);
+      }
+      return item;
+    });
+    items = await Promise.all(thumbnailPromises);
+    console.log(`[TwelveLabs] Thumbnail fetch complete for ${items.length} items`);
   }
 
   return { rawText, items, parseError };

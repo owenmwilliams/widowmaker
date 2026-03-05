@@ -66,16 +66,19 @@ type DetectedItem = {
   notes: string;
   include: boolean;
   collectionId: string;
+  thumbnailUrl?: string | null;
 };
 
 const detectedItems = ref<DetectedItem[]>([]);
 const additionalItems = ref<any[]>([]);
 const showExtraCapture = ref(false);
+const videoGcsUrl = ref<string | null>(null);
 
 // ── Confirm ───────────────────────────────────────────────────────────────────
 const confirming = ref(false);
 const confirmProgress = ref(0);
 const confirmTotal = ref(0);
+const confirmDone = ref(false);
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 const collections = computed(() => store.collections);
@@ -184,6 +187,7 @@ const runAnalysis = async () => {
       { headers: buildHeaders() },
     );
     const items: any[] = res.data.items || [];
+    videoGcsUrl.value = res.data.video_gcs_url || null;
 
     detectedItems.value = items.map((item, idx) => {
       const roomLower = (item.room || '').trim().toLowerCase();
@@ -200,6 +204,7 @@ const runAnalysis = async () => {
         notes: item.notes || '',
         include: true,
         collectionId: matchedCol?.value || collections.value[0]?.value || '',
+        thumbnailUrl: item.thumbnailUrl || null,
       };
     });
 
@@ -298,6 +303,7 @@ const confirmItems = async () => {
 
   await store.loadInventory(props.user);
   confirming.value = false;
+  confirmDone.value = true;
 
   $q.notify({
     type: 'positive',
@@ -326,21 +332,21 @@ onUnmounted(() => {
       <div class="tip-list">
         <div class="tip-card">
           <div class="tip-icon-wrap">
-            <q-icon name="panorama_wide_angle" size="28px" color="primary" />
+            <q-icon name="crop_free" size="28px" color="primary" />
           </div>
           <div class="tip-body">
-            <div class="tip-title">Start wide</div>
-            <div class="tip-desc">Begin with a wide-angle shot of the entire room so nothing gets missed.</div>
+            <div class="tip-title">One area at a time</div>
+            <div class="tip-desc">Focus each video on a single area: one wall, one closet, one set of shelves. 30–60 seconds per area works best.</div>
           </div>
         </div>
 
         <div class="tip-card">
           <div class="tip-icon-wrap">
-            <q-icon name="directions_walk" size="28px" color="primary" />
+            <q-icon name="replay" size="28px" color="primary" />
           </div>
           <div class="tip-body">
-            <div class="tip-title">Move slowly</div>
-            <div class="tip-desc">Walk along each wall, pan over surfaces, and open any cabinet or closet doors.</div>
+            <div class="tip-title">Dense spaces need multiple scans</div>
+            <div class="tip-desc">Closets, shelves, and packed cabinets need their own dedicated video. Plan on 2–3 scans per room.</div>
           </div>
         </div>
 
@@ -349,8 +355,8 @@ onUnmounted(() => {
             <q-icon name="center_focus_strong" size="28px" color="primary" />
           </div>
           <div class="tip-body">
-            <div class="tip-title">Pause on items</div>
-            <div class="tip-desc">Hold the camera steady on each item for 1–2 seconds for the best recognition.</div>
+            <div class="tip-title">Move slowly and pause</div>
+            <div class="tip-desc">Walk slowly and hold the camera still on each item for 1–2 seconds. Blurry or fast movement will be missed.</div>
           </div>
         </div>
       </div>
@@ -493,6 +499,18 @@ onUnmounted(() => {
         >
           <q-checkbox v-model="item.include" color="primary" dense class="q-mr-sm" />
 
+          <div class="item-thumbnail q-mr-sm">
+            <img
+              v-if="item.thumbnailUrl"
+              :src="item.thumbnailUrl"
+              class="thumbnail-img"
+              alt=""
+            />
+            <div v-else class="thumbnail-placeholder">
+              <q-icon name="videocam" size="20px" color="grey-4" />
+            </div>
+          </div>
+
           <div class="item-fields">
             <q-input
               v-model="item.name"
@@ -559,6 +577,12 @@ onUnmounted(() => {
         class="q-mb-md add-photo-btn"
         @click="showExtraCapture = true"
       />
+
+      <!-- Post-confirm GCS video link -->
+      <div v-if="confirmDone && videoGcsUrl" class="gcs-video-link q-mb-sm">
+        <q-icon name="videocam" size="16px" color="primary" class="q-mr-xs" />
+        <a :href="videoGcsUrl" target="_blank" rel="noopener" class="gcs-link">View room scan video</a>
+      </div>
 
       <!-- Confirm progress -->
       <div v-if="confirming" class="confirm-progress q-mb-md">
@@ -980,6 +1004,46 @@ onUnmounted(() => {
     radial-gradient(6px 6px at 60% 40%, rgba(255, 255, 255, 0.4), transparent);
   opacity: 0.6;
   pointer-events: none;
+}
+
+/* ── Item thumbnail ──────────────────────────────────────────────────────────── */
+.item-thumbnail {
+  flex-shrink: 0;
+}
+
+.thumbnail-img {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  object-fit: cover;
+  display: block;
+}
+
+.thumbnail-placeholder {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── GCS video link ──────────────────────────────────────────────────────────── */
+.gcs-video-link {
+  display: flex;
+  align-items: center;
+  font-size: 0.85rem;
+}
+
+.gcs-link {
+  color: #6366f1;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.gcs-link:hover {
+  text-decoration: underline;
 }
 
 .confirm-progress {
