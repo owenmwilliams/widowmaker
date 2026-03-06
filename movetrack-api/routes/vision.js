@@ -15,7 +15,8 @@ const knex = require('knex')({
     user: process.env.MT_DATALAYER_USERNAME,
     password: process.env.MT_DATALAYER_PASSWORD,
     database: process.env.MT_DATALAYER_DATABASE
-  }
+  },
+  pool: { min: 0, max: 5, acquireTimeoutMillis: 30000 }
 });
 const isLocalEnvironment = process.env.NODE_ENV !== 'production'; // Detect local development environment
 const BASIC_MULTI_LIMIT = parseInt(process.env.BASIC_MULTI_SCANS_PER_WEEK || '3', 10);
@@ -72,7 +73,7 @@ function getWeekStartDate() {
   return weekStart.toISOString().slice(0, 10);
 }
 
-async function ensureUsageTable() {
+async function ensureUsageTable(attempt = 1) {
   try {
     const exists = await knex.schema.hasTable('plan_usage');
     if (!exists) {
@@ -85,6 +86,11 @@ async function ensureUsageTable() {
       });
     }
   } catch (err) {
+    if (attempt < 3) {
+      console.warn(`[vision] ensureUsageTable failed (attempt ${attempt}), retrying in 2s...`, err.code || err.message);
+      await new Promise(r => setTimeout(r, 2000));
+      return ensureUsageTable(attempt + 1);
+    }
     console.error('Failed to ensure plan_usage table:', err);
   }
 }
