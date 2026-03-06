@@ -199,6 +199,7 @@ const confirmItems = async () => {
     notes: i.notes,
     quantity: i.quantity,
     collection: i.collectionId,
+    thumbnailUrl: i.thumbnailUrl || undefined,
   }));
 
   for (const item of allItems) {
@@ -210,7 +211,7 @@ const confirmItems = async () => {
         item.quantity,
         item.collection,
         undefined,
-        undefined,
+        item.thumbnailUrl,  // image URL — saved as picture_url
         null,
         false,
         undefined,

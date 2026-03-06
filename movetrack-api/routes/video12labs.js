@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
+const sharp = require('sharp');
 const gcs = require('../bin/gcsService');
 const videoScanService = require('../bin/videoScanService');
 const { extractSharpestFrame } = require('../bin/frameExtractor');
@@ -136,8 +137,34 @@ router.post('/upload', upload.single('video'), async (req, res) => {
               thumbnailDebug.errors.push(`item[${idx}] t=${ts}s: ffmpeg returned no frames`);
               return item;
             }
+
+            // Crop to bounding box if available, otherwise use full frame
+            let finalBuffer = frameBuffer;
+            const bbox = item.bbox;
+            if (bbox && typeof bbox.x === 'number' && typeof bbox.y === 'number'
+                && typeof bbox.w === 'number' && typeof bbox.h === 'number') {
+              try {
+                const meta = await sharp(frameBuffer).metadata();
+                const fw = meta.width;
+                const fh = meta.height;
+                const left = Math.max(0, Math.round(bbox.x * fw));
+                const top = Math.max(0, Math.round(bbox.y * fh));
+                const width = Math.min(fw - left, Math.round(bbox.w * fw));
+                const height = Math.min(fh - top, Math.round(bbox.h * fh));
+                if (width > 10 && height > 10) {
+                  finalBuffer = await sharp(frameBuffer)
+                    .extract({ left, top, width, height })
+                    .jpeg({ quality: 85 })
+                    .toBuffer();
+                  console.log(`[videoScan] Cropped item[${idx}] to ${width}x${height}`);
+                }
+              } catch (cropErr) {
+                console.warn(`[videoScan] Crop failed for item[${idx}], using full frame:`, cropErr.message);
+              }
+            }
+
             const thumbPath = `users/${userId}/room-scans/${scanId}/thumbnails/${idx}-t${ts}.jpg`;
-            const { gcsPath: thumbGcsPath } = await gcs.uploadBuffer(frameBuffer, thumbPath, 'image/jpeg');
+            const { gcsPath: thumbGcsPath } = await gcs.uploadBuffer(finalBuffer, thumbPath, 'image/jpeg');
             item.thumbnailUrl = thumbGcsPath
               ? `https://storage.googleapis.com/${gcs.BUCKET}/${thumbGcsPath}`
               : null;

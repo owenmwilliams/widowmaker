@@ -29,12 +29,13 @@ Rules:
   - room: the room or area where it appears (e.g. "living room", "bedroom", "kitchen", "garage", "unknown")
   - notes: one of "fragile", "requires disassembly", "heavy", "boxable", or "" if none
   - timestamp_seconds: integer seconds into the video where this item is most clearly visible
+  - bbox: bounding box of the item in the frame at timestamp_seconds, as normalized 0.0–1.0 coordinates: {"x": left, "y": top, "w": width, "h": height}. If you cannot determine the bounding box, set bbox to null.
 
 Return ONLY a valid JSON array with no markdown or explanation. Example:
 [
-  {"name":"3-seat sofa","quantity":1,"room":"living room","notes":"heavy","timestamp_seconds":12},
-  {"name":"55\\" TV","quantity":1,"room":"living room","notes":"fragile","timestamp_seconds":18},
-  {"name":"~3 boxes of books","quantity":1,"room":"office","notes":"boxable","timestamp_seconds":45}
+  {"name":"3-seat sofa","quantity":1,"room":"living room","notes":"heavy","timestamp_seconds":12,"bbox":{"x":0.05,"y":0.3,"w":0.6,"h":0.5}},
+  {"name":"55\\" TV","quantity":1,"room":"living room","notes":"fragile","timestamp_seconds":18,"bbox":{"x":0.2,"y":0.1,"w":0.35,"h":0.4}},
+  {"name":"~3 boxes of books","quantity":1,"room":"office","notes":"boxable","timestamp_seconds":45,"bbox":null}
 ]`;
 
 /**
