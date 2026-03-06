@@ -110,21 +110,16 @@ router.post('/upload', upload.single('video'), async (req, res) => {
     let videoSource = null;
     let tmpVideoPath = null;
 
-    // Get a video source for ffmpeg: signed URL if possible, else download to temp file
+    // Write the in-memory video buffer to a temp file for ffmpeg.
+    // Signed URLs with query params (&, ?) break ffmpeg's input parsing.
     try {
-      videoSource = await gcs.signUrl(videoGcsPath);
-      thumbnailDebug.videoSourceType = 'signed_url';
-    } catch (signErr) {
-      console.warn(`[videoScan] signUrl failed, downloading to temp file: ${signErr.message}`);
-      try {
-        tmpVideoPath = path.join(os.tmpdir(), `mtscan-${scanId}.mp4`);
-        const [buffer] = await gcs.storage.bucket(gcs.BUCKET).file(videoGcsPath).download();
-        await fs.promises.writeFile(tmpVideoPath, buffer);
-        videoSource = tmpVideoPath;
-        thumbnailDebug.videoSourceType = 'temp_file';
-      } catch (dlErr) {
-        thumbnailDebug.errors.push(`video download failed: ${dlErr.message}`);
-      }
+      const ext = path.extname(req.file.originalname).toLowerCase() || '.mp4';
+      tmpVideoPath = path.join(os.tmpdir(), `mtscan-${scanId}${ext}`);
+      await fs.promises.writeFile(tmpVideoPath, req.file.buffer);
+      videoSource = tmpVideoPath;
+      thumbnailDebug.videoSourceType = 'temp_file_from_buffer';
+    } catch (writeErr) {
+      thumbnailDebug.errors.push(`temp file write failed: ${writeErr.message}`);
     }
 
     if (videoSource) {
