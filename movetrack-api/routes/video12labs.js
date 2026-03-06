@@ -228,50 +228,87 @@ router.post('/sessions/:id/analyze', jsonParser, async (req, res) => {
     if (!thumbnailDebug.skippedReason && session.videoGcsPath && items.length > 0) {
       thumbnailDebug.attempted = true;
       console.log(`[video12labs] Extracting thumbnails for ${items.length} items from ${session.videoGcsPath}`);
+
+      // Get a video source for ffmpeg: signed URL if possible, else download to temp file
+      const fs = require('fs');
+      const os = require('os');
+      const path = require('path');
+      let videoSource = null;
+      let tmpVideoPath = null;
+
       try {
-        const videoSignedUrl = await gcs.signUrl(session.videoGcsPath);
-        console.log(`[video12labs] Video signed URL generated (${videoSignedUrl.substring(0, 80)}...)`);
-        const userId = session._userId || 'unknown';
+        videoSource = await gcs.signUrl(session.videoGcsPath);
+        console.log(`[video12labs] Using signed URL for ffmpeg`);
+        thumbnailDebug.videoSourceType = 'signed_url';
+      } catch (signErr) {
+        console.warn(`[video12labs] signUrl failed, downloading video to temp file: ${signErr.message}`);
+        try {
+          tmpVideoPath = path.join(os.tmpdir(), `mtscan-${session.id}.mp4`);
+          const [buffer] = await gcs.storage.bucket(gcs.BUCKET).file(session.videoGcsPath).download();
+          await fs.promises.writeFile(tmpVideoPath, buffer);
+          videoSource = tmpVideoPath;
+          console.log(`[video12labs] Downloaded video to ${tmpVideoPath} (${buffer.length} bytes)`);
+          thumbnailDebug.videoSourceType = 'temp_file';
+        } catch (dlErr) {
+          thumbnailDebug.errors.push(`video download failed: ${dlErr.message}`);
+          console.error(`[video12labs] Video download failed:`, dlErr.message);
+        }
+      }
 
-        const thumbnailPromises = items.map(async (item, idx) => {
-          const ts = item.timestamp_seconds;
-          if (typeof ts !== 'number') {
-            thumbnailDebug.errors.push(`item[${idx}]: no timestamp_seconds`);
-            return item;
-          }
+      if (videoSource) {
+        try {
+          const userId = session._userId || 'unknown';
 
-          try {
-            const frameBuffer = await extractSharpestFrame(videoSignedUrl, ts);
-            if (!frameBuffer) {
-              thumbnailDebug.errors.push(`item[${idx}] t=${ts}s: ffmpeg returned no frames`);
+          const thumbnailPromises = items.map(async (item, idx) => {
+            const ts = item.timestamp_seconds;
+            if (typeof ts !== 'number') {
+              thumbnailDebug.errors.push(`item[${idx}]: no timestamp_seconds`);
               return item;
             }
 
-            console.log(`[video12labs] Frame extracted for item[${idx}] t=${ts}s — ${frameBuffer.length} bytes`);
-            const thumbPath = `users/${userId}/room-scans/${session.id}/thumbnails/${idx}-t${ts}.jpg`;
-            const { signedUrl } = await gcs.uploadBuffer(frameBuffer, thumbPath, 'image/jpeg');
-            item.thumbnailUrl = signedUrl;
-            thumbnailDebug.successCount++;
-          } catch (itemErr) {
-            const errMsg = `item[${idx}] t=${ts}s: ${itemErr.message}`;
-            thumbnailDebug.errors.push(errMsg);
-            console.error(`[video12labs] Thumbnail error: ${errMsg}`);
-          }
-          return item;
-        });
+            try {
+              const frameBuffer = await extractSharpestFrame(videoSource, ts);
+              if (!frameBuffer) {
+                thumbnailDebug.errors.push(`item[${idx}] t=${ts}s: ffmpeg returned no frames`);
+                return item;
+              }
 
-        items = await Promise.all(thumbnailPromises);
-        console.log(`[video12labs] Thumbnails done: ${thumbnailDebug.successCount}/${items.length} succeeded`);
-      } catch (err) {
-        thumbnailDebug.errors.push(`top-level: ${err.message}`);
-        console.error('[video12labs] Thumbnail extraction failed:', err.message, err.stack);
+              console.log(`[video12labs] Frame extracted for item[${idx}] t=${ts}s — ${frameBuffer.length} bytes`);
+              const thumbPath = `users/${userId}/room-scans/${session.id}/thumbnails/${idx}-t${ts}.jpg`;
+              const { gcsPath: thumbGcsPath } = await gcs.uploadBuffer(frameBuffer, thumbPath, 'image/jpeg');
+              // Use public URL as thumbnail — the items API will sign it on read
+              item.thumbnailUrl = thumbGcsPath
+                ? `https://storage.googleapis.com/${gcs.BUCKET}/${thumbGcsPath}`
+                : null;
+              if (item.thumbnailUrl) thumbnailDebug.successCount++;
+            } catch (itemErr) {
+              const errMsg = `item[${idx}] t=${ts}s: ${itemErr.message}`;
+              thumbnailDebug.errors.push(errMsg);
+              console.error(`[video12labs] Thumbnail error: ${errMsg}`);
+            }
+            return item;
+          });
+
+          items = await Promise.all(thumbnailPromises);
+          console.log(`[video12labs] Thumbnails done: ${thumbnailDebug.successCount}/${items.length} succeeded`);
+        } catch (err) {
+          thumbnailDebug.errors.push(`top-level: ${err.message}`);
+          console.error('[video12labs] Thumbnail extraction failed:', err.message, err.stack);
+        }
+      }
+
+      // Clean up temp video file
+      if (tmpVideoPath) {
+        fs.promises.unlink(tmpVideoPath).catch(() => {});
       }
     }
 
     // Generate a signed URL for the video itself (1h TTL, for the review screen)
     let videoSignedUrl = null;
     if (!gcs.isLocalEnvironment && session.videoGcsPath) {
-      videoSignedUrl = await gcs.signUrl(session.videoGcsPath).catch(() => null);
+      // Use public URL as fallback if signing fails
+      videoSignedUrl = await gcs.signUrl(session.videoGcsPath)
+        .catch(() => `https://storage.googleapis.com/${gcs.BUCKET}/${session.videoGcsPath}`);
     }
 
     session.status = 'done';

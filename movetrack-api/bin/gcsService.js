@@ -112,7 +112,11 @@ async function uploadBuffer(buffer, gcsPath, contentType) {
     stream.end(buffer);
   });
 
-  const signedUrl = await signUrl(gcsPath);
+  // Sign URL if possible, but don't fail the upload if signing is denied
+  const signedUrl = await signUrl(gcsPath).catch((err) => {
+    console.warn('[gcsService] signUrl failed after upload (IAM issue?):', err.message);
+    return null;
+  });
   return { gcsPath, signedUrl };
 }
 
