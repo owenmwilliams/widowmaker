@@ -304,7 +304,12 @@ const analyzeItemByUrl = async (imageUrl: string, attempt = 1, itemHint?: string
     }
 
     throw new Error(response.data?.error || "Vision analysis failed");
-  } catch (error) {
+  } catch (error: any) {
+    const status = error.response?.status;
+    // Don't retry auth failures or server unavailability — these won't self-resolve
+    if (status === 401 || status === 403 || status === 503) {
+      throw error;
+    }
     if (attempt < 3) {
       console.warn(
         `[PhotoCapture] Vision analyze failed (attempt ${attempt}), retrying...`,
@@ -348,7 +353,11 @@ const analyzeItemBlob = async (blob: Blob, attempt = 1): Promise<any> => {
     }
 
     throw new Error(response.data?.error || "Vision analysis failed");
-  } catch (error) {
+  } catch (error: any) {
+    const status = error.response?.status;
+    if (status === 401 || status === 403 || status === 503) {
+      throw error;
+    }
     if (attempt < 3) {
       console.warn(
         `[PhotoCapture] Vision analyze failed (attempt ${attempt}), retrying...`,
@@ -1033,10 +1042,24 @@ const cancelEditedName = () => {
   nameEditIndex.value = null;
 };
 
+// Track whether the API is unreachable to avoid hammering it
+const apiUnreachable = ref(false);
+
 const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
   // Safety check for item
   if (!item || !item.id) {
     console.error("Invalid item provided to handleMultiItemAdd:", item);
+    return;
+  }
+
+  if (apiUnreachable.value) {
+    $q.notify({
+      type: "negative",
+      message: "Server unavailable",
+      caption: "Please try again later",
+      position: "bottom",
+      timeout: 3000,
+    });
     return;
   }
 
@@ -1156,13 +1179,34 @@ const handleMultiItemAdd = async (item: DetectedItem, index: number) => {
     detectedItems.value.splice(index, 1);
   } catch (error: any) {
     console.error("Error adding multi-item:", error);
+    const status = error.response?.status;
 
-    $q.notify({
-      type: "negative",
-      message: "Failed to add item",
-      caption: error.message || "Please try again",
-      position: "bottom",
-    });
+    if (status === 401 || status === 403) {
+      apiUnreachable.value = true;
+      $q.notify({
+        type: "negative",
+        message: "Session expired",
+        caption: "Please log in again to continue",
+        position: "bottom",
+        timeout: 5000,
+      });
+    } else if (status === 503 || error.code === "ECONNABORTED") {
+      apiUnreachable.value = true;
+      $q.notify({
+        type: "negative",
+        message: "Server unavailable",
+        caption: "Please try again in a moment",
+        position: "bottom",
+        timeout: 4000,
+      });
+    } else {
+      $q.notify({
+        type: "negative",
+        message: "Failed to add item",
+        caption: error.message || "Please try again",
+        position: "bottom",
+      });
+    }
   } finally {
     setProcessingMultiItem(item.id, false);
   }
@@ -1187,6 +1231,7 @@ const resetForm = () => {
   editWeight.value = 0;
   editFragile.value = false;
   addedItemsCount.value = 0;
+  apiUnreachable.value = false;
 };
 
 // Cancel and close
