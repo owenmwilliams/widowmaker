@@ -38,22 +38,19 @@ const videoObjectUrl = ref<string | null>(null);
 const uploadError = ref<string | null>(null);
 
 // ── Step 3: Processing ────────────────────────────────────────────────────────
-const sessionId = ref<string | null>(null);
 const uploadProgress = ref(0);
-const indexingElapsed = ref(0);
 const processingMessage = ref('');
 const processingError = ref<string | null>(null);
 
 const scanMessages = [
-  'Scanning video for household items...',
+  'Uploading video...',
+  'Scanning for household items...',
   'Identifying furniture and belongings...',
   'Cataloging items room by room...',
   'Building your inventory list...',
   'Almost there...',
 ];
 
-let pollInterval: ReturnType<typeof setInterval> | null = null;
-let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 let messageTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Step 4: Review ────────────────────────────────────────────────────────────
@@ -84,11 +81,6 @@ const includedDetectedItems = computed(() => detectedItems.value.filter((i) => i
 
 const totalToAdd = computed(() => includedDetectedItems.value.length);
 
-const indexingElapsedLabel = computed(() => {
-  const m = Math.floor(indexingElapsed.value / 60);
-  const s = indexingElapsed.value % 60;
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-});
 
 // ── File selection ────────────────────────────────────────────────────────────
 const handleFileChange = (event: Event) => {
@@ -107,12 +99,12 @@ const triggerFileInput = () => {
 };
 
 // ── Processing flow ───────────────────────────────────────────────────────────
+// Single request: upload → GCS → Gemini analysis → thumbnails → response.
 const startProcessing = async () => {
   if (!selectedFile.value) return;
   step.value = 'processing';
   processingError.value = null;
   uploadProgress.value = 0;
-  indexingElapsed.value = 0;
 
   let msgIdx = 0;
   processingMessage.value = scanMessages[msgIdx];
@@ -122,80 +114,26 @@ const startProcessing = async () => {
   }, 3000);
 
   try {
-    const sessionRes = await axios.post(
-      `${API_BASE}/video-12labs/sessions`,
-      {},
-      { headers: buildHeaders() },
-    );
-    sessionId.value = sessionRes.data.session_id;
-
     const formData = new FormData();
     formData.append('video', selectedFile.value);
-    await axios.post(
-      `${API_BASE}/video-12labs/sessions/${sessionId.value}/upload`,
+
+    const res = await axios.post(
+      `${API_BASE}/video-12labs/upload`,
       formData,
       {
         headers: { ...buildHeaders(), 'Content-Type': 'multipart/form-data' },
+        timeout: 10 * 60 * 1000, // 10 min to match Cloud Run timeout
         onUploadProgress: (evt) => {
           if (evt.total) uploadProgress.value = Math.round((evt.loaded / evt.total) * 100);
         },
       },
     );
 
-    elapsedTimer = setInterval(() => {
-      indexingElapsed.value++;
-    }, 1000);
-    pollInterval = setInterval(checkIndexStatus, 5000);
-  } catch (err: any) {
     stopTimers();
-    processingError.value = err?.response?.data?.error || err?.message || 'Upload failed';
-  }
-};
 
-const MAX_INDEX_SECONDS = 300; // 5 min timeout
-
-const checkIndexStatus = async () => {
-  if (!sessionId.value) return;
-
-  // Timeout after 5 minutes of indexing
-  if (indexingElapsed.value >= MAX_INDEX_SECONDS) {
-    stopTimers();
-    processingError.value = 'Video indexing is taking too long. Please try a shorter video.';
-    return;
-  }
-
-  try {
-    const res = await axios.get(
-      `${API_BASE}/video-12labs/sessions/${sessionId.value}/status`,
-      { headers: { ...buildHeaders(), 'Cache-Control': 'no-cache' } },
-    );
-    const { status } = res.data;
-    console.log(`[VideoInventoryScan] Poll: status=${status}, elapsed=${indexingElapsed.value}s`);
-    if (status === 'ready' || status === 'done') {
-      stopTimers();
-      await runAnalysis();
-    } else if (status === 'failed') {
-      stopTimers();
-      processingError.value = 'Video indexing failed. Please try again with a different video.';
-    }
-  } catch (err: any) {
-    stopTimers();
-    processingError.value = err?.response?.data?.error || err?.message || 'Status check failed';
-  }
-};
-
-const runAnalysis = async () => {
-  if (!sessionId.value) return;
-  try {
-    const res = await axios.post(
-      `${API_BASE}/video-12labs/sessions/${sessionId.value}/analyze`,
-      {},
-      { headers: buildHeaders() },
-    );
     const items: any[] = res.data.items || [];
     videoGcsUrl.value = res.data.video_signed_url || null;
 
-    // Log thumbnail debug info from server
     if (res.data.thumbnail_debug) {
       console.log('[VideoInventoryScan] Thumbnail debug:', JSON.stringify(res.data.thumbnail_debug, null, 2));
     }
@@ -223,19 +161,12 @@ const runAnalysis = async () => {
 
     step.value = 'review';
   } catch (err: any) {
+    stopTimers();
     processingError.value = err?.response?.data?.error || err?.message || 'Analysis failed';
   }
 };
 
 const stopTimers = () => {
-  if (pollInterval) {
-    clearInterval(pollInterval);
-    pollInterval = null;
-  }
-  if (elapsedTimer) {
-    clearInterval(elapsedTimer);
-    elapsedTimer = null;
-  }
   if (messageTimer) {
     clearInterval(messageTimer);
     messageTimer = null;
@@ -245,7 +176,6 @@ const stopTimers = () => {
 const retryProcessing = () => {
   processingError.value = null;
   step.value = 'record';
-  sessionId.value = null;
   uploadProgress.value = 0;
 };
 
@@ -443,25 +373,21 @@ onUnmounted(() => {
         <q-icon name="smart_toy" size="48px" color="primary" class="q-mb-md" />
         <h2 class="step-heading">Analyzing your video</h2>
         <p class="step-subheading">
-          Pegasus AI is cataloging every item it sees. This usually takes 1–3 minutes.
+          AI is cataloging every item it sees. This usually takes 30–60 seconds.
         </p>
 
-        <div class="scanning-wrap q-mb-md">
+        <div v-if="uploadProgress < 100" class="q-mb-md upload-progress-wrap">
+          <div class="text-caption text-grey-6 q-mb-xs">Uploading… {{ uploadProgress }}%</div>
+          <q-linear-progress :value="uploadProgress / 100" color="primary" rounded style="height: 6px" />
+        </div>
+
+        <div v-else class="scanning-wrap q-mb-md">
           <div class="scanning-bar"></div>
         </div>
 
         <div class="scan-message text-primary text-weight-medium q-mb-xs">
           <q-icon name="radar" class="q-mr-xs" />
           {{ processingMessage }}
-        </div>
-
-        <div class="text-caption text-grey-6">
-          Elapsed: <strong>{{ indexingElapsedLabel }}</strong>
-        </div>
-
-        <div v-if="uploadProgress < 100" class="q-mt-md upload-progress-wrap">
-          <div class="text-caption text-grey-6 q-mb-xs">Uploading… {{ uploadProgress }}%</div>
-          <q-linear-progress :value="uploadProgress / 100" color="primary" rounded style="height: 6px" />
         </div>
       </template>
 
