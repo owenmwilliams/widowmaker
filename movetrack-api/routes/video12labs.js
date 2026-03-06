@@ -143,6 +143,10 @@ router.post('/sessions/:id/upload', upload.single('video'), async (req, res) => 
 
 // ─── GET /sessions/:id/status ─────────────────────────────────────────────────
 router.get('/sessions/:id/status', async (req, res) => {
+  // Prevent 304 caching — every poll must hit Twelve Labs
+  res.set('Cache-Control', 'no-store');
+  res.set('ETag', `"${Date.now()}"`);
+
   const session = sessions.get(req.params.id);
   if (!session) {
     return res.status(404).json({ success: false, error: 'Session not found' });
@@ -154,6 +158,7 @@ router.get('/sessions/:id/status', async (req, res) => {
 
   try {
     const { status, videoId } = await twelveLabsService.getTaskStatus(session.taskId);
+    console.log(`[video12labs] Poll: task=${session.taskId}, status=${status}, videoId=${videoId}`);
 
     if (status === 'ready') {
       session.status = 'ready';

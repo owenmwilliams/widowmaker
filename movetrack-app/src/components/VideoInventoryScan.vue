@@ -152,14 +152,25 @@ const startProcessing = async () => {
   }
 };
 
+const MAX_INDEX_SECONDS = 300; // 5 min timeout
+
 const checkIndexStatus = async () => {
   if (!sessionId.value) return;
+
+  // Timeout after 5 minutes of indexing
+  if (indexingElapsed.value >= MAX_INDEX_SECONDS) {
+    stopTimers();
+    processingError.value = 'Video indexing is taking too long. Please try a shorter video.';
+    return;
+  }
+
   try {
     const res = await axios.get(
       `${API_BASE}/video-12labs/sessions/${sessionId.value}/status`,
-      { headers: buildHeaders() },
+      { headers: { ...buildHeaders(), 'Cache-Control': 'no-cache' } },
     );
     const { status } = res.data;
+    console.log(`[VideoInventoryScan] Poll: status=${status}, elapsed=${indexingElapsed.value}s`);
     if (status === 'ready' || status === 'done') {
       stopTimers();
       await runAnalysis();
