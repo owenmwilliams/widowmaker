@@ -70,14 +70,13 @@ router.post('/upload', upload.single('video'), async (req, res) => {
     return res.status(500).json({ success: false, error: `Video upload failed: ${err?.message}` });
   }
 
-  // ── Step 2: Analyze via Gemini using gs:// URI ──────────────────────────────
+  // ── Step 2: Analyze via Gemini (inline base64) ───────────────────────────────
   const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
-  const gcsUri = `gs://${gcs.BUCKET}/${videoGcsPath}`;
 
   let rawText, items, parseError;
   try {
-    ({ rawText, items, parseError } = await videoScanService.analyzeVideoFromGcs(
-      gcsUri,
+    ({ rawText, items, parseError } = await videoScanService.analyzeVideo(
+      req.file.buffer,
       req.file.mimetype,
       plan
     ));

@@ -38,23 +38,24 @@ Return ONLY a valid JSON array with no markdown or explanation. Example:
 ]`;
 
 /**
- * Analyze a video stored in GCS via Gemini.
+ * Analyze a video via Gemini using inline base64 data.
  *
- * @param {string} gcsUri      - e.g. "gs://movetrack-item-photos/users/123/video.mp4"
- * @param {string} mimeType    - e.g. "video/mp4"
- * @param {string} [plan]      - "basic" or "pro" for model tier
+ * @param {Buffer} videoBuffer  - Video file buffer
+ * @param {string} mimeType     - e.g. "video/mp4"
+ * @param {string} [plan]       - "basic" or "pro" for model tier
  * @param {string} [customPrompt]
  * @returns {{ rawText: string, items: Array, parseError: string|null }}
  */
-async function analyzeVideoFromGcs(gcsUri, mimeType, plan = 'basic', customPrompt = null) {
+async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt = null) {
   if (!geminiClient) {
     throw new Error('GOOGLE_AI_API_KEY is not configured');
   }
 
   const modelId = GEMINI_MODELS[plan] || GEMINI_MODELS.basic;
   const prompt = customPrompt || INVENTORY_PROMPT;
+  const base64Video = videoBuffer.toString('base64');
 
-  console.log(`[videoScanService] Analyzing ${gcsUri} with model=${modelId}`);
+  console.log(`[videoScanService] Analyzing video (${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB) with model=${modelId}`);
 
   const model = geminiClient.getGenerativeModel({
     model: modelId,
@@ -67,7 +68,7 @@ async function analyzeVideoFromGcs(gcsUri, mimeType, plan = 'basic', customPromp
   let result;
   try {
     result = await model.generateContent([
-      { fileData: { mimeType, fileUri: gcsUri } },
+      { inlineData: { mimeType, data: base64Video } },
       { text: prompt },
     ]);
   } catch (err) {
@@ -103,4 +104,4 @@ async function analyzeVideoFromGcs(gcsUri, mimeType, plan = 'basic', customPromp
   return { rawText, items, parseError };
 }
 
-module.exports = { analyzeVideoFromGcs, INVENTORY_PROMPT, GEMINI_MODELS };
+module.exports = { analyzeVideo, INVENTORY_PROMPT, GEMINI_MODELS };
