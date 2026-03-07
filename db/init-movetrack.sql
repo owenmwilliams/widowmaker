@@ -757,3 +757,35 @@ COMMENT ON COLUMN item_zones.loading_zone IS 'Planned loading zone: 1=front/heav
 COMMENT ON COLUMN item_zones.load_priority IS 'Loading order priority within zone (lower = load first)';
 COMMENT ON COLUMN move_timeline.event_type IS 'Type of event: session_started, box_loaded, box_unloaded, damage_reported, note_added, status_changed, session_completed';
 COMMENT ON COLUMN damage_reports.severity IS 'Severity level: minor, moderate, severe';
+
+-- ============================================================================
+-- NEXUS AGENT TABLES
+-- ============================================================================
+
+-- Nexus conversation sessions
+CREATE TABLE nexus_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    title VARCHAR(200),
+    session_type VARCHAR(20) DEFAULT 'census' CHECK (session_type IN ('onboarding', 'census', 'general')),
+    items_added INTEGER DEFAULT 0,
+    rooms_added INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_nexus_sessions_user ON nexus_sessions(user_id, updated_at DESC);
+
+-- Nexus conversation messages
+CREATE TABLE nexus_messages (
+    id SERIAL PRIMARY KEY,
+    session_id UUID NOT NULL REFERENCES nexus_sessions(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'model', 'tool_call', 'tool_result')),
+    content TEXT,
+    tool_name VARCHAR(100),
+    tool_args JSONB,
+    tool_response JSONB,
+    attachments JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_nexus_msg_session ON nexus_messages(session_id, created_at);

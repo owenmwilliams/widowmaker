@@ -168,6 +168,16 @@ const logout = () => {
       </template>
 
       <q-separator class="q-my-md" />
+      <q-item-label header>AI Assistant</q-item-label>
+
+      <q-item clickable v-ripple class="drawer-item" @click="goTo('/mobile/nexus')">
+        <q-item-section avatar>
+          <q-icon name="auto_awesome" />
+        </q-item-section>
+        <q-item-section>Nexus</q-item-section>
+      </q-item>
+
+      <q-separator class="q-my-md" />
       <q-item-label header>Settings</q-item-label>
 
       <q-item clickable v-ripple class="drawer-item" @click="openSettings">

@@ -43,6 +43,7 @@ var importsRouter = require('./routes/imports');
 var visionLabRouter = require('./routes/visionLab');
 var adminRouter = require('./routes/admin');
 var reloprepRouter = require('./routes/reloprep');
+var nexusRouter = require('./routes/nexus');
 
 var app = express();
 app.set('trust proxy', 1);
@@ -180,6 +181,9 @@ app.use('/vision-lab-video', visionLabVideoRouter);
 
 const video12labsRouter = require('./routes/video12labs');
 app.use('/video-12labs', video12labsRouter);
+
+// Nexus conversational agent
+app.use('/nexus', rateLimits.apiLimiter, nexusRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

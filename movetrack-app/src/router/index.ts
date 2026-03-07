@@ -96,6 +96,12 @@ const router = createRouter({
       beforeEnter: authGuard
     },
     {
+      path: "/mobile/nexus",
+      name: "mobile-nexus",
+      component: () => import('../views/MobileNexus.vue'),
+      beforeEnter: authGuard
+    },
+    {
       path: "/onboarding",
       name: "onboarding-welcome",
       component: OnboardingWelcome

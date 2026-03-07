@@ -1020,6 +1020,27 @@ const handleContainerHide = (containerId: string) => {
           </q-item-section>
         </q-item>
 
+        <q-separator inset="item" />
+
+        <!-- Chat with Nexus -->
+        <q-item
+          clickable
+          v-ripple
+          class="add-inventory-option"
+          @click="showAddInventoryModal = false; $router.push('/mobile/nexus')"
+        >
+          <q-item-section avatar>
+            <q-avatar color="teal" text-color="white" icon="auto_awesome" />
+          </q-item-section>
+          <q-item-section>
+            <q-item-label class="text-weight-bold">Chat with Nexus</q-item-label>
+            <q-item-label caption>Tell the AI what you have — it builds your inventory</q-item-label>
+          </q-item-section>
+          <q-item-section side>
+            <q-icon name="chevron_right" color="grey-5" />
+          </q-item-section>
+        </q-item>
+
         <!-- Get Pro CTA (non-pro users only) -->
         <div v-if="effectivePlan !== 'pro'" class="get-pro-cta">
           <q-btn
