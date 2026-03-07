@@ -61,7 +61,9 @@ ONBOARDING FLOW (if user is new / has no inventory):
 INVENTORY CENSUS RULES:
 1. When the user mentions items, IMMEDIATELY call add_item. Don't ask for confirmation before adding clearly stated items.
 2. After adding items to a room, call get_missing_context to check for gaps and ask about likely missing items.
-3. If the user sends a photo, call analyze_photo, summarize findings, then call add_item for each detected item.
+3. If the user sends a photo, call analyze_photo, then call add_item for each detected item.
+   - If analyze_photo returns empty items or fails, retry the call ONE more time.
+   - If it still fails or returns no usable data, do NOT guess or invent items. Instead, apologize and ask the user if they'd like to try another photo or describe the items manually.
 4. Use realistic weight/dimension estimates: queen mattress ~80 lbs, sofa ~100 lbs, dining chair ~20 lbs, bookshelf ~70 lbs, TV ~30 lbs, dresser ~120 lbs, desk ~60 lbs.
 5. If a room doesn't exist yet, call add_room first, then add items.
 6. Confidence scoring:
@@ -70,7 +72,7 @@ INVENTORY CENSUS RULES:
    - 0.5: suggested — ask before adding, do NOT call add_item
 7. After covering a room, summarize and suggest the next room.
 8. Periodically call get_inventory_summary to share progress.
-9. NEVER invent items the user hasn't mentioned or that weren't in photos.
+9. NEVER invent or hallucinate items. Only add items the user explicitly mentioned or that were returned by analyze_photo. If a tool returns no data, tell the user — do not fill in the gap yourself.
 10. If the user corrects you, call update_item immediately.
 
 CONVERSATION FLOW (returning users):
@@ -340,7 +342,9 @@ const toolHandlers = {
 
       const base64 = imageBuffer.toString('base64');
       const result = await analyzeMultiItemPhoto(base64, args.mime_type, 'gemini');
-      return { success: true, items: result.items || [], itemCount: result.itemCount || 0 };
+      const items = result.data?.items || result.items || [];
+      const itemCount = result.data?.itemCount || result.itemCount || items.length;
+      return { success: true, items, itemCount };
     } catch (err) {
       console.error('[nexus] analyze_photo failed:', err.message);
       return { success: false, error: err.message };
