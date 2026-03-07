@@ -75,7 +75,7 @@ export const nexusStore = defineStore("nexus", () => {
           message: text,
           attachments: attachments || [],
         },
-        { headers, timeout: 120000 } // 2 min timeout for LLM calls
+        { headers, timeout: 180000 } // 3 min timeout for LLM + video analysis
       );
 
       sessionId.value = res.data.sessionId;
@@ -125,7 +125,7 @@ export const nexusStore = defineStore("nexus", () => {
 
       const res = await axios.post(core_url + "/nexus/upload", formData, {
         headers,
-        timeout: 30000,
+        timeout: 120000, // 2 min for large video uploads
       });
 
       return { url: res.data.url, mimeType: res.data.mimeType };

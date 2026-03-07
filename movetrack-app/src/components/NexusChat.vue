@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, onMounted } from 'vue';
+import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { nexusStore, type NexusMessage, type NexusAction } from '../stores/NexusStore';
 
 const props = defineProps<{ user: string }>();
 
+const router = useRouter();
 const $q = useQuasar();
 const store = nexusStore();
 const inputText = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
-const pendingAttachments = ref<{ url: string; mimeType: string; preview: string }[]>([]);
+const pendingAttachments = ref<{ url: string; mimeType: string; preview: string; isVideo?: boolean }[]>([]);
 
 // ── Auto-scroll to bottom on new messages ────────────────────────────────────
 watch(() => store.messages.length, () => {
@@ -57,17 +59,20 @@ const handleFileSelected = async (event: Event) => {
   const file = target.files?.[0];
   if (!file) return;
 
+  const isVideo = file.type.startsWith('video/');
+
   try {
     const result = await store.uploadPhoto(file);
     pendingAttachments.value.push({
       url: result.url,
       mimeType: result.mimeType,
       preview: URL.createObjectURL(file),
+      isVideo,
     });
   } catch (err) {
     $q.notify({
       type: 'negative',
-      message: 'Failed to upload photo',
+      message: isVideo ? 'Failed to upload video' : 'Failed to upload photo',
       position: 'bottom',
     });
   }
@@ -142,6 +147,7 @@ const newSession = () => {
     <!-- Header -->
     <div class="chat-header">
       <div class="header-left">
+        <q-btn flat dense round icon="arrow_back" @click="router.back()" />
         <q-icon name="auto_awesome" size="24px" color="primary" />
         <span class="header-title">Nexus</span>
       </div>
@@ -264,7 +270,10 @@ const newSession = () => {
     <!-- Attachment preview -->
     <div v-if="pendingAttachments.length > 0" class="attachment-preview">
       <div v-for="(att, i) in pendingAttachments" :key="i" class="att-thumb-wrap">
-        <img :src="att.preview" class="att-thumb" />
+        <div v-if="att.isVideo" class="att-thumb att-video-thumb">
+          <q-icon name="videocam" size="24px" color="white" />
+        </div>
+        <img v-else :src="att.preview" class="att-thumb" />
         <q-btn
           round flat dense size="xs" icon="close"
           class="att-remove" @click="removeAttachment(i)"
@@ -274,7 +283,7 @@ const newSession = () => {
 
     <!-- Input area -->
     <div class="chat-input-area">
-      <q-btn round flat icon="photo_camera" color="grey-7"
+      <q-btn round flat icon="attach_file" color="grey-7"
              @click="openPhotoUpload" :loading="store.isUploading" />
       <q-input
         v-model="inputText"
@@ -294,8 +303,7 @@ const newSession = () => {
     <input
       ref="fileInput"
       type="file"
-      accept="image/*"
-      capture="environment"
+      accept="image/*,video/mp4,video/quicktime,video/webm"
       style="display: none"
       @change="handleFileSelected"
     />
@@ -464,6 +472,12 @@ const newSession = () => {
   height: 60px;
   border-radius: 8px;
   object-fit: cover;
+}
+.att-video-thumb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #333;
 }
 .att-remove {
   position: absolute;

@@ -5,6 +5,7 @@ const conn = require('./db');
 const db = conn.db;
 const census = require('./censusService');
 const { analyzeMultiItemPhoto } = require('./visionService');
+const { analyzeVideo } = require('./videoScanService');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
@@ -61,19 +62,24 @@ ONBOARDING FLOW (if user is new / has no inventory):
 INVENTORY CENSUS RULES:
 1. When the user mentions items, IMMEDIATELY call add_item. Don't ask for confirmation before adding clearly stated items.
 2. After adding items to a room, call get_missing_context to check for gaps and ask about likely missing items.
-3. If the user sends a photo, call analyze_photo, then call add_item for each detected item.
+3. If the user sends a photo, call analyze_photo to detect items.
    - If analyze_photo returns empty items or fails, retry the call ONE more time.
    - If it still fails or returns no usable data, do NOT guess or invent items. Instead, apologize and ask the user if they'd like to try another photo or describe the items manually.
-4. Use realistic weight/dimension estimates: queen mattress ~80 lbs, sofa ~100 lbs, dining chair ~20 lbs, bookshelf ~70 lbs, TV ~30 lbs, dresser ~120 lbs, desk ~60 lbs.
-5. If a room doesn't exist yet, call add_room first, then add items.
-6. Confidence scoring:
+   - When analyze_photo succeeds, list the detected items for the user and ASK FOR CONFIRMATION before calling add_item. For example: "I can see: 1) Queen Bed, 2) Nightstand, 3) Dresser. Want me to add all of these, or would you like to make changes?"
+   - Only call add_item after the user confirms. If they want to remove or change items, adjust accordingly.
+   - When calling add_item for photo-detected items, include the picture_url from the analyze_photo results if available.
+   - The same confirmation rules apply to analyze_video — list detected items and wait for user approval before adding.
+4. If the user sends a video, call analyze_video to detect items. The same retry and confirmation rules from rule 3 apply.
+5. Use realistic weight/dimension estimates: queen mattress ~80 lbs, sofa ~100 lbs, dining chair ~20 lbs, bookshelf ~70 lbs, TV ~30 lbs, dresser ~120 lbs, desk ~60 lbs.
+6. If a room doesn't exist yet, call add_room first, then add items.
+7. Confidence scoring:
    - 0.9+: user explicitly named the item with details
    - 0.7-0.8: detected in a photo or inferred from context
    - 0.5: suggested — ask before adding, do NOT call add_item
-7. After covering a room, summarize and suggest the next room.
-8. Periodically call get_inventory_summary to share progress.
-9. NEVER invent or hallucinate items. Only add items the user explicitly mentioned or that were returned by analyze_photo. If a tool returns no data, tell the user — do not fill in the gap yourself.
-10. If the user corrects you, call update_item immediately.
+8. After covering a room, summarize and suggest the next room.
+9. Periodically call get_inventory_summary to share progress.
+10. NEVER invent or hallucinate items. Only add items the user explicitly mentioned or that were returned by analyze_photo or analyze_video. If a tool returns no data, tell the user — do not fill in the gap yourself.
+11. If the user corrects you, call update_item immediately.
 
 CONVERSATION FLOW (returning users):
 - If home context is unknown, ask about type, bedrooms, bathrooms.
@@ -105,6 +111,7 @@ const toolDeclarations = [
         estimated_value: { type: SchemaType.NUMBER, description: 'Estimated dollar value' },
         notes:          { type: SchemaType.STRING, description: 'Notes like "requires disassembly", "heavy"' },
         confidence:     { type: SchemaType.NUMBER, description: 'Confidence 0.0-1.0 that this item exists and details are accurate' },
+        picture_url:    { type: SchemaType.STRING, description: 'GCS URL of a cropped photo of this item, if available from analyze_photo results' },
       },
       required: ['name', 'room_name'],
     },
@@ -150,6 +157,19 @@ const toolDeclarations = [
         file_url:  { type: SchemaType.STRING, description: 'GCS URL of the uploaded photo' },
         mime_type: { type: SchemaType.STRING, description: 'MIME type, e.g. "image/jpeg"' },
         room_hint: { type: SchemaType.STRING, description: 'Which room this photo is from, if known' },
+      },
+      required: ['file_url', 'mime_type'],
+    },
+  },
+  {
+    name: 'analyze_video',
+    description: 'Analyze an uploaded video walkthrough to detect household items. Returns a list of detected items with timestamps.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        file_url:  { type: SchemaType.STRING, description: 'GCS URL of the uploaded video' },
+        mime_type: { type: SchemaType.STRING, description: 'MIME type, e.g. "video/mp4"' },
+        room_hint: { type: SchemaType.STRING, description: 'Which room this video is of, if known' },
       },
       required: ['file_url', 'mime_type'],
     },
@@ -277,6 +297,7 @@ const toolHandlers = {
     if (args.tags) params.tags = args.tags;
     if (args.estimated_value) params.estimated_value = args.estimated_value;
     if (args.notes) params.notes = args.notes;
+    if (args.picture_url) params.picture_url = args.picture_url;
 
     const [item] = await knex.transaction(async (trx) => {
       const [inserted] = await knex('items').transacting(trx).insert(params).returning(['id', 'name']);
@@ -325,10 +346,11 @@ const toolHandlers = {
   async analyze_photo(args, userId) {
     try {
       const gcs = require('./gcsService');
+      const sharp = require('sharp');
       const https = require('https');
       const http = require('http');
 
-      // Download image from GCS URL to get base64
+      // Download image from GCS URL to get buffer
       const url = args.file_url;
       const imageBuffer = await new Promise((resolve, reject) => {
         const client = url.startsWith('https') ? https : http;
@@ -344,9 +366,67 @@ const toolHandlers = {
       const result = await analyzeMultiItemPhoto(base64, args.mime_type, 'gemini');
       const items = result.data?.items || result.items || [];
       const itemCount = result.data?.itemCount || result.itemCount || items.length;
+
+      // Crop each item by bounding box and upload to GCS
+      const meta = await sharp(imageBuffer).metadata();
+      const fw = meta.width;
+      const fh = meta.height;
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const bbox = item.boundingBox || item.bbox;
+        if (!bbox || !fw || !fh) continue;
+        try {
+          const left = Math.max(0, Math.round(bbox.x * fw));
+          const top = Math.max(0, Math.round(bbox.y * fh));
+          const width = Math.min(fw - left, Math.round((bbox.width || bbox.w) * fw));
+          const height = Math.min(fh - top, Math.round((bbox.height || bbox.h) * fh));
+          if (width < 10 || height < 10) continue;
+
+          const cropped = await sharp(imageBuffer)
+            .extract({ left, top, width, height })
+            .jpeg({ quality: 85 })
+            .toBuffer();
+
+          const cropPath = `users/${userId}/nexus/crops/${Date.now()}-${i}.jpg`;
+          await gcs.uploadBuffer(cropped, cropPath, 'image/jpeg');
+          item.picture_url = `https://storage.googleapis.com/${gcs.BUCKET}/${cropPath}`;
+          console.log(`[nexus] Cropped photo item[${i}] "${item.name}" to ${width}x${height}`);
+        } catch (cropErr) {
+          console.warn(`[nexus] Crop failed for item[${i}]:`, cropErr.message);
+        }
+      }
+
       return { success: true, items, itemCount };
     } catch (err) {
       console.error('[nexus] analyze_photo failed:', err.message);
+      return { success: false, error: err.message };
+    }
+  },
+
+  async analyze_video(args, _userId) {
+    try {
+      const https = require('https');
+      const http = require('http');
+
+      const url = args.file_url;
+      console.log(`[nexus] Downloading video for analysis: ${url}`);
+      const videoBuffer = await new Promise((resolve, reject) => {
+        const client = url.startsWith('https') ? https : http;
+        client.get(url, (res) => {
+          const chunks = [];
+          res.on('data', c => chunks.push(c));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', reject);
+        }).on('error', reject);
+      });
+
+      console.log(`[nexus] Video downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB`);
+      const result = await analyzeVideo(videoBuffer, args.mime_type);
+      const items = result.items || [];
+      return { success: true, items, itemCount: items.length, parseError: result.parseError };
+    } catch (err) {
+      console.error('[nexus] analyze_video failed:', err.message);
       return { success: false, error: err.message };
     }
   },
@@ -488,10 +568,12 @@ async function processMessage(userId, sessionId, message, attachments = [], plan
   // ── 4. Add current user message ───────────────────────────────────────────
   const userParts = [];
   if (message) userParts.push({ text: message });
-  // Inline image attachments
+  // Inline media attachments
   for (const att of attachments) {
     if (att.url && att.mimeType?.startsWith('image/')) {
-      userParts.push({ text: `[User uploaded a photo: ${att.url}]` });
+      userParts.push({ text: `[User uploaded a photo: ${att.url} (type: ${att.mimeType})]` });
+    } else if (att.url && att.mimeType?.startsWith('video/')) {
+      userParts.push({ text: `[User uploaded a video: ${att.url} (type: ${att.mimeType})]` });
     }
   }
   if (userParts.length === 0) userParts.push({ text: '(empty message)' });
