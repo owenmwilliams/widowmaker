@@ -42,7 +42,7 @@ function enrichMessagesWithActions(allMessages) {
 }
 
 // ─── POST /message ───────────────────────────────────────────────────────────
-// Send a message to the Nexus agent. Session is auto-resolved (one per user).
+// Send a message to the Nexus agent with SSE streaming for progress updates.
 router.post('/message', express.json(), async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -53,18 +53,44 @@ router.post('/message', express.json(), async (req, res) => {
   }
 
   const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
+  const wantsStream = req.headers.accept === 'text/event-stream';
+
+  if (!wantsStream) {
+    // Legacy non-streaming path
+    try {
+      const result = await nexusService.processMessage(
+        userId, message || '', attachments || [], plan
+      );
+      return res.json(result);
+    } catch (err) {
+      console.error('[nexus] processMessage failed:', err);
+      return res.status(500).json({ error: err.message || 'Nexus processing failed' });
+    }
+  }
+
+  // SSE streaming path
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no', // Disable nginx buffering
+  });
+
+  const sendSSE = (event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
 
   try {
     const result = await nexusService.processMessage(
-      userId,
-      message || '',
-      attachments || [],
-      plan
+      userId, message || '', attachments || [], plan, sendSSE
     );
-    res.json(result);
+    // Final done event with the full result (in case client missed it from the service)
+    sendSSE({ type: 'done', reply: result.reply, actions: result.actions, sessionId: result.sessionId });
   } catch (err) {
-    console.error('[nexus] processMessage failed:', err);
-    res.status(500).json({ error: err.message || 'Nexus processing failed' });
+    console.error('[nexus] processMessage (stream) failed:', err);
+    sendSSE({ type: 'error', error: err.message || 'Nexus processing failed' });
+  } finally {
+    res.end();
   }
 });
 

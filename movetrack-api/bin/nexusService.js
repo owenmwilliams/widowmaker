@@ -838,6 +838,26 @@ const toolHandlers = {
 
 // ── Conversation Loop ───────────────────────────────────────────────────────────
 
+// ── Human-readable tool labels for streaming UI ────────────────────────────────
+
+const TOOL_LABELS = {
+  add_item: 'Adding item',
+  update_item: 'Updating item',
+  delete_item: 'Removing item',
+  search_items: 'Searching inventory',
+  get_item_photo: 'Fetching photo',
+  add_room: 'Creating room',
+  update_room: 'Updating room',
+  get_inventory_summary: 'Reviewing inventory',
+  get_missing_context: 'Checking for gaps',
+  analyze_photo: 'Analyzing photo',
+  analyze_video: 'Analyzing video',
+  set_user_profile: 'Setting up profile',
+  set_location: 'Setting location',
+  update_location: 'Updating location',
+  find_duplicates: 'Checking for duplicates',
+};
+
 /**
  * Process a user message through the Nexus agent.
  * Auto-resolves the user's single active session (no sessionId needed).
@@ -846,9 +866,13 @@ const toolHandlers = {
  * @param {string} message - user's text
  * @param {Array} attachments - [{ url, mimeType }]
  * @param {string} plan - 'basic' or 'pro'
+ * @param {function} [onEvent] - optional SSE callback: (event) => void
  * @returns {{ reply: string, actions: Array, sessionId: string }}
  */
-async function processMessage(userId, message, attachments = [], plan = 'basic') {
+async function processMessage(userId, message, attachments = [], plan = 'basic', onEvent = null) {
+  const emit = (type, data = {}) => {
+    if (onEvent) onEvent({ type, ...data });
+  };
   if (!geminiClient) {
     throw new Error('GOOGLE_AI_API_KEY is not configured');
   }
@@ -891,33 +915,33 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
   }
 
   // ── 3. Build Gemini contents from history ─────────────────────────────────
+  // Gemini requires strict role alternation: user → model → user → model.
+  // Multiple tool_calls must be merged into one model turn, and their
+  // tool_results into one user turn.
   const contents = [];
   for (const row of historyRows) {
+    let role, part;
     if (row.role === 'user') {
-      const parts = [];
-      if (row.content) parts.push({ text: row.content });
-      contents.push({ role: 'user', parts });
+      role = 'user';
+      part = { text: row.content || '(empty)' };
     } else if (row.role === 'model') {
-      const parts = [];
-      if (row.content) parts.push({ text: row.content });
-      contents.push({ role: 'model', parts });
+      role = 'model';
+      part = { text: row.content || '' };
     } else if (row.role === 'tool_call') {
-      contents.push({
-        role: 'model',
-        parts: [{
-          functionCall: { name: row.tool_name, args: row.tool_args || {} }
-        }],
-      });
+      role = 'model';
+      part = { functionCall: { name: row.tool_name, args: row.tool_args || {} } };
     } else if (row.role === 'tool_result') {
-      contents.push({
-        role: 'user',
-        parts: [{
-          functionResponse: {
-            name: row.tool_name,
-            response: row.tool_response || {},
-          }
-        }],
-      });
+      role = 'user';
+      part = { functionResponse: { name: row.tool_name, response: row.tool_response || {} } };
+    } else {
+      continue;
+    }
+
+    const last = contents[contents.length - 1];
+    if (last && last.role === role) {
+      last.parts.push(part);
+    } else {
+      contents.push({ role, parts: [part] });
     }
   }
 
@@ -981,6 +1005,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
   const actions = [];
   let maxToolRounds = 8; // Safety limit to prevent infinite loops
 
+  emit('thinking');
   let result = await model.generateContent({ contents });
 
   while (maxToolRounds > 0) {
@@ -1023,6 +1048,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
         console.error('[nexus] Summary generation failed:', err.message)
       );
 
+      emit('done', { reply, actions, sessionId });
       return { reply, actions, sessionId };
     }
 
@@ -1031,6 +1057,10 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
     for (const part of functionCalls) {
       const { name, args } = part.functionCall;
       console.log(`[nexus] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
+
+      const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
+      const detail = args.name || args.room_name || args.item_name || '';
+      emit('tool_call', { tool: name, label: toolLabel, detail });
 
       let toolResult;
       try {
@@ -1046,6 +1076,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
       }
 
       actions.push({ tool: name, args, result: toolResult });
+
+      emit('tool_result', { tool: name, success: !!toolResult.success });
 
       // Persist tool call and result
       await db.none(
@@ -1066,6 +1098,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
     contents.push({ role: 'model', parts: functionCalls.map(p => ({ functionCall: p.functionCall })) });
     contents.push({ role: 'user', parts: toolResponses });
 
+    emit('thinking');
     result = await model.generateContent({ contents });
     maxToolRounds--;
   }
@@ -1076,6 +1109,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
     `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
     [sessionId, fallbackReply]
   );
+  emit('done', { reply: fallbackReply, actions, sessionId });
   return { reply: fallbackReply, actions, sessionId };
 }
 

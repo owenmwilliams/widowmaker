@@ -45,6 +45,7 @@ export const vectorStore = defineStore("vector", () => {
   const sessionId = ref<string | null>(null);
   const session = ref<VectorSession | null>(null);
   const isLoading = ref(false);
+  const statusText = ref("");
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -84,32 +85,86 @@ export const vectorStore = defineStore("vector", () => {
     };
     messages.value.push(userMsg);
     isLoading.value = true;
+    statusText.value = "Thinking…";
 
     try {
       const headers = getHeaders();
-      const res = await axios.post(
-        core_url + "/vector/message",
-        { message: text },
-        { headers, timeout: 180000 },
-      );
+      const response = await fetch(core_url + "/vector/message", {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({ message: text }),
+      });
 
-      sessionId.value = res.data.sessionId;
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        const err: any = new Error(errBody.error || "Request failed");
+        err.response = { status: response.status };
+        throw err;
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let result: any = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            switch (event.type) {
+              case "thinking":
+                statusText.value = "Thinking…";
+                break;
+              case "tool_call":
+                statusText.value = event.label || event.tool || "Working…";
+                break;
+              case "tool_result":
+                break;
+              case "done":
+                result = event;
+                break;
+              case "error":
+                throw new Error(event.error);
+            }
+          } catch (parseErr: any) {
+            if (parseErr.message && !parseErr.message.includes("JSON"))
+              throw parseErr;
+          }
+        }
+      }
+
+      if (!result) throw new Error("Stream ended without result");
+
+      sessionId.value = result.sessionId;
 
       const modelMsg: VectorMessage = {
         id: tempId + 1,
         role: "model",
-        content: res.data.reply,
-        actions: res.data.actions || [],
+        content: result.reply,
+        actions: result.actions || [],
         created_at: new Date().toISOString(),
       };
       messages.value.push(modelMsg);
 
-      return res.data;
+      return result;
     } catch (err: any) {
       messages.value = messages.value.filter((m) => m.id !== tempId);
       throw err;
     } finally {
       isLoading.value = false;
+      statusText.value = "";
     }
   }
 
@@ -133,6 +188,7 @@ export const vectorStore = defineStore("vector", () => {
     sessionId,
     session,
     isLoading,
+    statusText,
     sendMessage,
     loadActiveSession,
     clearConversation,

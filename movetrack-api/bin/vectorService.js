@@ -757,9 +757,25 @@ const toolHandlers = {
   },
 };
 
+// ── Tool Labels (for SSE streaming) ──────────────────────────────────────────────
+
+const TOOL_LABELS = {
+  get_move_summary: 'Summarizing move',
+  estimate_missing_items: 'Estimating missing items',
+  recommend_truck_size: 'Sizing truck',
+  calculate_route: 'Calculating route',
+  estimate_labor: 'Estimating labor',
+  estimate_move_cost: 'Estimating costs',
+  flag_special_items: 'Checking special items',
+  get_room_breakdown: 'Breaking down rooms',
+};
+
 // ── Conversation Loop ───────────────────────────────────────────────────────────
 
-async function processMessage(userId, message, attachments = [], plan = 'basic') {
+async function processMessage(userId, message, attachments = [], plan = 'basic', onEvent = null) {
+  const emit = (type, data = {}) => {
+    if (onEvent) onEvent({ type, ...data });
+  };
   if (!geminiClient) {
     throw new Error('GOOGLE_AI_API_KEY is not configured');
   }
@@ -800,33 +816,33 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
   }
 
   // ── 3. Build Gemini contents from history ─────────────────────────────────
+  // Gemini requires strict role alternation: user → model → user → model.
+  // Multiple tool_calls must be merged into one model turn, and their
+  // tool_results into one user turn.
   const contents = [];
   for (const row of historyRows) {
+    let role, part;
     if (row.role === 'user') {
-      const parts = [];
-      if (row.content) parts.push({ text: row.content });
-      contents.push({ role: 'user', parts });
+      role = 'user';
+      part = { text: row.content || '(empty)' };
     } else if (row.role === 'model') {
-      const parts = [];
-      if (row.content) parts.push({ text: row.content });
-      contents.push({ role: 'model', parts });
+      role = 'model';
+      part = { text: row.content || '' };
     } else if (row.role === 'tool_call') {
-      contents.push({
-        role: 'model',
-        parts: [{
-          functionCall: { name: row.tool_name, args: row.tool_args || {} }
-        }],
-      });
+      role = 'model';
+      part = { functionCall: { name: row.tool_name, args: row.tool_args || {} } };
     } else if (row.role === 'tool_result') {
-      contents.push({
-        role: 'user',
-        parts: [{
-          functionResponse: {
-            name: row.tool_name,
-            response: row.tool_response || {},
-          }
-        }],
-      });
+      role = 'user';
+      part = { functionResponse: { name: row.tool_name, response: row.tool_response || {} } };
+    } else {
+      continue;
+    }
+
+    const last = contents[contents.length - 1];
+    if (last && last.role === role) {
+      last.parts.push(part);
+    } else {
+      contents.push({ role, parts: [part] });
     }
   }
 
@@ -883,6 +899,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
   const actions = [];
   let maxToolRounds = 8;
 
+  emit('thinking');
   let result = await model.generateContent({ contents });
 
   while (maxToolRounds > 0) {
@@ -921,6 +938,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
         console.error('[vector] Summary generation failed:', err.message)
       );
 
+      emit('done', { reply, actions, sessionId });
       return { reply, actions, sessionId };
     }
 
@@ -929,6 +947,9 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
     for (const part of functionCalls) {
       const { name, args } = part.functionCall;
       console.log(`[vector] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
+
+      const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
+      emit('tool_call', { tool: name, label: toolLabel });
 
       let toolResult;
       try {
@@ -944,6 +965,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
       }
 
       actions.push({ tool: name, args, result: toolResult });
+      emit('tool_result', { tool: name, success: !!toolResult.success });
 
       // Persist tool call and result
       await db.none(
@@ -964,6 +986,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic')
     contents.push({ role: 'model', parts: functionCalls.map(p => ({ functionCall: p.functionCall })) });
     contents.push({ role: 'user', parts: toolResponses });
 
+    emit('thinking');
     result = await model.generateContent({ contents });
     maxToolRounds--;
   }

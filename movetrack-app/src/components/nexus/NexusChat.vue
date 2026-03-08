@@ -286,11 +286,12 @@ const confirmClear = () => {
         </div>
       </div>
 
-      <!-- Typing indicator -->
+      <!-- Typing / status indicator -->
       <div v-if="store.isLoading" class="message-row model">
         <div class="message-bubble model typing">
-          <div class="typing-dots">
-            <span></span><span></span><span></span>
+          <div class="status-indicator">
+            <q-spinner-dots size="18px" color="primary" />
+            <span v-if="store.statusText" class="status-label">{{ store.statusText }}</span>
           </div>
         </div>
       </div>
@@ -483,26 +484,23 @@ const confirmClear = () => {
   padding: 2px 12px;
 }
 
-/* Typing indicator */
+/* Status indicator */
 .message-bubble.typing {
-  padding: 12px 20px;
+  padding: 10px 16px;
 }
-.typing-dots {
+.status-indicator {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 8px;
 }
-.typing-dots span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #bbb;
-  animation: typingBounce 1.4s infinite ease-in-out;
+.status-label {
+  font-size: 13px;
+  color: #666;
+  animation: statusFade 1.5s ease-in-out infinite;
 }
-.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-@keyframes typingBounce {
-  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-  40% { transform: scale(1); opacity: 1; }
+@keyframes statusFade {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
 }
 
 /* Attachment preview */

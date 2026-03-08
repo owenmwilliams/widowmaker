@@ -43,13 +43,38 @@ router.post('/message', express.json(), async (req, res) => {
   }
 
   const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
+  const wantsStream = req.headers.accept === 'text/event-stream';
+
+  if (!wantsStream) {
+    try {
+      const result = await vectorService.processMessage(userId, message, [], plan);
+      return res.json(result);
+    } catch (err) {
+      console.error('[vector] processMessage failed:', err);
+      return res.status(500).json({ error: err.message || 'Vector processing failed' });
+    }
+  }
+
+  // SSE streaming path
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  const sendSSE = (event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
 
   try {
-    const result = await vectorService.processMessage(userId, message, [], plan);
-    res.json(result);
+    const result = await vectorService.processMessage(userId, message, [], plan, sendSSE);
+    sendSSE({ type: 'done', reply: result.reply, actions: result.actions, sessionId: result.sessionId });
   } catch (err) {
-    console.error('[vector] processMessage failed:', err);
-    res.status(500).json({ error: err.message || 'Vector processing failed' });
+    console.error('[vector] processMessage (stream) failed:', err);
+    sendSSE({ type: 'error', error: err.message || 'Vector processing failed' });
+  } finally {
+    res.end();
   }
 });
 
