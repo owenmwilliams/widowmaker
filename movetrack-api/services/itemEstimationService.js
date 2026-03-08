@@ -1,4 +1,4 @@
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 
 let geminiClient = null;
 if (process.env.GOOGLE_AI_API_KEY) {
@@ -99,15 +99,91 @@ const stripCodeFences = (text) => {
   return text.replace(/```json|```/gi, '').trim();
 };
 
+const extractFirstJsonObject = (text) => {
+  if (!text) return null;
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      depth += 1;
+      continue;
+    }
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+};
+
+const repairJsonText = (text) => {
+  if (!text) return text;
+  const noSmartQuotes = text
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'");
+  return noSmartQuotes.replace(/,\s*([}\]])/g, '$1');
+};
+
 const parseModelJson = (text) => {
   const cleaned = stripCodeFences(text);
   if (!cleaned) {
-    throw new Error('LLM returned empty response');
+    const error = new Error('LLM returned empty response');
+    error.stage = 'empty_response';
+    error.rawText = text;
+    throw error;
   }
+
+  const attemptParse = (payload) => JSON.parse(payload);
+
   try {
-    return JSON.parse(cleaned);
-  } catch (error) {
-    throw new Error(`Unable to parse LLM JSON response: ${error.message}`);
+    return attemptParse(cleaned);
+  } catch (_) {
+    const extracted = extractFirstJsonObject(cleaned);
+    if (extracted) {
+      try {
+        return attemptParse(extracted);
+      } catch (_) {
+        // continue to repair step
+      }
+    }
+    const repaired = repairJsonText(extracted || cleaned);
+    try {
+      return attemptParse(repaired);
+    } catch (error) {
+      const parseError = new Error(
+        `Unable to parse LLM JSON response: ${error.message}`
+      );
+      parseError.stage = 'parse';
+      parseError.rawText = text;
+      parseError.cleanedText = cleaned;
+      parseError.extractedText = extracted;
+      parseError.repairedText = repaired;
+      throw parseError;
+    }
   }
 };
 
@@ -206,36 +282,144 @@ const normalizeEstimate = (parsed = {}) => {
   };
 };
 
-async function generateItemEstimate(context = {}) {
+const ESTIMATE_RESPONSE_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    weight_lbs: {
+      type: SchemaType.OBJECT,
+      properties: {
+        value: { type: SchemaType.NUMBER },
+        confidence: { type: SchemaType.NUMBER },
+      },
+      required: ['value', 'confidence'],
+    },
+    dimensions: {
+      type: SchemaType.OBJECT,
+      properties: {
+        length_in: {
+          type: SchemaType.OBJECT,
+          properties: {
+            value: { type: SchemaType.NUMBER },
+            confidence: { type: SchemaType.NUMBER },
+          },
+          required: ['value', 'confidence'],
+        },
+        width_in: {
+          type: SchemaType.OBJECT,
+          properties: {
+            value: { type: SchemaType.NUMBER },
+            confidence: { type: SchemaType.NUMBER },
+          },
+          required: ['value', 'confidence'],
+        },
+        height_in: {
+          type: SchemaType.OBJECT,
+          properties: {
+            value: { type: SchemaType.NUMBER },
+            confidence: { type: SchemaType.NUMBER },
+          },
+          required: ['value', 'confidence'],
+        },
+      },
+      required: ['length_in', 'width_in', 'height_in'],
+    },
+    volume_cuft: { type: SchemaType.NUMBER },
+    notes: { type: SchemaType.STRING },
+  },
+  required: ['weight_lbs', 'dimensions', 'volume_cuft', 'notes'],
+};
+
+async function generateItemEstimate(context = {}, options = {}) {
   if (!geminiClient) {
     throw new Error('GOOGLE_AI_API_KEY not configured');
   }
 
   const prompt = buildPrompt(context);
-  const model = geminiClient.getGenerativeModel({
-    model: 'gemini-2.5-flash',
-    systemInstruction: 'You are an expert household goods estimator helping movers record approximate weights and dimensions. Respond with JSON only.',
-    generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 512,
-    },
-  });
-
-  const result = await model.generateContent(prompt);
-  const messageText = result.response.text();
-  const parsed = parseModelJson(messageText);
-  const normalized = normalizeEstimate(parsed);
-
-  return {
-    provider: 'gemini',
-    model: 'gemini-2.5-flash',
-    prompt,
-    requestContextSummary: buildContextSummary(context),
-    rawText: messageText,
-    parsed,
-    usage: null,
-    estimate: normalized
+  const modelName = options.model || 'gemini-2.5-flash';
+  const systemInstruction =
+    'You are an expert household goods estimator helping movers record approximate weights and dimensions. Respond with JSON only.';
+  const baseGenerationConfig = {
+    temperature: 0.2,
+    maxOutputTokens: 512,
+    responseMimeType: 'application/json',
+    responseSchema: ESTIMATE_RESPONSE_SCHEMA,
   };
+
+  const runAttempt = async (extraInstruction, maxOutputTokens) => {
+    const generationConfig = maxOutputTokens
+      ? { ...baseGenerationConfig, maxOutputTokens }
+      : baseGenerationConfig;
+    const model = geminiClient.getGenerativeModel({
+      model: modelName,
+      systemInstruction,
+      generationConfig,
+    });
+    const attemptPrompt = extraInstruction
+      ? `${prompt}\n\n${extraInstruction}`
+      : prompt;
+    const result = await model.generateContent(attemptPrompt);
+    const messageText = result.response.text();
+    let parsed = null;
+    try {
+      parsed = parseModelJson(messageText);
+    } catch (error) {
+      error.prompt = attemptPrompt;
+      error.rawText = error.rawText || messageText;
+      throw error;
+    }
+    const normalized = normalizeEstimate(parsed);
+    return {
+      prompt: attemptPrompt,
+      rawText: messageText,
+      parsed,
+      estimate: normalized,
+      usage: null,
+    };
+  };
+
+  let attemptError = null;
+  try {
+    const attempt = await runAttempt();
+    return {
+      provider: 'gemini',
+      model: modelName,
+      prompt: attempt.prompt,
+      requestContextSummary: buildContextSummary(context),
+      rawText: attempt.rawText,
+      parsed: attempt.parsed,
+      usage: attempt.usage,
+      estimate: attempt.estimate,
+    };
+  } catch (error) {
+    attemptError = error;
+  }
+
+  try {
+    const retryInstruction =
+      'Your previous response was invalid JSON. Return only a single JSON object that matches the required schema. Do not include any extra text.';
+    const attempt = await runAttempt(retryInstruction, 384);
+    return {
+      provider: 'gemini',
+      model: modelName,
+      prompt: attempt.prompt,
+      requestContextSummary: buildContextSummary(context),
+      rawText: attempt.rawText,
+      parsed: attempt.parsed,
+      usage: attempt.usage,
+      estimate: attempt.estimate,
+    };
+  } catch (error) {
+    const finalError = error;
+    finalError.stage = finalError.stage
+      ? `retry_${finalError.stage}`
+      : 'retry_failed';
+    finalError.provider = 'gemini';
+    finalError.model = modelName;
+    finalError.prompt = finalError.prompt || prompt;
+    finalError.rawText = finalError.rawText || attemptError?.rawText || null;
+    finalError.previousErrorMessage = attemptError?.message || null;
+    throw finalError;
+  }
 }
 
 module.exports = {

@@ -62,7 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE TABLE IF NOT EXISTS item_estimate_events (
     id BIGSERIAL PRIMARY KEY,
     item_id BIGINT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-    user_id BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
+    user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
     provider VARCHAR(64) NOT NULL,
     model VARCHAR(128),
     prompt TEXT,
@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS item_estimate_events (
     volume_cuft NUMERIC,
     confidence NUMERIC,
     notes TEXT,
+    error_message TEXT,
+    error_stage VARCHAR(64),
     token_usage JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

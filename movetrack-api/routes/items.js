@@ -730,51 +730,94 @@ router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
       overrideFields
     );
 
-    const estimationResult = await generateItemEstimate(contextSnapshot, {
-      model: req.body?.model
-    });
+    try {
+      const estimationResult = await generateItemEstimate(contextSnapshot, {
+        model: req.body?.model
+      });
 
-    const estimate = estimationResult.estimate || {};
-    const payload = {
-      item_id: itemRecord.id,
-      user_id: requestUserId,
-      provider: estimationResult.provider,
-      model: estimationResult.model,
-      prompt: estimationResult.prompt,
-      request_context: contextSnapshot,
-      response_text: estimationResult.rawText,
-      response_json: estimationResult.parsed || null,
-      estimated_weight_lbs: estimate.weight_lbs?.value ?? null,
-      estimated_length_in: estimate.dimensions?.length_in?.value ?? null,
-      estimated_width_in: estimate.dimensions?.width_in?.value ?? null,
-      estimated_height_in: estimate.dimensions?.height_in?.value ?? null,
-      volume_cuft: estimate.volume_cuft ?? null,
-      confidence:
-        estimate.confidence ??
-        estimate.weight_lbs?.confidence ??
-        estimate.dimensions?.length_in?.confidence ??
-        null,
-      notes: estimate.notes || null,
-      token_usage: estimationResult.usage || null
-    };
-
-    const inserted = await knex('item_estimate_events').insert(payload).returning(['id', 'created_at']);
-    const logEntry = inserted?.[0] || null;
-
-    return res.json({
-      success: true,
-      estimate: {
-        id: logEntry?.id ?? null,
+      const estimate = estimationResult.estimate || {};
+      const payload = {
+        item_id: itemRecord.id,
+        user_id: requestUserId,
         provider: estimationResult.provider,
         model: estimationResult.model,
-        created_at: logEntry?.created_at ?? null,
-        weight_lbs: estimate.weight_lbs || null,
-        dimensions: estimate.dimensions || null,
+        prompt: estimationResult.prompt,
+        request_context: contextSnapshot,
+        response_text: estimationResult.rawText,
+        response_json: estimationResult.parsed || null,
+        estimated_weight_lbs: estimate.weight_lbs?.value ?? null,
+        estimated_length_in: estimate.dimensions?.length_in?.value ?? null,
+        estimated_width_in: estimate.dimensions?.width_in?.value ?? null,
+        estimated_height_in: estimate.dimensions?.height_in?.value ?? null,
         volume_cuft: estimate.volume_cuft ?? null,
-        confidence: estimate.confidence ?? null,
-        notes: estimate.notes || null
+        confidence:
+          estimate.confidence ??
+          estimate.weight_lbs?.confidence ??
+          estimate.dimensions?.length_in?.confidence ??
+          null,
+        notes: estimate.notes || null,
+        token_usage: estimationResult.usage || null,
+        error_message: null,
+        error_stage: null
+      };
+
+      const inserted = await knex('item_estimate_events').insert(payload).returning(['id', 'created_at']);
+      const logEntry = inserted?.[0] || null;
+
+      return res.json({
+        success: true,
+        estimate: {
+          id: logEntry?.id ?? null,
+          provider: estimationResult.provider,
+          model: estimationResult.model,
+          created_at: logEntry?.created_at ?? null,
+          weight_lbs: estimate.weight_lbs || null,
+          dimensions: estimate.dimensions || null,
+          volume_cuft: estimate.volume_cuft ?? null,
+          confidence: estimate.confidence ?? null,
+          notes: estimate.notes || null
+        }
+      });
+    } catch (error) {
+      const failurePayload = {
+        item_id: itemRecord.id,
+        user_id: requestUserId,
+        provider: error.provider || 'gemini',
+        model: error.model || req.body?.model || 'gemini-2.5-flash',
+        prompt: error.prompt || null,
+        request_context: contextSnapshot,
+        response_text: error.rawText || null,
+        response_json: error.parsed || null,
+        estimated_weight_lbs: null,
+        estimated_length_in: null,
+        estimated_width_in: null,
+        estimated_height_in: null,
+        volume_cuft: null,
+        confidence: null,
+        notes: null,
+        token_usage: error.usage || null,
+        error_message: error.message || 'Failed to generate estimate',
+        error_stage: error.stage || 'unknown'
+      };
+
+      try {
+        await knex('item_estimate_events').insert(failurePayload);
+      } catch (logError) {
+        console.error('[items] Failed to log estimation error:', logError);
       }
-    });
+
+      console.error('[items] Failed to generate AI estimate:', {
+        itemId,
+        requestUserId,
+        message: error?.message,
+        stage: error?.stage,
+        stack: error?.stack
+      });
+      return res.status(502).json({
+        success: false,
+        error: error.message || 'Failed to generate estimate'
+      });
+    }
   } catch (error) {
     console.error('[items] Failed to generate AI estimate:', {
       itemId,
