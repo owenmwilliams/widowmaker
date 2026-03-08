@@ -213,7 +213,7 @@ async function generateItemEstimate(context = {}) {
 
   const prompt = buildPrompt(context);
   const model = geminiClient.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     systemInstruction: 'You are an expert household goods estimator helping movers record approximate weights and dimensions. Respond with JSON only.',
     generationConfig: {
       temperature: 0.2,
@@ -228,7 +228,7 @@ async function generateItemEstimate(context = {}) {
 
   return {
     provider: 'gemini',
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     prompt,
     requestContextSummary: buildContextSummary(context),
     rawText: messageText,

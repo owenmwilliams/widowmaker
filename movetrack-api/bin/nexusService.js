@@ -1169,7 +1169,7 @@ async function generateContextSummary(sessionId) {
     : `Summarize this conversation:\n${transcript}`;
 
   const summaryModel = geminiClient.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     systemInstruction: `Summarize this conversation between a user and Nexus (an AI moving/inventory assistant).
 Focus on: user preferences, decisions made, rooms discussed, corrections or preferences expressed, the user's moving situation and goals.
 Keep it under 300 words. Do not list individual items (those are tracked separately in the inventory).

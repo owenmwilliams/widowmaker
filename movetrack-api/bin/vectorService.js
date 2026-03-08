@@ -1052,7 +1052,7 @@ async function generateContextSummary(sessionId) {
     : `Summarize this conversation:\n${transcript}`;
 
   const summaryModel = geminiClient.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-2.5-flash',
     systemInstruction: `Summarize this conversation between a user and Vector (an AI move planning assistant).
 Focus on: move details discussed, cost estimates given, truck recommendations, distances calculated, any concerns flagged.
 Keep it under 300 words. Write in third person: "The user..." not "You..."`,
