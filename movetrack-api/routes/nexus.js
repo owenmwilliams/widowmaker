@@ -16,13 +16,37 @@ const upload = multer({
 
 router.use(authenticate);
 
+// ── Helper: enrich messages with tool actions ─────────────────────────────────
+function enrichMessagesWithActions(allMessages) {
+  const visibleMessages = allMessages.filter(m => m.role === 'user' || m.role === 'model');
+  return visibleMessages.map((msg, idx) => {
+    if (msg.role === 'model') {
+      const prevVisibleIdx = idx > 0 ? allMessages.indexOf(visibleMessages[idx - 1]) : -1;
+      const thisIdx = allMessages.indexOf(msg);
+      const toolCalls = allMessages
+        .slice(prevVisibleIdx + 1, thisIdx)
+        .filter(m => m.role === 'tool_call')
+        .map(tc => ({
+          tool: tc.tool_name,
+          args: tc.tool_args,
+          result: allMessages.find(
+            m => m.role === 'tool_result' && m.tool_name === tc.tool_name &&
+                 allMessages.indexOf(m) > allMessages.indexOf(tc) && allMessages.indexOf(m) < thisIdx
+          )?.tool_response,
+        }));
+      return { ...msg, actions: toolCalls };
+    }
+    return msg;
+  });
+}
+
 // ─── POST /message ───────────────────────────────────────────────────────────
-// Send a message to the Nexus agent. Returns the agent's reply and any actions taken.
+// Send a message to the Nexus agent. Session is auto-resolved (one per user).
 router.post('/message', express.json(), async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
-  const { sessionId, message, attachments } = req.body;
+  const { message, attachments } = req.body;
   if (!message && (!attachments || attachments.length === 0)) {
     return res.status(400).json({ error: 'message or attachments required' });
   }
@@ -32,7 +56,6 @@ router.post('/message', express.json(), async (req, res) => {
   try {
     const result = await nexusService.processMessage(
       userId,
-      sessionId || null,
       message || '',
       attachments || [],
       plan
@@ -44,8 +67,40 @@ router.post('/message', express.json(), async (req, res) => {
   }
 });
 
+// ─── GET /active-session ────────────────────────────────────────────────────
+// Get the user's active session with messages (auto-resume on open).
+router.get('/active-session', async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  try {
+    const session = await db.oneOrNone(
+      `SELECT id, title, session_type, items_added, rooms_added, is_active, created_at, updated_at
+       FROM nexus_sessions WHERE user_id = $1 AND is_active = TRUE
+       ORDER BY updated_at DESC LIMIT 1`,
+      [userId]
+    );
+
+    if (!session) {
+      return res.json({ session: null, messages: [] });
+    }
+
+    const messages = await db.any(
+      `SELECT id, role, content, tool_name, tool_args, tool_response, attachments, created_at
+       FROM nexus_messages WHERE session_id = $1
+       ORDER BY created_at ASC`,
+      [session.id]
+    );
+
+    res.json({ session, messages: enrichMessagesWithActions(messages) });
+  } catch (err) {
+    console.error('[nexus] active-session failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── GET /sessions ───────────────────────────────────────────────────────────
-// List the user's conversation sessions.
+// List the user's conversation sessions (kept for backward compat).
 router.get('/sessions', async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -65,7 +120,7 @@ router.get('/sessions', async (req, res) => {
 });
 
 // ─── GET /sessions/:id ──────────────────────────────────────────────────────
-// Get a specific session and its messages.
+// Get a specific session and its messages (kept for backward compat).
 router.get('/sessions/:id', async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -84,32 +139,7 @@ router.get('/sessions/:id', async (req, res) => {
       [req.params.id]
     );
 
-    // Filter to only user and model messages for the frontend
-    const visibleMessages = messages.filter(m => m.role === 'user' || m.role === 'model');
-
-    // Attach actions to model messages (tool calls that preceded them)
-    const enriched = visibleMessages.map((msg, idx) => {
-      if (msg.role === 'model') {
-        // Find tool_call messages between this model message and the previous visible message
-        const prevVisibleIdx = idx > 0 ? messages.indexOf(visibleMessages[idx - 1]) : -1;
-        const thisIdx = messages.indexOf(msg);
-        const toolCalls = messages
-          .slice(prevVisibleIdx + 1, thisIdx)
-          .filter(m => m.role === 'tool_call')
-          .map(tc => ({
-            tool: tc.tool_name,
-            args: tc.tool_args,
-            result: messages.find(
-              m => m.role === 'tool_result' && m.tool_name === tc.tool_name &&
-                   messages.indexOf(m) > messages.indexOf(tc) && messages.indexOf(m) < thisIdx
-            )?.tool_response,
-          }));
-        return { ...msg, actions: toolCalls };
-      }
-      return msg;
-    });
-
-    res.json({ session, messages: enriched });
+    res.json({ session, messages: enrichMessagesWithActions(messages) });
   } catch (err) {
     console.error('[nexus] get session failed:', err);
     res.status(500).json({ error: err.message });
@@ -117,25 +147,27 @@ router.get('/sessions/:id', async (req, res) => {
 });
 
 // ─── DELETE /sessions/:id ────────────────────────────────────────────────────
+// Archive the session (soft delete) — used for "Start fresh".
 router.delete('/sessions/:id', async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
     const result = await db.result(
-      `DELETE FROM nexus_sessions WHERE id = $1 AND user_id = $2`,
+      `UPDATE nexus_sessions SET is_active = FALSE, updated_at = NOW()
+       WHERE id = $1 AND user_id = $2 AND is_active = TRUE`,
       [req.params.id, userId]
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'Session not found' });
     res.json({ success: true });
   } catch (err) {
-    console.error('[nexus] delete session failed:', err);
+    console.error('[nexus] archive session failed:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ─── POST /upload ────────────────────────────────────────────────────────────
-// Upload a photo for use in conversation.
+// Upload a photo or video for use in conversation.
 router.post('/upload', upload.single('file'), async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });

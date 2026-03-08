@@ -146,22 +146,20 @@ const hasInlineImages = (content: string): boolean => {
   return /\[IMG:https?:\/\/[^\]]+\]/.test(content);
 };
 
-// ── Session management ───────────────────────────────────────────────────────
-const showSessionPicker = ref(false);
+// ── Auto-resume on mount ─────────────────────────────────────────────────────
+onMounted(async () => {
+  await store.loadActiveSession();
+});
 
-const loadSessionList = async () => {
-  await store.loadSessions();
-  showSessionPicker.value = true;
-};
-
-const resumeSession = (id: string) => {
-  store.loadSession(id);
-  showSessionPicker.value = false;
-};
-
-const newSession = () => {
-  store.startNewSession();
-  showSessionPicker.value = false;
+const confirmClear = () => {
+  $q.dialog({
+    title: 'Start fresh?',
+    message: 'This will archive your current conversation and start a new one. Your inventory is not affected.',
+    cancel: true,
+    persistent: false,
+  }).onOk(() => {
+    store.clearConversation();
+  });
 };
 </script>
 
@@ -175,48 +173,18 @@ const newSession = () => {
         <span class="header-title">Nexus</span>
       </div>
       <div class="header-right">
-        <q-btn flat dense round icon="history" @click="loadSessionList" title="Past conversations" />
-        <q-btn flat dense round icon="add_comment" @click="newSession" title="New conversation" />
+        <q-btn flat dense round icon="more_vert">
+          <q-menu>
+            <q-list style="min-width: 180px">
+              <q-item clickable v-close-popup @click="confirmClear">
+                <q-item-section avatar><q-icon name="refresh" /></q-item-section>
+                <q-item-section>Start fresh</q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
+        </q-btn>
       </div>
     </div>
-
-    <!-- Session Picker Dialog -->
-    <q-dialog v-model="showSessionPicker">
-      <q-card style="min-width: 320px; max-width: 420px;">
-        <q-card-section>
-          <div class="text-h6">Conversations</div>
-        </q-card-section>
-        <q-card-section class="q-pt-none">
-          <q-list separator v-if="store.sessions.length > 0">
-            <q-item
-              v-for="s in store.sessions"
-              :key="s.id"
-              clickable
-              v-ripple
-              @click="resumeSession(s.id)"
-            >
-              <q-item-section>
-                <q-item-label>{{ s.title || 'Untitled' }}</q-item-label>
-                <q-item-label caption>
-                  {{ s.items_added }} items, {{ s.rooms_added }} rooms
-                </q-item-label>
-              </q-item-section>
-              <q-item-section side>
-                <q-btn flat dense round icon="delete" size="sm"
-                       @click.stop="store.deleteSession(s.id)" />
-              </q-item-section>
-            </q-item>
-          </q-list>
-          <div v-else class="text-grey text-center q-pa-md">
-            No past conversations yet.
-          </div>
-        </q-card-section>
-        <q-card-actions align="right">
-          <q-btn flat label="New conversation" color="primary" @click="newSession" />
-          <q-btn flat label="Close" v-close-popup />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
 
     <!-- Messages -->
     <div ref="messagesContainer" class="chat-messages">

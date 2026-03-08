@@ -47,13 +47,43 @@ export const nexusStore = defineStore("nexus", () => {
 
   const messages = ref<NexusMessage[]>([]);
   const sessionId = ref<string | null>(null);
-  const sessions = ref<NexusSession[]>([]);
+  const session = ref<NexusSession | null>(null);
   const isLoading = ref(false);
   const isUploading = ref(false);
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
-  async function sendMessage(text: string, attachments?: { url: string; mimeType: string }[]) {
+  async function loadActiveSession() {
+    try {
+      const headers = getHeaders();
+      const res = await axios.get(core_url + "/nexus/active-session", {
+        headers,
+      });
+      if (res.data.session) {
+        session.value = res.data.session;
+        sessionId.value = res.data.session.id;
+        messages.value = (res.data.messages || []).map((m: any) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          attachments: m.attachments || [],
+          actions: m.actions || [],
+          created_at: m.created_at,
+        }));
+      } else {
+        session.value = null;
+        sessionId.value = null;
+        messages.value = [];
+      }
+    } catch (err) {
+      console.error("[NexusStore] loadActiveSession failed:", err);
+    }
+  }
+
+  async function sendMessage(
+    text: string,
+    attachments?: { url: string; mimeType: string }[],
+  ) {
     // Optimistic push of user message
     const tempId = Date.now();
     const userMsg: NexusMessage = {
@@ -71,11 +101,10 @@ export const nexusStore = defineStore("nexus", () => {
       const res = await axios.post(
         core_url + "/nexus/message",
         {
-          sessionId: sessionId.value,
           message: text,
           attachments: attachments || [],
         },
-        { headers, timeout: 180000 } // 3 min timeout for LLM + video analysis
+        { headers, timeout: 180000 }, // 3 min timeout for LLM + video analysis
       );
 
       sessionId.value = res.data.sessionId;
@@ -90,11 +119,13 @@ export const nexusStore = defineStore("nexus", () => {
       };
       messages.value.push(modelMsg);
 
-      // If items were added, refresh inventory in background
-      const itemsAdded = (res.data.actions || []).filter(
-        (a: NexusAction) => a.tool === "add_item" && a.result?.success
+      // If items were added/deleted, refresh inventory in background
+      const inventoryChanged = (res.data.actions || []).some(
+        (a: NexusAction) =>
+          (a.tool === "add_item" || a.tool === "delete_item") &&
+          a.result?.success,
       );
-      if (itemsAdded.length > 0) {
+      if (inventoryChanged) {
         const inv = inventoryStore();
         const userId = localStorage.getItem("user_id");
         if (userId) {
@@ -112,7 +143,9 @@ export const nexusStore = defineStore("nexus", () => {
     }
   }
 
-  async function uploadPhoto(file: File): Promise<{ url: string; mimeType: string }> {
+  async function uploadPhoto(
+    file: File,
+  ): Promise<{ url: string; mimeType: string }> {
     isUploading.value = true;
     try {
       const formData = new FormData();
@@ -134,63 +167,31 @@ export const nexusStore = defineStore("nexus", () => {
     }
   }
 
-  async function loadSessions() {
+  async function clearConversation() {
+    if (!sessionId.value) return;
     try {
       const headers = getHeaders();
-      const res = await axios.get(core_url + "/nexus/sessions", { headers });
-      sessions.value = res.data.sessions || [];
+      await axios.delete(core_url + `/nexus/sessions/${sessionId.value}`, {
+        headers,
+      });
+      // Reset to welcome state — next message creates a fresh session
+      session.value = null;
+      sessionId.value = null;
+      messages.value = [];
     } catch (err) {
-      console.error("[NexusStore] loadSessions failed:", err);
-    }
-  }
-
-  async function loadSession(id: string) {
-    try {
-      const headers = getHeaders();
-      const res = await axios.get(core_url + `/nexus/sessions/${id}`, { headers });
-      sessionId.value = id;
-      messages.value = (res.data.messages || []).map((m: any) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        attachments: m.attachments || [],
-        actions: m.actions || [],
-        created_at: m.created_at,
-      }));
-    } catch (err) {
-      console.error("[NexusStore] loadSession failed:", err);
-    }
-  }
-
-  function startNewSession() {
-    sessionId.value = null;
-    messages.value = [];
-  }
-
-  async function deleteSession(id: string) {
-    try {
-      const headers = getHeaders();
-      await axios.delete(core_url + `/nexus/sessions/${id}`, { headers });
-      sessions.value = sessions.value.filter((s) => s.id !== id);
-      if (sessionId.value === id) {
-        startNewSession();
-      }
-    } catch (err) {
-      console.error("[NexusStore] deleteSession failed:", err);
+      console.error("[NexusStore] clearConversation failed:", err);
     }
   }
 
   return {
     messages,
     sessionId,
-    sessions,
+    session,
     isLoading,
     isUploading,
     sendMessage,
     uploadPhoto,
-    loadSessions,
-    loadSession,
-    startNewSession,
-    deleteSession,
+    loadActiveSession,
+    clearConversation,
   };
 });

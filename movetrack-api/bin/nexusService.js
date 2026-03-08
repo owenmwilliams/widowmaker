@@ -571,41 +571,55 @@ const toolHandlers = {
 
 /**
  * Process a user message through the Nexus agent.
+ * Auto-resolves the user's single active session (no sessionId needed).
  *
  * @param {string} userId
- * @param {string|null} sessionId - null to start a new session
  * @param {string} message - user's text
  * @param {Array} attachments - [{ url, mimeType }]
  * @param {string} plan - 'basic' or 'pro'
  * @returns {{ reply: string, actions: Array, sessionId: string }}
  */
-async function processMessage(userId, sessionId, message, attachments = [], plan = 'basic') {
+async function processMessage(userId, message, attachments = [], plan = 'basic') {
   if (!geminiClient) {
     throw new Error('GOOGLE_AI_API_KEY is not configured');
   }
 
-  // ── 1. Load or create session ──────────────────────────────────────────────
-  let session;
-  if (sessionId) {
-    session = await db.oneOrNone(
-      `SELECT * FROM nexus_sessions WHERE id = $1 AND user_id = $2`, [sessionId, userId]
-    );
-  }
+  // ── 1. Resolve active session (one per user) ──────────────────────────────
+  let session = await db.oneOrNone(
+    `SELECT * FROM nexus_sessions WHERE user_id = $1 AND is_active = TRUE
+     ORDER BY updated_at DESC LIMIT 1`,
+    [userId]
+  );
   if (!session) {
     session = await db.one(
       `INSERT INTO nexus_sessions (user_id) VALUES ($1) RETURNING *`, [userId]
     );
-    sessionId = session.id;
-    console.log(`[nexus] New session: ${sessionId}`);
+    console.log(`[nexus] New session for user: ${session.id}`);
   }
+  const sessionId = session.id;
 
-  // ── 2. Load conversation history ──────────────────────────────────────────
-  const historyRows = await db.any(
-    `SELECT role, content, tool_name, tool_args, tool_response, attachments
-     FROM nexus_messages WHERE session_id = $1
-     ORDER BY created_at ASC LIMIT 60`,
-    [sessionId]
-  );
+  // ── 2. Load conversation history with context consolidation ───────────────
+  const contextSummaryText = session.context_summary || null;
+  let historyRows;
+
+  if (session.summary_through_id) {
+    // Summary exists — load only messages after the summarized point
+    historyRows = await db.any(
+      `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
+       FROM nexus_messages WHERE session_id = $1 AND id > $2
+       ORDER BY created_at ASC`,
+      [sessionId, session.summary_through_id]
+    );
+  } else {
+    // No summary yet — load last 60 messages (all roles for Gemini structure)
+    historyRows = await db.any(
+      `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
+       FROM nexus_messages WHERE session_id = $1
+       ORDER BY created_at DESC LIMIT 60`,
+      [sessionId]
+    );
+    historyRows.reverse(); // Back to chronological order
+  }
 
   // ── 3. Build Gemini contents from history ─────────────────────────────────
   const contents = [];
@@ -681,6 +695,11 @@ async function processMessage(userId, sessionId, message, attachments = [], plan
     }
   }
 
+  // Inject conversation history summary (older messages, condensed)
+  if (contextSummaryText) {
+    systemInstruction += `\n\nCONVERSATION HISTORY SUMMARY (older messages you've had with this user, summarized for context):\n${contextSummaryText}`;
+  }
+
   // ── 6. Call Gemini ────────────────────────────────────────────────────────
   const modelId = GEMINI_MODELS[plan] || GEMINI_MODELS.basic;
   const model = geminiClient.getGenerativeModel({
@@ -728,6 +747,11 @@ async function processMessage(userId, sessionId, message, attachments = [], plan
            ${titleUpdate}
          WHERE id = ${titleParam.length ? '$4' : '$3'}`,
         [itemsAdded, roomsAdded, ...titleParam, sessionId]
+      );
+
+      // Fire-and-forget context summary generation
+      generateContextSummary(sessionId).catch(err =>
+        console.error('[nexus] Summary generation failed:', err.message)
       );
 
       return { reply, actions, sessionId };
@@ -786,4 +810,79 @@ async function processMessage(userId, sessionId, message, attachments = [], plan
   return { reply: fallbackReply, actions, sessionId };
 }
 
-module.exports = { processMessage, SYSTEM_PROMPT };
+// ── Context Summary Generation ──────────────────────────────────────────────────
+
+const SUMMARY_THRESHOLD = 20; // Regenerate summary every 20 new user+model messages
+
+async function generateContextSummary(sessionId) {
+  if (!geminiClient) return;
+
+  const session = await db.oneOrNone(
+    `SELECT id, context_summary, summary_through_id FROM nexus_sessions WHERE id = $1`,
+    [sessionId]
+  );
+  if (!session) return;
+
+  // Count user+model messages beyond the current summary point
+  const whereAfter = session.summary_through_id
+    ? `AND id > ${parseInt(session.summary_through_id)}`
+    : '';
+  const { cnt } = await db.one(
+    `SELECT COUNT(*)::int AS cnt FROM nexus_messages
+     WHERE session_id = $1 AND role IN ('user', 'model') ${whereAfter}`,
+    [sessionId]
+  );
+
+  if (cnt < SUMMARY_THRESHOLD) return; // Not enough new messages
+
+  // Load all user+model messages in chronological order
+  const allUserModel = await db.any(
+    `SELECT id, role, content FROM nexus_messages
+     WHERE session_id = $1 AND role IN ('user', 'model') AND content IS NOT NULL
+     ORDER BY created_at ASC`,
+    [sessionId]
+  );
+
+  if (allUserModel.length <= SUMMARY_THRESHOLD) return;
+
+  // Everything except the last 20 user/model messages gets summarized
+  const toSummarize = allUserModel.slice(0, -20);
+  const newSummaryThroughId = toSummarize[toSummarize.length - 1].id;
+
+  // Only summarize messages newer than the existing summary
+  const newMessages = session.summary_through_id
+    ? toSummarize.filter(m => m.id > session.summary_through_id)
+    : toSummarize;
+
+  if (newMessages.length === 0) return;
+
+  const transcript = newMessages
+    .map(m => `${m.role === 'user' ? 'User' : 'Nexus'}: ${m.content}`)
+    .join('\n');
+
+  const existingSummary = session.context_summary || '';
+  const summaryPrompt = existingSummary
+    ? `Here is the existing conversation summary:\n${existingSummary}\n\nHere are newer messages to incorporate:\n${transcript}\n\nCreate an updated, consolidated summary.`
+    : `Summarize this conversation:\n${transcript}`;
+
+  const summaryModel = geminiClient.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    systemInstruction: `Summarize this conversation between a user and Nexus (an AI moving/inventory assistant).
+Focus on: user preferences, decisions made, rooms discussed, corrections or preferences expressed, the user's moving situation and goals.
+Keep it under 300 words. Do not list individual items (those are tracked separately in the inventory).
+Write in third person: "The user..." not "You..."`,
+  });
+
+  const result = await summaryModel.generateContent(summaryPrompt);
+  const summary = result.response.text();
+
+  await db.none(
+    `UPDATE nexus_sessions SET context_summary = $1, summary_through_id = $2, updated_at = NOW()
+     WHERE id = $3`,
+    [summary, newSummaryThroughId, sessionId]
+  );
+
+  console.log(`[nexus] Summary updated for session ${sessionId} (through msg ${newSummaryThroughId}, ${newMessages.length} new messages summarized)`);
+}
+
+module.exports = { processMessage, generateContextSummary, SYSTEM_PROMPT };

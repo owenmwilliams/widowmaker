@@ -771,6 +771,8 @@ CREATE TABLE nexus_sessions (
     items_added INTEGER DEFAULT 0,
     rooms_added INTEGER DEFAULT 0,
     is_active BOOLEAN DEFAULT TRUE,
+    context_summary TEXT,
+    summary_through_id INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
