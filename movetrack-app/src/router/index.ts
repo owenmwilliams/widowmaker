@@ -102,6 +102,12 @@ const router = createRouter({
       beforeEnter: authGuard
     },
     {
+      path: "/mobile/vector",
+      name: "mobile-vector",
+      component: () => import('../views/MobileVector.vue'),
+      beforeEnter: authGuard
+    },
+    {
       path: "/onboarding",
       name: "onboarding-welcome",
       component: OnboardingWelcome
