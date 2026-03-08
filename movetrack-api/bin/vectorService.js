@@ -306,8 +306,8 @@ const toolHandlers = {
 
     // Find items missing weight or dimensions
     const items = await knex('items')
-      .select('id', 'name', 'description', 'quantity', 'weight_lbs',
-              'length_in', 'width_in', 'height_in', 'material', 'primary_color',
+      .select('items.id', 'items.name', 'items.description', 'items.quantity', 'items.weight_lbs',
+              'items.length_in', 'items.width_in', 'items.height_in', 'items.material', 'items.primary_color',
               'collections.name as collection_name')
       .leftJoin('collections', 'items.collection_id', 'collections.id')
       .where('items.user_id', userId)
