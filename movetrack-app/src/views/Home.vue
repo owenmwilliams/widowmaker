@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import PrivacyPolicy from './PrivacyPolicy.vue';
 import TermsOfService from './TermsAndConditions.vue';
-import ReloPrepLogo from '../components/ReloPrepLogo.vue';
+import ReloPrepLogo from '../components/brand/ReloPrepLogo.vue';
 
 const showPrivacyPolicy = ref(false);
 const showTermsOfService = ref(false);

@@ -211,14 +211,14 @@ To clear and regenerate:
 ```bash
 # Clear existing data (if needed)
 # Then run:
-node scripts/generate-test-data.js
+node tooling/generate-test-data.js
 ```
 
 The script will create new IDs each time.
 
 ## Customization
 
-Edit `scripts/generate-test-data.js` to:
+Edit `tooling/generate-test-data.js` to:
 - Change the `TEST_USER` constant
 - Add more locations
 - Add more collections

@@ -13,8 +13,6 @@ import MasonryWall from '@yeger/vue-masonry-wall'
 
 import 'quasar/src/css/index.sass'
 import '@quasar/extras/material-icons/material-icons.css'
-import { defineCustomElements } from '@ionic/pwa-elements/loader';
-defineCustomElements(window);
 
 // Development-only: Session persistence helper for HMR
 const isDevelopment = import.meta.env.MODE === 'development';

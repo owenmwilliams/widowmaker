@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
-import MobileItems from '../components/mobile/MobileItems.vue'
+import MobileItems from '../components/inventory/mobile/Items.vue'
 
 const core_url = import.meta.env.MODE === 'development'
   ? 'http://localhost:3050'

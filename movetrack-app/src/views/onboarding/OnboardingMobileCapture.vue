@@ -2,7 +2,7 @@
 import { ref, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
-import PhotoCapture from "../../components/PhotoCapture.vue";
+import PhotoCapture from "../../components/capture/PhotoCapture.vue";
 import { onboardingStore } from "../../stores/OnboardingStore";
 
 const emit = defineEmits<{ "app:loading": (value: boolean) => void }>();

@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "sortablejs": "^1.15.6",
-    "vue-draggable-next": "^2.3.0"
-  }
-}

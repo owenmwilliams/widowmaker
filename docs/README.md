@@ -24,4 +24,4 @@ This folder groups planning, research, and operational docs. Paths below are rep
 
 ## Related
 - `db/` for database init + seed scripts
-- `scripts/` for setup/deploy helpers
+- `tooling/` for setup/deploy helpers

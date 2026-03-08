@@ -41,7 +41,6 @@ MoveTrack is a comprehensive inventory management system designed specifically f
 - **Responsive Design**: Desktop interface with Quasar, mobile with Vant UI
 - **Mobile Camera**: Scan and photograph items on the go
 - **Offline Support**: (Coming soon) Work without internet connection
-- **Native Apps**: iOS and Android support via Capacitor
 
 ## 🏗️ Architecture
 
@@ -52,7 +51,6 @@ MoveTrack is a comprehensive inventory management system designed specifically f
 - Quasar Framework (desktop)
 - Vant UI (mobile)
 - Pinia for state management
-- Capacitor for mobile apps
 - Axios for API communication
 
 **Backend (movetrack-api)**
@@ -146,29 +144,7 @@ MoveTrack is a comprehensive inventory management system designed specifically f
 - `docs/notes` - Issue notes and investigations
 - `docs/generated/readmes` - Generated documentation snapshots
 - `db/` - Database initialization and seed scripts
-- `scripts/` - Helper scripts (setup, deploy, data generation)
-
-## 📱 Mobile Development
-
-### iOS Setup
-```bash
-cd movetrack-app
-npm install
-npm run build
-npx cap add ios
-npx cap sync ios
-npx cap open ios
-```
-
-### Android Setup
-```bash
-cd movetrack-app
-npm install
-npm run build
-npx cap add android
-npx cap sync android
-npx cap open android
-```
+- `tooling/` - Helper scripts (setup, deploy, data generation)
 
 ## 🎨 Customization
 

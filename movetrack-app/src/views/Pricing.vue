@@ -122,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import ReloPrepLogo from '../components/ReloPrepLogo.vue';
+import ReloPrepLogo from '../components/brand/ReloPrepLogo.vue';
 </script>
 
 <style scoped>

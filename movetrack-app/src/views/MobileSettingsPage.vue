@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import axios from 'axios'
-import MobileSettings from '../components/mobile/MobileSettings.vue'
+import MobileSettings from '../components/settings/mobile/MobileSettings.vue'
 
 const core_url = import.meta.env.MODE === 'development'
   ? 'http://localhost:3050'

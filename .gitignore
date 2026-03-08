@@ -16,6 +16,9 @@ lerna-debug.log*
 node_modules
 .pnpm-store
 
+# Tooling (local scripts/data artifacts)
+tooling/
+
 # Build outputs
 dist
 dist-ssr
@@ -57,6 +60,8 @@ Thumbs.db
 sendgrid.env
 
 # Dataset artifacts
-scripts/yolov8/open_images_classes_verified.json
+tooling/yolov8/open_images_classes_verified.json
+tooling/model-labels/*.onnx
+tooling/model-labels/*.pt
 venv/
 __pycache__/

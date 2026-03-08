@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
-import NexusChat from '../components/NexusChat.vue'
+import NexusChat from '../components/nexus/NexusChat.vue'
 
 const core_url = import.meta.env.MODE === 'development'
   ? 'http://localhost:3050'

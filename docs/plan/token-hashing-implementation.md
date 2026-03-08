@@ -86,7 +86,7 @@ Session tokens (JWTs) are now also hashed before storage for defense-in-depth:
 
 ## Migration Performed
 
-**Script:** `scripts/migrateTokenHashing.js`
+**Script:** `movetrack-api/scripts/migrateTokenHashing.js`
 
 **Actions Taken:**
 - Invalidated 2 active tokens in database
@@ -103,7 +103,7 @@ Session tokens (JWTs) are now also hashed before storage for defense-in-depth:
 ## Testing Performed
 
 ### Unit Tests ✅
-**Script:** `scripts/testTokenHashing.js`
+**Script:** `movetrack-api/scripts/testTokenHashing.js`
 
 All tests passed:
 - ✅ Token generation produces 64-char random hex
@@ -114,7 +114,7 @@ All tests passed:
 - ✅ Database storage simulation works
 
 ### Integration Tests ✅
-**Script:** `scripts/testMagicLinkFlow.js`
+**Script:** `movetrack-api/scripts/testMagicLinkFlow.js`
 
 All tests passed:
 - ✅ Magic link creation with hashing

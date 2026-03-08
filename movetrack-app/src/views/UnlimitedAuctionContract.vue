@@ -1,6 +1,6 @@
 
 <script setup>
-    import CodeHighlighter from '../components/CodeHighlighter.vue';
+    import CodeHighlighter from '../components/shared/CodeHighlighter.vue';
     import router from '../router';
 
     const mappingCode = 

@@ -1,10 +1,9 @@
 import { ref, computed, onMounted, onUnmounted, type Ref } from 'vue';
-import type { InventoryItem } from '../data/inventoryItems';
 
-export interface CarouselState {
+export interface CarouselState<T> {
   currentIndex: Ref<number>;
   isPaused: Ref<boolean>;
-  currentItem: Ref<InventoryItem | null>;
+  currentItem: Ref<T | null>;
   progress: Ref<string>;
   goToNext: () => void;
   goToPrev: () => void;
@@ -14,10 +13,10 @@ export interface CarouselState {
   handleKeyboard: (event: KeyboardEvent) => void;
 }
 
-export function useCarouselState(
-  items: InventoryItem[],
+export function useCarouselState<T>(
+  items: T[],
   autoplayInterval = 4000
-): CarouselState {
+): CarouselState<T> {
   const currentIndex = ref(0);
   const isPaused = ref(false);
   let autoplayTimer: number | null = null;

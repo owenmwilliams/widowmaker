@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { onboardingStore } from "../../stores/OnboardingStore";
 import { inventoryStore } from "../../stores/InventoryStore";
-import LocationSearchInline from "../../components/location/LocationSearchInline.vue";
+import LocationSearchInline from "../../components/locations/LocationSearchInline.vue";
 import { useLocationForm } from "../../composables/useLocationForm";
 
 const emit = defineEmits<{ "app:loading": (value: boolean) => void }>();

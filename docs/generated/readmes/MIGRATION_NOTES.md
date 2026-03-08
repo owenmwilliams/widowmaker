@@ -27,7 +27,7 @@ This document outlines what has been created, what needs to be updated, and impl
 - `docker-compose.yaml`: Updated with MoveTrack branding, removed Web3, added environment variables
 - `.env.example`: Template for environment configuration
 - `.gitignore`: Standard ignores for Node.js, Docker, and sensitive files
-- `scripts/setup.sh`: Quick setup script for new users
+- `tooling/setup.sh`: Quick setup script for new users
 - `README.md`: Comprehensive documentation for moving/storage use case
 - `db/init-movetrack.sql`: Enhanced database initialization
 

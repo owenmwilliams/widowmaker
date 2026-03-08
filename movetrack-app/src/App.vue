@@ -2,8 +2,8 @@
   // This starter template is using Vue 3 <script setup> SFCs
   // Check out https://vuejs.org/api/sfc-script-setup.html#script-setup
   import { ref, watch } from 'vue';
-  import useEventsBus from './compositions/event-bus';
-  import ItemDetailsModal from './components/ItemDetailsModal.vue';
+  import useEventBus from './composables/useEventBus';
+  import ItemDetailsModal from './components/inventory/ItemDetailsModal.vue';
   import { useQuasar } from 'quasar';
 
   // https://stackoverflow.com/questions/63471824/vue-js-3-event-bus/64019074#64019074
@@ -11,7 +11,7 @@
   const active = ref('location');
   const isLoading = ref(false);
   
-  const { bus } = useEventsBus();
+  const { bus } = useEventBus();
   watch(() => bus.value.get('navigation'), (val) => {
     const [navigationBus] = val ?? []
     active.value = navigationBus    
