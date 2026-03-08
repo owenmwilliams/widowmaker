@@ -80,9 +80,37 @@ const isActionChip = (action: VectorAction): boolean => {
   return !!action.result?.success;
 };
 
+// ── Inline buttons parsing ───────────────────────────────────────────────────
+interface InlineButton {
+  label: string;
+  message: string;
+}
+
+const parseButtons = (content: string): InlineButton[] => {
+  const match = content.match(/\[BUTTONS\]([\s\S]*?)\[\/BUTTONS\]/);
+  if (!match) return [];
+  return match[1]
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line && line.includes('|'))
+    .map(line => {
+      const [label, ...rest] = line.split('|');
+      return { label: label.trim(), message: rest.join('|').trim() };
+    });
+};
+
+const usedButtonMsgIds = ref<Set<number>>(new Set());
+
+const handleButtonClick = (msgId: number, message: string) => {
+  usedButtonMsgIds.value = new Set([...usedButtonMsgIds.value, msgId]);
+  inputText.value = message;
+  send();
+};
+
 // ── Message content rendering ────────────────────────────────────────────────
 const renderMessageContent = (content: string): string => {
-  const escaped = content
+  const stripped = content.replace(/\[BUTTONS\][\s\S]*?\[\/BUTTONS\]/g, '').trim();
+  const escaped = stripped
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
@@ -177,6 +205,21 @@ const quickStarts = [
               text-color="white"
               dense
             >{{ actionLabel(action) }}</q-chip>
+          </div>
+
+          <!-- Inline quick-reply buttons -->
+          <div v-if="msg.role === 'model' && parseButtons(msg.content).length > 0"
+               class="msg-inline-buttons">
+            <q-btn
+              v-for="(btn, i) in parseButtons(msg.content)"
+              :key="i"
+              outline rounded no-caps
+              color="deep-purple"
+              size="sm"
+              class="inline-btn"
+              :disable="store.isLoading || usedButtonMsgIds.has(msg.id)"
+              @click="handleButtonClick(msg.id, btn.message)"
+            >{{ btn.label }}</q-btn>
           </div>
         </div>
       </div>
@@ -320,6 +363,18 @@ const quickStarts = [
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 8px;
+}
+
+/* Inline quick-reply buttons */
+.msg-inline-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.inline-btn {
+  font-size: 13px;
+  padding: 2px 12px;
 }
 
 /* Typing indicator */
