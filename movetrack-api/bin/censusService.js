@@ -166,8 +166,88 @@ function scoreConfidence(source, hasDetails) {
   return 0.6;
 }
 
+/**
+ * Analyze inventory state and return contextual conversation starters.
+ * Used to give Nexus a smart opening message for new sessions.
+ */
+async function getConversationStarters(userId) {
+  const locations = await db.any(
+    `SELECT id, name, location_type FROM locations WHERE user_id = $1`, [userId]
+  );
+  const collections = await db.any(
+    `SELECT c.id, c.name, c.location_id, COUNT(i.id)::int AS item_count
+     FROM collections c
+     LEFT JOIN items i ON i.collection_id = c.id
+     WHERE c.user_id = $1
+     GROUP BY c.id`, [userId]
+  );
+  const itemStats = await db.oneOrNone(
+    `SELECT COUNT(*)::int AS total,
+            COUNT(CASE WHEN weight_lbs IS NULL OR weight_lbs = 0 THEN 1 END)::int AS missing_weight,
+            COUNT(CASE WHEN length_in IS NULL OR width_in IS NULL OR height_in IS NULL THEN 1 END)::int AS missing_dimensions,
+            COUNT(CASE WHEN picture_url IS NULL OR picture_url = '' THEN 1 END)::int AS missing_photos
+     FROM items WHERE user_id = $1`, [userId]
+  ) || { total: 0, missing_weight: 0, missing_dimensions: 0, missing_photos: 0 };
+
+  // Get largest items missing measurements
+  const largestWithoutMeasurements = await db.any(
+    `SELECT name, weight_lbs FROM items
+     WHERE user_id = $1 AND (length_in IS NULL OR width_in IS NULL OR height_in IS NULL)
+     ORDER BY COALESCE(weight_lbs, 0) DESC LIMIT 5`, [userId]
+  );
+
+  const starters = [];
+
+  // No locations at all
+  if (locations.length === 0) {
+    starters.push('NEW_USER: No locations set up yet. Start with onboarding flow.');
+    return starters;
+  }
+
+  // Single location, no move destination
+  if (locations.length === 1) {
+    starters.push(`SINGLE_LOCATION: User only has "${locations[0].name}". Ask if they are planning a move soon or if they'd like to add a destination.`);
+  }
+
+  // Empty rooms
+  const emptyRooms = collections.filter(c => c.item_count === 0);
+  if (emptyRooms.length > 0) {
+    const names = emptyRooms.map(r => `"${r.name}"`).join(', ');
+    starters.push(`EMPTY_ROOMS: ${emptyRooms.length} room(s) have no items: ${names}. Ask if they'd like to catalog these rooms.`);
+  }
+
+  // Items missing measurements
+  if (largestWithoutMeasurements.length > 0 && itemStats.missing_dimensions > 3) {
+    const itemNames = largestWithoutMeasurements.slice(0, 3).map(i => `"${i.name}"`).join(', ');
+    starters.push(`MISSING_DIMENSIONS: ${itemStats.missing_dimensions} items are missing dimensions. Largest ones: ${itemNames}. Offer to help estimate measurements for these.`);
+  }
+
+  // Items missing weight
+  if (itemStats.missing_weight > 5) {
+    starters.push(`MISSING_WEIGHT: ${itemStats.missing_weight} of ${itemStats.total} items have no weight estimate. Offer to help fill these in.`);
+  }
+
+  // Items missing photos
+  if (itemStats.total > 10 && itemStats.missing_photos > itemStats.total * 0.7) {
+    starters.push(`MISSING_PHOTOS: ${itemStats.missing_photos} of ${itemStats.total} items have no photo. Suggest taking photos room by room.`);
+  }
+
+  // Good progress
+  if (itemStats.total > 20 && emptyRooms.length === 0 && itemStats.missing_dimensions < 3) {
+    starters.push(`GREAT_PROGRESS: Inventory looks solid with ${itemStats.total} items. Ask if they'd like a summary, want to review anything, or are ready to plan their move.`);
+  }
+
+  // Low item count with rooms
+  if (collections.length > 0 && itemStats.total < 5 && itemStats.total > 0) {
+    starters.push(`GETTING_STARTED: Only ${itemStats.total} items logged across ${collections.length} rooms. Encourage them to keep going — offer to work room by room.`);
+  }
+
+  return starters;
+}
+
 module.exports = {
   getInventorySnapshot,
+  getConversationStarters,
   getMissingContext,
   getTypicalItems,
   scoreConfidence,

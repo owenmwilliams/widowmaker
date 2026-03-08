@@ -98,6 +98,8 @@ const actionIcon = (tool: string): string => {
     case 'analyze_photo': return 'photo_camera';
     case 'get_inventory_summary': return 'inventory';
     case 'get_missing_context': return 'search';
+    case 'delete_item': return 'delete';
+    case 'analyze_video': return 'videocam';
     default: return 'build';
   }
 };
@@ -116,11 +118,32 @@ const actionLabel = (action: NexusAction): string => {
   if (action.tool === 'update_item' && action.result?.success) {
     return 'Updated item';
   }
+  if (action.tool === 'delete_item' && action.result?.success) {
+    return `Removed: ${action.result.name || action.args.name || 'item'}`;
+  }
   return action.tool.replace(/_/g, ' ');
 };
 
-const isAddAction = (action: NexusAction): boolean => {
-  return ['add_item', 'add_room', 'set_location'].includes(action.tool) && !!action.result?.success;
+const isActionChip = (action: NexusAction): boolean => {
+  return ['add_item', 'add_room', 'set_location', 'delete_item'].includes(action.tool) && !!action.result?.success;
+};
+
+// ── Message content rendering ────────────────────────────────────────────────
+const renderMessageContent = (content: string): string => {
+  // Escape HTML first
+  const escaped = content
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  // Replace [IMG:url] with actual images
+  return escaped.replace(
+    /\[IMG:(https?:\/\/[^\]]+)\]/g,
+    '<img src="$1" class="msg-inline-photo" />'
+  );
+};
+
+const hasInlineImages = (content: string): boolean => {
+  return /\[IMG:https?:\/\/[^\]]+\]/.test(content);
 };
 
 // ── Session management ───────────────────────────────────────────────────────
@@ -240,16 +263,18 @@ const newSession = () => {
           </div>
 
           <!-- Text -->
-          <div class="msg-text" v-if="msg.content">{{ msg.content }}</div>
+          <div v-if="msg.content && msg.role === 'model' && hasInlineImages(msg.content)"
+               class="msg-text" v-html="renderMessageContent(msg.content)"></div>
+          <div v-else-if="msg.content" class="msg-text">{{ msg.content }}</div>
 
           <!-- Action chips (on model messages) -->
           <div v-if="msg.actions && msg.actions.length > 0" class="msg-actions">
             <q-chip
-              v-for="(action, i) in msg.actions.filter(isAddAction)"
+              v-for="(action, i) in msg.actions.filter(isActionChip)"
               :key="i"
               :icon="actionIcon(action.tool)"
               size="sm"
-              color="positive"
+              :color="action.tool === 'delete_item' ? 'negative' : 'positive'"
               text-color="white"
               dense
             >{{ actionLabel(action) }}</q-chip>
@@ -424,6 +449,15 @@ const newSession = () => {
   max-height: 200px;
   border-radius: 8px;
   object-fit: cover;
+}
+
+.msg-text :deep(.msg-inline-photo) {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  border-radius: 8px;
+  object-fit: cover;
+  margin: 8px 0;
 }
 
 .msg-actions {

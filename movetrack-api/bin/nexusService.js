@@ -80,6 +80,8 @@ INVENTORY CENSUS RULES:
 9. Periodically call get_inventory_summary to share progress.
 10. NEVER invent or hallucinate items. Only add items the user explicitly mentioned or that were returned by analyze_photo or analyze_video. If a tool returns no data, tell the user — do not fill in the gap yourself.
 11. If the user corrects you, call update_item immediately.
+12. If the user asks to remove or delete an item, ALWAYS confirm before calling delete_item. Say which item you're about to delete and wait for their "yes".
+13. If the user asks to see a photo of an item, call get_item_photo. If the tool returns a picture_url, include it in your response using the exact format: [IMG:url] — the app will render it as an image. Example: "Here's your sofa: [IMG:https://storage.googleapis.com/bucket/path.jpg]"
 
 CONVERSATION FLOW (returning users):
 - If home context is unknown, ask about type, bedrooms, bathrooms.
@@ -189,6 +191,29 @@ const toolDeclarations = [
         notes:       { type: SchemaType.STRING },
       },
       required: ['item_id'],
+    },
+  },
+  {
+    name: 'delete_item',
+    description: 'Delete an item from the inventory. Always confirm with the user before deleting.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        item_id: { type: SchemaType.STRING, description: 'The ID of the item to delete' },
+        name:    { type: SchemaType.STRING, description: 'Name of the item being deleted (for confirmation)' },
+      },
+      required: ['item_id'],
+    },
+  },
+  {
+    name: 'get_item_photo',
+    description: 'Retrieve the photo URL for an item. Use when the user asks to see a photo of an item. Returns the picture_url if available.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        item_id:   { type: SchemaType.STRING, description: 'The ID of the item' },
+        item_name: { type: SchemaType.STRING, description: 'Name of the item to search for if ID is not known' },
+      },
     },
   },
   {
@@ -451,6 +476,54 @@ const toolHandlers = {
     return { success: true, itemId: args.item_id };
   },
 
+  async delete_item(args, userId) {
+    // Verify ownership
+    const item = await knex('items')
+      .select('id', 'name')
+      .where({ id: args.item_id, user_id: userId })
+      .first();
+
+    if (!item) {
+      return { success: false, error: 'Item not found or not authorized' };
+    }
+
+    await knex.transaction(async (trx) => {
+      await knex('permissions').transacting(trx)
+        .where({ resource_id: args.item_id, resource_type: 'item' })
+        .del();
+      await knex('items').transacting(trx)
+        .where({ id: args.item_id, user_id: userId })
+        .del();
+    });
+
+    console.log(`[nexus] Deleted item: "${item.name}" (id: ${args.item_id})`);
+    return { success: true, deletedId: args.item_id, name: item.name };
+  },
+
+  async get_item_photo(args, userId) {
+    let item;
+    if (args.item_id) {
+      item = await knex('items')
+        .select('id', 'name', 'picture_url')
+        .where({ id: args.item_id, user_id: userId })
+        .first();
+    } else if (args.item_name) {
+      item = await knex('items')
+        .select('id', 'name', 'picture_url')
+        .where({ user_id: userId })
+        .whereRaw('LOWER(name) LIKE ?', [`%${args.item_name.toLowerCase()}%`])
+        .first();
+    }
+
+    if (!item) {
+      return { success: false, error: 'Item not found' };
+    }
+    if (!item.picture_url) {
+      return { success: true, hasPhoto: false, name: item.name, message: 'No photo available for this item.' };
+    }
+    return { success: true, hasPhoto: true, name: item.name, picture_url: item.picture_url };
+  },
+
   async set_user_profile(args, userId) {
     const updates = {};
     if (args.first_name) updates.first_name = args.first_name;
@@ -596,9 +669,17 @@ async function processMessage(userId, sessionId, message, attachments = [], plan
     ? `Name: ${user.first_name || 'Unknown'} ${user.last_name || ''}\nOnboarding completed: ${user.onboarding_completed}`
     : 'Unknown user';
 
-  const systemInstruction = SYSTEM_PROMPT
+  let systemInstruction = SYSTEM_PROMPT
     .replace('{{USER_CONTEXT}}', userContext)
     .replace('{{INVENTORY_SNAPSHOT}}', inventorySnapshot);
+
+  // Inject conversation starters for new sessions
+  if (historyRows.length === 0) {
+    const starters = await census.getConversationStarters(userId);
+    if (starters.length > 0) {
+      systemInstruction += `\n\nCONVERSATION STARTERS (this is a new session — use these to greet the user with something relevant and actionable):\n${starters.join('\n')}`;
+    }
+  }
 
   // ── 6. Call Gemini ────────────────────────────────────────────────────────
   const modelId = GEMINI_MODELS[plan] || GEMINI_MODELS.basic;
