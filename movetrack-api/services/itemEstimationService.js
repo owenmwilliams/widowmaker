@@ -1,11 +1,9 @@
-const fetch = require('node-fetch');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-const togetherApiKey = process.env.TOGETHER_API_KEY;
-const togetherTextModel =
-  process.env.TOGETHER_TEXT_MODEL ||
-  'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo';
-const apiBaseUrl =
-  process.env.TOGETHER_API_BASE_URL || 'https://api.together.xyz/v1';
+let geminiClient = null;
+if (process.env.GOOGLE_AI_API_KEY) {
+  geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
+}
 
 const confidenceRange = { min: 0, max: 1 };
 
@@ -32,16 +30,6 @@ const clampConfidence = (value) => {
   if (num < confidenceRange.min) return confidenceRange.min;
   if (num > confidenceRange.max) return confidenceRange.max;
   return Number(num.toFixed(4));
-};
-
-const formatList = (items, fallback = 'n/a') => {
-  if (!items) return fallback;
-  if (Array.isArray(items)) {
-    if (items.length === 0) return fallback;
-    return items.join(', ');
-  }
-  if (typeof items === 'string') return items;
-  return fallback;
 };
 
 const buildContextSummary = (context = {}) => {
@@ -80,8 +68,8 @@ const buildContextSummary = (context = {}) => {
 const buildPrompt = (context = {}) => {
   const lines = [];
   lines.push(
-    `You are a relocation logistics estimator. Estimate realistic shipping weight and bounding box dimensions for the described household item. ` +
-      `Favor practical measurements movers would record before loading. Respond with JSON only (no markdown).`
+    `Estimate realistic shipping weight and bounding box dimensions for the described household item. ` +
+      `Favor practical measurements movers would record before loading. Respond with JSON only (no markdown fences).`
   );
   lines.push('');
   lines.push('Return JSON with this exact structure:');
@@ -121,28 +109,6 @@ const parseModelJson = (text) => {
   } catch (error) {
     throw new Error(`Unable to parse LLM JSON response: ${error.message}`);
   }
-};
-
-const extractMessageText = (payload) => {
-  const choice = payload?.choices?.[0];
-  const content = choice?.message?.content;
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => {
-        if (typeof part === 'string') return part;
-        if (typeof part?.text === 'string') return part.text;
-        return '';
-      })
-      .join('\n')
-      .trim();
-  }
-  if (typeof content === 'string') {
-    return content.trim();
-  }
-  if (content?.text) {
-    return String(content.text).trim();
-  }
-  return '';
 };
 
 const normalizeEstimate = (parsed = {}) => {
@@ -240,56 +206,34 @@ const normalizeEstimate = (parsed = {}) => {
   };
 };
 
-async function generateItemEstimate(context = {}, options = {}) {
-  if (!togetherApiKey) {
-    throw new Error('Together.ai API key not configured');
+async function generateItemEstimate(context = {}) {
+  if (!geminiClient) {
+    throw new Error('GOOGLE_AI_API_KEY not configured');
   }
 
-  const model = options.model || togetherTextModel;
   const prompt = buildPrompt(context);
-
-  const response = await fetch(`${apiBaseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${togetherApiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model,
+  const model = geminiClient.getGenerativeModel({
+    model: 'gemini-2.0-flash',
+    systemInstruction: 'You are an expert household goods estimator helping movers record approximate weights and dimensions. Respond with JSON only.',
+    generationConfig: {
       temperature: 0.2,
-      max_tokens: 512,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'You are an expert household goods estimator helping movers record approximate weights and dimensions.'
-        },
-        { role: 'user', content: prompt }
-      ]
-    })
+      maxOutputTokens: 512,
+    },
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `Together.ai request failed (${response.status}): ${errorText}`
-    );
-  }
-
-  const payload = await response.json();
-  const messageText = extractMessageText(payload);
+  const result = await model.generateContent(prompt);
+  const messageText = result.response.text();
   const parsed = parseModelJson(messageText);
   const normalized = normalizeEstimate(parsed);
 
   return {
-    provider: 'together',
-    model,
+    provider: 'gemini',
+    model: 'gemini-2.0-flash',
     prompt,
     requestContextSummary: buildContextSummary(context),
     rawText: messageText,
-    rawResponse: payload,
     parsed,
-    usage: payload?.usage || null,
+    usage: null,
     estimate: normalized
   };
 }
