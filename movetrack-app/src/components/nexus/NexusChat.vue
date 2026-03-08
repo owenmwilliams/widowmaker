@@ -142,10 +142,6 @@ const renderMessageContent = (content: string): string => {
   );
 };
 
-const hasInlineImages = (content: string): boolean => {
-  return /\[IMG:https?:\/\/[^\]]+\]/.test(content);
-};
-
 // ── Auto-resume on mount ─────────────────────────────────────────────────────
 onMounted(async () => {
   await store.loadActiveSession();
@@ -231,7 +227,7 @@ const confirmClear = () => {
           </div>
 
           <!-- Text -->
-          <div v-if="msg.content && msg.role === 'model' && hasInlineImages(msg.content)"
+          <div v-if="msg.content && msg.role === 'model'"
                class="msg-text" v-html="renderMessageContent(msg.content)"></div>
           <div v-else-if="msg.content" class="msg-text">{{ msg.content }}</div>
 
