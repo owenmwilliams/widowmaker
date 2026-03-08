@@ -81,7 +81,8 @@ INVENTORY CENSUS RULES:
 10. NEVER invent or hallucinate items. Only add items the user explicitly mentioned or that were returned by analyze_photo or analyze_video. If a tool returns no data, tell the user — do not fill in the gap yourself.
 11. If the user corrects you, call update_item immediately. If they want to rename a room, use update_room — do NOT create a new room. Similarly, use update_location to change location details.
 12. If the user asks to remove or delete an item, ALWAYS confirm before calling delete_item. Say which item you're about to delete and wait for their "yes".
-13. If the user asks to see a photo of an item, call get_item_photo. If the tool returns a picture_url, include it in your response using the exact format: [IMG:url] — the app will render it as an image. Example: "Here's your sofa: [IMG:https://storage.googleapis.com/bucket/path.jpg]"
+13. After adding 3+ items at once (e.g. from a photo or video scan), call find_duplicates to check for accidental duplicates. If duplicates are found, list them and ask the user which to keep or remove.
+14. If the user asks to see a photo of an item, call get_item_photo. If the tool returns a picture_url, include it in your response using the exact format: [IMG:url] — the app will render it as an image. Example: "Here's your sofa: [IMG:https://storage.googleapis.com/bucket/path.jpg]"
 
 CONVERSATION FLOW (returning users):
 - If home context is unknown, ask about type, bedrooms, bathrooms.
@@ -255,6 +256,17 @@ const toolDeclarations = [
         city:        { type: SchemaType.STRING, description: 'New city' },
         state:       { type: SchemaType.STRING, description: 'New state abbreviation' },
         zip:         { type: SchemaType.STRING, description: 'New ZIP code' },
+      },
+    },
+  },
+  {
+    name: 'find_duplicates',
+    description: 'Scan the inventory for potential duplicate items using name similarity. Returns pairs of items that may be duplicates, sorted by similarity score. Use proactively after adding multiple items (especially from photo/video scans) or when the user asks about duplicates.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        threshold: { type: SchemaType.INTEGER, description: 'Minimum similarity percentage to flag (default 70, range 50-95)' },
+        room_name: { type: SchemaType.STRING, description: 'Optional: only check items in this room' },
       },
     },
   },
@@ -631,6 +643,78 @@ const toolHandlers = {
     const items = await query.orderBy('items.name').limit(limit);
 
     return { success: true, items, count: items.length };
+  },
+
+  async find_duplicates(args, userId) {
+    const threshold = Math.max(50, Math.min(95, args.threshold || 70));
+
+    let query = knex('items')
+      .select('items.id', 'items.name', 'items.quantity', 'items.description',
+              'items.picture_url', 'collections.name as room_name')
+      .leftJoin('collections', 'items.collection_id', 'collections.id')
+      .where('items.user_id', userId);
+
+    if (args.room_name) {
+      query = query.whereRaw('LOWER(collections.name) = ?', [args.room_name.toLowerCase()]);
+    }
+
+    const items = await query.orderBy('items.name');
+
+    // Levenshtein distance (mirroring frontend logic)
+    function levenshtein(a, b) {
+      const m = a.length, n = b.length;
+      const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+      for (let i = 0; i <= m; i++) dp[0][i] = i;
+      for (let j = 0; j <= n; j++) dp[j][0] = j;
+      for (let j = 1; j <= n; j++) {
+        for (let i = 1; i <= m; i++) {
+          dp[j][i] = Math.min(
+            dp[j][i - 1] + 1,
+            dp[j - 1][i] + 1,
+            dp[j - 1][i - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+          );
+        }
+      }
+      return dp[n][m];
+    }
+
+    const pairs = [];
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        const a = (items[i].name || '').toLowerCase().trim();
+        const b = (items[j].name || '').toLowerCase().trim();
+        if (!a || !b) continue;
+
+        const dist = levenshtein(a, b);
+        const maxLen = Math.max(a.length, b.length);
+        let similarity = Math.round(((maxLen - dist) / maxLen) * 1000) / 10;
+
+        // Boost if same room
+        if (items[i].room_name && items[j].room_name &&
+            items[i].room_name.toLowerCase() === items[j].room_name.toLowerCase()) {
+          similarity = Math.min(100, similarity + 10);
+        }
+
+        if (similarity >= threshold) {
+          pairs.push({
+            itemA: { id: items[i].id, name: items[i].name, room: items[i].room_name, quantity: items[i].quantity },
+            itemB: { id: items[j].id, name: items[j].name, room: items[j].room_name, quantity: items[j].quantity },
+            similarity,
+          });
+        }
+      }
+    }
+
+    pairs.sort((a, b) => b.similarity - a.similarity);
+
+    return {
+      success: true,
+      duplicateCount: pairs.length,
+      pairs: pairs.slice(0, 20), // Cap at 20 pairs
+      message: pairs.length === 0
+        ? 'No potential duplicates found.'
+        : `Found ${pairs.length} potential duplicate pair(s).`,
+    };
   },
 
   async set_user_profile(args, userId) {

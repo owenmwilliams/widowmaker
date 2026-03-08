@@ -100,6 +100,7 @@ const actionIcon = (tool: string): string => {
     case 'get_missing_context': return 'search';
     case 'delete_item': return 'delete';
     case 'analyze_video': return 'videocam';
+    case 'find_duplicates': return 'content_copy';
     default: return 'build';
   }
 };
