@@ -245,9 +245,122 @@ async function getConversationStarters(userId) {
   return starters;
 }
 
+// ── Quick-Start Chips ────────────────────────────────────────────────────────────
+
+/**
+ * Return up to 3 contextual quick-start chips based on inventory state.
+ * Each chip has { label, message } — label is what the user sees, message is sent on click.
+ */
+async function getQuickStartChips(userId) {
+  const locations = await db.any(
+    `SELECT id, name FROM locations WHERE user_id = $1`, [userId]
+  );
+  const collections = await db.any(
+    `SELECT c.id, c.name, COUNT(i.id)::int AS item_count
+     FROM collections c
+     LEFT JOIN items i ON i.collection_id = c.id
+     WHERE c.user_id = $1
+     GROUP BY c.id`, [userId]
+  );
+  const itemStats = await db.oneOrNone(
+    `SELECT COUNT(*)::int AS total,
+            COUNT(CASE WHEN weight_lbs IS NULL OR weight_lbs = 0 THEN 1 END)::int AS missing_weight,
+            COUNT(CASE WHEN length_in IS NULL OR width_in IS NULL OR height_in IS NULL THEN 1 END)::int AS missing_dimensions,
+            COUNT(CASE WHEN picture_url IS NULL OR picture_url = '' THEN 1 END)::int AS missing_photos
+     FROM items WHERE user_id = $1`, [userId]
+  ) || { total: 0, missing_weight: 0, missing_dimensions: 0, missing_photos: 0 };
+
+  const candidates = [];
+  const totalItems = itemStats.total;
+  const roomNames = collections.map(c => c.name.toLowerCase());
+  const emptyRooms = collections.filter(c => c.item_count === 0);
+  const sparseRooms = collections.filter(c => c.item_count > 0 && c.item_count < 3);
+  const populatedRooms = collections.filter(c => c.item_count > 5);
+  const hasKitchen = roomNames.some(r => r.includes('kitchen'));
+  const hasLivingRoom = roomNames.some(r => r.includes('living'));
+
+  // ── Priority 100: New user, moving focus ──
+  if (locations.length === 0) {
+    candidates.push({ label: "I'm planning a move", message: "I'm planning a move", priority: 100 });
+  }
+
+  // ── Priority 90: New user alternatives ──
+  if (locations.length === 0) {
+    candidates.push({ label: 'Help me get organized', message: 'I want to catalog and organize my stuff', priority: 90 });
+    candidates.push({ label: "Let's go room by room", message: "Let's go room by room and catalog everything", priority: 90 });
+  }
+
+  // ── Priority 80: Early stage ──
+  if (emptyRooms.length > 0 && totalItems < 10) {
+    const room = emptyRooms[0].name;
+    candidates.push({ label: `Let's catalog the ${room}`, message: `Let's catalog the ${room}`, priority: 80 });
+  }
+  if (collections.length > 0 && totalItems < 10) {
+    candidates.push({ label: 'Scan a room with my camera', message: 'I want to scan a room with a photo or video', priority: 80 });
+  }
+  if (collections.length < 3 || !hasKitchen || !hasLivingRoom) {
+    candidates.push({ label: 'What rooms should I add?', message: 'What rooms am I missing?', priority: 80 });
+  }
+
+  // ── Priority 60: Mid stage ──
+  if (emptyRooms.length > 0 && totalItems >= 10) {
+    const room = emptyRooms[0].name;
+    candidates.push({ label: `Catalog my ${room}`, message: `Let's add items to the ${room}`, priority: 60 });
+  }
+  if (itemStats.missing_weight > 10) {
+    candidates.push({ label: 'Add weights to my items', message: 'Can you help estimate weights for items missing them?', priority: 60 });
+  }
+  if (itemStats.missing_dimensions > 10) {
+    candidates.push({ label: `Add dimensions to ${itemStats.missing_dimensions} items`, message: 'Help me add dimensions to items that need them', priority: 60 });
+  }
+  if (sparseRooms.length > 0) {
+    const room = sparseRooms[0].name;
+    candidates.push({ label: `Scan ${room} with a photo`, message: `I want to take a photo of my ${room} to catalog it`, priority: 60 });
+  }
+
+  // ── Priority 50: Data completeness ──
+  if (populatedRooms.length > 0) {
+    const room = populatedRooms[0].name;
+    candidates.push({ label: `Review my ${room}`, message: `Can you review what's in my ${room}?`, priority: 50 });
+  }
+  if (totalItems > 10 && itemStats.missing_photos > totalItems * 0.3) {
+    candidates.push({ label: `${itemStats.missing_photos} items need photos`, message: 'Which items are missing photos?', priority: 50 });
+  }
+  if (totalItems > 10) {
+    candidates.push({ label: 'What am I missing?', message: 'What items or rooms might I be forgetting?', priority: 50 });
+  }
+
+  // ── Priority 40: Advanced ──
+  if (totalItems > 15) {
+    candidates.push({ label: 'Show my inventory summary', message: 'Give me a summary of my inventory', priority: 40 });
+  }
+  if (totalItems > 20) {
+    candidates.push({ label: "How's my progress?", message: 'How complete is my inventory? What still needs work?', priority: 40 });
+  }
+  if (totalItems > 25) {
+    candidates.push({ label: 'Estimate my move size', message: 'Based on my inventory, how big is my move?', priority: 40 });
+  }
+
+  // ── Priority 30: Fill ──
+  const nonEmptyRooms = collections.filter(c => c.item_count > 0);
+  if (nonEmptyRooms.length > 0) {
+    const room = nonEmptyRooms[0].name;
+    candidates.push({ label: `Add items to ${room}`, message: `I want to add more items to ${room}`, priority: 30 });
+  }
+  if (nonEmptyRooms.length > 1) {
+    const room = nonEmptyRooms[1].name;
+    candidates.push({ label: `What's in my ${room}?`, message: `What do I have in my ${room}?`, priority: 30 });
+  }
+
+  // Sort by priority descending, take top 3
+  candidates.sort((a, b) => b.priority - a.priority);
+  return candidates.slice(0, 3).map(({ label, message }) => ({ label, message }));
+}
+
 module.exports = {
   getInventorySnapshot,
   getConversationStarters,
+  getQuickStartChips,
   getMissingContext,
   getTypicalItems,
   scoreConfidence,

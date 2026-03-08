@@ -18,6 +18,11 @@ export interface NexusMessage {
   created_at: string;
 }
 
+export interface QuickStartChip {
+  label: string;
+  message: string;
+}
+
 export interface NexusSession {
   id: string;
   title: string | null;
@@ -50,6 +55,7 @@ export const nexusStore = defineStore("nexus", () => {
   const session = ref<NexusSession | null>(null);
   const isLoading = ref(false);
   const isUploading = ref(false);
+  const quickStartChips = ref<QuickStartChip[]>([]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -75,6 +81,7 @@ export const nexusStore = defineStore("nexus", () => {
         sessionId.value = null;
         messages.value = [];
       }
+      quickStartChips.value = res.data.quickStartChips || [];
     } catch (err) {
       console.error("[NexusStore] loadActiveSession failed:", err);
     }
@@ -189,6 +196,7 @@ export const nexusStore = defineStore("nexus", () => {
     session,
     isLoading,
     isUploading,
+    quickStartChips,
     sendMessage,
     uploadPhoto,
     loadActiveSession,

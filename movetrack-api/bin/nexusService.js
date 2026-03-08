@@ -79,7 +79,7 @@ INVENTORY CENSUS RULES:
 8. After covering a room, summarize and suggest the next room.
 9. Periodically call get_inventory_summary to share progress.
 10. NEVER invent or hallucinate items. Only add items the user explicitly mentioned or that were returned by analyze_photo or analyze_video. If a tool returns no data, tell the user — do not fill in the gap yourself.
-11. If the user corrects you, call update_item immediately.
+11. If the user corrects you, call update_item immediately. If they want to rename a room, use update_room — do NOT create a new room. Similarly, use update_location to change location details.
 12. If the user asks to remove or delete an item, ALWAYS confirm before calling delete_item. Say which item you're about to delete and wait for their "yes".
 13. If the user asks to see a photo of an item, call get_item_photo. If the tool returns a picture_url, include it in your response using the exact format: [IMG:url] — the app will render it as an image. Example: "Here's your sofa: [IMG:https://storage.googleapis.com/bucket/path.jpg]"
 
@@ -206,6 +206,20 @@ const toolDeclarations = [
     },
   },
   {
+    name: 'search_items',
+    description: 'Search and filter items in the inventory. Use to answer questions about specific items, find items missing data, or list items in a room.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        room_name:     { type: SchemaType.STRING, description: 'Filter by room name (case-insensitive match)' },
+        search:        { type: SchemaType.STRING, description: 'Search term to match against item name (case-insensitive, partial match)' },
+        missing_field: { type: SchemaType.STRING, description: 'Find items where this field is NULL or empty. One of: weight_lbs, length_in, width_in, height_in, description, picture_url, material, primary_color, estimated_value' },
+        fragile:       { type: SchemaType.BOOLEAN, description: 'Filter by fragile status' },
+        limit:         { type: SchemaType.INTEGER, description: 'Max items to return (default 50)' },
+      },
+    },
+  },
+  {
     name: 'get_item_photo',
     description: 'Retrieve the photo URL for an item. Use when the user asks to see a photo of an item. Returns the picture_url if available.',
     parameters: {
@@ -213,6 +227,34 @@ const toolDeclarations = [
       properties: {
         item_id:   { type: SchemaType.STRING, description: 'The ID of the item' },
         item_name: { type: SchemaType.STRING, description: 'Name of the item to search for if ID is not known' },
+      },
+    },
+  },
+  {
+    name: 'update_room',
+    description: 'Update an existing room/collection. Use when the user wants to rename a room or change its details.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        room_id:     { type: SchemaType.STRING, description: 'The ID of the room to update' },
+        room_name:   { type: SchemaType.STRING, description: 'Current name of the room (used to look up by name if room_id is not known)' },
+        name:        { type: SchemaType.STRING, description: 'New name for the room' },
+        description: { type: SchemaType.STRING, description: 'New description' },
+      },
+    },
+  },
+  {
+    name: 'update_location',
+    description: 'Update an existing location. Use when the user wants to rename or change address details of a location.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        location_id: { type: SchemaType.STRING, description: 'The ID of the location to update' },
+        name:        { type: SchemaType.STRING, description: 'New name for the location' },
+        address:     { type: SchemaType.STRING, description: 'New street address' },
+        city:        { type: SchemaType.STRING, description: 'New city' },
+        state:       { type: SchemaType.STRING, description: 'New state abbreviation' },
+        zip:         { type: SchemaType.STRING, description: 'New ZIP code' },
       },
     },
   },
@@ -429,10 +471,15 @@ const toolHandlers = {
     }
   },
 
-  async analyze_video(args, _userId) {
+  async analyze_video(args, userId) {
     try {
       const https = require('https');
       const http = require('http');
+      const fs = require('fs');
+      const os = require('os');
+      const path = require('path');
+      const gcs = require('./gcsService');
+      const { extractSharpestFrame } = require('./frameExtractor');
 
       const url = args.file_url;
       console.log(`[nexus] Downloading video for analysis: ${url}`);
@@ -449,6 +496,32 @@ const toolHandlers = {
       console.log(`[nexus] Video downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB`);
       const result = await analyzeVideo(videoBuffer, args.mime_type);
       const items = result.items || [];
+
+      // Extract frames for each item with a timestamp and upload to GCS
+      const ext = (args.mime_type || 'video/mp4').split('/')[1] || 'mp4';
+      const tmpPath = path.join(os.tmpdir(), `nexus-video-${Date.now()}.${ext}`);
+      fs.writeFileSync(tmpPath, videoBuffer);
+
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const ts = item.timestamp_seconds || item.timestamp;
+        if (ts == null) continue;
+        try {
+          const frameBuffer = await extractSharpestFrame(tmpPath, ts);
+          if (frameBuffer && frameBuffer.length > 0) {
+            const framePath = `users/${userId}/nexus/video-frames/${Date.now()}-${i}.jpg`;
+            await gcs.uploadBuffer(frameBuffer, framePath, 'image/jpeg');
+            item.picture_url = `https://storage.googleapis.com/${gcs.BUCKET}/${framePath}`;
+            console.log(`[nexus] Extracted frame for item[${i}] "${item.name}" at ${ts}s`);
+          }
+        } catch (frameErr) {
+          console.warn(`[nexus] Frame extraction failed for item[${i}]:`, frameErr.message);
+        }
+      }
+
+      // Clean up temp file
+      try { fs.unlinkSync(tmpPath); } catch (_) {}
+
       return { success: true, items, itemCount: items.length, parseError: result.parseError };
     } catch (err) {
       console.error('[nexus] analyze_video failed:', err.message);
@@ -524,6 +597,42 @@ const toolHandlers = {
     return { success: true, hasPhoto: true, name: item.name, picture_url: item.picture_url };
   },
 
+  async search_items(args, userId) {
+    const allowedMissing = [
+      'weight_lbs', 'length_in', 'width_in', 'height_in',
+      'description', 'picture_url', 'material', 'primary_color', 'estimated_value',
+    ];
+
+    let query = knex('items')
+      .select(
+        'items.id', 'items.name', 'items.description', 'items.quantity',
+        'items.weight_lbs', 'items.length_in', 'items.width_in', 'items.height_in',
+        'items.fragile', 'items.material', 'items.primary_color',
+        'items.estimated_value', 'items.picture_url',
+        'collections.name as room_name'
+      )
+      .leftJoin('collections', 'items.collection_id', 'collections.id')
+      .where('items.user_id', userId);
+
+    if (args.room_name) {
+      query = query.whereRaw('LOWER(collections.name) = ?', [args.room_name.toLowerCase()]);
+    }
+    if (args.search) {
+      query = query.whereRaw('LOWER(items.name) LIKE ?', [`%${args.search.toLowerCase()}%`]);
+    }
+    if (args.missing_field && allowedMissing.includes(args.missing_field)) {
+      query = query.whereNull(`items.${args.missing_field}`);
+    }
+    if (args.fragile !== undefined) {
+      query = query.where('items.fragile', args.fragile);
+    }
+
+    const limit = Math.min(args.limit || 50, 100);
+    const items = await query.orderBy('items.name').limit(limit);
+
+    return { success: true, items, count: items.length };
+  },
+
   async set_user_profile(args, userId) {
     const updates = {};
     if (args.first_name) updates.first_name = args.first_name;
@@ -564,6 +673,68 @@ const toolHandlers = {
 
     console.log(`[nexus] Created location: "${args.name}" (id: ${location.id})`);
     return { success: true, locationId: location.id, name: args.name };
+  },
+
+  async update_room(args, userId) {
+    let room;
+    if (args.room_id) {
+      room = await knex('collections')
+        .select('id', 'name')
+        .where({ id: args.room_id, user_id: userId })
+        .first();
+    } else if (args.room_name) {
+      room = await knex('collections')
+        .select('id', 'name')
+        .where({ user_id: userId })
+        .whereRaw('LOWER(name) = ?', [args.room_name.toLowerCase()])
+        .first();
+    }
+
+    if (!room) {
+      return { success: false, error: 'Room not found or not authorized' };
+    }
+
+    const updates = {};
+    if (args.name) updates.name = args.name;
+    if (args.description) updates.description = args.description;
+    updates.updated_at = new Date();
+
+    await knex('collections').where({ id: room.id, user_id: userId }).update(updates);
+
+    console.log(`[nexus] Updated room: "${room.name}" → "${args.name || room.name}" (id: ${room.id})`);
+    return { success: true, roomId: room.id, oldName: room.name, newName: args.name || room.name };
+  },
+
+  async update_location(args, userId) {
+    let locationId = args.location_id;
+    if (!locationId) {
+      locationId = await getPrimaryLocationId(userId);
+    }
+    if (!locationId) {
+      return { success: false, error: 'No location found' };
+    }
+
+    const loc = await knex('locations')
+      .select('id', 'name')
+      .where({ id: locationId, user_id: userId })
+      .first();
+
+    if (!loc) {
+      return { success: false, error: 'Location not found or not authorized' };
+    }
+
+    const updates = {};
+    if (args.name) updates.name = args.name;
+    if (args.address) updates.address = args.address;
+    if (args.city) updates.city = args.city;
+    if (args.state) updates.state = args.state;
+    if (args.zip) updates.zip = args.zip;
+    updates.updated_at = new Date();
+
+    await knex('locations').where({ id: loc.id, user_id: userId }).update(updates);
+
+    console.log(`[nexus] Updated location: "${loc.name}" → "${args.name || loc.name}" (id: ${loc.id})`);
+    return { success: true, locationId: loc.id, oldName: loc.name, newName: args.name || loc.name };
   },
 };
 

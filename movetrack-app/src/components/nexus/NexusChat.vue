@@ -194,17 +194,11 @@ const confirmClear = () => {
         </p>
         <div class="quick-starts">
           <q-chip
+            v-for="chip in store.quickStartChips"
+            :key="chip.label"
             clickable outline color="primary"
-            @click="inputText = 'I\'m planning a move'; send()"
-          >I'm planning a move</q-chip>
-          <q-chip
-            clickable outline color="primary"
-            @click="inputText = 'I want to catalog my stuff'; send()"
-          >Catalog my stuff</q-chip>
-          <q-chip
-            clickable outline color="primary"
-            @click="inputText = 'Let\'s go room by room'; send()"
-          >Go room by room</q-chip>
+            @click="inputText = chip.message; send()"
+          >{{ chip.label }}</q-chip>
         </div>
       </div>
 

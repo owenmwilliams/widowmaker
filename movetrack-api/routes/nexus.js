@@ -3,6 +3,7 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { authenticate, resolveEffectivePlan } = require('../bin/authService');
 const nexusService = require('../bin/nexusService');
+const census = require('../bin/censusService');
 const gcs = require('../bin/gcsService');
 const conn = require('../bin/db');
 const db = conn.db;
@@ -81,8 +82,10 @@ router.get('/active-session', async (req, res) => {
       [userId]
     );
 
+    const quickStartChips = await census.getQuickStartChips(userId);
+
     if (!session) {
-      return res.json({ session: null, messages: [] });
+      return res.json({ session: null, messages: [], quickStartChips });
     }
 
     const messages = await db.any(
@@ -92,7 +95,7 @@ router.get('/active-session', async (req, res) => {
       [session.id]
     );
 
-    res.json({ session, messages: enrichMessagesWithActions(messages) });
+    res.json({ session, messages: enrichMessagesWithActions(messages), quickStartChips });
   } catch (err) {
     console.error('[nexus] active-session failed:', err);
     res.status(500).json({ error: err.message });
