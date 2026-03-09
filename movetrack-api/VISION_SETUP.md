@@ -1,6 +1,6 @@
 # Vision AI Setup Guide
 
-MoveTrack supports three vision AI providers for analyzing item photos:
+Nexus Moves supports three vision AI providers for analyzing item photos:
 
 1. **Google Gemini 2.0 Flash** (Recommended for MVP)
 2. **Anthropic Claude 3.5 Sonnet**
@@ -72,7 +72,7 @@ npm start
 
 ### In the Authenticated App
 
-1. **Log in** to your MoveTrack account
+1. **Log in** to your Nexus Moves account
 2. Navigate to the **Items** page (authenticated area)
 3. Open the **menu** (hamburger icon on mobile, profile icon on desktop)
 4. Select **"Vision AI Settings"**

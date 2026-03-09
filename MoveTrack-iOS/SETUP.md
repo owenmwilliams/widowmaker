@@ -1,4 +1,4 @@
-# MoveTrack iOS - Native Swift Application
+# Nexus Moves iOS - Native Swift Application
 ## Setup Instructions
 
 **Created:** December 26, 2025

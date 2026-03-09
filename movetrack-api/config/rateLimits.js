@@ -1,5 +1,5 @@
 /**
- * Rate Limiting Configuration for MoveTrack API
+ * Rate Limiting Configuration for Nexus Moves API
  *
  * Implements multiple rate limiting strategies to protect against:
  * - Brute force attacks

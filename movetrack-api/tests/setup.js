@@ -126,7 +126,7 @@ async function createTestContainer(owner = 'testuser', collectionId, locationId)
 }
 
 /**
- * Create test item with all MoveTrack fields
+ * Create test item with all Nexus Moves fields
  */
 async function createTestItem(owner = 'testuser', collectionId, containerId = null) {
   return await testDb.transaction(async (trx) => {

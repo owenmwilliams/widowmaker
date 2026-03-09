@@ -266,7 +266,7 @@ router.post('/post', jsonParser, async function(req, res, next) {
 
     // Note: location is now inherited from collection, so we don't accept location_id parameter
 
-    // New MoveTrack fields
+    // New Nexus Moves fields
     if (req.query.box_number) {
       params.box_number = req.query.box_number;
     }
@@ -436,7 +436,7 @@ router.put('/update', jsonParser, async function(req, res, next) {
       collection_id: req.query.collection,
     }
 
-    // New MoveTrack fields
+    // New Nexus Moves fields
     if (req.query.box_number !== undefined) {
       containerParams.box_number = req.query.box_number;
     }

@@ -1,7 +1,7 @@
 // Load environment variables from .env file
 require('dotenv').config();
 
-// MoveTrack API Server
+// Nexus Moves API Server
 // Deployment: 2025-11-10-v2
 var createError = require('http-errors');
 var express = require('express');
@@ -44,6 +44,7 @@ var visionLabRouter = require('./routes/visionLab');
 var adminRouter = require('./routes/admin');
 var reloprepRouter = require('./routes/reloprep');
 var nexusRouter = require('./routes/nexus');
+var censusRouter = require('./routes/census');
 var vectorRouter = require('./routes/vector');
 
 var app = express();
@@ -183,8 +184,9 @@ app.use('/vision-lab-video', visionLabVideoRouter);
 const video12labsRouter = require('./routes/video12labs');
 app.use('/video-12labs', video12labsRouter);
 
-// Nexus conversational agents
+// Conversational agents
 app.use('/nexus', rateLimits.apiLimiter, nexusRouter);
+app.use('/census', rateLimits.apiLimiter, censusRouter);
 app.use('/vector', rateLimits.apiLimiter, vectorRouter);
 
 // catch 404 and forward to error handler

@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { authenticate, resolveEffectivePlan } = require('../bin/authService');
-const censusAgentService = require('../bin/censusAgentService');
+const nexusOrchestrator = require('../bin/nexusOrchestratorService');
 const census = require('../bin/censusService');
 const gcs = require('../bin/gcsService');
 const conn = require('../bin/db');
@@ -42,7 +42,7 @@ function enrichMessagesWithActions(allMessages) {
 }
 
 // ─── POST /message ───────────────────────────────────────────────────────────
-// Send a message to the Census agent with SSE streaming for progress updates.
+// Send a message to the Nexus orchestrator with SSE streaming.
 router.post('/message', express.json(), async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -56,15 +56,14 @@ router.post('/message', express.json(), async (req, res) => {
   const wantsStream = req.headers.accept === 'text/event-stream';
 
   if (!wantsStream) {
-    // Legacy non-streaming path
     try {
-      const result = await censusAgentService.processMessage(
+      const result = await nexusOrchestrator.processMessage(
         userId, message || '', attachments || [], plan
       );
       return res.json(result);
     } catch (err) {
-      console.error('[census] processMessage failed:', err);
-      return res.status(500).json({ error: err.message || 'Census processing failed' });
+      console.error('[nexus] processMessage failed:', err);
+      return res.status(500).json({ error: err.message || 'Nexus processing failed' });
     }
   }
 
@@ -73,7 +72,7 @@ router.post('/message', express.json(), async (req, res) => {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no', // Disable nginx buffering
+    'X-Accel-Buffering': 'no',
   });
 
   const sendSSE = (event) => {
@@ -81,30 +80,28 @@ router.post('/message', express.json(), async (req, res) => {
   };
 
   try {
-    const result = await censusAgentService.processMessage(
+    const result = await nexusOrchestrator.processMessage(
       userId, message || '', attachments || [], plan, sendSSE
     );
-    // Final done event with the full result (in case client missed it from the service)
     sendSSE({ type: 'done', reply: result.reply, actions: result.actions, sessionId: result.sessionId });
   } catch (err) {
-    console.error('[census] processMessage (stream) failed:', err);
-    sendSSE({ type: 'error', error: err.message || 'Census processing failed' });
+    console.error('[nexus] processMessage (stream) failed:', err);
+    sendSSE({ type: 'error', error: err.message || 'Nexus processing failed' });
   } finally {
     res.end();
   }
 });
 
 // ─── GET /active-session ────────────────────────────────────────────────────
-// Get the user's active session with messages (auto-resume on open).
 router.get('/active-session', async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
     const session = await db.oneOrNone(
-      `SELECT id, title, session_type, items_added, rooms_added, is_active, created_at, updated_at
+      `SELECT id, title, session_type, is_active, created_at, updated_at
        FROM nexus_sessions WHERE user_id = $1 AND is_active = TRUE
-       AND session_type IN ('census', 'onboarding', 'general')
+       AND session_type = 'nexus'
        ORDER BY updated_at DESC LIMIT 1`,
       [userId]
     );
@@ -124,60 +121,12 @@ router.get('/active-session', async (req, res) => {
 
     res.json({ session, messages: enrichMessagesWithActions(messages), quickStartChips });
   } catch (err) {
-    console.error('[census] active-session failed:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ─── GET /sessions ───────────────────────────────────────────────────────────
-// List the user's conversation sessions (kept for backward compat).
-router.get('/sessions', async (req, res) => {
-  const userId = req.user?.user_id;
-  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-
-  try {
-    const sessions = await db.any(
-      `SELECT id, title, session_type, items_added, rooms_added, is_active, created_at, updated_at
-       FROM nexus_sessions WHERE user_id = $1
-       ORDER BY updated_at DESC LIMIT 50`,
-      [userId]
-    );
-    res.json({ sessions });
-  } catch (err) {
-    console.error('[census] list sessions failed:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ─── GET /sessions/:id ──────────────────────────────────────────────────────
-// Get a specific session and its messages (kept for backward compat).
-router.get('/sessions/:id', async (req, res) => {
-  const userId = req.user?.user_id;
-  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
-
-  try {
-    const session = await db.oneOrNone(
-      `SELECT * FROM nexus_sessions WHERE id = $1 AND user_id = $2`,
-      [req.params.id, userId]
-    );
-    if (!session) return res.status(404).json({ error: 'Session not found' });
-
-    const messages = await db.any(
-      `SELECT id, role, content, tool_name, tool_args, tool_response, attachments, created_at
-       FROM nexus_messages WHERE session_id = $1
-       ORDER BY created_at ASC`,
-      [req.params.id]
-    );
-
-    res.json({ session, messages: enrichMessagesWithActions(messages) });
-  } catch (err) {
-    console.error('[census] get session failed:', err);
+    console.error('[nexus] active-session failed:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ─── DELETE /sessions/:id ────────────────────────────────────────────────────
-// Archive the session (soft delete) — used for "Start fresh".
 router.delete('/sessions/:id', async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -185,19 +134,18 @@ router.delete('/sessions/:id', async (req, res) => {
   try {
     const result = await db.result(
       `UPDATE nexus_sessions SET is_active = FALSE, updated_at = NOW()
-       WHERE id = $1 AND user_id = $2 AND is_active = TRUE`,
+       WHERE id = $1 AND user_id = $2 AND is_active = TRUE AND session_type = 'nexus'`,
       [req.params.id, userId]
     );
     if (result.rowCount === 0) return res.status(404).json({ error: 'Session not found' });
     res.json({ success: true });
   } catch (err) {
-    console.error('[census] archive session failed:', err);
+    console.error('[nexus] archive session failed:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ─── POST /upload ────────────────────────────────────────────────────────────
-// Upload a photo or video for use in conversation.
 router.post('/upload', upload.single('file'), async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
@@ -221,7 +169,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 
     res.json({ url, mimeType: req.file.mimetype, gcsPath });
   } catch (err) {
-    console.error('[census] upload failed:', err);
+    console.error('[nexus] upload failed:', err);
     res.status(500).json({ error: err.message });
   }
 });

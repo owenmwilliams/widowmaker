@@ -23,7 +23,7 @@
     const state = ref('');
     const zip = ref('');
 
-    // New MoveTrack fields for Items
+    // New Nexus Moves fields for Items
     const estimatedValue = ref<number | null>(null);
     const fragile = ref(false);
     const priority = ref('normal');
@@ -33,7 +33,7 @@
     const itemHeight = ref<number | null>(null);
     const notes = ref('');
 
-    // New MoveTrack fields for Containers
+    // New Nexus Moves fields for Containers
     const boxNumber = ref('');
     const boxType = ref('medium');
     const sealed = ref(false);
@@ -150,7 +150,7 @@
                 store.activeCollection!.value,
                 store.activeContainer?.value,
                 blob,
-                // New MoveTrack fields
+                // New Nexus Moves fields
                 estimatedValue.value,
                 fragile.value,
                 priority.value,
@@ -166,7 +166,7 @@
                 props.user,
                 name.value,
                 store.activeCollection!.value,
-                // New MoveTrack fields
+                // New Nexus Moves fields
                 boxNumber.value,
                 boxType.value,
                 sealed.value,

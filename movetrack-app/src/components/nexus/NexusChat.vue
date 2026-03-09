@@ -2,13 +2,13 @@
 import { ref, nextTick, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
-import { censusStore, type CensusMessage, type CensusAction } from '../../stores/CensusStore';
+import { nexusStore, type NexusMessage, type NexusAction } from '../../stores/NexusStore';
 
 const props = defineProps<{ user: string }>();
 
 const router = useRouter();
 const $q = useQuasar();
-const store = censusStore();
+const store = nexusStore();
 const inputText = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -77,7 +77,6 @@ const handleFileSelected = async (event: Event) => {
     });
   }
 
-  // Reset input so same file can be re-selected
   target.value = '';
 };
 
@@ -87,9 +86,10 @@ const removeAttachment = (idx: number) => {
   pendingAttachments.value.splice(idx, 1);
 };
 
-// ── Action display helpers ───────────────────────────────────────────────────
+// ── Action display helpers (merged Census + Vector icons) ────────────────────
 const actionIcon = (tool: string): string => {
   switch (tool) {
+    // Census tools
     case 'add_item': return 'add_circle';
     case 'add_room': return 'meeting_room';
     case 'update_item': return 'edit';
@@ -101,11 +101,24 @@ const actionIcon = (tool: string): string => {
     case 'delete_item': return 'delete';
     case 'analyze_video': return 'videocam';
     case 'find_duplicates': return 'content_copy';
+    // Vector tools
+    case 'get_move_summary': return 'summarize';
+    case 'estimate_missing_items': return 'scale';
+    case 'recommend_truck_size': return 'local_shipping';
+    case 'calculate_route': return 'route';
+    case 'estimate_labor': return 'groups';
+    case 'estimate_move_cost': return 'payments';
+    case 'flag_special_items': return 'warning';
+    case 'get_room_breakdown': return 'grid_view';
+    // Orchestrator tools
+    case 'delegate_to_census': return 'inventory_2';
+    case 'delegate_to_vector': return 'local_shipping';
     default: return 'build';
   }
 };
 
-const actionLabel = (action: CensusAction): string => {
+const actionLabel = (action: NexusAction): string => {
+  // Census actions
   if (action.tool === 'add_item' && action.result?.success) {
     const qty = action.args.quantity && action.args.quantity > 1 ? `${action.args.quantity}x ` : '';
     return `${qty}${action.args.name}`;
@@ -122,11 +135,34 @@ const actionLabel = (action: CensusAction): string => {
   if (action.tool === 'delete_item' && action.result?.success) {
     return `Removed: ${action.result.name || action.args.name || 'item'}`;
   }
+  // Vector actions
+  if (action.tool === 'recommend_truck_size' && action.result?.recommendation?.size) {
+    return action.result.recommendation.size;
+  }
+  if (action.tool === 'calculate_route' && action.result?.distanceMiles) {
+    return `${action.result.distanceMiles} mi`;
+  }
+  if (action.tool === 'estimate_labor' && action.result?.totalLaborHours) {
+    return `${action.result.totalLaborHours}h labor`;
+  }
+  if (action.tool === 'estimate_missing_items' && action.result?.estimated) {
+    return `Estimated ${action.result.estimated} items`;
+  }
+  if (action.tool === 'flag_special_items' && action.result?.flaggedCount) {
+    return `${action.result.flaggedCount} flagged`;
+  }
+  // Orchestrator delegation — hide from user
+  if (action.tool === 'delegate_to_census' || action.tool === 'delegate_to_vector') {
+    return '';
+  }
   return action.tool.replace(/_/g, ' ');
 };
 
-const isActionChip = (action: CensusAction): boolean => {
-  return ['add_item', 'add_room', 'set_location', 'delete_item'].includes(action.tool) && !!action.result?.success;
+const isActionChip = (action: NexusAction): boolean => {
+  // Hide orchestrator delegation tools from chips
+  if (action.tool === 'delegate_to_census' || action.tool === 'delegate_to_vector') return false;
+  if (action.tool === 'get_inventory_status' || action.tool === 'get_user_profile') return false;
+  return !!action.result?.success;
 };
 
 // ── Inline buttons parsing ───────────────────────────────────────────────────
@@ -148,7 +184,6 @@ const parseButtons = (content: string): InlineButton[] => {
     });
 };
 
-// Track which messages have had their buttons used
 const usedButtonMsgIds = ref<Set<number>>(new Set());
 
 const handleButtonClick = (msgId: number, message: string) => {
@@ -159,14 +194,11 @@ const handleButtonClick = (msgId: number, message: string) => {
 
 // ── Message content rendering ────────────────────────────────────────────────
 const renderMessageContent = (content: string): string => {
-  // Strip [BUTTONS] blocks before rendering (they render separately)
   const stripped = content.replace(/\[BUTTONS\][\s\S]*?\[\/BUTTONS\]/g, '').trim();
-  // Escape HTML
   const escaped = stripped
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-  // Replace [IMG:url] with actual images
   return escaped.replace(
     /\[IMG:(https?:\/\/[^\]]+)\]/g,
     '<img src="$1" class="msg-inline-photo" />'
@@ -191,7 +223,7 @@ const confirmClear = () => {
 </script>
 
 <template>
-  <div class="census-chat">
+  <div class="nexus-chat">
     <!-- Header -->
     <div class="chat-header">
       <div class="header-left">
@@ -220,8 +252,8 @@ const confirmClear = () => {
         <q-icon name="auto_awesome" size="48px" color="primary" class="q-mb-md" />
         <h3 class="welcome-title">Hi! I'm Nexus</h3>
         <p class="welcome-sub">
-          I can help you catalog your belongings, room by room.
-          Just tell me what you have, or snap a photo!
+          I can help you catalog your belongings and plan your move.
+          Tell me what you have, snap a photo, or ask about your move!
         </p>
         <div class="quick-starts">
           <q-chip
@@ -257,7 +289,7 @@ const confirmClear = () => {
           <div v-else-if="msg.content" class="msg-text">{{ msg.content }}</div>
 
           <!-- Action chips (on model messages) -->
-          <div v-if="msg.actions && msg.actions.length > 0" class="msg-actions">
+          <div v-if="msg.actions && msg.actions.filter(isActionChip).length > 0" class="msg-actions">
             <q-chip
               v-for="(action, i) in msg.actions.filter(isActionChip)"
               :key="i"
@@ -317,7 +349,7 @@ const confirmClear = () => {
              @click="openPhotoUpload" :loading="store.isUploading" />
       <q-input
         v-model="inputText"
-        placeholder="Tell me about your stuff..."
+        placeholder="Ask me anything about your move..."
         outlined rounded dense
         class="chat-text-input"
         @keyup.enter="send"
@@ -341,7 +373,7 @@ const confirmClear = () => {
 </template>
 
 <style scoped>
-.census-chat {
+.nexus-chat {
   display: flex;
   flex-direction: column;
   height: 100%;

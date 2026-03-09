@@ -20,7 +20,7 @@ const handleStart = () => {
       <q-page :class="['onboarding-page', { 'onboarding-page--mobile': isMobile }]">
         <div :class="['onboarding-card', { 'onboarding-card--mobile': isMobile }]">          <div class="hero">
             <div class="hero-text">
-          <div class="eyebrow">Welcome to ReloPrep</div>
+          <div class="eyebrow">Welcome to Nexus Moves</div>
           <h1>Catalog your entire home in minutes.</h1>
           <p>
             Use AI-powered capture, QR-ready boxes, and real-time move coordination to keep

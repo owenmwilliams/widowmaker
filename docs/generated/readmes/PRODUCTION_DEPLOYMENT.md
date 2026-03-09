@@ -1,6 +1,6 @@
-# MoveTrack Production Deployment Guide
+# Nexus Moves Production Deployment Guide
 
-Complete guide for deploying MoveTrack with Vision AI to production.
+Complete guide for deploying Nexus Moves with Vision AI to production.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Complete guide for deploying MoveTrack with Vision AI to production.
 
 ## API Key Setup
 
-MoveTrack supports three vision AI providers. You can configure one, two, or all three depending on your needs.
+Nexus Moves supports three vision AI providers. You can configure one, two, or all three depending on your needs.
 
 ### 1. Google Gemini (Recommended for MVP)
 
@@ -62,7 +62,7 @@ MoveTrack supports three vision AI providers. You can configure one, two, or all
 2. Create an account (requires email verification)
 3. Navigate to **API Keys** section
 4. Click **"Create Key"**
-5. Give it a descriptive name (e.g., "MoveTrack Production")
+5. Give it a descriptive name (e.g., "Nexus Moves Production")
 6. Copy the generated key (you won't see it again!)
 7. Save as environment variable: `ANTHROPIC_API_KEY`
 
@@ -88,7 +88,7 @@ MoveTrack supports three vision AI providers. You can configure one, two, or all
 2. Sign in or create an account
 3. Navigate to **API Keys** (left sidebar)
 4. Click **"Create new secret key"**
-5. Give it a name (e.g., "MoveTrack Production")
+5. Give it a name (e.g., "Nexus Moves Production")
 6. Copy the key immediately (you won't see it again!)
 7. Save as environment variable: `OPENAI_API_KEY`
 
@@ -314,7 +314,7 @@ curl -X POST http://localhost:3050/vision/analyze-item?provider=gpt4 \
 # Google Cloud Budget Alert
 gcloud billing budgets create \
   --billing-account=YOUR-BILLING-ACCOUNT \
-  --display-name="MoveTrack Vision AI Budget" \
+  --display-name="Nexus Moves Vision AI Budget" \
   --budget-amount=100 \
   --threshold-rule=percent=50 \
   --threshold-rule=percent=90 \
@@ -428,7 +428,7 @@ Monitor these metrics:
 
 ## Support Resources
 
-- **MoveTrack Issues:** [GitHub Issues](https://github.com/anthropics/claude-code/issues)
+- **Nexus Moves Issues:** [GitHub Issues](https://github.com/anthropics/claude-code/issues)
 - **Google Gemini:** [Google AI Docs](https://ai.google.dev/docs)
 - **Anthropic Claude:** [Anthropic Docs](https://docs.anthropic.com/)
 - **OpenAI GPT-4:** [OpenAI Docs](https://platform.openai.com/docs)

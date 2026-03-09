@@ -268,17 +268,17 @@ async function sendMagicLinkEmail(email, token, baseUrl) {
     const mailOptions = {
         from: process.env.EMAIL_FROM || 'owen@we3kings.dev',
         to: email,
-        subject: 'Your MoveTrack Login Link',
+        subject: 'Your Nexus Moves Login Link',
         html: `
-            <h2>Login to MoveTrack</h2>
+            <h2>Login to Nexus Moves</h2>
             <p>Click the link below to log in to your account. This link will expire in ${MAGIC_LINK_EXPIRY_MINUTES} minutes.</p>
-            <p><a href="${magicLink}" style="display: inline-block; padding: 12px 24px; background-color: #FF865E; color: white; text-decoration: none; border-radius: 4px;">Log In to MoveTrack</a></p>
+            <p><a href="${magicLink}" style="display: inline-block; padding: 12px 24px; background-color: #FF865E; color: white; text-decoration: none; border-radius: 4px;">Log In to Nexus Moves</a></p>
             <p>Or copy and paste this link into your browser:</p>
             <p>${magicLink}</p>
             <p>If you didn't request this login link, you can safely ignore this email.</p>
         `,
         text: `
-Login to MoveTrack
+Login to Nexus Moves
 
 Click the link below to log in to your account. This link will expire in ${MAGIC_LINK_EXPIRY_MINUTES} minutes.
 
@@ -301,7 +301,7 @@ If you didn't request this login link, you can safely ignore this email.
 }
 
 /**
- * Send ReloPrep booking confirmation email with inventory PDF
+ * Send Nexus Moves booking confirmation email with inventory PDF
  */
 async function sendReloprepConfirmationEmail(userEmail, bookingData, pdfBuffer = null) {
     const {
@@ -317,7 +317,7 @@ async function sendReloprepConfirmationEmail(userEmail, bookingData, pdfBuffer =
     const mailOptions = {
         from: process.env.EMAIL_FROM || 'owen@we3kings.dev',
         to: userEmail,
-        subject: 'Your ReloPrep Move is Confirmed!',
+        subject: 'Your Nexus Moves booking is confirmed!',
         html: `
             <!DOCTYPE html>
             <html>
@@ -337,7 +337,7 @@ async function sendReloprepConfirmationEmail(userEmail, bookingData, pdfBuffer =
                 <div class="container">
                     <div class="header">
                         <h1>🎉 Your Move is Confirmed!</h1>
-                        <p>Thank you for choosing ReloPrep</p>
+                        <p>Thank you for choosing Nexus Moves</p>
                     </div>
                     <div class="content">
                         <h2>Hi${userName ? ' ' + userName : ''}! 👋</h2>
@@ -383,7 +383,7 @@ async function sendReloprepConfirmationEmail(userEmail, bookingData, pdfBuffer =
                         <div class="footer">
                             <p><strong>Price Guarantee:</strong> This price is guaranteed based on the inventory in your PDF and the access conditions you described. Changes to inventory or access may result in additional charges from the moving partner.</p>
                             <p>Questions? Email us at <a href="mailto:support@we3kings.dev">support@we3kings.dev</a></p>
-                            <p style="color: #999; margin-top: 20px;">© ${new Date().getFullYear()} ReloPrep. All rights reserved.</p>
+                            <p style="color: #999; margin-top: 20px;">© ${new Date().getFullYear()} Nexus Moves. All rights reserved.</p>
                         </div>
                     </div>
                 </div>
@@ -391,7 +391,7 @@ async function sendReloprepConfirmationEmail(userEmail, bookingData, pdfBuffer =
             </html>
         `,
         text: `
-Your ReloPrep Move is Confirmed!
+Your Nexus Moves booking is confirmed!
 
 Hi${userName ? ' ' + userName : ''}!
 
@@ -424,7 +424,7 @@ Price Guarantee: This price is guaranteed based on the inventory in your PDF and
 
 Questions? Email us at support@we3kings.dev
 
-© ${new Date().getFullYear()} ReloPrep. All rights reserved.
+© ${new Date().getFullYear()} Nexus Moves. All rights reserved.
         `
     };
 
@@ -440,7 +440,7 @@ Questions? Email us at support@we3kings.dev
     try {
         if (emailTransporter) {
             await emailTransporter.sendMail(mailOptions);
-            console.log('ReloPrep confirmation email sent successfully to:', userEmail);
+            console.log('Nexus Moves confirmation email sent successfully to:', userEmail);
             return { success: true };
         } else {
             console.log('No email transporter configured - would have sent confirmation to:', userEmail);

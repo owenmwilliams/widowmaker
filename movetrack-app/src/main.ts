@@ -79,7 +79,7 @@ Notify.setDefaults({
     classes: 'notify-high-z'
 });
 
-setCssVar('primary', '#274690');    // ReloPrep Royal Blue
+setCssVar('primary', '#274690');    // Nexus Moves Royal Blue
 setCssVar('secondary', '#1CA1C1');  // Proof Cyan
 setCssVar('accent', '#1CA1C1');     // Proof Cyan
 setCssVar('positive', '#2EBD85');   // On-Time Green

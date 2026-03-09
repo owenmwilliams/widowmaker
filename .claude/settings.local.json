@@ -43,7 +43,8 @@
       "Bash(done)",
       "Bash(gcloud run services list:*)",
       "Bash(git config:*)",
-      "Bash(gcloud run services update:*)"
+      "Bash(gcloud run services update:*)",
+      "WebFetch(domain:docs.twelvelabs.io)"
     ],
     "deny": [],
     "ask": []

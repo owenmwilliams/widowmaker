@@ -1,6 +1,6 @@
-# MoveTrack API Testing Guide
+# Nexus Moves API Testing Guide
 
-This directory contains comprehensive test suites for the MoveTrack API.
+This directory contains comprehensive test suites for the Nexus Moves API.
 
 ## Test Structure
 
@@ -8,8 +8,8 @@ This directory contains comprehensive test suites for the MoveTrack API.
 tests/
 ├── setup.js                 # Test database setup and helper functions
 ├── collections.test.js      # Collection CRUD operations tests
-├── items.test.js           # Item CRUD operations with MoveTrack fields
-├── containers.test.js      # Container CRUD operations with MoveTrack fields
+├── items.test.js           # Item CRUD operations with Nexus Moves fields
+├── containers.test.js      # Container CRUD operations with Nexus Moves fields
 └── e2e-workflow.test.js    # End-to-end workflow scenarios
 ```
 
@@ -105,7 +105,7 @@ The test suite covers:
 
 ### Items API (`items.test.js`)
 - ✅ Creating items with basic fields
-- ✅ Creating items with all MoveTrack fields:
+- ✅ Creating items with all Nexus Moves fields:
   - `estimated_value` (decimal)
   - `fragile` (boolean)
   - `priority` (low/normal/high)
@@ -121,7 +121,7 @@ The test suite covers:
 
 ### Containers API (`containers.test.js`)
 - ✅ Creating containers with basic fields
-- ✅ Creating containers with all MoveTrack fields:
+- ✅ Creating containers with all Nexus Moves fields:
   - `box_number` (string)
   - `box_type` (small/medium/large/wardrobe/custom)
   - `sealed` (boolean)
@@ -166,7 +166,7 @@ The `setup.js` file provides these helper functions:
 ### 1. Permissions Bug Fix Verification
 Tests verify that the `granted_by` field is properly included when creating permissions for collections and items (this was the critical bug that crashed the API).
 
-### 2. New MoveTrack Fields
+### 2. New Nexus Moves Fields
 Tests ensure all new fields added during migration are:
 - Accepted by POST endpoints
 - Properly stored in database

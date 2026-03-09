@@ -12,7 +12,7 @@ const { analyzeVideo } = require('./videoScanService');
 let geminiClient = null;
 if (process.env.GOOGLE_AI_API_KEY) {
   geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-  console.log('[nexusService] Gemini configured');
+  console.log('[censusAgentService] Gemini configured');
 }
 
 const GEMINI_MODELS = {
@@ -35,7 +35,7 @@ const knex = require('knex')({
 
 // ── System Prompt ───────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are Nexus, the MoveTrack AI assistant. You help people manage their moves and catalog their belongings through natural conversation.
+const SYSTEM_PROMPT = `You are Nexus, the Nexus Moves AI assistant. You help people manage their moves and catalog their belongings through natural conversation.
 
 PERSONALITY:
 - Warm, efficient, encouraging. Like a helpful friend who has moved dozens of times.
@@ -880,6 +880,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   // ── 1. Resolve active session (one per user) ──────────────────────────────
   let session = await db.oneOrNone(
     `SELECT * FROM nexus_sessions WHERE user_id = $1 AND is_active = TRUE
+     AND session_type IN ('census', 'onboarding', 'general')
      ORDER BY updated_at DESC LIMIT 1`,
     [userId]
   );

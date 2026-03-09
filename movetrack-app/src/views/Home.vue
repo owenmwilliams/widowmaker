@@ -55,7 +55,7 @@ const planRows = [
           </div>
           <div class="hero-visual">
             <q-card flat class="visual-card">
-              <img src="https://storage.googleapis.com/widowmaker-site-images/temp_hero_banner_4.png" alt="MoveTrack hero" class="hero-image" />
+              <img src="https://storage.googleapis.com/widowmaker-site-images/temp_hero_banner_4.png" alt="Nexus Moves hero" class="hero-image" />
             </q-card>
           </div>
         </section>
@@ -387,7 +387,7 @@ const planRows = [
 
     <q-footer bordered class="footer">
       <div class="constrained footer-content">
-        <div class="text-caption text-grey-7">&copy; 2025 ReloPrep</div>
+        <div class="text-caption text-grey-7">&copy; 2025 Nexus Moves</div>
         <div class="footer-links">
           <q-btn flat no-caps dense label="Terms" class="footer-link" @click="showTermsOfService = true" />
           <q-btn flat no-caps dense label="Privacy" class="footer-link" @click="showPrivacyPolicy = true" />

@@ -1,6 +1,6 @@
-# MoveTrack - Native iOS Application
+# Nexus Moves - Native iOS Application
 
-A native Swift/SwiftUI application for MoveTrack inventory management.
+A native Swift/SwiftUI application for Nexus Moves inventory management.
 
 **Status:** 🔧 Login Working - Testing in Progress
 **Created:** December 26, 2025
@@ -107,7 +107,7 @@ MoveTrack-iOS/
 ### Prerequisites
 - macOS with Xcode 15.0+
 - Apple Developer account (free tier OK for simulator)
-- MoveTrack API running on localhost:3050
+- Nexus Moves API running on localhost:3050
 
 ### Get Running in 3 Steps
 
@@ -474,7 +474,7 @@ Fix: Verify URL scheme
 
 ## 📄 License
 
-Proprietary - MoveTrack / ReloPrep
+Proprietary - Nexus Moves / Nexus Moves
 © 2025 All Rights Reserved
 
 ---

@@ -1,4 +1,4 @@
-# Add MoveTrack Files to Xcode Project
+# Add Nexus Moves Files to Xcode Project
 
 ## Quick Method (Drag & Drop)
 
@@ -19,20 +19,20 @@ In Xcode project navigator:
 
 ### 3. Add All Files at Once
 
-**Option A: Drag the Entire MoveTrack Folder**
+**Option A: Drag the Entire Nexus Moves Folder**
 1. In Finder, navigate to `/Users/owenwilliams/Projects/widowmaker/MoveTrack-iOS/`
 2. Drag the `MoveTrack` folder into Xcode's project navigator
 3. In the dialog:
    - ✅ Check "Copy items if needed"
    - ✅ Select "Create groups"
-   - ✅ Add to target: MoveTrack
+   - ✅ Add to target: Nexus Moves
 4. Click "Finish"
 
 **Option B: Add Files Manually**
 If drag & drop doesn't work, add each folder:
 
 1. Right-click on `MoveTrack` in Xcode navigator
-2. Select "Add Files to MoveTrack..."
+2. Select "Add Files to Nexus Moves..."
 3. Navigate to each folder and add:
    - Add `Models` folder (5 files)
    - Add `Services` folder (4 files)
@@ -119,8 +119,8 @@ MoveTrack/
 
 ### 6. Configure URL Scheme
 
-1. Click on project (blue MoveTrack icon) in navigator
-2. Select MoveTrack target (under TARGETS)
+1. Click on project (blue Nexus Moves icon) in navigator
+2. Select Nexus Moves target (under TARGETS)
 3. Go to "Info" tab
 4. Scroll to "URL Types"
 5. Click "+" button
@@ -158,7 +158,7 @@ Press `⌘B` to build
 ### Build Errors
 **"Cannot find 'X' in scope"**
 - Right-click file → Show File Inspector
-- Check "Target Membership" → MoveTrack is checked
+- Check "Target Membership" → Nexus Moves is checked
 
 **Deployment Target Error**
 - Project Settings → Deployment Info → iOS 15.0+

@@ -1,6 +1,6 @@
 //
 //  MagicLinkSentView.swift
-//  MoveTrack
+//  Nexus Moves
 //
 //  Created on 2025-12-26.
 //
@@ -48,7 +48,7 @@ struct MagicLinkSentView: View {
 
                     InstructionRow(
                         number: "2",
-                        text: "Find the email from MoveTrack"
+                        text: "Find the email from Nexus Moves"
                     )
 
                     InstructionRow(

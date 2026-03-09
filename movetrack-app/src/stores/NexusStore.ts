@@ -3,18 +3,18 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import { inventoryStore } from "./InventoryStore";
 
-export interface CensusAction {
+export interface NexusAction {
   tool: string;
   args: Record<string, any>;
   result?: Record<string, any>;
 }
 
-export interface CensusMessage {
+export interface NexusMessage {
   id: number;
   role: "user" | "model";
   content: string;
   attachments?: { url: string; mimeType: string }[];
-  actions?: CensusAction[];
+  actions?: NexusAction[];
   created_at: string;
 }
 
@@ -23,18 +23,16 @@ export interface QuickStartChip {
   message: string;
 }
 
-export interface CensusSession {
+export interface NexusSession {
   id: string;
   title: string | null;
   session_type: string;
-  items_added: number;
-  rooms_added: number;
   is_active: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export const censusStore = defineStore("census", () => {
+export const nexusStore = defineStore("nexus", () => {
   const core_url =
     import.meta.env.MODE == "development"
       ? "http://localhost:3050"
@@ -50,9 +48,9 @@ export const censusStore = defineStore("census", () => {
 
   // ── State ──────────────────────────────────────────────────────────────────
 
-  const messages = ref<CensusMessage[]>([]);
+  const messages = ref<NexusMessage[]>([]);
   const sessionId = ref<string | null>(null);
-  const session = ref<CensusSession | null>(null);
+  const session = ref<NexusSession | null>(null);
   const isLoading = ref(false);
   const isUploading = ref(false);
   const quickStartChips = ref<QuickStartChip[]>([]);
@@ -63,7 +61,7 @@ export const censusStore = defineStore("census", () => {
   async function loadActiveSession() {
     try {
       const headers = getHeaders();
-      const res = await axios.get(core_url + "/census/active-session", {
+      const res = await axios.get(core_url + "/nexus/active-session", {
         headers,
       });
       if (res.data.session) {
@@ -84,7 +82,7 @@ export const censusStore = defineStore("census", () => {
       }
       quickStartChips.value = res.data.quickStartChips || [];
     } catch (err) {
-      console.error("[CensusStore] loadActiveSession failed:", err);
+      console.error("[NexusStore] loadActiveSession failed:", err);
     }
   }
 
@@ -92,9 +90,8 @@ export const censusStore = defineStore("census", () => {
     text: string,
     attachments?: { url: string; mimeType: string }[],
   ) {
-    // Optimistic push of user message
     const tempId = Date.now();
-    const userMsg: CensusMessage = {
+    const userMsg: NexusMessage = {
       id: tempId,
       role: "user",
       content: text,
@@ -107,7 +104,7 @@ export const censusStore = defineStore("census", () => {
 
     try {
       const headers = getHeaders();
-      const response = await fetch(core_url + "/census/message", {
+      const response = await fetch(core_url + "/nexus/message", {
         method: "POST",
         headers: {
           ...headers,
@@ -152,7 +149,6 @@ export const censusStore = defineStore("census", () => {
                 statusText.value = event.label || event.tool || "Working…";
                 break;
               case "tool_result":
-                // Brief flash — next event will update
                 break;
               case "done":
                 result = event;
@@ -171,7 +167,7 @@ export const censusStore = defineStore("census", () => {
 
       sessionId.value = result.sessionId;
 
-      const modelMsg: CensusMessage = {
+      const modelMsg: NexusMessage = {
         id: tempId + 1,
         role: "model",
         content: result.reply,
@@ -180,9 +176,9 @@ export const censusStore = defineStore("census", () => {
       };
       messages.value.push(modelMsg);
 
-      // If items were added/deleted, refresh inventory in background
+      // If items were added/deleted (via Census delegation), refresh inventory
       const inventoryChanged = (result.actions || []).some(
-        (a: CensusAction) =>
+        (a: NexusAction) =>
           (a.tool === "add_item" || a.tool === "delete_item") &&
           a.result?.success,
       );
@@ -196,7 +192,6 @@ export const censusStore = defineStore("census", () => {
 
       return result;
     } catch (err: any) {
-      // Remove optimistic message on error
       messages.value = messages.value.filter((m) => m.id !== tempId);
       throw err;
     } finally {
@@ -218,9 +213,9 @@ export const censusStore = defineStore("census", () => {
         "Content-Type": "multipart/form-data",
       };
 
-      const res = await axios.post(core_url + "/census/upload", formData, {
+      const res = await axios.post(core_url + "/nexus/upload", formData, {
         headers,
-        timeout: 120000, // 2 min for large video uploads
+        timeout: 120000,
       });
 
       return { url: res.data.url, mimeType: res.data.mimeType };
@@ -233,15 +228,14 @@ export const censusStore = defineStore("census", () => {
     if (!sessionId.value) return;
     try {
       const headers = getHeaders();
-      await axios.delete(core_url + `/census/sessions/${sessionId.value}`, {
+      await axios.delete(core_url + `/nexus/sessions/${sessionId.value}`, {
         headers,
       });
-      // Reset to welcome state — next message creates a fresh session
       session.value = null;
       sessionId.value = null;
       messages.value = [];
     } catch (err) {
-      console.error("[CensusStore] clearConversation failed:", err);
+      console.error("[NexusStore] clearConversation failed:", err);
     }
   }
 

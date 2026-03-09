@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import NexusChat from '../NexusChat.vue';
+import CensusChat from '../CensusChat.vue';
 
 defineProps<{ user: string }>();
 </script>
 
 <template>
-  <div class="desktop-nexus">
+  <div class="desktop-census">
     <div class="chat-container">
-      <NexusChat :user="user" />
+      <CensusChat :user="user" />
     </div>
   </div>
 </template>
 
 <style scoped>
-.desktop-nexus {
+.desktop-census {
   display: flex;
   justify-content: center;
   height: 100vh;

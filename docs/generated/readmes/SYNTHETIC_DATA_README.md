@@ -1,8 +1,8 @@
-# MoveTrack Synthetic Test Data
+# Nexus Moves Synthetic Test Data
 
 ## Overview
 
-A complete, realistic moving scenario has been generated for testing the MoveTrack application.
+A complete, realistic moving scenario has been generated for testing the Nexus Moves application.
 
 ## What Was Created
 
@@ -228,4 +228,4 @@ Edit `tooling/generate-test-data.js` to:
 
 ---
 
-*Generated for MoveTrack testing - realistic data for a typical 2-bedroom apartment move*
+*Generated for Nexus Moves testing - realistic data for a typical 2-bedroom apartment move*

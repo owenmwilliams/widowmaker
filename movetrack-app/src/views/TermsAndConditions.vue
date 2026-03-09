@@ -13,12 +13,12 @@ onMounted(() => {
 <template>
   <div class="content">
     <p class="last-updated">Last updated: November 16th, 2025</p>
-    <h4>ReloPrep &mdash; Terms of Service (Full Rewrite)</h4>
+    <h4>Nexus Moves &mdash; Terms of Service (Full Rewrite)</h4>
 
     <h5>1. Introduction</h5>
     <p>
-      Welcome to ReloPrep (“ReloPrep”, “we”, “our”, or “us”). These Terms of Service (“Terms” or “Agreement”)
-      govern your use of ReloPrep’s home-inventory and moving-related services, including our mobile and web
+      Welcome to Nexus Moves (“Nexus Moves”, “we”, “our”, or “us”). These Terms of Service (“Terms” or “Agreement”)
+      govern your use of Nexus Moves’ home-inventory and moving-related services, including our mobile and web
       applications, inventory tools, and estimate-generation services (collectively, the “Service”).
     </p>
     <p>
@@ -36,7 +36,7 @@ onMounted(() => {
 
     <h5>2. The Service</h5>
     <p>
-      ReloPrep provides tools and services to help users document their household items, plan for moves, and obtain
+      Nexus Moves provides tools and services to help users document their household items, plan for moves, and obtain
       estimated or “Guaranteed” moving costs.
     </p>
     <p>The Service includes:</p>
@@ -46,22 +46,22 @@ onMounted(() => {
       responsible for the accuracy and completeness of all submitted information.
     </p>
     <p>
-      While ReloPrep takes commercially reasonable steps to safeguard data, we do not guarantee against loss,
+      While Nexus Moves takes commercially reasonable steps to safeguard data, we do not guarantee against loss,
       corruption, or unauthorized access.
     </p>
     <h6>b. Moving Preparation &amp; Estimates</h6>
     <p>
-      ReloPrep generates moving cost estimates—either “Estimated” or “Guaranteed.” All estimates, including
+      Nexus Moves generates moving cost estimates—either “Estimated” or “Guaranteed.” All estimates, including
       Guaranteed Estimates, are based entirely on the information you provide. You agree that:
     </p>
     <ul>
       <li>AI-generated weights, volumes, classifications, and descriptions are approximate only</li>
       <li>You must review and correct all inventory data</li>
-      <li>ReloPrep is not responsible for errors, omissions, or inaccuracies in your inventory</li>
+      <li>Nexus Moves is not responsible for errors, omissions, or inaccuracies in your inventory</li>
     </ul>
 
     <h5>3. Guaranteed Estimate Terms</h5>
-    <p>A “Guaranteed Estimate” is a price ReloPrep will honor only if all conditions below are met.</p>
+    <p>A “Guaranteed Estimate” is a price Nexus Moves will honor only if all conditions below are met.</p>
 
     <h6>a. Eligibility Conditions</h6>
     <p>A Guaranteed Estimate is valid only if:</p>
@@ -75,7 +75,7 @@ onMounted(() => {
     </ul>
 
     <h6>b. When Guaranteed Estimates May Be Modified or Voided</h6>
-    <p>ReloPrep reserves the right to revise or void a Guaranteed Estimate if:</p>
+    <p>Nexus Moves reserves the right to revise or void a Guaranteed Estimate if:</p>
     <ul>
       <li>Your inventory is incomplete or inaccurate</li>
       <li>Weight or volume exceeds the estimate by more than 10%</li>
@@ -89,7 +89,7 @@ onMounted(() => {
 
     <h6>c. Scope of Guarantee</h6>
     <p>
-      The guarantee applies only to moves performed by ReloPrep itself, not by third-party movers. ReloPrep is
+      The guarantee applies only to moves performed by Nexus Moves itself, not by third-party movers. Nexus Moves is
       responsible only for its own services, not the services of any other moving company.
     </p>
 
@@ -100,14 +100,14 @@ onMounted(() => {
     </p>
     <p>All AI-generated information is approximate and for convenience only. You acknowledge that:</p>
     <ul>
-      <li>ReloPrep does not guarantee the accuracy of AI-generated outputs</li>
+      <li>Nexus Moves does not guarantee the accuracy of AI-generated outputs</li>
       <li>You are solely responsible for reviewing and correcting inventory data</li>
-      <li>ReloPrep is not liable for costs or consequences arising from inaccurate data</li>
+      <li>Nexus Moves is not liable for costs or consequences arising from inaccurate data</li>
     </ul>
 
     <h5>5. Data Use and Rights</h5>
     <p>
-      By submitting data (including images, descriptions, metadata, and inventory details), you grant ReloPrep a
+      By submitting data (including images, descriptions, metadata, and inventory details), you grant Nexus Moves a
       worldwide, perpetual, irrevocable, royalty-free license to use, process, analyze, store, modify, and reproduce the
       data to provide the Service.
     </p>
@@ -127,7 +127,7 @@ onMounted(() => {
     <h5>7. User Accounts</h5>
     <p>
       You must provide accurate, current information when creating an account. You are responsible for maintaining the
-      confidentiality of your password and for all activity under your account. You must notify ReloPrep immediately
+      confidentiality of your password and for all activity under your account. You must notify Nexus Moves immediately
       if you suspect unauthorized access.
     </p>
 
@@ -141,21 +141,21 @@ onMounted(() => {
       <li>Fraudulent or misleading inventory creation</li>
       <li>Attempting to bypass safety, estimation, or verification systems</li>
     </ul>
-    <p>ReloPrep may remove content or terminate accounts at its discretion.</p>
+    <p>Nexus Moves may remove content or terminate accounts at its discretion.</p>
 
     <h5>9. Third-Party Services</h5>
     <p>The Service may integrate with or refer you to third-party movers or vendors. You agree that:</p>
     <ul>
-      <li>ReloPrep is not responsible for the acts, omissions, pricing, service quality, or delays of third-party movers</li>
-      <li>ReloPrep does not guarantee that third-party movers will honor their estimates</li>
-      <li>You release ReloPrep from any claims arising from third-party services</li>
+      <li>Nexus Moves is not responsible for the acts, omissions, pricing, service quality, or delays of third-party movers</li>
+      <li>Nexus Moves does not guarantee that third-party movers will honor their estimates</li>
+      <li>You release Nexus Moves from any claims arising from third-party services</li>
     </ul>
 
     <h5>10. Limitation of Liability</h5>
     <p>To the fullest extent permitted by law:</p>
     <ul>
-      <li>ReloPrep’s total liability for any claim is limited to the greater of: (a) the amount you paid to ReloPrep, or (b) $100 USD</li>
-      <li>ReloPrep is not liable for: Lost or damaged items during a move; Inaccurate estimates (AI-generated or manual); Third-party mover actions; Business interruption, lost profits, or consequential damages; Data loss or corruption; Service availability issues; User errors, omissions, or misstatements</li>
+      <li>Nexus Moves’ total liability for any claim is limited to the greater of: (a) the amount you paid to Nexus Moves, or (b) $100 USD</li>
+      <li>Nexus Moves is not liable for: Lost or damaged items during a move; Inaccurate estimates (AI-generated or manual); Third-party mover actions; Business interruption, lost profits, or consequential damages; Data loss or corruption; Service availability issues; User errors, omissions, or misstatements</li>
       <li>Some jurisdictions do not allow such exclusions, so certain limitations may not apply.</li>
     </ul>
 

@@ -1,5 +1,5 @@
 /**
- * Jest Configuration for MoveTrack API Tests
+ * Jest Configuration for Nexus Moves API Tests
  */
 
 module.exports = {

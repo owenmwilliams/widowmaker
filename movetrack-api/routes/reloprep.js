@@ -4,7 +4,7 @@ const { sendReloprepConfirmationEmail } = require('../bin/authService');
 
 /**
  * POST /reloprep/send-confirmation
- * Send ReloPrep booking confirmation email with PDF attachment
+ * Send Nexus Moves booking confirmation email with PDF attachment
  *
  * Body params:
  * - email: recipient email

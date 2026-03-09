@@ -8,7 +8,7 @@
 
 ## Overview
 
-Successfully implemented SHA-256 token hashing for all authentication tokens in the MoveTrack API. This critical security improvement ensures that database breaches cannot expose active user sessions.
+Successfully implemented SHA-256 token hashing for all authentication tokens in the Nexus Moves API. This critical security improvement ensures that database breaches cannot expose active user sessions.
 
 ---
 

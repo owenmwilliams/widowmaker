@@ -1,6 +1,6 @@
 //
-//  MoveTrackApp.swift
-//  MoveTrack
+//  Nexus MovesApp.swift
+//  Nexus Moves
 //
 //  Created on 2025-12-26.
 //

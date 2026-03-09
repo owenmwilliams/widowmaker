@@ -48,7 +48,7 @@ function makeRequest(method, path) {
 }
 
 async function runTests() {
-  console.log('\n🧪 MoveTrack API Tests (No Auth)\n');
+  console.log('\n🧪 Nexus Moves API Tests (No Auth)\n');
   console.log('─'.repeat(60));
 
   try {
@@ -61,8 +61,8 @@ async function runTests() {
     const collectionId = createCollection.body[0]?.id;
     console.log(`  ✓ Created collection ID: ${collectionId}`);
 
-    // Test 2: Create Container with MoveTrack fields
-    console.log('\n📦 Test 2: Create Container with MoveTrack Fields');
+    // Test 2: Create Container with Nexus Moves fields
+    console.log('\n📦 Test 2: Create Container with Nexus Moves Fields');
     const createContainer = await makeRequest('POST', `/containers/post?user=${TEST_USER}&name=Test%20Box&collection=${collectionId}&box_number=BOX-TEST-001&box_type=medium&sealed=false&weight_lbs=10.5&fragile_contents=true&color_code=blue`);
     test('Containers POST returns 200', createContainer.status === 200);
     test('Containers POST returns ID', Array.isArray(createContainer.body) && createContainer.body[0]?.id);
@@ -93,8 +93,8 @@ async function runTests() {
       test(`Create ${boxType} box`, result.status === 200);
     }
 
-    // Test 6: Test container with all MoveTrack fields
-    console.log('\n📦 Test 6: Container with All MoveTrack Fields');
+    // Test 6: Test container with all Nexus Moves fields
+    console.log('\n📦 Test 6: Container with All Nexus Moves Fields');
     const fullContainer = await makeRequest('POST', `/containers/post?user=${TEST_USER}&name=Full%20Test%20Box&collection=${collectionId}&box_number=FULL-001&box_type=large&sealed=true&weight_lbs=25.5&fragile_contents=true&qr_code=QR123&color_code=yellow`);
     test('Container with all fields returns 200', fullContainer.status === 200);
     test('Container with all fields returns ID', Array.isArray(fullContainer.body) && fullContainer.body[0]?.id);

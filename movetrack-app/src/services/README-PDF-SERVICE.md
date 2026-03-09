@@ -20,7 +20,7 @@ For customers to download and share with movers themselves.
 - Professional format
 
 ### 2. Mover Bidding PDF
-For ReloPrep to send to moving companies when shopping for quotes.
+For Nexus Moves to send to moving companies when shopping for quotes.
 - Hides customer contact (uses quotes@reloprep.com)
 - Shows RFQ number and quote deadline
 - Full inventory specs

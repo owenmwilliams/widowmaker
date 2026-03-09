@@ -1,4 +1,4 @@
-# MoveTrack Security Action Plan
+# Nexus Moves Security Action Plan
 ## Comprehensive Security Improvement Roadmap
 
 **Created:** December 23, 2025
@@ -9,7 +9,7 @@
 
 ## Overview
 
-This document tracks all security improvements for the MoveTrack application based on the comprehensive security audit conducted on December 23, 2025.
+This document tracks all security improvements for the Nexus Moves application based on the comprehensive security audit conducted on December 23, 2025.
 
 **Current Security Grade:** C+ (Moderate)
 **Target Security Grade:** A (Production-Ready)

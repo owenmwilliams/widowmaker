@@ -353,7 +353,7 @@ router.post('/post', jsonParser, async function(req, res, next) {
       params.picture_url = gcs.toPublicUrl(req.body.picture_url)
     }
 
-    // New MoveTrack fields
+    // New Nexus Moves fields
     if(req.query.estimated_value) {
       params.estimated_value = req.query.estimated_value
     }
@@ -567,7 +567,7 @@ router.put('/update', jsonParser, async function(req, res, next) {
       params.picture_url = req.query.picture_url ? gcs.toPublicUrl(req.query.picture_url) : req.query.picture_url
     }
 
-    // New MoveTrack fields
+    // New Nexus Moves fields
     if(req.query.estimated_value !== undefined) {
       params.estimated_value = req.query.estimated_value
     }

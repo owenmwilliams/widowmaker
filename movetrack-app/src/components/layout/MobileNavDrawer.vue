@@ -174,14 +174,7 @@ const logout = () => {
         <q-item-section avatar>
           <q-icon name="auto_awesome" />
         </q-item-section>
-        <q-item-section>Nexus — Inventory</q-item-section>
-      </q-item>
-
-      <q-item clickable v-ripple class="drawer-item" @click="goTo('/mobile/vector')">
-        <q-item-section avatar>
-          <q-icon name="straighten" />
-        </q-item-section>
-        <q-item-section>Vector — Move Planning</q-item-section>
+        <q-item-section>Nexus</q-item-section>
       </q-item>
 
       <q-separator class="q-my-md" />

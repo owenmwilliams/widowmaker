@@ -12,11 +12,11 @@ onMounted(() => {
 
 <template>
   <div class="content">
-    <h4>ReloPrep Privacy Policy</h4>
+    <h4>Nexus Moves Privacy Policy</h4>
     <p class="last-updated">Last updated: November 16th, 2025</p>
 
     <p>
-      This Privacy Policy describes how ReloPrep (“ReloPrep”, “we”, “our”, or “us”) collects, uses, stores, shares, and
+      This Privacy Policy describes how Nexus Moves (“Nexus Moves”, “we”, “our”, or “us”) collects, uses, stores, shares, and
       protects your information when you access or use our website, applications, and services (collectively, the “Service”).
       It also explains your privacy rights and how the law protects you.
     </p>
@@ -30,15 +30,15 @@ onMounted(() => {
     <p class="subtitle">Definitions</p>
     <ul>
       <li><strong>Account:</strong> A unique account created for you to access our Service.</li>
-      <li><strong>Company:</strong> ReloPrep.</li>
+      <li><strong>Company:</strong> Nexus Moves.</li>
       <li><strong>Cookies:</strong> Small files stored on your device that help operate, analyze, and personalize the Service.</li>
       <li><strong>Country:</strong> California, United States.</li>
       <li><strong>Device:</strong> Any device capable of accessing the Service, such as phones, tablets, or computers.</li>
       <li><strong>Personal Data:</strong> Information identifying, relating to, or capable of being linked to an individual.</li>
-      <li><strong>Service:</strong> The ReloPrep website, mobile app, software, and tools.</li>
+      <li><strong>Service:</strong> The Nexus Moves website, mobile app, software, and tools.</li>
       <li><strong>Service Provider:</strong> Third parties that process data on our behalf.</li>
       <li><strong>Usage Data:</strong> Data collected automatically through your use of the Service.</li>
-      <li><strong>Website:</strong> www.reloprep.com (or any subdomains operated by ReloPrep).</li>
+      <li><strong>Website:</strong> www.reloprep.com (or any subdomains operated by Nexus Moves).</li>
       <li><strong>You:</strong> The individual or entity accessing or using the Service.</li>
     </ul>
 
@@ -86,17 +86,17 @@ onMounted(() => {
     <p>These tools help operate the Service, authenticate users, prevent fraud, analyze usage, and remember your preferences.</p>
 
     <h5>3. How We Use Your Personal Data</h5>
-    <p>ReloPrep may use your data for the following purposes:</p>
+    <p>Nexus Moves may use your data for the following purposes:</p>
     <p class="subtitle">a. To Provide and Maintain the Service</p>
     <ul>
-      <li>Operating the ReloPrep inventory system</li>
+      <li>Operating the Nexus Moves inventory system</li>
       <li>Generating moving estimates (including “Guaranteed Estimates”)</li>
       <li>Scheduling moves</li>
       <li>Processing payments</li>
       <li>Authenticating user accounts</li>
     </ul>
     <p class="subtitle">b. To Improve the Service and Train AI Models</p>
-    <p>You agree that ReloPrep may use: inventory images, descriptions, metadata, AI-generated results to train, improve, and refine our models, including AI systems used for item recognition, weight/volume estimation, and service optimization. Whenever possible, data is anonymized or aggregated.</p>
+    <p>You agree that Nexus Moves may use: inventory images, descriptions, metadata, AI-generated results to train, improve, and refine our models, including AI systems used for item recognition, weight/volume estimation, and service optimization. Whenever possible, data is anonymized or aggregated.</p>
     <p class="subtitle">c. To Contact You</p>
     <p>For: account updates; service notifications; move reminders; customer support; required legal notices.</p>
     <p class="subtitle">d. To Send Marketing Communications (Optional)</p>
@@ -140,7 +140,7 @@ onMounted(() => {
     </ul>
 
     <h5>6. Transfer of Personal Data</h5>
-    <p>Your data may be processed and stored in locations outside your state or country. ReloPrep: uses industry-standard security measures; ensures all transfers comply with applicable laws; requires recipients to maintain adequate protections.</p>
+    <p>Your data may be processed and stored in locations outside your state or country. Nexus Moves: uses industry-standard security measures; ensures all transfers comply with applicable laws; requires recipients to maintain adequate protections.</p>
 
     <h5>7. Your Rights</h5>
     <p>Depending on your jurisdiction, you may have the right to: access your data; correct inaccurate data; delete your data; request restrictions on processing; opt out of certain uses (e.g., marketing); request a copy of your data.</p>

@@ -1,4 +1,4 @@
--- MoveTrack Database Schema
+-- Nexus Moves Database Schema
 -- This schema represents the final state after all migrations (001-018)
 -- Key design principles:
 -- 1. UUID-based user identification for security and federation

@@ -1,8 +1,8 @@
-# MoveTrack
+# Nexus Moves
 
 **Smart Moving & Storage Inventory Management**
 
-MoveTrack is a comprehensive inventory management system designed specifically for moving, relocation, and storage use cases. Built on Vue 3 and Node.js, it helps individuals and families organize, track, and manage their belongings during moves and while in storage.
+Nexus Moves is a comprehensive inventory management system designed specifically for moving, relocation, and storage use cases. Built on Vue 3 and Node.js, it helps individuals and families organize, track, and manage their belongings during moves and while in storage.
 
 ## 🎯 Use Cases
 

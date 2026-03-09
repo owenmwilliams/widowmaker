@@ -1,6 +1,6 @@
-# MoveTrack - Migration & Implementation Notes
+# Nexus Moves - Migration & Implementation Notes
 
-This document outlines what has been created, what needs to be updated, and implementation priorities for the MoveTrack application.
+This document outlines what has been created, what needs to be updated, and implementation priorities for the Nexus Moves application.
 
 ## ✅ What's Been Created
 
@@ -24,7 +24,7 @@ This document outlines what has been created, what needs to be updated, and impl
   - `item_history`: Audit trail of item movements
 
 ### Configuration Files
-- `docker-compose.yaml`: Updated with MoveTrack branding, removed Web3, added environment variables
+- `docker-compose.yaml`: Updated with Nexus Moves branding, removed Web3, added environment variables
 - `.env.example`: Template for environment configuration
 - `.gitignore`: Standard ignores for Node.js, Docker, and sensitive files
 - `tooling/setup.sh`: Quick setup script for new users
@@ -369,7 +369,7 @@ When ready to migrate from TakeStock codebase:
 - [ ] Remove all Web3 imports and dependencies
 - [ ] Update API endpoint references
 - [ ] Remove Ethereum/blockchain components
-- [ ] Update branding (TakeStock → MoveTrack)
+- [ ] Update branding (TakeStock → Nexus Moves)
 - [ ] Test all existing functionality still works
 - [ ] Implement new API routes
 - [ ] Create new UI components

@@ -199,7 +199,7 @@ const redirectAfterLogin = (user: any) => {
         <div class="logo-row">
           <ReloPrepLogo :width="140" :height="34" />
         </div>
-        <div class="text-h4 q-mb-md">Login to MoveTrack</div>
+        <div class="text-h4 q-mb-md">Login to Nexus Moves</div>
 
         <!-- Verification error -->
         <div v-if="verificationError" class="text-center q-py-lg">

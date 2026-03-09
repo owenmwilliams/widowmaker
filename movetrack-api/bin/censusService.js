@@ -330,15 +330,23 @@ async function getQuickStartChips(userId) {
     candidates.push({ label: 'What am I missing?', message: 'What items or rooms might I be forgetting?', priority: 50 });
   }
 
+  // ── Priority 45: Move planning (Vector-oriented) ──
+  if (totalItems > 15) {
+    candidates.push({ label: 'How big is my move?', message: 'Based on my inventory, how big is my move?', priority: 45 });
+  }
+  if (totalItems > 20) {
+    candidates.push({ label: 'Estimate my costs', message: 'Can you estimate the cost of my move?', priority: 45 });
+  }
+  if (totalItems > 20) {
+    candidates.push({ label: 'What truck do I need?', message: 'What size truck do I need for my move?', priority: 45 });
+  }
+
   // ── Priority 40: Advanced ──
   if (totalItems > 15) {
     candidates.push({ label: 'Show my inventory summary', message: 'Give me a summary of my inventory', priority: 40 });
   }
   if (totalItems > 20) {
     candidates.push({ label: "How's my progress?", message: 'How complete is my inventory? What still needs work?', priority: 40 });
-  }
-  if (totalItems > 25) {
-    candidates.push({ label: 'Estimate my move size', message: 'Based on my inventory, how big is my move?', priority: 40 });
   }
 
   // ── Priority 30: Fill ──

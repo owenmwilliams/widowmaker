@@ -63,7 +63,7 @@ function assert(testName, condition, message) {
 
 // Run tests
 async function runTests() {
-  console.log('\n🧪 MoveTrack API Manual Tests\n');
+  console.log('\n🧪 Nexus Moves API Manual Tests\n');
   console.log('Testing API at:', API_BASE);
   console.log('─'.repeat(60));
 
@@ -82,8 +82,8 @@ async function runTests() {
       const collectionId = res.body[0].id;
       console.log(`  Created collection with ID: ${collectionId}`);
 
-      // Test 2: Create Item with MoveTrack fields
-      console.log('\n📦 Test 2: Create Item with MoveTrack Fields');
+      // Test 2: Create Item with Nexus Moves fields
+      console.log('\n📦 Test 2: Create Item with Nexus Moves Fields');
       makeRequest('POST', `/items/post?user=${TEST_USER}&name=Test%20Item&description=Test&quantity=1&collection=${collectionId}&estimated_value=99.99&fragile=true&priority=high&weight_lbs=5.5&dimensions=12x8x6&notes=Test%20notes`, (err, res) => {
         if (err) {
           assert('Create Item', false, `Error: ${err.message}`);
@@ -119,8 +119,8 @@ async function runTests() {
               assert('Retrieve Item - Notes', item.notes === 'Test notes', 'Notes match');
             }
 
-            // Test 4: Create Container with MoveTrack fields
-            console.log('\n📦 Test 4: Create Container with MoveTrack Fields');
+            // Test 4: Create Container with Nexus Moves fields
+            console.log('\n📦 Test 4: Create Container with Nexus Moves Fields');
             makeRequest('POST', `/containers/post?user=${TEST_USER}&name=Test%20Box&description=Test&collection=${collectionId}&box_number=BOX-001&box_type=medium&sealed=true&weight_lbs=15.5&fragile_contents=true&color_code=blue`, (err, res) => {
               if (err) {
                 assert('Create Container', false, `Error: ${err.message}`);

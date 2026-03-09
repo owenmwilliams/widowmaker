@@ -2,7 +2,7 @@
  * Containers API Integration Tests
  *
  * Tests for the /containers endpoints including:
- * - Creating containers with new MoveTrack fields
+ * - Creating containers with new Nexus Moves fields
  * - Retrieving containers
  * - Updating containers
  * - Testing sealed/unsealed functionality
@@ -56,7 +56,7 @@ describe('Containers API', () => {
       expect(response.body[0]).toHaveProperty('id');
     });
 
-    it('should create a container with all new MoveTrack fields', async () => {
+    it('should create a container with all new Nexus Moves fields', async () => {
       const response = await request(app)
         .post('/containers/post')
         .query({
@@ -164,7 +164,7 @@ describe('Containers API', () => {
   });
 
   describe('PUT /containers/update', () => {
-    it('should update container with new MoveTrack fields', async () => {
+    it('should update container with new Nexus Moves fields', async () => {
       const container = await createTestContainer('testuser', testCollection.id, testLocation.id);
 
       const response = await request(app)
@@ -241,7 +241,7 @@ describe('Containers API', () => {
   });
 
   describe('GET /containers/single', () => {
-    it('should retrieve container with all MoveTrack fields', async () => {
+    it('should retrieve container with all Nexus Moves fields', async () => {
       const container = await createTestContainer('testuser', testCollection.id, testLocation.id);
 
       const response = await request(app)

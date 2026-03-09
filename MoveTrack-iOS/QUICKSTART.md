@@ -1,4 +1,4 @@
-# MoveTrack iOS - Quick Start Guide
+# Nexus Moves iOS - Quick Start Guide
 
 ## Getting the App Running in Xcode
 
@@ -48,7 +48,7 @@
 
    For each Swift file I created, do this:
    - Right-click on the appropriate folder
-   - Select "Add Files to MoveTrack..."
+   - Select "Add Files to Nexus Moves..."
    - Navigate to the file
    - Check "Copy items if needed"
    - Click "Add"
@@ -177,7 +177,7 @@ MoveTrack API Server listening on port 3050
 ### Test 1: Authentication
 
 1. **Open Login Screen**
-   - You should see the MoveTrack logo and email input
+   - You should see the Nexus Moves logo and email input
 
 2. **Enter Your Email**
    ```

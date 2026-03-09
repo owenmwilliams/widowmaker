@@ -2,7 +2,7 @@
  * Items API Integration Tests
  *
  * Tests for the /items endpoints including:
- * - Creating items with new MoveTrack fields
+ * - Creating items with new Nexus Moves fields
  * - Retrieving items
  * - Updating items
  * - Deleting items
@@ -60,7 +60,7 @@ describe('Items API', () => {
       expect(response.body[0]).toHaveProperty('id');
     });
 
-    it('should create an item with all new MoveTrack fields', async () => {
+    it('should create an item with all new Nexus Moves fields', async () => {
       const response = await request(app)
         .post('/items/post')
         .query({
@@ -180,7 +180,7 @@ describe('Items API', () => {
   });
 
   describe('PUT /items/update', () => {
-    it('should update item with new MoveTrack fields', async () => {
+    it('should update item with new Nexus Moves fields', async () => {
       const item = await createTestItem('testuser', testCollection.id);
 
       const response = await request(app)
@@ -235,7 +235,7 @@ describe('Items API', () => {
   });
 
   describe('GET /items/single', () => {
-    it('should retrieve item with all MoveTrack fields', async () => {
+    it('should retrieve item with all Nexus Moves fields', async () => {
       const item = await createTestItem('testuser', testCollection.id);
 
       const response = await request(app)

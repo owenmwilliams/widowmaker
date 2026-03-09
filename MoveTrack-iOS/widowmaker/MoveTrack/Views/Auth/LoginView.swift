@@ -1,6 +1,6 @@
 //
 //  LoginView.swift
-//  MoveTrack
+//  Nexus Moves
 //
 //  Created on 2025-12-26.
 //
@@ -29,7 +29,7 @@ struct LoginView: View {
                         .font(.system(size: 80))
                         .foregroundColor(.blue)
 
-                    Text("MoveTrack")
+                    Text("Nexus Moves")
                         .font(.largeTitle)
                         .fontWeight(.bold)
 

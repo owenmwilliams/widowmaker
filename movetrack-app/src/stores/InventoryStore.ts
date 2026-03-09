@@ -516,7 +516,7 @@ export const inventoryStore = defineStore("inventory", () => {
       params.container = null;
     }
 
-    // Add new MoveTrack fields if provided
+    // Add new Nexus Moves fields if provided
     if (estimatedValue !== null && estimatedValue !== undefined) {
       params.estimated_value = estimatedValue;
     }
@@ -1013,7 +1013,7 @@ export const inventoryStore = defineStore("inventory", () => {
 
     // Note: location is now inherited from collection, so we don't pass it
 
-    // Add new MoveTrack fields if provided
+    // Add new Nexus Moves fields if provided
     if (boxNumber) {
       parameters.box_number = boxNumber;
     }

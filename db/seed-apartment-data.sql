@@ -1,4 +1,4 @@
--- Seed data for MoveTrack: 2BR/2BA Seattle Apartment
+-- Seed data for Nexus Moves: 2BR/2BA Seattle Apartment
 -- User: owen@we3kings.dev
 
 \connect movetrack_db;

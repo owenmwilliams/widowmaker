@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes how image uploads are handled in MoveTrack, including GDPR/CCPA compliance for user data deletion.
+This document describes how image uploads are handled in Nexus Moves, including GDPR/CCPA compliance for user data deletion.
 
 ---
 

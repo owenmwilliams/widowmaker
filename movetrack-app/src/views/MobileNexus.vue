@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
-import CensusChat from '../components/census/CensusChat.vue'
+import NexusChat from '../components/nexus/NexusChat.vue'
 
 const core_url = import.meta.env.MODE === 'development'
   ? 'http://localhost:3050'
@@ -54,7 +54,7 @@ async function checkUser () {
 
 <template>
   <div v-if="isCheckingUser" class="mobile-route-loader"></div>
-  <CensusChat v-else :user="userId" />
+  <NexusChat v-else :user="userId" />
 </template>
 
 <style scoped>

@@ -22,7 +22,7 @@ defineProps({
   },
   alt: {
     type: String,
-    default: 'ReloPrep logo'
+    default: 'Nexus Moves logo'
   },
   logoSrc: {
     type: String,

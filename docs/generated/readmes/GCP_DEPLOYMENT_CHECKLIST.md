@@ -1,6 +1,6 @@
 # GCP Deployment Checklist - Fresh Environment Setup
 
-This guide details every configuration change needed to deploy MoveTrack to a new Google Cloud Platform project.
+This guide details every configuration change needed to deploy Nexus Moves to a new Google Cloud Platform project.
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ This guide details every configuration change needed to deploy MoveTrack to a ne
 export PROJECT_ID="your-new-project-id"  # CHANGE THIS
 
 # Create project (or use existing)
-gcloud projects create $PROJECT_ID --name="MoveTrack Production"
+gcloud projects create $PROJECT_ID --name="Nexus Moves Production"
 
 # Set as active project
 gcloud config set project $PROJECT_ID
