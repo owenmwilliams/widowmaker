@@ -1,10 +1,10 @@
 const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-const gcs = require('../bin/gcsService');
-const videoScanService = require('../bin/videoScanService');
-const { extractSharpestFrame } = require('../bin/frameExtractor');
-const { authenticate, resolveEffectivePlan } = require('../bin/authService');
+const gcs = require('../../bin/gcsService');
+const videoScanService = require('../../services/vision/geminiVideoScanService');
+const { extractSharpestFrame } = require('../../services/vision/frameExtractor');
+const { authenticate, resolveEffectivePlan } = require('../../bin/authService');
 
 const router = express.Router();
 
@@ -72,13 +72,18 @@ router.post('/upload', upload.single('video'), async (req, res) => {
 
   // ── Step 2: Analyze via Gemini (inline base64) ───────────────────────────────
   const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
+  const promptOverride =
+    typeof req.body?.prompt === 'string' && req.body.prompt.trim()
+      ? req.body.prompt.trim()
+      : null;
 
   let rawText, items, parseError;
   try {
     ({ rawText, items, parseError } = await videoScanService.analyzeVideo(
       req.file.buffer,
       req.file.mimetype,
-      plan
+      plan,
+      promptOverride
     ));
   } catch (err) {
     console.error('[videoScan] Gemini analysis failed:', err?.message);

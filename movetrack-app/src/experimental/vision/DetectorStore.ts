@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { Detector, createDetector, DetectorType } from '../utils/detectors';
+import { Detector, createDetector, DetectorType } from './detectors';
 
 export const useDetectorStore = defineStore('detector', () => {
   const detector = ref<Detector | null>(null);

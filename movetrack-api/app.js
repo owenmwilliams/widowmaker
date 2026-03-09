@@ -40,7 +40,7 @@ var billingRouter = require('./routes/billing');
 var billingWebhook = require('./routes/billingWebhook');
 var onboardingRouter = require('./routes/onboarding');
 var importsRouter = require('./routes/imports');
-var visionLabRouter = require('./routes/visionLab');
+var visionLabRouter = require('./routes/experimental/visionLab');
 var adminRouter = require('./routes/admin');
 var reloprepRouter = require('./routes/reloprep');
 var nexusRouter = require('./routes/nexus');
@@ -178,11 +178,14 @@ app.use('/admin', adminRouter)
 app.use('/reloprep', reloprepRouter)
 
 // Experimental vision features - admin only
-const visionLabVideoRouter = require('./routes/visionLabVideo');
+const visionLabVideoRouter = require('./routes/experimental/visionLabVideo');
 app.use('/vision-lab-video', visionLabVideoRouter);
+app.use('/admin/vision-lab', visionLabRouter);
 
-const video12labsRouter = require('./routes/video12labs');
-app.use('/video-12labs', video12labsRouter);
+const videoGeminiRouter = require('./routes/vision/video-gemini');
+app.use('/vision/video', videoGeminiRouter);
+// Backwards-compatible alias (deprecated)
+app.use('/video-12labs', videoGeminiRouter);
 
 // Conversational agents
 app.use('/nexus', rateLimits.apiLimiter, nexusRouter);

@@ -3,7 +3,7 @@
  *
  * Shared Google Cloud Storage client and helpers.
  * Centralises bucket access, signed-URL generation, and upload utilities
- * so that files.js, video12labs.js, and future routes all share one client.
+ * so that files.js, vision video routes, and future endpoints share one client.
  */
 
 const { Storage } = require('@google-cloud/storage');

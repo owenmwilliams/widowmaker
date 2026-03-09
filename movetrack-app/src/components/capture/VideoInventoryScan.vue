@@ -118,7 +118,7 @@ const startProcessing = async () => {
     formData.append('video', selectedFile.value);
 
     const res = await axios.post(
-      `${API_BASE}/video-12labs/upload`,
+      `${API_BASE}/vision/video/upload`,
       formData,
       {
         headers: { ...buildHeaders(), 'Content-Type': 'multipart/form-data' },

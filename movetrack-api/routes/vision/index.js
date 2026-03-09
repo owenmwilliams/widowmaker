@@ -2,9 +2,10 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const vision = require('@google-cloud/vision');
-const visionService = require('../bin/visionService');
-const { authenticate, resolveEffectivePlan } = require('../bin/authService');
-const { verifyToken } = require('../bin/jwtMiddleware');
+const visionService = require('../../services/vision/visionService');
+const augmentationService = require('../../services/vision/augmentationService');
+const { authenticate, resolveEffectivePlan } = require('../../bin/authService');
+const { verifyToken } = require('../../bin/jwtMiddleware');
 var router = express.Router();
 const multer = require('multer');
 const knex = require('knex')({
@@ -29,7 +30,7 @@ const usageTableReady = ensureUsageTable();
 // };
 
 // if (isLocalEnvironment) {
-//   storageOptions.keyFilename = path.join(__dirname, '../devkeys/service-account.json');
+//   storageOptions.keyFilename = path.join(__dirname, '../../devkeys/service-account.json');
 // }
 
 // Create a Vision API client using the default service account identity
@@ -38,7 +39,7 @@ const usageTableReady = ensureUsageTable();
 let visionClient;
 if (process.env.NODE_ENV !== 'production' || process.env.NODE_ENV === 'demo') {
   const localKeyPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
-    || path.join(__dirname, '../devkeys/service-account.json');
+    || path.join(__dirname, '../../devkeys/service-account.json');
   if (localKeyPath && fs.existsSync(localKeyPath)) {
     const serviceAccountKey = require(localKeyPath);
     visionClient = new vision.ImageAnnotatorClient({ credentials: serviceAccountKey });
@@ -289,6 +290,67 @@ router.post('/analyze-item', verifyToken, upload.single('image'), async (req, re
       error: error.message,
       requestId
     });
+  }
+});
+
+// POST route to augment a single item from an image (callable by frontend)
+// REQUIRES AUTHENTICATION
+// Accepts either multipart file upload OR JSON with imageUrl
+router.post('/augment-item', verifyToken, upload.single('image'), async (req, res) => {
+  const requestId = `augment-${Date.now()}`;
+  console.log(`[${requestId}] === Augment item request ===`);
+  console.log(`[${requestId}] User:`, req.user?.user_id);
+
+  try {
+    let imageSource, mimeType;
+    const itemHint = req.body.itemHint || null;
+
+    if (req.body.imageUrl) {
+      imageSource = req.body.imageUrl;
+      mimeType = req.body.mimeType || 'image/jpeg';
+
+      const isGcsUrl = imageSource.includes('storage.googleapis.com') || imageSource.startsWith('gs://');
+      const isDataUrl = imageSource.startsWith('data:');
+      if (!isGcsUrl && !isDataUrl) {
+        return res.status(400).json({ error: 'Only Google Cloud Storage URLs or data URLs are allowed' });
+      }
+    } else if (req.file) {
+      imageSource = req.file.buffer.toString('base64');
+      mimeType = req.file.mimetype;
+    } else {
+      return res.status(400).json({ error: 'No image provided (imageUrl or file required)' });
+    }
+
+    let provider = (req.query.provider || req.body.provider || '').toLowerCase();
+    const ADMIN_USERS = (process.env.ADMIN_USERS || '').toLowerCase().split(',').map(e => e.trim()).filter(Boolean);
+    const isAdmin = req.user?.is_admin || ADMIN_USERS.includes(req.user?.email?.toLowerCase());
+    const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
+
+    if (isAdmin) {
+      provider = provider || visionService.getCurrentProvider();
+    } else if (plan === 'pro') {
+      provider = 'gemini-pro';
+    } else {
+      provider = 'gemini';
+    }
+
+    const result = await augmentationService.augmentItemFromImage(imageSource, mimeType, provider, itemHint);
+    if (result.success) {
+      if (result.data) {
+        if (result.data.color && !result.data.primary_color) {
+          result.data.primary_color = result.data.color;
+        }
+        result.data.material = result.data.material || null;
+        result.data.primary_color = result.data.primary_color || null;
+        result.data.tags = result.data.tags || [];
+      }
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    console.error(`[${requestId}] Augmentation error:`, error.message);
+    res.status(500).json({ success: false, error: error.message, requestId });
   }
 });
 

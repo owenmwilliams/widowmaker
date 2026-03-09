@@ -19,7 +19,7 @@ import OnboardingFirstItem from '../views/onboarding/OnboardingFirstItem.vue'
 import OnboardingNextSteps from '../views/onboarding/OnboardingNextSteps.vue'
 import OnboardingMobileCapture from '../views/onboarding/OnboardingMobileCapture.vue'
 import DesktopInventoryUpload from '../views/onboarding/DesktopInventoryUpload.vue'
-import VisionLab from '../views/VisionLab.vue'
+import VisionLab from '../experimental/vision/VisionLab.vue'
 import ProgressButtonTest from '../views/ProgressButtonTest.vue'
 import PdfInventoryTest from '../views/PdfInventoryTest.vue'
 import { hasCompletedOnboarding } from '../utils/onboarding'
@@ -148,26 +148,26 @@ const router = createRouter({
     {
       path: "/vision-lab-video",
       name: "vision-lab-video",
-      component: () => import('../views/VisionLabVideo.vue'),
+      component: () => import('../experimental/vision/VisionLabVideo.vue'),
       beforeEnter: adminGuard
     },
     {
-      path: "/vision-lab-12labs",
-      name: "vision-lab-12labs",
-      component: () => import('../views/VisionLab12Labs.vue'),
-      beforeEnter: adminGuard
+      path: "/video-capture",
+      name: "video-capture",
+      component: () => import('../features/vision/video/GeminiVideoCapture.vue'),
+      beforeEnter: authGuard
     },
     {
       path: "/model-selection",
       name: "model-selection",
-      component: () => import('../views/ModelSelection.vue'),
-      beforeEnter: authGuard
+      component: () => import('../experimental/vision/ModelSelection.vue'),
+      beforeEnter: adminGuard
     },
     {
       path: "/mobile-live-scan",
       name: "mobile-live-scan",
-      component: () => import('../views/MobileLiveScanSimple.vue'),
-      beforeEnter: authGuard
+      component: () => import('../experimental/vision/MobileLiveScan.vue'),
+      beforeEnter: adminGuard
     },
     // Test pages - only available in development
     ...(import.meta.env.MODE === 'development'

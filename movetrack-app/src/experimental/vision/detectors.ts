@@ -209,7 +209,7 @@ export class YoloWorldDetector implements Detector {
       try {
         console.log(`[YOLO-World] Attempting Web Worker...`);
         this.worker = new Worker(
-          new URL('../workers/yolo-world.worker.ts', import.meta.url),
+          new URL('./workers/yolo-world.worker.ts', import.meta.url),
           { type: 'module' }
         );
 

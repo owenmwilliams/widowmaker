@@ -110,18 +110,18 @@ const adminFeatures = [
     badge: 'Experimental'
   },
   {
-    name: 'Twelve Labs Video',
-    description: 'Full video analysis using Twelve Labs Pegasus model for inventory extraction',
-    icon: 'video_library',
-    route: '/vision-lab-12labs',
-    badge: 'Experimental'
-  },
-  {
     name: 'Frame-based Vision',
-    description: 'Client-side frame extraction with blur/entropy scoring and Claude analysis',
+    description: 'Client-side frame extraction with blur/entropy scoring and multi-step analysis',
     icon: 'movie_filter',
     route: '/vision-lab-video',
     badge: 'Dev Only'
+  },
+  {
+    name: 'Model Selection',
+    description: 'Switch between experimental on-device detectors',
+    icon: 'tune',
+    route: '/model-selection',
+    badge: 'Experimental'
   },
   {
     name: 'Vision Lab',
@@ -157,6 +157,14 @@ const navigateToFeature = (route: string) => {
           Choose which AI provider to use for analyzing photos of your items
         </div>
         <VisionProviderToggle @provider-changed="handleProviderChanged" />
+        <q-btn
+          color="primary"
+          label="Open Video Capture"
+          icon="video_library"
+          outline
+          class="full-width q-mt-md"
+          @click="navigateToFeature('/video-capture')"
+        />
       </div>
 
       <q-separator class="q-my-lg" />

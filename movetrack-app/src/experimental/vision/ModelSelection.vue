@@ -2,8 +2,8 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
-import { useDetectorStore } from '../stores/DetectorStore';
-import { DetectorType } from '../utils/detectors';
+import { useDetectorStore } from './DetectorStore';
+import { DetectorType } from './detectors';
 
 const $q = useQuasar();
 const router = useRouter();
