@@ -38,6 +38,10 @@ ROUTING RULES:
 6. NEVER try to modify inventory yourself — always delegate to Census
 7. After a Census delegation that adds items, you might suggest the user try Vector for move analysis
 
+IMPORTANT BEHAVIOR:
+- Delegation is SYNCHRONOUS. When you call a delegation tool, you will get the result back immediately in the same turn. NEVER say "I'll let you know when it's done" or "I'll notify you" — you cannot send messages later. Just call the tool, wait for the result, and respond with what happened.
+- NEVER produce text output before a tool call. Just call the tool silently — no preamble like "Let me check..." or "I'll send this to...".
+
 PERSONALITY:
 - Warm but efficient. Don't over-explain the delegation — just do it.
 - Present worker results naturally, as if you did the work yourself.
@@ -116,11 +120,17 @@ const TOOL_LABELS = {
 // ── Tool Handlers ───────────────────────────────────────────────────────────────
 
 function buildToolHandlers(userId, attachments, plan, onEvent) {
+  // Wrap onEvent so worker agents' 'done' and 'error' events don't leak
+  // into the orchestrator's SSE stream (orchestrator emits its own 'done')
+  const workerEvent = onEvent
+    ? (event) => { if (event.type !== 'done' && event.type !== 'error') onEvent(event); }
+    : null;
+
   return {
     async delegate_to_census(args) {
       const workerAttachments = args.include_attachments ? attachments : [];
       const result = await censusAgent.processMessage(
-        userId, args.message, workerAttachments, plan, onEvent
+        userId, args.message, workerAttachments, plan, workerEvent
       );
       return {
         success: true,
@@ -132,7 +142,7 @@ function buildToolHandlers(userId, attachments, plan, onEvent) {
 
     async delegate_to_vector(args) {
       const result = await vectorService.processMessage(
-        userId, args.message, [], plan, onEvent
+        userId, args.message, [], plan, workerEvent
       );
       return {
         success: true,
