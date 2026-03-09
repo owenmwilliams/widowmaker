@@ -28,6 +28,8 @@ type ScannedFrame = {
   textureScore: number;
   previewUrl: string;
   file: File;
+  width: number;
+  height: number;
 };
 
 type RejectedFrame = {
@@ -483,7 +485,9 @@ const sampleVideoFile = async (file: File) => {
         entropy,
         textureScore,
         previewUrl: previewDataUrl,
-        file: frameFile
+        file: frameFile,
+        width: canvas.width,
+        height: canvas.height
       });
     }
     URL.revokeObjectURL(objectUrl);
@@ -658,7 +662,7 @@ const analyzeFrame = async (frame: ScannedFrame): Promise<FrameAnalysis> => {
       frameId: frame.id,
       name: frame.name,
       previewUrl: frame.previewUrl,
-      items: parsed.items,
+      items: normalizeItemsForFrame(parsed.items, frame),
       reasoning: parsed.reasoning,
       error: parsed.error,
       raw: parsed.raw
@@ -704,7 +708,7 @@ const runSamRefinement = async () => {
         if (refined?.boundingBox) {
           return {
             ...item,
-            boundingBox: refined.boundingBox,
+            boundingBox: normalizeBoxForFrame(refined.boundingBox, analysis) || refined.boundingBox,
             samScore: refined.samScore
           };
         }
@@ -1068,6 +1072,37 @@ const normalizeBoundingBox = (input: any): BoundingBox | null => {
   });
   return Object.keys(bbox).length ? bbox : null;
 };
+
+const normalizeBoxForFrame = (bbox: BoundingBox | null | undefined, frame?: ScannedFrame | FrameAnalysis | null) => {
+  if (!bbox) return null;
+  const x = Number(bbox.x);
+  const y = Number(bbox.y);
+  const width = Number(bbox.width);
+  const height = Number(bbox.height);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) return null;
+
+  const maxVal = Math.max(x, y, width, height);
+  if (maxVal <= 1) {
+    return { x, y, width, height };
+  }
+
+  const frameWidth = (frame as ScannedFrame)?.width;
+  const frameHeight = (frame as ScannedFrame)?.height;
+  if (!frameWidth || !frameHeight) return null;
+
+  return {
+    x: x / frameWidth,
+    y: y / frameHeight,
+    width: width / frameWidth,
+    height: height / frameHeight
+  };
+};
+
+const normalizeItemsForFrame = (items: DetectionItemSummary[], frame?: ScannedFrame | null) =>
+  items.map((item) => ({
+    ...item,
+    boundingBox: normalizeBoxForFrame(item.boundingBox || null, frame)
+  }));
 
 const clamp01 = (value: number | undefined) => {
   if (typeof value !== 'number') return 0;

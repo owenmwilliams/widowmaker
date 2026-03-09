@@ -110,6 +110,16 @@ function isAlreadyCaptured(detBbox: any): boolean {
   return capturedBboxes.value.some(c => computeIoU(c, detBbox) > 0.35);
 }
 
+function clampBoxToVideo(box: any, video: HTMLVideoElement) {
+  const maxX = Math.max(1, video.videoWidth || 1);
+  const maxY = Math.max(1, video.videoHeight || 1);
+  const originX = Math.max(0, Math.min(box.originX || 0, maxX - 1));
+  const originY = Math.max(0, Math.min(box.originY || 0, maxY - 1));
+  const width = Math.max(1, Math.min(box.width || 0, maxX - originX));
+  const height = Math.max(1, Math.min(box.height || 0, maxY - originY));
+  return { ...box, originX, originY, width, height };
+}
+
 // Brief white flash on capture
 function triggerCaptureFlash(box: any) {
   if (flashAnimId !== null) cancelAnimationFrame(flashAnimId);
@@ -344,7 +354,7 @@ function handleCanvasTap(event: MouseEvent) {
 function captureItem(det: any) {
   const video = videoRef.value;
   if (!video) return;
-  const box = det.bbox;
+  const box = clampBoxToVideo(det.bbox, video);
   const detectedLabel = det.category;
   const category = getCategoryFromLabel(detectedLabel);
 

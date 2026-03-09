@@ -434,6 +434,10 @@ export class YoloWorldDetector implements Detector {
 
     const detections: Detection[] = [];
     const scale = Math.min(this.inputSize / originalWidth, this.inputSize / originalHeight);
+    const scaledWidth = originalWidth * scale;
+    const scaledHeight = originalHeight * scale;
+    const offsetX = (this.inputSize - scaledWidth) / 2;
+    const offsetY = (this.inputSize - scaledHeight) / 2;
 
     for (let i = 0; i < numDetections; i++) {
       const x = data[i];
@@ -453,8 +457,9 @@ export class YoloWorldDetector implements Detector {
 
       if (maxScore < this.confidenceThreshold) continue;
 
-      const x1 = (x - w / 2) / scale;
-      const y1 = (y - h / 2) / scale;
+      // Undo letterboxing offsets before scaling back to original image space
+      const x1 = (x - w / 2 - offsetX) / scale;
+      const y1 = (y - h / 2 - offsetY) / scale;
       const width = w / scale;
       const height = h / scale;
 

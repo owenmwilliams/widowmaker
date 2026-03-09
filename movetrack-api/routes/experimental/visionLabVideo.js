@@ -3,6 +3,7 @@ const multer = require('multer');
 const bodyParser = require('body-parser');
 const { v4: uuidv4 } = require('uuid');
 const visionService = require('../../services/vision/visionService');
+const sharp = require('sharp');
 const { authenticate } = require('../../bin/authService');
 
 const router = express.Router();
@@ -159,6 +160,9 @@ async function processFrame(session, file) {
     session.lastProcessedAt = now;
     const base64 = file.buffer.toString('base64');
     const mimeType = file.mimetype;
+    const meta = await sharp(file.buffer).metadata();
+    const frameWidth = meta.width;
+    const frameHeight = meta.height;
     const detection = await visionService.analyzeMultiItemPhoto(base64, mimeType, 'together', {
       prompt: session.prompt
     });
@@ -173,7 +177,7 @@ async function processFrame(session, file) {
       detection.items.forEach((raw) => {
         const confidence = Number(raw.confidence || 0);
         if (confidence < MIN_CONFIDENCE) return;
-        const normalized = normalizeDetection(raw);
+        const normalized = normalizeDetection(raw, frameWidth, frameHeight);
         const trackId = assignTrack(session, normalized);
         const snapshotUrl = `data:${mimeType};base64,${base64}`;
 
@@ -212,11 +216,43 @@ async function processFrame(session, file) {
   }
 }
 
-function normalizeDetection(raw) {
+function clamp01(value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+function normalizeBox(input, frameWidth, frameHeight) {
+  if (!input || typeof input !== 'object') return null;
+  const x = Number(input.x);
+  const y = Number(input.y);
+  const width = Number(input.width ?? input.w);
+  const height = Number(input.height ?? input.h);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) return null;
+
+  const maxVal = Math.max(x, y, width, height);
+  if (maxVal <= 1) {
+    return {
+      x: clamp01(x),
+      y: clamp01(y),
+      width: clamp01(width),
+      height: clamp01(height)
+    };
+  }
+
+  if (!frameWidth || !frameHeight) return null;
+  return {
+    x: clamp01(x / frameWidth),
+    y: clamp01(y / frameHeight),
+    width: clamp01(width / frameWidth),
+    height: clamp01(height / frameHeight)
+  };
+}
+
+function normalizeDetection(raw, frameWidth, frameHeight) {
   return {
     label: raw.name || raw.label || 'Item',
     reasoning: raw.reasoning || 'Detected item from video frame',
-    bbox: raw.boundingBox || raw.bbox || null,
+    bbox: normalizeBox(raw.boundingBox || raw.bbox || null, frameWidth, frameHeight),
     confidence: Number(raw.confidence || 0)
   };
 }
