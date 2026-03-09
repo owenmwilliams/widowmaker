@@ -454,12 +454,14 @@ const getContainerCapacity = (containerValue: number) => {
   const items = getContainerItems(containerValue);
   const totalWeight = items.reduce((sum, item) => {
     const weight = toNumber(item.weight_lbs);
-    return sum + (weight ?? 0);
+    const quantity = Number(item.quantity) || 1;
+    return sum + ((weight ?? 0) * quantity);
   }, 0);
   const totalVolumeCubicInches = items.reduce((sum, item) => {
     const dims = parseItemDimensions(item);
     if (!dims) return sum;
-    return sum + (dims.length * dims.width * dims.height);
+    const quantity = Number(item.quantity) || 1;
+    return sum + (dims.length * dims.width * dims.height * quantity);
   }, 0);
   const totalVolumeCubicFeet = totalVolumeCubicInches / 1728;
 
@@ -480,7 +482,7 @@ const getPackingStatus = (containerValue: number) => {
 
   const items = getContainerItems(containerValue).map((item) => ({
     id: item.value,
-    weight: toNumber(item.weight_lbs) || 0,
+    weight: (toNumber(item.weight_lbs) || 0) * (Number(item.quantity) || 1),
     dimensions: parseItemDimensions(item) || undefined
   }));
 

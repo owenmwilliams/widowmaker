@@ -701,10 +701,11 @@ const getContainerCapacity = (containerId: number) => {
   if (!container) return null;
 
   const items = containerItemLists.value[containerId] || [];
-  const totalWeight = items.reduce(
-    (sum, item: any) => sum + (item.weight_lbs || 0),
-    0,
-  );
+  const totalWeight = items.reduce((sum, item: any) => {
+    const weight = Number(item.weight_lbs);
+    const quantity = Number(item.quantity) || 1;
+    return sum + ((Number.isFinite(weight) ? weight : 0) * quantity);
+  }, 0);
 
   return {
     itemCount: items.length,
