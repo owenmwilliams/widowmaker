@@ -20,12 +20,12 @@ Your job is to identify household items visible in this video and produce a stru
 Rules:
 - List large or heavy items individually: furniture, appliances, gym equipment, large electronics (TVs, monitors).
 - List fragile items individually: artwork, mirrors, musical instruments, glass items.
-- Consolidate small packable items by category using "~N boxes of [category]" format (e.g., "~3 boxes of books", "~2 boxes of kitchen items", "~1 box of clothing").
+- Consolidate small packable items by category. Use a SINGULAR unit name and set quantity to the count (e.g., name "Box of books" with quantity 3, NOT "~3 boxes of books" with quantity 1).
 - Target 15–20 total lines. Hard cap at 25 lines total.
 - Do not list the same item twice.
 - For each item, include:
-  - name: descriptive item name (e.g. "3-seat sofa", "55\\" TV", "~3 boxes of books")
-  - quantity: integer count (use 1 for consolidated box entries)
+  - name: descriptive name for ONE unit of the item (e.g. "3-seat sofa", "55\\" TV", "Box of books", "Dining chair"). Always describe a single unit.
+  - quantity: integer count of how many of this item exist. Use quantity > 1 for multiples (e.g. 4 dining chairs, 3 boxes of books).
   - room: the room or area where it appears (e.g. "living room", "bedroom", "kitchen", "garage", "unknown")
   - notes: one of "fragile", "requires disassembly", "heavy", "boxable", or "" if none
   - timestamp_seconds: integer seconds into the video where this item is most clearly visible
@@ -35,7 +35,8 @@ Return ONLY a valid JSON array with no markdown or explanation. Example:
 [
   {"name":"3-seat sofa","quantity":1,"room":"living room","notes":"heavy","timestamp_seconds":12,"bbox":{"x":0.05,"y":0.3,"w":0.6,"h":0.5}},
   {"name":"55\\" TV","quantity":1,"room":"living room","notes":"fragile","timestamp_seconds":18,"bbox":{"x":0.2,"y":0.1,"w":0.35,"h":0.4}},
-  {"name":"~3 boxes of books","quantity":1,"room":"office","notes":"boxable","timestamp_seconds":45,"bbox":null}
+  {"name":"Box of books","quantity":3,"room":"office","notes":"boxable","timestamp_seconds":45,"bbox":null},
+  {"name":"Dining chair","quantity":4,"room":"dining room","notes":"","timestamp_seconds":30,"bbox":null}
 ]`;
 
 /**

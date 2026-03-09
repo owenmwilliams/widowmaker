@@ -204,7 +204,7 @@ Return ONLY the JSON object, nothing else.`;
  */
 const MULTI_ITEM_VISION_PROMPT = `Analyze this photo for moving inventory. Identify the TOP 20 MOST PROMINENT household items visible in the image.
 
-If there are multiple items of the same type (e.g., books, plates, cups), GROUP THEM TOGETHER as a single entry like "Books (approximately X items)" or "Decorative vases (3 items)".
+If there are multiple items of the same type (e.g., books, plates, cups), GROUP THEM TOGETHER as a single entry. Use a SINGULAR unit name and put the count in the "quantity" field (e.g., name "Book" with quantity 50, NOT "Books (approximately 50 items)").
 
 Return ONLY valid JSON with this exact structure (no markdown, no additional text):
 
@@ -213,7 +213,8 @@ Return ONLY valid JSON with this exact structure (no markdown, no additional tex
   "items": [
     {
       "id": 1,
-      "name": "brief item name or grouped description",
+      "name": "brief name for ONE unit of the item",
+      "quantity": 1,
       "boundingBox": {
         "x": 0.0,
         "y": 0.0,
@@ -230,12 +231,12 @@ Return ONLY valid JSON with this exact structure (no markdown, no additional tex
 Important:
 - MAXIMUM 20 items in the items array
 - itemCount should match the number of items in the array (max 20)
+- "name" must describe ONE unit. "quantity" holds the count. Example: name "Dining chair", quantity 4 — NOT "4 dining chairs".
 - boundingBox coordinates are normalized (0.0 to 1.0 range) where:
   - x, y represent the top-left corner (as fraction of image width/height)
   - width, height represent the box size (as fraction of image width/height)
 - For grouped items, use the bounding box that encompasses the entire group
 - Prioritize larger, more prominent items over small details
-- Group similar items together (e.g., "Collection of books (50+ items)" instead of listing each book)
 - Confidence should reflect certainty about each item (0.0 = very uncertain, 1.0 = very certain)
 
 Return ONLY the JSON object, nothing else.`;

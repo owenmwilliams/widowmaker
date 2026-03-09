@@ -36,7 +36,9 @@ const buildContextSummary = (context = {}) => {
   const pieces = [];
   if (context.name) pieces.push(`Name: ${context.name}`);
   if (context.description) pieces.push(`Description: ${context.description}`);
-  if (context.quantity) pieces.push(`Quantity: ${context.quantity}`);
+  // Note: quantity is intentionally excluded from the context sent to the AI.
+  // Weight and dimensions must always be per-unit estimates; downstream code
+  // multiplies by quantity to compute totals.
   if (context.collection_name)
     pieces.push(`Collection: ${context.collection_name}`);
   if (context.container_name)
@@ -68,7 +70,8 @@ const buildContextSummary = (context = {}) => {
 const buildPrompt = (context = {}) => {
   const lines = [];
   lines.push(
-    `Estimate realistic shipping weight and bounding box dimensions for the described household item. ` +
+    `Estimate realistic shipping weight and bounding box dimensions for ONE SINGLE UNIT of the described household item. ` +
+      `Even if the description implies multiple units, estimate for exactly one individual item. ` +
       `Favor practical measurements movers would record before loading. Respond with JSON only (no markdown fences).`
   );
   lines.push('');
@@ -85,7 +88,8 @@ const buildPrompt = (context = {}) => {
 }`);
   lines.push('');
   lines.push(
-    'Guidelines: Use inches for dimensions and pounds for weight. Put the longest dimension under "length". If existing measurements are provided, keep them and set confidence ≥ 0.95. ' +
+    'Guidelines: Use inches for dimensions and pounds for weight. All values must be for ONE SINGLE UNIT — never multiply by quantity. ' +
+      'Put the longest dimension under "length". If existing measurements are provided, keep them and set confidence ≥ 0.95. ' +
       'If missing, estimate based on similar household items and mention your reasoning. Compute volume_cuft = length*width*height/1728 and round to 2 decimals.'
   );
   lines.push('');

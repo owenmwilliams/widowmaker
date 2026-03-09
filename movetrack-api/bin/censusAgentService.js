@@ -71,7 +71,7 @@ INVENTORY CENSUS RULES:
    - When calling add_item for photo-detected items, include the picture_url from the analyze_photo results if available.
    - The same confirmation rules apply to analyze_video — list detected items and wait for user approval before adding.
 4. If the user sends a video, call analyze_video to detect items. The same retry and confirmation rules from rule 3 apply.
-5. Use realistic weight/dimension estimates: queen mattress ~80 lbs, sofa ~100 lbs, dining chair ~20 lbs, bookshelf ~70 lbs, TV ~30 lbs, dresser ~120 lbs, desk ~60 lbs.
+5. Weight and dimension estimates are always PER SINGLE UNIT. Set quantity for multiples. Examples: queen mattress ~80 lbs qty 1, dining chair ~20 lbs qty 4, box of books ~35 lbs qty 3. Never multiply weight by quantity yourself — the system does that automatically.
 6. If a room doesn't exist yet, call add_room first, then add items.
 7. Confidence scoring:
    - 0.9+: user explicitly named the item with details
@@ -116,12 +116,12 @@ const toolDeclarations = [
       properties: {
         name:           { type: SchemaType.STRING, description: 'Descriptive item name, e.g. "Queen Bed Frame", "55-inch TV"' },
         room_name:      { type: SchemaType.STRING, description: 'Room name this item belongs to, e.g. "Master Bedroom", "Living Room"' },
-        quantity:       { type: SchemaType.INTEGER, description: 'How many. Default 1.' },
+        quantity:       { type: SchemaType.INTEGER, description: 'How many of this item. Default 1. Use quantity for multiples instead of baking the count into the name.' },
         description:    { type: SchemaType.STRING, description: 'Brief description' },
-        weight_lbs:     { type: SchemaType.NUMBER, description: 'Estimated weight in pounds' },
-        length_in:      { type: SchemaType.NUMBER, description: 'Length in inches' },
-        width_in:       { type: SchemaType.NUMBER, description: 'Width in inches' },
-        height_in:      { type: SchemaType.NUMBER, description: 'Height in inches' },
+        weight_lbs:     { type: SchemaType.NUMBER, description: 'Estimated weight in pounds for ONE unit of this item. Never multiply by quantity.' },
+        length_in:      { type: SchemaType.NUMBER, description: 'Length in inches for ONE unit' },
+        width_in:       { type: SchemaType.NUMBER, description: 'Width in inches for ONE unit' },
+        height_in:      { type: SchemaType.NUMBER, description: 'Height in inches for ONE unit' },
         fragile:        { type: SchemaType.BOOLEAN, description: 'Whether item is fragile' },
         material:       { type: SchemaType.STRING, description: 'Primary material (wood, metal, glass, etc.)' },
         primary_color:  { type: SchemaType.STRING, description: 'Primary color' },
