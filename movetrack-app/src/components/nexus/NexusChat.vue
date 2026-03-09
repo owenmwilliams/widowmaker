@@ -2,6 +2,7 @@
 import { ref, nextTick, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
+import { marked } from 'marked';
 import { nexusStore, type NexusMessage, type NexusAction } from '../../stores/NexusStore';
 
 const props = defineProps<{ user: string }>();
@@ -193,16 +194,19 @@ const handleButtonClick = (msgId: number, message: string) => {
 };
 
 // ── Message content rendering ────────────────────────────────────────────────
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+});
+
 const renderMessageContent = (content: string): string => {
-  const stripped = content.replace(/\[BUTTONS\][\s\S]*?\[\/BUTTONS\]/g, '').trim();
-  const escaped = stripped
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  return escaped.replace(
+  let text = content.replace(/\[BUTTONS\][\s\S]*?\[\/BUTTONS\]/g, '').trim();
+  // Handle inline photo tags before markdown parsing
+  text = text.replace(
     /\[IMG:(https?:\/\/[^\]]+)\]/g,
     '<img src="$1" class="msg-inline-photo" />'
   );
+  return marked.parse(text) as string;
 };
 
 // ── Auto-resume on mount ─────────────────────────────────────────────────────
@@ -459,9 +463,9 @@ const confirmClear = () => {
   padding: 10px 14px;
   border-radius: 16px;
   word-wrap: break-word;
-  white-space: pre-wrap;
 }
 .message-bubble.user {
+  white-space: pre-wrap;
   background: #1976d2;
   color: white;
   border-bottom-right-radius: 4px;
@@ -476,6 +480,55 @@ const confirmClear = () => {
 .msg-text {
   font-size: 14px;
   line-height: 1.5;
+}
+.msg-text :deep(p) {
+  margin: 0 0 8px;
+}
+.msg-text :deep(p:last-child) {
+  margin-bottom: 0;
+}
+.msg-text :deep(ul),
+.msg-text :deep(ol) {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+.msg-text :deep(li) {
+  margin-bottom: 2px;
+}
+.msg-text :deep(strong) {
+  font-weight: 600;
+}
+.msg-text :deep(code) {
+  background: rgba(0,0,0,0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 13px;
+}
+.msg-text :deep(h1),
+.msg-text :deep(h2),
+.msg-text :deep(h3) {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 8px 0 4px;
+}
+.msg-text :deep(h1:first-child),
+.msg-text :deep(h2:first-child),
+.msg-text :deep(h3:first-child) {
+  margin-top: 0;
+}
+.msg-text :deep(table) {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.msg-text :deep(th),
+.msg-text :deep(td) {
+  border: 1px solid #ddd;
+  padding: 4px 8px;
+}
+.msg-text :deep(th) {
+  background: rgba(0,0,0,0.04);
+  font-weight: 600;
 }
 
 .msg-attachments {
