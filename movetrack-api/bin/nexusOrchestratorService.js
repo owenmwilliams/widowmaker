@@ -220,6 +220,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   }
 
   // ── 3. Build Gemini contents from history ──────────────────────────────
+  // functionResponse must immediately follow a functionCall turn.
   const contents = [];
   for (const row of historyRows) {
     let role, part;
@@ -233,6 +234,11 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       role = 'model';
       part = { functionCall: { name: row.tool_name, args: row.tool_args || {} } };
     } else if (row.role === 'tool_result') {
+      // Only include functionResponse if preceded by a model turn with functionCall
+      const last = contents[contents.length - 1];
+      if (!last || last.role !== 'model' || !last.parts.some(p => p.functionCall)) {
+        continue;
+      }
       role = 'user';
       part = { functionResponse: { name: row.tool_name, response: row.tool_response || {} } };
     } else {
@@ -244,6 +250,20 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       last.parts.push(part);
     } else {
       contents.push({ role, parts: [part] });
+    }
+  }
+
+  // Ensure history starts with a user turn (Gemini requirement)
+  while (contents.length > 0 && contents[0].role !== 'user') {
+    contents.shift();
+  }
+  // Ensure history doesn't end with an orphaned functionCall
+  while (contents.length > 0) {
+    const lastEntry = contents[contents.length - 1];
+    if (lastEntry.role === 'model' && lastEntry.parts.every(p => p.functionCall)) {
+      contents.pop();
+    } else {
+      break;
     }
   }
 
