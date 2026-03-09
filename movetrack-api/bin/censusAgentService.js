@@ -4,8 +4,9 @@ const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('./db');
 const db = conn.db;
 const census = require('./censusService');
-const { analyzeMultiItemPhoto } = require('./visionService');
-const { analyzeVideo } = require('./videoScanService');
+const { analyzeMultiItemPhoto } = require('../services/vision/visionService');
+const { analyzeVideo } = require('../services/vision/geminiVideoScanService');
+const { buildGeminiContents } = require('./geminiHistoryBuilder');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
@@ -439,7 +440,7 @@ const toolHandlers = {
   async analyze_photo(args, userId) {
     try {
       const gcs = require('./gcsService');
-      const sharp = require('sharp');
+      const { cropByBoundingBox } = require('../services/images/crop');
       const https = require('https');
       const http = require('http');
 
@@ -461,30 +462,18 @@ const toolHandlers = {
       const itemCount = result.data?.itemCount || result.itemCount || items.length;
 
       // Crop each item by bounding box and upload to GCS
-      const meta = await sharp(imageBuffer).metadata();
-      const fw = meta.width;
-      const fh = meta.height;
-
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const bbox = item.boundingBox || item.bbox;
-        if (!bbox || !fw || !fh) continue;
+        if (!bbox) continue;
         try {
-          const left = Math.max(0, Math.round(bbox.x * fw));
-          const top = Math.max(0, Math.round(bbox.y * fh));
-          const width = Math.min(fw - left, Math.round((bbox.width || bbox.w) * fw));
-          const height = Math.min(fh - top, Math.round((bbox.height || bbox.h) * fh));
-          if (width < 10 || height < 10) continue;
-
-          const cropped = await sharp(imageBuffer)
-            .extract({ left, top, width, height })
-            .jpeg({ quality: 85 })
-            .toBuffer();
+          const cropped = await cropByBoundingBox(imageBuffer, bbox, { minSize: 10, quality: 85 });
+          if (!cropped) continue;
 
           const cropPath = `users/${userId}/nexus/crops/${Date.now()}-${i}.jpg`;
           await gcs.uploadBuffer(cropped, cropPath, 'image/jpeg');
           item.picture_url = `https://storage.googleapis.com/${gcs.BUCKET}/${cropPath}`;
-          console.log(`[nexus] Cropped photo item[${i}] "${item.name}" to ${width}x${height}`);
+          console.log(`[nexus] Cropped photo item[${i}] "${item.name}"`);
         } catch (cropErr) {
           console.warn(`[nexus] Crop failed for item[${i}]:`, cropErr.message);
         }
@@ -505,7 +494,7 @@ const toolHandlers = {
       const os = require('os');
       const path = require('path');
       const gcs = require('./gcsService');
-      const { extractSharpestFrame } = require('./frameExtractor');
+      const { extractSharpestFrame } = require('../services/vision/frameExtractor');
 
       const url = args.file_url;
       console.log(`[nexus] Downloading video for analysis: ${url}`);
@@ -916,56 +905,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   }
 
   // ── 3. Build Gemini contents from history ─────────────────────────────────
-  // Gemini requires strict role alternation: user → model → user → model.
-  // Multiple tool_calls must be merged into one model turn, and their
-  // tool_results into one user turn.
-  // Additionally: functionResponse must immediately follow a functionCall turn.
-  const contents = [];
-  for (const row of historyRows) {
-    let role, part;
-    if (row.role === 'user') {
-      role = 'user';
-      part = { text: row.content || '(empty)' };
-    } else if (row.role === 'model') {
-      role = 'model';
-      part = { text: row.content || '' };
-    } else if (row.role === 'tool_call') {
-      role = 'model';
-      part = { functionCall: { name: row.tool_name, args: row.tool_args || {} } };
-    } else if (row.role === 'tool_result') {
-      // Only include functionResponse if preceded by a model turn with functionCall
-      const last = contents[contents.length - 1];
-      if (!last || last.role !== 'model' || !last.parts.some(p => p.functionCall)) {
-        // Orphaned tool_result (e.g. after summary truncation) — skip it
-        continue;
-      }
-      role = 'user';
-      part = { functionResponse: { name: row.tool_name, response: row.tool_response || {} } };
-    } else {
-      continue;
-    }
-
-    const last = contents[contents.length - 1];
-    if (last && last.role === role) {
-      last.parts.push(part);
-    } else {
-      contents.push({ role, parts: [part] });
-    }
-  }
-
-  // Ensure history starts with a user turn (Gemini requirement)
-  while (contents.length > 0 && contents[0].role !== 'user') {
-    contents.shift();
-  }
-  // Ensure history doesn't end with an orphaned functionCall (model turn with no response)
-  while (contents.length > 0) {
-    const lastEntry = contents[contents.length - 1];
-    if (lastEntry.role === 'model' && lastEntry.parts.every(p => p.functionCall)) {
-      contents.pop();
-    } else {
-      break;
-    }
-  }
+  const contents = buildGeminiContents(historyRows);
 
   // ── 4. Add current user message ───────────────────────────────────────────
   const userParts = [];
