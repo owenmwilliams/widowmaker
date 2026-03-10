@@ -125,7 +125,13 @@ CONVERSATION FLOW (returning users):
 - If home context is unknown, ask about type, bedrooms, bathrooms.
 - Work room by room: "Let's start with the living room."
 - After each room: "Anything else in [room]? Let's move to [next room]."
-- End with summary: "Here's what we've got: [summary]. Anything I missed?"`;
+- End with summary: "Here's what we've got: [summary]. Anything I missed?"
+
+PROACTIVE GREETING (when the user's message is a session greeting like "hi", "hello", "hey", "what's up", "check in", "how's my inventory", or any general opening):
+1. Call inventory_readiness to get the current assessment.
+2. Greet the user warmly and share a brief, friendly summary of their readiness status — don't dump raw numbers, interpret them conversationally. For example: "Your inventory is shaping up nicely! You've got 34 items across 6 rooms. A few things would make it even stronger for movers..."
+3. Present exactly 3 suggested next steps as inline buttons based on the readiness results. Make the buttons actionable (e.g. "Add weights to items", "Catalog the Kitchen", "Take room photos").
+4. Keep the greeting short — 2-3 sentences max before the buttons.`;
 
 // ── Tool Declarations ───────────────────────────────────────────────────────────
 
@@ -347,6 +353,14 @@ const toolDeclarations = [
         zip:     { type: SchemaType.STRING, description: 'ZIP code' },
       },
       required: ['name'],
+    },
+  },
+  {
+    name: 'inventory_readiness',
+    description: 'Assess how ready the user\'s inventory is for sharing with moving companies. Returns an overall readiness score (0-100), per-category breakdown, and the top 3 next steps to improve readiness. Call this proactively when greeting a returning user or when they ask about their progress.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {},
     },
   },
 ];
@@ -900,6 +914,11 @@ const toolHandlers = {
     console.log(`[nexus] Updated location: "${loc.name}" → "${args.name || loc.name}" (id: ${loc.id})`);
     return { success: true, locationId: loc.id, oldName: loc.name, newName: args.name || loc.name };
   },
+
+  async inventory_readiness(args, userId) {
+    const assessment = await census.getReadinessAssessment(userId);
+    return { success: true, ...assessment };
+  },
 };
 
 // ── Conversation Loop ───────────────────────────────────────────────────────────
@@ -922,6 +941,7 @@ const TOOL_LABELS = {
   set_location: 'Setting location',
   update_location: 'Updating location',
   find_duplicates: 'Checking for duplicates',
+  inventory_readiness: 'Assessing inventory readiness',
 };
 
 /**

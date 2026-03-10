@@ -57,6 +57,7 @@ export const censusStore = defineStore("census", () => {
   const isUploading = ref(false);
   const quickStartChips = ref<QuickStartChip[]>([]);
   const statusText = ref("");
+  const shouldAutoGreet = ref(false);
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ export const censusStore = defineStore("census", () => {
         messages.value = [];
       }
       quickStartChips.value = res.data.quickStartChips || [];
+      shouldAutoGreet.value = !!res.data.shouldAutoGreet;
     } catch (err) {
       console.error("[CensusStore] loadActiveSession failed:", err);
     }
@@ -253,6 +255,7 @@ export const censusStore = defineStore("census", () => {
     isUploading,
     quickStartChips,
     statusText,
+    shouldAutoGreet,
     sendMessage,
     uploadPhoto,
     loadActiveSession,

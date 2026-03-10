@@ -112,7 +112,7 @@ router.get('/active-session', async (req, res) => {
     const quickStartChips = await census.getQuickStartChips(userId);
 
     if (!session) {
-      return res.json({ session: null, messages: [], quickStartChips });
+      return res.json({ session: null, messages: [], quickStartChips, shouldAutoGreet: true });
     }
 
     const messages = await db.any(
@@ -122,7 +122,13 @@ router.get('/active-session', async (req, res) => {
       [session.id]
     );
 
-    res.json({ session, messages: enrichMessagesWithActions(messages), quickStartChips });
+    // Auto-greet if session is stale (no activity for 30+ minutes)
+    const AUTO_GREET_MINUTES = 30;
+    const lastActivity = new Date(session.updated_at);
+    const minutesSinceActivity = (Date.now() - lastActivity.getTime()) / 60000;
+    const shouldAutoGreet = minutesSinceActivity >= AUTO_GREET_MINUTES;
+
+    res.json({ session, messages: enrichMessagesWithActions(messages), quickStartChips, shouldAutoGreet });
   } catch (err) {
     console.error('[census] active-session failed:', err);
     res.status(500).json({ error: err.message });

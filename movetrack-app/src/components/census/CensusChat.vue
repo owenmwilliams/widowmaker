@@ -176,6 +176,10 @@ const renderMessageContent = (content: string): string => {
 // ── Auto-resume on mount ─────────────────────────────────────────────────────
 onMounted(async () => {
   await store.loadActiveSession();
+  // Auto-greet: send a greeting if session is new or stale (30+ min inactive)
+  if (store.shouldAutoGreet) {
+    store.sendMessage('Hi, how\'s my inventory looking?').catch(() => {});
+  }
 });
 
 const confirmClear = () => {
