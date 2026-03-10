@@ -4,7 +4,7 @@ const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('./db');
 const db = conn.db;
 const census = require('./censusService');
-const { analyzeMultiItemPhoto } = require('../services/vision/visionService');
+const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../services/vision/visionService');
 const { analyzeVideo } = require('../services/vision/geminiVideoScanService');
 const { buildGeminiContents } = require('./geminiHistoryBuilder');
 
@@ -33,6 +33,23 @@ const knex = require('knex')({
   },
   pool: { min: 0, max: 5 },
 });
+
+// ── Helpers ──────────────────────────────────────────────────────────────────────
+
+const https = require('https');
+const http = require('http');
+
+function downloadBuffer(url) {
+  return new Promise((resolve, reject) => {
+    const client = url.startsWith('https') ? https : http;
+    client.get(url, (res) => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
 
 // ── System Prompt ───────────────────────────────────────────────────────────────
 
@@ -63,13 +80,18 @@ ONBOARDING FLOW (if user is new / has no inventory):
 INVENTORY CENSUS RULES:
 1. When the user mentions items, IMMEDIATELY call add_item. Don't ask for confirmation before adding clearly stated items.
 2. After adding items to a room, call get_missing_context to check for gaps and ask about likely missing items.
-3. If the user sends a photo, call analyze_photo to detect items.
-   - If analyze_photo returns empty items or fails, retry the call ONE more time.
-   - If it still fails or returns no usable data, do NOT guess or invent items. Instead, apologize and ask the user if they'd like to try another photo or describe the items manually.
-   - When analyze_photo succeeds, list the detected items for the user and ASK FOR CONFIRMATION before calling add_item. For example: "I can see: 1) Queen Bed, 2) Nightstand, 3) Dresser. Want me to add all of these, or would you like to make changes?"
-   - Only call add_item after the user confirms. If they want to remove or change items, adjust accordingly.
-   - When calling add_item for photo-detected items, include the picture_url from the analyze_photo results if available.
-   - The same confirmation rules apply to analyze_video — list detected items and wait for user approval before adding.
+3. PHOTO ANALYSIS:
+   a. When the user sends ONE photo of a room or area, call analyze_photo with mode "multi_item" to detect all visible items.
+   b. When the user sends MULTIPLE photos at once:
+      - Ask which room these photos are from (if not already established in conversation).
+      - Once you know the room, call analyze_photo ONCE with all images in the files[] array and mode "multi_item". This analyzes them holistically and avoids duplicates across photos.
+      - Do NOT call analyze_photo separately for each image — always batch them together.
+   c. When the user sends a CLOSE-UP photo of a single item (e.g., "here's my vintage lamp"), call analyze_photo with mode "single_item" for detailed analysis.
+   d. Use your judgment on mode: if the photo clearly shows one item up close, use single_item. If it shows a room or multiple items, use multi_item.
+   e. If analyze_photo returns empty items or fails, retry ONCE. If it still fails, apologize and ask the user to try another photo or describe items manually.
+   f. When analyze_photo succeeds, list the detected items and ASK FOR CONFIRMATION before calling add_item. For example: "I can see: 1) Queen Bed, 2) Nightstand, 3) Dresser. Want me to add all of these, or would you like to make changes?"
+   g. Only call add_item after the user confirms. Include the picture_url from analyze_photo results if available.
+   h. The same confirmation rules apply to analyze_video — list detected items and wait for user approval before adding.
 4. If the user sends a video, call analyze_video to detect items. The same retry and confirmation rules from rule 3 apply.
 5. Weight and dimension estimates are always PER SINGLE UNIT. Set quantity for multiples. Examples: queen mattress ~80 lbs qty 1, dining chair ~20 lbs qty 4, box of books ~35 lbs qty 3. Never multiply weight by quantity yourself — the system does that automatically.
 6. If a room doesn't exist yet, call add_room first, then add items.
@@ -168,15 +190,30 @@ const toolDeclarations = [
   },
   {
     name: 'analyze_photo',
-    description: 'Analyze an uploaded photo to detect and identify items in it. Returns a list of detected items.',
+    description: 'Analyze uploaded photo(s) to detect items. Supports: (1) multi_item mode with one photo for standard room scan, (2) multi_item mode with multiple photos of the SAME room for holistic cross-image analysis with deduplication, (3) single_item mode for a close-up of one specific item.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        file_url:  { type: SchemaType.STRING, description: 'GCS URL of the uploaded photo' },
-        mime_type: { type: SchemaType.STRING, description: 'MIME type, e.g. "image/jpeg"' },
-        room_hint: { type: SchemaType.STRING, description: 'Which room this photo is from, if known' },
+        files: {
+          type: SchemaType.ARRAY,
+          description: 'Array of photos to analyze. Use this when one or more photos are provided.',
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              file_url:  { type: SchemaType.STRING, description: 'GCS URL of the uploaded photo' },
+              mime_type: { type: SchemaType.STRING, description: 'MIME type, e.g. "image/jpeg"' },
+            },
+            required: ['file_url', 'mime_type'],
+          },
+        },
+        file_url:  { type: SchemaType.STRING, description: 'GCS URL of a single photo (use files[] instead when possible)' },
+        mime_type: { type: SchemaType.STRING, description: 'MIME type for single file_url' },
+        room_hint: { type: SchemaType.STRING, description: 'Which room these photo(s) are from. Required when analyzing multiple photos together.' },
+        mode: {
+          type: SchemaType.STRING,
+          description: 'Analysis mode: "multi_item" (default) scans for all visible items; "single_item" for a close-up of one item with detailed analysis.',
+        },
       },
-      required: ['file_url', 'mime_type'],
     },
   },
   {
@@ -441,45 +478,95 @@ const toolHandlers = {
     try {
       const gcs = require('./gcsService');
       const { cropByBoundingBox } = require('../services/images/crop');
-      const https = require('https');
-      const http = require('http');
 
-      // Download image from GCS URL to get buffer
-      const url = args.file_url;
-      const imageBuffer = await new Promise((resolve, reject) => {
-        const client = url.startsWith('https') ? https : http;
-        client.get(url, (res) => {
-          const chunks = [];
-          res.on('data', c => chunks.push(c));
-          res.on('end', () => resolve(Buffer.concat(chunks)));
-          res.on('error', reject);
-        }).on('error', reject);
-      });
+      // ── Normalize inputs ──
+      let files = args.files || [];
+      if (files.length === 0 && args.file_url) {
+        files = [{ file_url: args.file_url, mime_type: args.mime_type }];
+      }
+      if (files.length === 0) {
+        return { success: false, error: 'No photos provided' };
+      }
+      if (files.length > 5) {
+        return { success: false, error: 'Maximum 5 photos per call. Send additional photos in a separate call.' };
+      }
 
-      const base64 = imageBuffer.toString('base64');
-      const result = await analyzeMultiItemPhoto(base64, args.mime_type, 'gemini');
-      const items = result.data?.items || result.items || [];
-      const itemCount = result.data?.itemCount || result.itemCount || items.length;
+      const mode = args.mode || 'multi_item';
 
-      // Crop each item by bounding box and upload to GCS
+      // ── Download all images ──
+      const imageBuffers = [];
+      for (const file of files) {
+        try {
+          const buffer = await downloadBuffer(file.file_url);
+          imageBuffers.push({ buffer, mimeType: file.mime_type, url: file.file_url });
+        } catch (dlErr) {
+          console.warn(`[nexus] Failed to download ${file.file_url}:`, dlErr.message);
+        }
+      }
+      if (imageBuffers.length === 0) {
+        return { success: false, error: 'Failed to download any of the provided photos' };
+      }
+
+      // ── Single-item mode (close-up of one item) ──
+      if (mode === 'single_item') {
+        const base64 = imageBuffers[0].buffer.toString('base64');
+        const result = await analyzeItemPhoto(base64, imageBuffers[0].mimeType, 'gemini');
+        // Upload original as item photo — no cropping needed for close-ups
+        const photoPath = `users/${userId}/nexus/photos/${Date.now()}.jpg`;
+        await gcs.uploadBuffer(imageBuffers[0].buffer, photoPath, imageBuffers[0].mimeType);
+        const pictureUrl = `https://storage.googleapis.com/${gcs.BUCKET}/${photoPath}`;
+        return {
+          success: true,
+          mode: 'single_item',
+          item: { ...(result.data || result), picture_url: pictureUrl },
+        };
+      }
+
+      // ── Multi-item mode ──
+      let items, itemCount;
+
+      if (imageBuffers.length === 1) {
+        // Single image: existing multi-item path
+        const base64 = imageBuffers[0].buffer.toString('base64');
+        const result = await analyzeMultiItemPhoto(base64, imageBuffers[0].mimeType, 'gemini');
+        items = result.data?.items || result.items || [];
+        itemCount = result.data?.itemCount || result.itemCount || items.length;
+        items.forEach(item => { item.sourceImage = 1; });
+      } else {
+        // Multiple images: holistic cross-image analysis
+        console.log(`[nexus] Analyzing ${imageBuffers.length} photos holistically`);
+        const imageSources = imageBuffers.map(ib => ({
+          base64: ib.buffer.toString('base64'),
+          mimeType: ib.mimeType,
+        }));
+        const result = await analyzeMultiImagePhoto(imageSources, 'gemini');
+        items = result.data?.items || result.items || [];
+        itemCount = result.data?.itemCount || result.itemCount || items.length;
+      }
+
+      // ── Crop each item from its source image ──
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const bbox = item.boundingBox || item.bbox;
         if (!bbox) continue;
-        try {
-          const cropped = await cropByBoundingBox(imageBuffer, bbox, { minSize: 10, quality: 85 });
-          if (!cropped) continue;
 
+        // sourceImage is 1-based; default to 1
+        const srcIdx = (item.sourceImage || 1) - 1;
+        const sourceBuffer = imageBuffers[Math.min(srcIdx, imageBuffers.length - 1)].buffer;
+
+        try {
+          const cropped = await cropByBoundingBox(sourceBuffer, bbox, { minSize: 10, quality: 85 });
+          if (!cropped) continue;
           const cropPath = `users/${userId}/nexus/crops/${Date.now()}-${i}.jpg`;
           await gcs.uploadBuffer(cropped, cropPath, 'image/jpeg');
           item.picture_url = `https://storage.googleapis.com/${gcs.BUCKET}/${cropPath}`;
-          console.log(`[nexus] Cropped photo item[${i}] "${item.name}"`);
+          console.log(`[nexus] Cropped item[${i}] "${item.name}" from image ${srcIdx + 1}`);
         } catch (cropErr) {
           console.warn(`[nexus] Crop failed for item[${i}]:`, cropErr.message);
         }
       }
 
-      return { success: true, items, itemCount };
+      return { success: true, mode: 'multi_item', imageCount: imageBuffers.length, items, itemCount };
     } catch (err) {
       console.error('[nexus] analyze_photo failed:', err.message);
       return { success: false, error: err.message };
@@ -488,8 +575,6 @@ const toolHandlers = {
 
   async analyze_video(args, userId) {
     try {
-      const https = require('https');
-      const http = require('http');
       const fs = require('fs');
       const os = require('os');
       const path = require('path');
@@ -498,15 +583,7 @@ const toolHandlers = {
 
       const url = args.file_url;
       console.log(`[nexus] Downloading video for analysis: ${url}`);
-      const videoBuffer = await new Promise((resolve, reject) => {
-        const client = url.startsWith('https') ? https : http;
-        client.get(url, (res) => {
-          const chunks = [];
-          res.on('data', c => chunks.push(c));
-          res.on('end', () => resolve(Buffer.concat(chunks)));
-          res.on('error', reject);
-        }).on('error', reject);
-      });
+      const videoBuffer = await downloadBuffer(url);
 
       console.log(`[nexus] Video downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB`);
       const result = await analyzeVideo(videoBuffer, args.mime_type);
@@ -910,13 +987,18 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   // ── 4. Add current user message ───────────────────────────────────────────
   const userParts = [];
   if (message) userParts.push({ text: message });
-  // Inline media attachments
-  for (const att of attachments) {
-    if (att.url && att.mimeType?.startsWith('image/')) {
-      userParts.push({ text: `[User uploaded a photo: ${att.url} (type: ${att.mimeType})]` });
-    } else if (att.url && att.mimeType?.startsWith('video/')) {
-      userParts.push({ text: `[User uploaded a video: ${att.url} (type: ${att.mimeType})]` });
-    }
+  // Inline media attachments — batch images together so the agent uses files[]
+  const imageAtts = attachments.filter(a => a.url && a.mimeType?.startsWith('image/'));
+  const videoAtts = attachments.filter(a => a.url && a.mimeType?.startsWith('video/'));
+
+  if (imageAtts.length === 1) {
+    userParts.push({ text: `[User uploaded a photo: ${imageAtts[0].url} (type: ${imageAtts[0].mimeType})]` });
+  } else if (imageAtts.length > 1) {
+    const listing = imageAtts.map((a, i) => `  ${i + 1}. ${a.url} (${a.mimeType})`).join('\n');
+    userParts.push({ text: `[User uploaded ${imageAtts.length} photos — analyze together using files[] array with mode "multi_item":\n${listing}]` });
+  }
+  for (const att of videoAtts) {
+    userParts.push({ text: `[User uploaded a video: ${att.url} (type: ${att.mimeType})]` });
   }
   if (userParts.length === 0) userParts.push({ text: '(empty message)' });
   contents.push({ role: 'user', parts: userParts });

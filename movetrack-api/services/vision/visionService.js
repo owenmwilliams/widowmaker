@@ -241,6 +241,48 @@ Important:
 
 Return ONLY the JSON object, nothing else.`;
 
+const MULTI_IMAGE_VISION_PROMPT = `You are analyzing MULTIPLE photos of the SAME room for moving inventory. These images show the same space from different angles.
+
+CRITICAL: Deduplicate across images. If the same item appears in multiple photos, count it ONLY ONCE. Use visual cues (position, color, size, surroundings) to determine when two photos show the same item from different angles.
+
+Identify the TOP 20 MOST PROMINENT household items visible across ALL images combined.
+
+If there are multiple items of the same type (e.g., books, plates, cups), GROUP THEM TOGETHER as a single entry. Use a SINGULAR unit name and put the count in the "quantity" field.
+
+Return ONLY valid JSON with this exact structure (no markdown, no additional text):
+
+{
+  "itemCount": 0,
+  "items": [
+    {
+      "id": 1,
+      "name": "brief name for ONE unit of the item",
+      "quantity": 1,
+      "sourceImage": 1,
+      "boundingBox": {
+        "x": 0.0,
+        "y": 0.0,
+        "width": 0.0,
+        "height": 0.0
+      },
+      "confidence": 0.0,
+      "reasoning": "brief note; mention if visible in multiple photos"
+    }
+  ],
+  "reasoning": "overview of the room and how images overlap"
+}
+
+Important:
+- MAXIMUM 20 items in the items array
+- "sourceImage" is the 1-based index of the image where this item is MOST clearly visible (used for cropping the best photo of it)
+- boundingBox coordinates are normalized (0.0 to 1.0) relative to the sourceImage
+- "name" must describe ONE unit. "quantity" holds the count.
+- For grouped items, use the bounding box that encompasses the group in the sourceImage
+- Prioritize larger, more prominent items over small details
+- Confidence should reflect certainty (0.0 = very uncertain, 1.0 = very certain)
+
+Return ONLY the JSON object, nothing else.`;
+
 /**
  * Analyze photo using Claude 3.5 Sonnet Vision
  * @param {string} imageSource - Base64 string or URL
@@ -1049,6 +1091,110 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
 }
 
 /**
+ * Analyze multiple photos of the same room holistically using Gemini.
+ * Deduplicates items across images and returns sourceImage index for cropping.
+ * @param {Array<{base64: string, mimeType: string}>} imageSources
+ * @param {string} modelId
+ */
+async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-flash') {
+    if (!geminiClient) {
+        throw new Error('Google AI API key not configured');
+    }
+
+    try {
+        const model = geminiClient.getGenerativeModel({
+            model: modelId,
+            generationConfig: {
+                responseMimeType: "application/json",
+                maxOutputTokens: 8192
+            }
+        });
+
+        // Build parts: label each image then append the prompt
+        const parts = [];
+        for (let i = 0; i < imageSources.length; i++) {
+            let { base64, mimeType } = imageSources[i];
+            if (base64.startsWith('data:')) {
+                const [metadata, data] = base64.split(',');
+                base64 = data;
+                const match = metadata.match(/^data:(.*?);base64$/);
+                if (match) mimeType = match[1];
+            }
+            parts.push({ text: `[Image ${i + 1} of ${imageSources.length}]` });
+            parts.push({ inlineData: { data: base64, mimeType } });
+        }
+        parts.push({ text: MULTI_IMAGE_VISION_PROMPT });
+
+        let result;
+        try {
+            result = await model.generateContent(parts);
+        } catch (apiError) {
+            console.error('Gemini multi-image API call failed:', apiError);
+            throw new Error(`Gemini API error: ${apiError.message}`);
+        }
+
+        const jsonText = result.response.text();
+        console.log('[Gemini Multi-Image] Raw response:', jsonText);
+
+        // JSON parsing with retry — reuse pattern from analyzeMultiItemWithGemini
+        const tryParseJson = (text) => {
+            try { return JSON.parse(text); } catch (_) {}
+            const match = text.match(/\{[\s\S]*\}/);
+            if (match) {
+                try { return JSON.parse(match[0]); } catch (_) {}
+            }
+            return null;
+        };
+
+        let data = tryParseJson(jsonText);
+
+        if (!data) {
+            console.warn('[Gemini Multi-Image] Response unparseable, retrying once...');
+            let retryResult;
+            try {
+                retryResult = await model.generateContent(parts);
+            } catch (retryError) {
+                throw new Error(`Gemini API error on retry: ${retryError.message}`);
+            }
+            const retryText = retryResult.response.text();
+            console.log('[Gemini Multi-Image] Retry response:', retryText);
+            data = tryParseJson(retryText);
+            if (!data) {
+                throw new Error('AI returned invalid JSON format after retry');
+            }
+        }
+
+        if (!data.itemCount && !data.items) {
+            throw new Error('AI response missing required fields (itemCount or items)');
+        }
+        if (!Array.isArray(data.items)) {
+            data.items = [];
+        }
+        if (data.items.length > 20) {
+            console.log(`[Gemini Multi-Image] Returned ${data.items.length} items, truncating to 20`);
+            data.items = data.items.slice(0, 20);
+        }
+        if (typeof data.itemCount !== 'number') {
+            data.itemCount = data.items.length;
+        }
+
+        return {
+            success: true,
+            data,
+            provider: 'gemini',
+            model: modelId
+        };
+    } catch (error) {
+        console.error('Gemini Multi-Image Vision API error:', error);
+        return {
+            success: false,
+            error: error.message,
+            provider: 'gemini'
+        };
+    }
+}
+
+/**
  * Analyze photo for multiple items using Florence-2
  */
 async function analyzeMultiItemWithFlorence(base64Image, mimeType) {
@@ -1173,6 +1319,26 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, opt
 }
 
 /**
+ * Analyze multiple photos of the same room holistically.
+ * @param {Array<{base64: string, mimeType: string}>} imageSources
+ * @param {string} provider
+ */
+async function analyzeMultiImagePhoto(imageSources, provider = null) {
+    const providerToUse = provider || currentProvider;
+    console.log(`Analyzing ${imageSources.length} photos holistically with provider: ${providerToUse}`);
+
+    switch (providerToUse.toLowerCase()) {
+        case 'gemini':
+        case 'google':
+            return await analyzeMultiImageWithGemini(imageSources, 'gemini-2.5-flash');
+        default:
+            // Fallback: analyze first image only with multi-item
+            console.warn(`[Multi-Image] Provider ${providerToUse} does not support multi-image; falling back to first image only`);
+            return await analyzeMultiItemPhoto(imageSources[0].base64, imageSources[0].mimeType, providerToUse);
+    }
+}
+
+/**
  * Set the default vision provider
  */
 function setProvider(provider) {
@@ -1212,6 +1378,7 @@ function getAvailableProviders() {
 module.exports = {
     analyzeItemPhoto,
     analyzeMultiItemPhoto,
+    analyzeMultiImagePhoto,
     refineDetectionsWithSAM,
     setProvider,
     getCurrentProvider,
