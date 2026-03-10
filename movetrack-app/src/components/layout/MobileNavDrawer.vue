@@ -68,6 +68,16 @@ watch(
   { immediate: true },
 );
 
+const isAdmin = computed(() => {
+  try {
+    const raw = localStorage.getItem('user_data');
+    const parsed = raw ? JSON.parse(raw) : null;
+    return !!parsed?.is_admin;
+  } catch {
+    return false;
+  }
+});
+
 const closeDrawer = () => {
   emit("update:modelValue", false);
 };
@@ -175,6 +185,13 @@ const logout = () => {
           <q-icon name="auto_awesome" />
         </q-item-section>
         <q-item-section>Nexus</q-item-section>
+      </q-item>
+
+      <q-item v-if="isAdmin" clickable v-ripple class="drawer-item" @click="goTo('/mobile/census')">
+        <q-item-section avatar>
+          <q-icon name="inventory_2" />
+        </q-item-section>
+        <q-item-section>Census</q-item-section>
       </q-item>
 
       <q-separator class="q-my-md" />
