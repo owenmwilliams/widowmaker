@@ -232,4 +232,26 @@ router.post('/upload', upload.single('file'), async (req, res) => {
   }
 });
 
+// ─── POST /feedback ──────────────────────────────────────────────────────────
+// Record item-level feedback for precision/hallucination tracking.
+router.post('/feedback', express.json(), async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { itemId, feedback, interactionLogId } = req.body;
+  if (!itemId || !feedback) return res.status(400).json({ error: 'itemId and feedback required' });
+  if (!['correct', 'wrong', 'hallucinated'].includes(feedback)) {
+    return res.status(400).json({ error: 'feedback must be: correct, wrong, or hallucinated' });
+  }
+
+  try {
+    const metricsService = require('../bin/metricsService');
+    await metricsService.logItemFeedback(itemId, userId, feedback, interactionLogId || null);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[census] feedback failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

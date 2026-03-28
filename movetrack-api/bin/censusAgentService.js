@@ -7,6 +7,7 @@ const census = require('./censusService');
 const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../services/vision/visionService');
 const { analyzeVideo } = require('../services/vision/geminiVideoScanService');
 const { buildGeminiContents } = require('./geminiHistoryBuilder');
+const metrics = require('./metricsService');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
@@ -95,10 +96,11 @@ INVENTORY CENSUS RULES:
 4. If the user sends a video, call analyze_video to detect items. The same retry and confirmation rules from rule 3 apply.
 5. Weight and dimension estimates are always PER SINGLE UNIT. Set quantity for multiples. Examples: queen mattress ~80 lbs qty 1, dining chair ~20 lbs qty 4, box of books ~35 lbs qty 3. Never multiply weight by quantity yourself — the system does that automatically.
 6. If a room doesn't exist yet, call add_room first, then add items.
-7. Confidence scoring:
-   - 0.9+: user explicitly named the item with details
-   - 0.7-0.8: detected in a photo or inferred from context
-   - 0.5: suggested — ask before adding, do NOT call add_item
+7. Confidence scoring — ALWAYS pass the confidence value when calling add_item:
+   - 0.9+: user explicitly named the item with details → confidence_source: "explicit"
+   - 0.7-0.8: detected in a photo → use the per-item confidence from analyze_photo results → confidence_source: "photo"
+   - 0.5-0.6: inferred from video or context → confidence_source: "video" or "inferred"
+   - Below 0.5: do NOT call add_item — ask the user to confirm first
 8. After covering a room, summarize and suggest the next room.
 9. Periodically call get_inventory_summary to share progress.
 10. NEVER invent or hallucinate items. Only add items the user explicitly mentioned or that were returned by analyze_photo or analyze_video. If a tool returns no data, tell the user — do not fill in the gap yourself.
@@ -156,7 +158,8 @@ const toolDeclarations = [
         tags:           { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: 'Tags like "Fragile", "Heavy", "Antique"' },
         estimated_value: { type: SchemaType.NUMBER, description: 'Estimated dollar value' },
         notes:          { type: SchemaType.STRING, description: 'Notes like "requires disassembly", "heavy"' },
-        confidence:     { type: SchemaType.NUMBER, description: 'Confidence 0.0-1.0 that this item exists and details are accurate' },
+        confidence_score: { type: SchemaType.NUMBER, description: 'Confidence 0.0-1.0 that this item exists and details are accurate. Always include this.' },
+        confidence_source: { type: SchemaType.STRING, description: 'How confidence was derived: "photo", "video", "explicit", or "inferred"' },
         picture_url:    { type: SchemaType.STRING, description: 'GCS URL of a cropped photo of this item, if available from analyze_photo results' },
       },
       required: ['name', 'room_name'],
@@ -443,6 +446,8 @@ const toolHandlers = {
     if (args.estimated_value) params.estimated_value = args.estimated_value;
     if (args.notes) params.notes = args.notes;
     if (args.picture_url) params.picture_url = args.picture_url;
+    if (args.confidence_score != null) params.confidence_score = Math.max(0, Math.min(1, args.confidence_score));
+    if (args.confidence_source) params.confidence_source = args.confidence_source;
 
     const [item] = await knex.transaction(async (trx) => {
       const [inserted] = await knex('items').transacting(trx).insert(params).returning(['id', 'name']);
@@ -521,6 +526,8 @@ const toolHandlers = {
         return { success: false, error: 'Failed to download any of the provided photos' };
       }
 
+      const visionStart = Date.now();
+
       // ── Single-item mode (close-up of one item) ──
       if (mode === 'single_item') {
         const base64 = imageBuffers[0].buffer.toString('base64');
@@ -529,10 +536,17 @@ const toolHandlers = {
         const photoPath = `users/${userId}/nexus/photos/${Date.now()}.jpg`;
         await gcs.uploadBuffer(imageBuffers[0].buffer, photoPath, imageBuffers[0].mimeType);
         const pictureUrl = `https://storage.googleapis.com/${gcs.BUCKET}/${photoPath}`;
+        const itemData = result.data || result;
+        const conf = itemData.confidence || 0;
         return {
           success: true,
           mode: 'single_item',
-          item: { ...(result.data || result), picture_url: pictureUrl },
+          item: { ...itemData, picture_url: pictureUrl },
+          _visionMs: Date.now() - visionStart,
+          _detectedItemCount: 1,
+          _avgConfidence: conf || null,
+          _minConfidence: conf || null,
+          _visionProvider: 'gemini',
         };
       }
 
@@ -580,7 +594,16 @@ const toolHandlers = {
         }
       }
 
-      return { success: true, mode: 'multi_item', imageCount: imageBuffers.length, items, itemCount };
+      const visionElapsed = Date.now() - visionStart;
+      const confidences = items.map(i => i.confidence || 0).filter(c => c > 0);
+      return {
+        success: true, mode: 'multi_item', imageCount: imageBuffers.length, items, itemCount,
+        _visionMs: visionElapsed,
+        _detectedItemCount: items.length,
+        _avgConfidence: confidences.length > 0 ? confidences.reduce((a, b) => a + b, 0) / confidences.length : null,
+        _minConfidence: confidences.length > 0 ? Math.min(...confidences) : null,
+        _visionProvider: 'gemini',
+      };
     } catch (err) {
       console.error('[nexus] analyze_photo failed:', err.message);
       return { success: false, error: err.message };
@@ -600,6 +623,7 @@ const toolHandlers = {
       const videoBuffer = await downloadBuffer(url);
 
       console.log(`[nexus] Video downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB`);
+      const videoVisionStart = Date.now();
       const result = await analyzeVideo(videoBuffer, args.mime_type);
       const items = result.items || [];
 
@@ -628,7 +652,16 @@ const toolHandlers = {
       // Clean up temp file
       try { fs.unlinkSync(tmpPath); } catch (_) {}
 
-      return { success: true, items, itemCount: items.length, parseError: result.parseError };
+      const videoVisionElapsed = Date.now() - videoVisionStart;
+      const videoConfidences = items.map(i => i.confidence || 0).filter(c => c > 0);
+      return {
+        success: true, items, itemCount: items.length, parseError: result.parseError,
+        _visionMs: videoVisionElapsed,
+        _detectedItemCount: items.length,
+        _avgConfidence: videoConfidences.length > 0 ? videoConfidences.reduce((a, b) => a + b, 0) / videoConfidences.length : null,
+        _minConfidence: videoConfidences.length > 0 ? Math.min(...videoConfidences) : null,
+        _visionProvider: 'gemini',
+      };
     } catch (err) {
       console.error('[nexus] analyze_video failed:', err.message);
       return { success: false, error: err.message };
@@ -956,7 +989,15 @@ const TOOL_LABELS = {
  * @returns {{ reply: string, actions: Array, sessionId: string }}
  */
 async function processMessage(userId, message, attachments = [], plan = 'basic', onEvent = null) {
+  const interactionStart = Date.now();
+  let ttfeMs = null;
+  let geminiTotalMs = 0;
+  let visionTotalMs = 0;
+  let geminiRounds = 0;
+  let visionMetadata = {};
+
   const emit = (type, data = {}) => {
+    if (ttfeMs === null) ttfeMs = Date.now() - interactionStart;
     if (onEvent) onEvent({ type, ...data });
   };
   if (!geminiClient) {
@@ -1070,7 +1111,10 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   let maxToolRounds = 8; // Safety limit to prevent infinite loops
 
   emit('thinking');
+  let geminiCallStart = Date.now();
   let result = await model.generateContent({ contents });
+  geminiTotalMs += Date.now() - geminiCallStart;
+  geminiRounds++;
 
   while (maxToolRounds > 0) {
     const response = result.response;
@@ -1112,6 +1156,26 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
         console.error('[nexus] Summary generation failed:', err.message)
       );
 
+      // Fire-and-forget metrics logging
+      const totalMs = Date.now() - interactionStart;
+      const toolCallNames = actions.map(a => a.tool);
+      const itemsAddedCount = actions.filter(a => a.tool === 'add_item' && a.result?.success).length;
+      metrics.logInteraction({
+        userId, sessionId,
+        timing: { totalMs, ttfeMs, geminiMs: geminiTotalMs, visionMs: visionTotalMs || null },
+        context: {
+          hadAttachments: attachments.length > 0,
+          attachmentCount: attachments.length,
+          attachmentTypes: attachments.map(a => a.mimeType),
+          toolCalls: toolCallNames,
+          itemsAdded: itemsAddedCount,
+          geminiModel: modelId,
+          geminiRounds,
+        },
+        vision: visionMetadata,
+        error: { hadError: false },
+      }).catch(() => {});
+
       emit('done', { reply, actions, sessionId });
       return { reply, actions, sessionId };
     }
@@ -1139,6 +1203,19 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
         toolResult = { success: false, error: err.message };
       }
 
+      // Collect vision timing/confidence metrics
+      if ((name === 'analyze_photo' || name === 'analyze_video') && toolResult._visionMs) {
+        visionTotalMs += toolResult._visionMs;
+        if (toolResult._avgConfidence != null) {
+          visionMetadata = {
+            detectedItemCount: toolResult._detectedItemCount,
+            avgConfidence: toolResult._avgConfidence,
+            minConfidence: toolResult._minConfidence,
+            provider: toolResult._visionProvider || 'gemini',
+          };
+        }
+      }
+
       actions.push({ tool: name, args, result: toolResult });
 
       emit('tool_result', { tool: name, success: !!toolResult.success });
@@ -1163,7 +1240,10 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     contents.push({ role: 'user', parts: toolResponses });
 
     emit('thinking');
+    geminiCallStart = Date.now();
     result = await model.generateContent({ contents });
+    geminiTotalMs += Date.now() - geminiCallStart;
+    geminiRounds++;
     maxToolRounds--;
   }
 
@@ -1173,6 +1253,27 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
     [sessionId, fallbackReply]
   );
+
+  // Fire-and-forget metrics logging
+  const fallbackTotalMs = Date.now() - interactionStart;
+  const fallbackToolNames = actions.map(a => a.tool);
+  const fallbackItemsAdded = actions.filter(a => a.tool === 'add_item' && a.result?.success).length;
+  metrics.logInteraction({
+    userId, sessionId,
+    timing: { totalMs: fallbackTotalMs, ttfeMs, geminiMs: geminiTotalMs, visionMs: visionTotalMs || null },
+    context: {
+      hadAttachments: attachments.length > 0,
+      attachmentCount: attachments.length,
+      attachmentTypes: attachments.map(a => a.mimeType),
+      toolCalls: fallbackToolNames,
+      itemsAdded: fallbackItemsAdded,
+      geminiModel: modelId,
+      geminiRounds,
+    },
+    vision: visionMetadata,
+    error: { hadError: false },
+  }).catch(() => {});
+
   emit('done', { reply: fallbackReply, actions, sessionId });
   return { reply: fallbackReply, actions, sessionId };
 }

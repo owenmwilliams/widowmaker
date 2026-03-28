@@ -130,6 +130,42 @@ const isActionChip = (action: CensusAction): boolean => {
   return ['add_item', 'add_room', 'set_location', 'delete_item'].includes(action.tool) && !!action.result?.success;
 };
 
+// ── Confidence tier system ──────────────────────────────────────────────────
+type ConfidenceTier = 'high' | 'medium' | 'low' | null;
+
+const getConfidenceTier = (action: CensusAction): ConfidenceTier => {
+  if (action.tool !== 'add_item' || !action.result?.success) return null;
+  const score = action.args.confidence_score;
+  if (score == null) return null;
+  if (score >= 0.85) return 'high';
+  if (score >= 0.60) return 'medium';
+  return 'low';
+};
+
+const confidenceChipColor = (action: CensusAction): string => {
+  const tier = getConfidenceTier(action);
+  if (tier === 'medium') return 'amber-8';
+  if (tier === 'low') return 'red-4';
+  return 'positive';
+};
+
+const confidenceChipIcon = (action: CensusAction): string => {
+  const tier = getConfidenceTier(action);
+  if (tier === 'medium') return 'help_outline';
+  if (tier === 'low') return 'warning';
+  return actionIcon(action.tool);
+};
+
+const confidenceTooltip = (action: CensusAction): string => {
+  const score = action.args.confidence_score;
+  if (score == null) return '';
+  const pct = Math.round(score * 100);
+  const tier = getConfidenceTier(action);
+  if (tier === 'high') return `${pct}% confident`;
+  if (tier === 'medium') return `${pct}% confident — please verify`;
+  return `${pct}% confident — needs verification`;
+};
+
 // ── Inline buttons parsing ───────────────────────────────────────────────────
 interface InlineButton {
   label: string;
@@ -265,12 +301,17 @@ const confirmClear = () => {
             <q-chip
               v-for="(action, i) in msg.actions.filter(isActionChip)"
               :key="i"
-              :icon="actionIcon(action.tool)"
+              :icon="action.tool === 'add_item' ? confidenceChipIcon(action) : actionIcon(action.tool)"
               size="sm"
-              :color="action.tool === 'delete_item' ? 'negative' : 'positive'"
+              :color="action.tool === 'delete_item' ? 'negative' : confidenceChipColor(action)"
               text-color="white"
               dense
-            >{{ actionLabel(action) }}</q-chip>
+            >
+              <q-tooltip v-if="action.args.confidence_score != null">
+                {{ confidenceTooltip(action) }}
+              </q-tooltip>
+              {{ actionLabel(action) }}
+            </q-chip>
           </div>
 
           <!-- Inline quick-reply buttons -->

@@ -96,6 +96,8 @@ export const censusStore = defineStore("census", () => {
   ) {
     // Optimistic push of user message
     const tempId = Date.now();
+    const clientRequestStart = Date.now();
+    let ttfeClientMs: number | null = null;
     const userMsg: CensusMessage = {
       id: tempId,
       role: "user",
@@ -146,6 +148,13 @@ export const censusStore = defineStore("census", () => {
           if (!line.startsWith("data: ")) continue;
           try {
             const event = JSON.parse(line.slice(6));
+
+            // Capture time to first SSE event
+            if (ttfeClientMs === null) {
+              ttfeClientMs = Date.now() - clientRequestStart;
+              console.log(`[perf] TTFE (client): ${ttfeClientMs}ms`);
+            }
+
             switch (event.type) {
               case "thinking":
                 statusText.value = "Thinking…";
@@ -158,6 +167,9 @@ export const censusStore = defineStore("census", () => {
                 break;
               case "done":
                 result = event;
+                console.log(
+                  `[perf] Round-trip: ${Date.now() - clientRequestStart}ms`,
+                );
                 break;
               case "error":
                 throw new Error(event.error);
