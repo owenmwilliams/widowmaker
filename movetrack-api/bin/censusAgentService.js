@@ -496,7 +496,7 @@ const toolHandlers = {
   async analyze_photo(args, userId, plan) {
     try {
       const gcs = require('./gcsService');
-      const { cropByBoundingBox } = require('../services/images/crop');
+      const { drawBoundingBox } = require('../services/images/crop');
 
       // ── Normalize inputs ──
       let files = args.files || [];
@@ -583,10 +583,10 @@ const toolHandlers = {
         const sourceBuffer = imageBuffers[Math.min(srcIdx, imageBuffers.length - 1)].buffer;
 
         try {
-          const cropped = await cropByBoundingBox(sourceBuffer, bbox, { minSize: 10, quality: 85 });
-          if (!cropped) continue;
+          const annotated = await drawBoundingBox(sourceBuffer, bbox, { minSize: 10, quality: 85 });
+          if (!annotated) continue;
           const cropPath = `users/${userId}/nexus/crops/${Date.now()}-${i}.jpg`;
-          await gcs.uploadBuffer(cropped, cropPath, 'image/jpeg');
+          await gcs.uploadBuffer(annotated, cropPath, 'image/jpeg');
           item.picture_url = `https://storage.googleapis.com/${gcs.BUCKET}/${cropPath}`;
           console.log(`[nexus] Cropped item[${i}] "${item.name}" from image ${srcIdx + 1}`);
         } catch (cropErr) {
