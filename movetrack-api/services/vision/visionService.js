@@ -444,17 +444,28 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT, 
             }
         });
 
-        const result = await model.generateContent([
-            {
-                inlineData: {
-                    data: base64Image,
-                    mimeType: actualMimeType
-                }
-            },
-            {
-                text: prompt
+        let result;
+        try {
+            result = await model.generateContent([
+                { inlineData: { data: base64Image, mimeType: actualMimeType } },
+                { text: prompt }
+            ]);
+        } catch (apiError) {
+            // If pro model fails on image, fall back to flash
+            if (modelId !== 'gemini-2.5-flash') {
+                console.warn(`[Gemini] ${modelId} failed, falling back to flash: ${apiError.message}`);
+                const fallbackModel = geminiClient.getGenerativeModel({
+                    model: 'gemini-2.5-flash',
+                    generationConfig: { responseMimeType: "application/json" }
+                });
+                result = await fallbackModel.generateContent([
+                    { inlineData: { data: base64Image, mimeType: actualMimeType } },
+                    { text: prompt }
+                ]);
+            } else {
+                throw apiError;
             }
-        ]);
+        }
 
         const jsonText = result.response.text();
         const data = JSON.parse(jsonText);
@@ -1008,8 +1019,26 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
                 }
             ]);
         } catch (apiError) {
-            console.error('Gemini API call failed:', apiError);
-            throw new Error(`Gemini API error: ${apiError.message}`);
+            // If pro model fails on image, fall back to flash
+            if (modelId !== 'gemini-2.5-flash') {
+                console.warn(`[Gemini Multi-Item] ${modelId} failed, falling back to flash: ${apiError.message}`);
+                const fallbackModel = geminiClient.getGenerativeModel({
+                    model: 'gemini-2.5-flash',
+                    generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
+                });
+                try {
+                    result = await fallbackModel.generateContent([
+                        { inlineData: { data: base64Image, mimeType: actualMimeType } },
+                        { text: MULTI_ITEM_VISION_PROMPT }
+                    ]);
+                } catch (fallbackError) {
+                    console.error('Gemini flash fallback also failed:', fallbackError);
+                    throw new Error(`Gemini API error: ${fallbackError.message}`);
+                }
+            } else {
+                console.error('Gemini API call failed:', apiError);
+                throw new Error(`Gemini API error: ${apiError.message}`);
+            }
         }
 
         const jsonText = result.response.text();
@@ -1129,8 +1158,23 @@ async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-f
         try {
             result = await model.generateContent(parts);
         } catch (apiError) {
-            console.error('Gemini multi-image API call failed:', apiError);
-            throw new Error(`Gemini API error: ${apiError.message}`);
+            // If pro model fails on images, fall back to flash
+            if (modelId !== 'gemini-2.5-flash') {
+                console.warn(`[Gemini Multi-Image] ${modelId} failed, falling back to flash: ${apiError.message}`);
+                const fallbackModel = geminiClient.getGenerativeModel({
+                    model: 'gemini-2.5-flash',
+                    generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
+                });
+                try {
+                    result = await fallbackModel.generateContent(parts);
+                } catch (fallbackError) {
+                    console.error('Gemini flash fallback also failed:', fallbackError);
+                    throw new Error(`Gemini API error: ${fallbackError.message}`);
+                }
+            } else {
+                console.error('Gemini multi-image API call failed:', apiError);
+                throw new Error(`Gemini API error: ${apiError.message}`);
+            }
         }
 
         const jsonText = result.response.text();
