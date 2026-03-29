@@ -37,6 +37,8 @@ ROUTING RULES:
 5. If unclear whether it's inventory or logistics, ask a clarifying question
 6. NEVER try to modify inventory yourself — always delegate to Census
 7. After a Census delegation that adds items, you might suggest the user try Vector for move analysis
+8. ALWAYS pass the user's original message verbatim as the delegation message — do not rephrase, summarize, or interpret it. Census maintains its own conversation context and needs the user's exact words.
+9. When the user is responding to Census results (e.g., confirming items to add from a photo scan, answering a Census question), delegate back to Census with the user's exact response.
 
 IMPORTANT BEHAVIOR:
 - Delegation is SYNCHRONOUS. When you call a delegation tool, you will get the result back immediately in the same turn. NEVER say "I'll let you know when it's done" or "I'll notify you" — you cannot send messages later. Just call the tool, wait for the result, and respond with what happened.
@@ -66,7 +68,7 @@ const toolDeclarations = [
       properties: {
         message: {
           type: SchemaType.STRING,
-          description: 'The message to pass to Census. Rephrase the user\'s request if needed for clarity.',
+          description: 'The user\'s message to pass to Census. Pass the user\'s original message verbatim — do not rephrase or summarize. Census has its own conversation context.',
         },
         include_attachments: {
           type: SchemaType.BOOLEAN,
@@ -217,14 +219,15 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     historyRows = await db.any(
       `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
        FROM nexus_messages WHERE session_id = $1 AND id > $2
-       ORDER BY created_at ASC`,
+       ORDER BY created_at DESC LIMIT 30`,
       [sessionId, session.summary_through_id]
     );
+    historyRows.reverse();
   } else {
     historyRows = await db.any(
       `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
        FROM nexus_messages WHERE session_id = $1
-       ORDER BY created_at DESC LIMIT 60`,
+       ORDER BY created_at DESC LIMIT 30`,
       [sessionId]
     );
     historyRows.reverse();
@@ -272,7 +275,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   }
 
   // ── 6. Call Gemini ──────────────────────────────────────────────────────
-  const modelId = GEMINI_MODELS[plan] || GEMINI_MODELS.basic;
+  // Always use flash for the orchestrator loop — fast + reliable tool-calling.
+  const modelId = 'gemini-2.5-flash';
   const model = geminiClient.getGenerativeModel({
     model: modelId,
     systemInstruction,

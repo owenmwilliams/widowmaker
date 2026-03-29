@@ -493,7 +493,7 @@ const toolHandlers = {
     return { success: true, ...result, existingRooms: roomNames };
   },
 
-  async analyze_photo(args, userId) {
+  async analyze_photo(args, userId, plan) {
     try {
       const gcs = require('./gcsService');
       const { cropByBoundingBox } = require('../services/images/crop');
@@ -531,7 +531,7 @@ const toolHandlers = {
       // ── Single-item mode (close-up of one item) ──
       if (mode === 'single_item') {
         const base64 = imageBuffers[0].buffer.toString('base64');
-        const result = await analyzeItemPhoto(base64, imageBuffers[0].mimeType, 'gemini');
+        const result = await analyzeItemPhoto(base64, imageBuffers[0].mimeType, 'gemini', undefined, null, plan);
         // Upload original as item photo — no cropping needed for close-ups
         const photoPath = `users/${userId}/nexus/photos/${Date.now()}.jpg`;
         await gcs.uploadBuffer(imageBuffers[0].buffer, photoPath, imageBuffers[0].mimeType);
@@ -556,7 +556,7 @@ const toolHandlers = {
       if (imageBuffers.length === 1) {
         // Single image: existing multi-item path
         const base64 = imageBuffers[0].buffer.toString('base64');
-        const result = await analyzeMultiItemPhoto(base64, imageBuffers[0].mimeType, 'gemini');
+        const result = await analyzeMultiItemPhoto(base64, imageBuffers[0].mimeType, 'gemini', {}, plan);
         items = result.data?.items || result.items || [];
         itemCount = result.data?.itemCount || result.itemCount || items.length;
         items.forEach(item => { item.sourceImage = 1; });
@@ -567,7 +567,7 @@ const toolHandlers = {
           base64: ib.buffer.toString('base64'),
           mimeType: ib.mimeType,
         }));
-        const result = await analyzeMultiImagePhoto(imageSources, 'gemini');
+        const result = await analyzeMultiImagePhoto(imageSources, 'gemini', plan);
         items = result.data?.items || result.items || [];
         itemCount = result.data?.itemCount || result.itemCount || items.length;
       }
@@ -610,7 +610,7 @@ const toolHandlers = {
     }
   },
 
-  async analyze_video(args, userId) {
+  async analyze_video(args, userId, plan) {
     try {
       const fs = require('fs');
       const os = require('os');
@@ -624,7 +624,7 @@ const toolHandlers = {
 
       console.log(`[nexus] Video downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB`);
       const videoVisionStart = Date.now();
-      const result = await analyzeVideo(videoBuffer, args.mime_type);
+      const result = await analyzeVideo(videoBuffer, args.mime_type, plan);
       const items = result.items || [];
 
       // Extract frames for each item with a timestamp and upload to GCS
@@ -1024,22 +1024,23 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   let historyRows;
 
   if (session.summary_through_id) {
-    // Summary exists — load only messages after the summarized point
+    // Summary exists — load most recent 30 messages after the summarized point
     historyRows = await db.any(
       `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
        FROM nexus_messages WHERE session_id = $1 AND id > $2
-       ORDER BY created_at ASC`,
+       ORDER BY created_at DESC LIMIT 30`,
       [sessionId, session.summary_through_id]
     );
+    historyRows.reverse();
   } else {
-    // No summary yet — load last 60 messages (all roles for Gemini structure)
+    // No summary yet — load last 30 messages (all roles for Gemini structure)
     historyRows = await db.any(
       `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
        FROM nexus_messages WHERE session_id = $1
-       ORDER BY created_at DESC LIMIT 60`,
+       ORDER BY created_at DESC LIMIT 30`,
       [sessionId]
     );
-    historyRows.reverse(); // Back to chronological order
+    historyRows.reverse();
   }
 
   // ── 3. Build Gemini contents from history ─────────────────────────────────
@@ -1099,7 +1100,9 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   }
 
   // ── 6. Call Gemini ────────────────────────────────────────────────────────
-  const modelId = GEMINI_MODELS[plan] || GEMINI_MODELS.basic;
+  // Always use flash for the agent loop — fast + reliable tool-calling.
+  // Vision functions handle their own model selection based on plan.
+  const modelId = 'gemini-2.5-flash';
   const model = geminiClient.getGenerativeModel({
     model: modelId,
     systemInstruction,
@@ -1196,7 +1199,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
         if (!handler) {
           toolResult = { success: false, error: `Unknown tool: ${name}` };
         } else {
-          toolResult = await handler(args, userId);
+          toolResult = await handler(args, userId, plan);
         }
       } catch (err) {
         console.error(`[nexus] Tool ${name} failed:`, err.message);

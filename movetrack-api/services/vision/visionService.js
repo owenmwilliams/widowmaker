@@ -1243,7 +1243,7 @@ async function analyzeMultiItemWithNemotron(base64Image, mimeType) {
 /**
  * Main function to analyze photo with current provider
  */
-async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt = VISION_PROMPT, itemHint = null) {
+async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt = VISION_PROMPT, itemHint = null, plan = 'basic') {
     const providerToUse = provider || currentProvider;
 
     // If a specific item name is provided (multi-item add flow), prepend a focus instruction
@@ -1251,7 +1251,8 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt =
         ? `This image may show multiple items in a room. Focus specifically on the item named "${itemHint}".\n\n${VISION_PROMPT}`
         : prompt;
 
-    console.log(`Analyzing photo with provider: ${providerToUse}`, itemHint ? `(hint: ${itemHint})` : '');
+    const geminiModel = plan === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+    console.log(`Analyzing photo with provider: ${providerToUse} (model: ${geminiModel})`, itemHint ? `(hint: ${itemHint})` : '');
 
     switch (providerToUse.toLowerCase()) {
         case 'claude':
@@ -1261,9 +1262,8 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt =
             return await analyzeWithGPT4(base64Image, mimeType, effectivePrompt);
         case 'gemini':
         case 'google':
-            return await analyzeWithGemini(base64Image, mimeType, effectivePrompt, 'gemini-2.5-flash');
         case 'gemini-pro':
-            return await analyzeWithGemini(base64Image, mimeType, effectivePrompt, 'gemini-2.5-pro');
+            return await analyzeWithGemini(base64Image, mimeType, effectivePrompt, geminiModel);
         case 'together':
         case 'scout':
             return await analyzeWithTogetherScout(base64Image, mimeType, prompt);
@@ -1284,11 +1284,12 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt =
 /**
  * Main function to analyze photo for multiple items
  */
-async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, options = {}) {
+async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, options = {}, plan = 'basic') {
     const providerToUse = provider || currentProvider;
     const promptOverride = options.prompt;
 
-    console.log(`Analyzing photo for multiple items with provider: ${providerToUse}`);
+    const geminiModel = plan === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+    console.log(`Analyzing photo for multiple items with provider: ${providerToUse} (model: ${geminiModel})`);
 
     switch (providerToUse.toLowerCase()) {
         case 'claude':
@@ -1298,9 +1299,8 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, opt
             return await analyzeMultiItemWithGPT4(base64Image, mimeType);
         case 'gemini':
         case 'google':
-            return await analyzeMultiItemWithGemini(base64Image, mimeType, 'gemini-2.5-flash');
         case 'gemini-3-pro':
-            return await analyzeMultiItemWithGemini(base64Image, mimeType, 'gemini-3.1-pro-preview');
+            return await analyzeMultiItemWithGemini(base64Image, mimeType, geminiModel);
         case 'together':
         case 'scout':
             return await analyzeMultiItemWithTogetherScout(base64Image, mimeType, promptOverride);
@@ -1323,18 +1323,19 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, opt
  * @param {Array<{base64: string, mimeType: string}>} imageSources
  * @param {string} provider
  */
-async function analyzeMultiImagePhoto(imageSources, provider = null) {
+async function analyzeMultiImagePhoto(imageSources, provider = null, plan = 'basic') {
     const providerToUse = provider || currentProvider;
-    console.log(`Analyzing ${imageSources.length} photos holistically with provider: ${providerToUse}`);
+    const geminiModel = plan === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+    console.log(`Analyzing ${imageSources.length} photos holistically with provider: ${providerToUse} (model: ${geminiModel})`);
 
     switch (providerToUse.toLowerCase()) {
         case 'gemini':
         case 'google':
-            return await analyzeMultiImageWithGemini(imageSources, 'gemini-2.5-flash');
+            return await analyzeMultiImageWithGemini(imageSources, geminiModel);
         default:
             // Fallback: analyze first image only with multi-item
             console.warn(`[Multi-Image] Provider ${providerToUse} does not support multi-image; falling back to first image only`);
-            return await analyzeMultiItemPhoto(imageSources[0].base64, imageSources[0].mimeType, providerToUse);
+            return await analyzeMultiItemPhoto(imageSources[0].base64, imageSources[0].mimeType, providerToUse, {}, plan);
     }
 }
 

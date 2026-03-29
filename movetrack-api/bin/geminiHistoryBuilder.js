@@ -63,7 +63,25 @@ function buildGeminiContents(historyRows) {
         continue; // Orphaned tool_result — skip
       }
       role = 'user';
-      part = { functionResponse: { name: row.tool_name, response: row.tool_response || {} } };
+      // Truncate large vision tool responses to prevent context bloat
+      let responseData = row.tool_response || {};
+      if (row.tool_name === 'analyze_photo' || row.tool_name === 'analyze_video') {
+        const responseStr = typeof responseData === 'string' ? responseData : JSON.stringify(responseData);
+        if (responseStr.length > 2000) {
+          try {
+            const parsed = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
+            const items = parsed.items || (parsed.item ? [parsed.item] : []);
+            responseData = {
+              success: parsed.success,
+              mode: parsed.mode,
+              itemCount: items.length,
+              items_summary: items.map(i => ({ name: i.name, confidence: i.confidence, picture_url: i.picture_url })),
+              _truncated: true,
+            };
+          } catch (_) { /* keep original if parse fails */ }
+        }
+      }
+      part = { functionResponse: { name: row.tool_name, response: responseData } };
     } else {
       continue;
     }

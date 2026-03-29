@@ -50,7 +50,7 @@ async function getInventorySnapshot(userId) {
   }
 
   const collections = await db.any(
-    `SELECT c.id, c.name, c.location_id, COUNT(i.id) AS item_count,
+    `SELECT c.id, c.name, c.location_id, COUNT(i.id)::int AS item_count,
             COALESCE(SUM(i.weight_lbs * i.quantity), 0) AS total_weight
      FROM collections c
      LEFT JOIN items i ON i.collection_id = c.id
@@ -58,17 +58,22 @@ async function getInventorySnapshot(userId) {
      GROUP BY c.id ORDER BY c.name`, [userId]
   );
 
-  const items = await db.any(
-    `SELECT i.name, i.quantity, i.weight_lbs, i.collection_id,
-            i.length_in, i.width_in, i.height_in, i.fragile, i.notes
-     FROM items i WHERE i.user_id = $1 ORDER BY i.collection_id, i.name`, [userId]
-  );
-
-  let totalWeight = 0;
-  let totalVolume = 0;
-  let totalItems = 0;
+  // Deficiency stats — single query instead of loading every item
+  const gaps = await db.oneOrNone(
+    `SELECT
+       COUNT(*)::int AS total,
+       COALESCE(SUM(quantity), 0)::int AS total_qty,
+       COALESCE(SUM(weight_lbs * quantity), 0) AS total_weight,
+       COALESCE(SUM(CASE WHEN length_in IS NOT NULL AND width_in IS NOT NULL AND height_in IS NOT NULL
+                     THEN (length_in * width_in * height_in / 1728.0) * quantity ELSE 0 END), 0) AS total_volume,
+       COUNT(CASE WHEN weight_lbs IS NULL OR weight_lbs = 0 THEN 1 END)::int AS missing_weight,
+       COUNT(CASE WHEN length_in IS NULL OR width_in IS NULL OR height_in IS NULL THEN 1 END)::int AS missing_dimensions,
+       COUNT(CASE WHEN picture_url IS NULL OR picture_url = '' THEN 1 END)::int AS missing_photos
+     FROM items WHERE user_id = $1`, [userId]
+  ) || { total: 0, total_qty: 0, total_weight: 0, total_volume: 0, missing_weight: 0, missing_dimensions: 0, missing_photos: 0 };
 
   const lines = [];
+  const sparseRooms = [];
 
   for (const loc of locations) {
     const addr = [loc.address, loc.city, loc.state].filter(Boolean).join(', ');
@@ -79,25 +84,24 @@ async function getInventorySnapshot(userId) {
       lines.push('  No rooms yet.');
     }
     for (const room of roomsInLoc) {
-      lines.push(`  Room: "${room.name}" — ${room.item_count} items, ${Math.round(room.total_weight)} lbs`);
-      const roomItems = items.filter(i => String(i.collection_id) === String(room.id));
-      for (const item of roomItems) {
-        totalItems += item.quantity || 1;
-        totalWeight += (item.weight_lbs || 0) * (item.quantity || 1);
-        if (item.length_in && item.width_in && item.height_in) {
-          totalVolume += (item.length_in * item.width_in * item.height_in / 1728) * (item.quantity || 1);
-        }
-        const details = [];
-        if (item.quantity > 1) details.push(`qty: ${item.quantity}`);
-        if (item.weight_lbs) details.push(`${item.weight_lbs} lbs`);
-        if (item.fragile) details.push('fragile');
-        lines.push(`    - ${item.name}${details.length ? ' (' + details.join(', ') + ')' : ''}`);
+      const tag = room.item_count < 5 ? ' [needs more items]' : '';
+      lines.push(`  Room: "${room.name}" — ${room.item_count} items, ~${Math.round(room.total_weight)} lbs${tag}`);
+      if (room.item_count < 5) {
+        sparseRooms.push(`${room.name} (${room.item_count})`);
       }
     }
   }
 
   lines.push('');
-  lines.push(`Totals: ${totalItems} items, ~${Math.round(totalWeight)} lbs, ~${Math.round(totalVolume)} cu ft`);
+  lines.push(`Totals: ${gaps.total_qty} items, ~${Math.round(gaps.total_weight)} lbs, ~${Math.round(gaps.total_volume)} cu ft`);
+
+  // Deficiency summary — guides the agent toward useful next steps
+  const gapLines = [];
+  if (gaps.missing_weight > 0) gapLines.push(`${gaps.missing_weight} of ${gaps.total} items missing weight`);
+  if (gaps.missing_dimensions > 0) gapLines.push(`${gaps.missing_dimensions} of ${gaps.total} missing dimensions`);
+  if (gaps.missing_photos > 0) gapLines.push(`${gaps.missing_photos} of ${gaps.total} missing photos`);
+  if (gapLines.length > 0) lines.push(`Gaps: ${gapLines.join(', ')}`);
+  if (sparseRooms.length > 0) lines.push(`Sparse rooms (<5 items): ${sparseRooms.join(', ')}`);
 
   return lines.join('\n');
 }
