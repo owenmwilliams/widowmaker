@@ -444,24 +444,30 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT, 
             }
         });
 
+        const contentParts = [
+            { inlineData: { data: base64Image, mimeType: actualMimeType } },
+            { text: prompt }
+        ];
         let result;
+        let usedModel = modelId;
         try {
-            result = await model.generateContent([
-                { inlineData: { data: base64Image, mimeType: actualMimeType } },
-                { text: prompt }
-            ]);
+            result = await model.generateContent(contentParts);
         } catch (apiError) {
-            // If pro model fails on image, fall back to flash
             if (modelId !== 'gemini-2.5-flash') {
-                console.warn(`[Gemini] ${modelId} failed, falling back to flash: ${apiError.message}`);
-                const fallbackModel = geminiClient.getGenerativeModel({
-                    model: 'gemini-2.5-flash',
-                    generationConfig: { responseMimeType: "application/json" }
-                });
-                result = await fallbackModel.generateContent([
-                    { inlineData: { data: base64Image, mimeType: actualMimeType } },
-                    { text: prompt }
-                ]);
+                // Retry once with same model (transient errors)
+                console.warn(`[Gemini] ${modelId} failed, retrying once: ${apiError.message}`);
+                try {
+                    result = await model.generateContent(contentParts);
+                } catch (retryError) {
+                    // Fall back to flash
+                    console.warn(`[Gemini] ${modelId} retry failed, falling back to flash: ${retryError.message}`);
+                    usedModel = 'gemini-2.5-flash';
+                    const fallbackModel = geminiClient.getGenerativeModel({
+                        model: usedModel,
+                        generationConfig: { responseMimeType: "application/json" }
+                    });
+                    result = await fallbackModel.generateContent(contentParts);
+                }
             } else {
                 throw apiError;
             }
@@ -1005,35 +1011,32 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
             }
         });
 
+        const contentParts = [
+            { inlineData: { data: base64Image, mimeType: actualMimeType } },
+            { text: MULTI_ITEM_VISION_PROMPT }
+        ];
         let result;
         try {
-            result = await model.generateContent([
-                {
-                    inlineData: {
-                        data: base64Image,
-                        mimeType: actualMimeType
-                    }
-                },
-                {
-                    text: MULTI_ITEM_VISION_PROMPT
-                }
-            ]);
+            result = await model.generateContent(contentParts);
         } catch (apiError) {
-            // If pro model fails on image, fall back to flash
             if (modelId !== 'gemini-2.5-flash') {
-                console.warn(`[Gemini Multi-Item] ${modelId} failed, falling back to flash: ${apiError.message}`);
-                const fallbackModel = geminiClient.getGenerativeModel({
-                    model: 'gemini-2.5-flash',
-                    generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
-                });
+                // Retry once with same model (transient errors)
+                console.warn(`[Gemini Multi-Item] ${modelId} failed, retrying once: ${apiError.message}`);
                 try {
-                    result = await fallbackModel.generateContent([
-                        { inlineData: { data: base64Image, mimeType: actualMimeType } },
-                        { text: MULTI_ITEM_VISION_PROMPT }
-                    ]);
-                } catch (fallbackError) {
-                    console.error('Gemini flash fallback also failed:', fallbackError);
-                    throw new Error(`Gemini API error: ${fallbackError.message}`);
+                    result = await model.generateContent(contentParts);
+                } catch (retryError) {
+                    // Fall back to flash
+                    console.warn(`[Gemini Multi-Item] ${modelId} retry failed, falling back to flash: ${retryError.message}`);
+                    const fallbackModel = geminiClient.getGenerativeModel({
+                        model: 'gemini-2.5-flash',
+                        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
+                    });
+                    try {
+                        result = await fallbackModel.generateContent(contentParts);
+                    } catch (fallbackError) {
+                        console.error('Gemini flash fallback also failed:', fallbackError);
+                        throw new Error(`Gemini API error: ${fallbackError.message}`);
+                    }
                 }
             } else {
                 console.error('Gemini API call failed:', apiError);
@@ -1158,18 +1161,24 @@ async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-f
         try {
             result = await model.generateContent(parts);
         } catch (apiError) {
-            // If pro model fails on images, fall back to flash
             if (modelId !== 'gemini-2.5-flash') {
-                console.warn(`[Gemini Multi-Image] ${modelId} failed, falling back to flash: ${apiError.message}`);
-                const fallbackModel = geminiClient.getGenerativeModel({
-                    model: 'gemini-2.5-flash',
-                    generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
-                });
+                // Retry once with same model (transient errors)
+                console.warn(`[Gemini Multi-Image] ${modelId} failed, retrying once: ${apiError.message}`);
                 try {
-                    result = await fallbackModel.generateContent(parts);
-                } catch (fallbackError) {
-                    console.error('Gemini flash fallback also failed:', fallbackError);
-                    throw new Error(`Gemini API error: ${fallbackError.message}`);
+                    result = await model.generateContent(parts);
+                } catch (retryError) {
+                    // Fall back to flash
+                    console.warn(`[Gemini Multi-Image] ${modelId} retry failed, falling back to flash: ${retryError.message}`);
+                    const fallbackModel = geminiClient.getGenerativeModel({
+                        model: 'gemini-2.5-flash',
+                        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
+                    });
+                    try {
+                        result = await fallbackModel.generateContent(parts);
+                    } catch (fallbackError) {
+                        console.error('Gemini flash fallback also failed:', fallbackError);
+                        throw new Error(`Gemini API error: ${fallbackError.message}`);
+                    }
                 }
             } else {
                 console.error('Gemini multi-image API call failed:', apiError);
