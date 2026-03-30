@@ -344,7 +344,7 @@ async function generateItemEstimate(context = {}, options = {}) {
     'You are an expert household goods estimator helping movers record approximate weights and dimensions. Respond with JSON only.';
   const baseGenerationConfig = {
     temperature: 0.2,
-    maxOutputTokens: 512,
+    maxOutputTokens: 2048,
     responseMimeType: 'application/json',
     responseSchema: ESTIMATE_RESPONSE_SCHEMA,
   };
@@ -401,7 +401,7 @@ async function generateItemEstimate(context = {}, options = {}) {
   try {
     const retryInstruction =
       'Your previous response was invalid JSON. Return only a single JSON object that matches the required schema. Do not include any extra text.';
-    const attempt = await runAttempt(retryInstruction, 384);
+    const attempt = await runAttempt(retryInstruction, 2048);
     return {
       provider: 'gemini',
       model: modelName,

@@ -811,6 +811,7 @@ router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
         requestUserId,
         message: error?.message,
         stage: error?.stage,
+        rawText: error?.rawText || null,
         stack: error?.stack
       });
       return res.status(502).json({
