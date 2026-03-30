@@ -2024,7 +2024,13 @@ onMounted(() => {
   border-radius: 6px;
   overflow: hidden;
   background: var(--bg-tertiary);
-  cursor: grab;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.item-thumb:hover {
+  transform: scale(1.03);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 .item-thumb:active {
@@ -2109,7 +2115,13 @@ onMounted(() => {
   border: 1px solid var(--border-light);
   border-radius: 8px;
   background: var(--bg-secondary);
-  cursor: grab;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.container-item:hover {
+  background: var(--bg-tertiary, #f0f0f0);
+  border-color: var(--primary, #1976d2);
 }
 
 .container-item:active {

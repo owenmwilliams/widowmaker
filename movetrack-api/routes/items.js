@@ -669,7 +669,7 @@ router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
     return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
 
-  if (!process.env.TOGETHER_API_KEY) {
+  if (!process.env.GOOGLE_AI_API_KEY) {
     return res.status(503).json({ success: false, error: 'LLM estimation service is not configured' });
   }
 

@@ -1170,6 +1170,27 @@ onBeforeUnmount(() => {
   background: #f5f5f5;
 }
 
+@media (max-width: 600px) {
+  .item-details-card {
+    margin-top: 0;
+    max-height: 100vh;
+    height: 100vh;
+    width: 100vw;
+    border-radius: 0;
+    overflow-y: auto;
+  }
+
+  .item-image {
+    min-height: 180px;
+    max-height: 240px;
+  }
+
+  .scroll-area {
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
 .item-image.placeholder {
   border: 1px dashed #d0d0d0;
 }
