@@ -732,7 +732,8 @@ router.post('/:itemId/ai-estimate', jsonParser, async function(req, res) {
 
     try {
       const estimationResult = await generateItemEstimate(contextSnapshot, {
-        model: req.body?.model
+        model: req.body?.model,
+        pictureUrl: itemRecord.picture_url || null
       });
 
       const estimate = estimationResult.estimate || {};

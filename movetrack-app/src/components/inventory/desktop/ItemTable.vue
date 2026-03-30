@@ -100,6 +100,10 @@
             if (response?.estimate) {
                 state.estimate = response.estimate;
                 state.error = null;
+                const item = store.items.find((entry) => entry.value === itemId);
+                if (item && !item.picture_url) {
+                    $q.notify({ type: 'info', message: 'This item has no photo — estimates with photos are much more accurate.', timeout: 4000 });
+                }
             } else {
                 state.estimate = null;
                 state.error = 'No estimate returned.';

@@ -1,4 +1,5 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
+const { fetchImageAsBase64, getMimeTypeFromUrl } = require('./vision/visionService');
 
 let geminiClient = null;
 if (process.env.GOOGLE_AI_API_KEY) {
@@ -67,7 +68,7 @@ const buildContextSummary = (context = {}) => {
   return pieces.join('\n');
 };
 
-const buildPrompt = (context = {}) => {
+const buildPrompt = (context = {}, { hasPhoto = false } = {}) => {
   const lines = [];
   lines.push(
     `Estimate realistic shipping weight and bounding box dimensions for ONE SINGLE UNIT of the described household item. ` +
@@ -92,6 +93,12 @@ const buildPrompt = (context = {}) => {
       'Put the longest dimension under "length". If existing measurements are provided, keep them and set confidence ≥ 0.95. ' +
       'If missing, estimate based on similar household items and mention your reasoning. Compute volume_cuft = length*width*height/1728 and round to 2 decimals.'
   );
+  if (hasPhoto) {
+    lines.push('');
+    lines.push(
+      'A photo of the item is attached. Use visual cues (relative size, material, construction) to improve your estimates.'
+    );
+  }
   lines.push('');
   lines.push('Item metadata:');
   lines.push(buildContextSummary(context) || 'No additional metadata provided.');
@@ -338,7 +345,19 @@ async function generateItemEstimate(context = {}, options = {}) {
     throw new Error('GOOGLE_AI_API_KEY not configured');
   }
 
-  const prompt = buildPrompt(context);
+  // Fetch image if available (once, reused across retries)
+  let imageData = null;
+  if (options.pictureUrl) {
+    try {
+      const base64 = await fetchImageAsBase64(options.pictureUrl);
+      const mimeType = getMimeTypeFromUrl(options.pictureUrl);
+      imageData = { data: base64, mimeType };
+    } catch (err) {
+      console.warn('[ItemEstimation] Failed to fetch image, falling back to text-only:', err.message);
+    }
+  }
+
+  const prompt = buildPrompt(context, { hasPhoto: !!imageData });
   const modelName = options.model || 'gemini-2.5-flash';
   const systemInstruction =
     'You are an expert household goods estimator helping movers record approximate weights and dimensions. Respond with JSON only.';
@@ -361,7 +380,10 @@ async function generateItemEstimate(context = {}, options = {}) {
     const attemptPrompt = extraInstruction
       ? `${prompt}\n\n${extraInstruction}`
       : prompt;
-    const result = await model.generateContent(attemptPrompt);
+    const contentParts = imageData
+      ? [{ inlineData: imageData }, { text: attemptPrompt }]
+      : attemptPrompt;
+    const result = await model.generateContent(contentParts);
     const messageText = result.response.text();
     let parsed = null;
     try {

@@ -1437,6 +1437,8 @@ module.exports = {
     setProvider,
     getCurrentProvider,
     getAvailableProviders,
+    fetchImageAsBase64,
+    getMimeTypeFromUrl,
     VISION_PROMPT,
     MULTI_ITEM_VISION_PROMPT,
 };
