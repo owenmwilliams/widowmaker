@@ -1,6 +1,6 @@
 var express = require('express');
 var router = express.Router();
-const authService = require('../bin/authService');
+const authService = require('../services/infra/authService');
 
 /**
  * POST /auth/request-magic-link

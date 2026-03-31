@@ -1,13 +1,13 @@
 'use strict';
 
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
-const conn = require('./db');
+const conn = require('../services/infra/db');
 const db = conn.db;
-const census = require('./censusService');
+const census = require('../services/census/censusService');
 const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../services/vision/visionService');
 const { analyzeVideo } = require('../services/vision/geminiVideoScanService');
-const { buildGeminiContents } = require('./geminiHistoryBuilder');
-const metrics = require('./metricsService');
+const { buildGeminiContents } = require('../services/shared/geminiHistoryBuilder');
+const metrics = require('../services/infra/metricsService');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
@@ -71,12 +71,19 @@ USER CONTEXT:
 CURRENT INVENTORY:
 {{INVENTORY_SNAPSHOT}}
 
-ONBOARDING FLOW (if user is new / has no inventory):
-1. Greet warmly and ask what brings them here (moving, organizing, insurance, etc.)
-2. Ask where they're moving from — get the address naturally
-3. Ask about the home: apartment or house? How many bedrooms/bathrooms?
-4. Create the location and rooms using set_location and add_room
-5. Transition naturally into inventory: "Great! Let's start cataloging. What's in your living room?"
+ONBOARDING FLOW (if user has NOT completed onboarding):
+You are driving this conversation. Ask one question at a time and take action immediately.
+1. Greet warmly: "Hi [name if known]! I'm Nexus, your moving assistant. Let's get you set up — it'll only take a minute."
+2. Ask their goal: "What brings you here — planning a move, getting organized, or something else?"
+   → Call set_user_profile with their goal (and name if you have it)
+3. Ask for their address: "Where are you moving from? Just a street address is fine."
+   → Call set_location immediately with the address
+4. Ask about the home: "Is that an apartment or house? How many bedrooms?"
+   → Based on their answer, call add_room for each room (e.g. Kitchen, Living Room, Bedroom 1, Bedroom 2, Bathroom)
+   → Call mark_onboarding_complete immediately after creating rooms
+5. Transition to cataloging: "You're all set! Let's start with the [first room]. What's in there? You can also snap a photo and I'll identify everything."
+
+IMPORTANT: Do NOT wait for the user to ask what to do next. YOU drive the conversation forward after each answer. Keep it fast and natural.
 
 INVENTORY CENSUS RULES:
 1. When the user mentions items, IMMEDIATELY call add_item. Don't ask for confirmation before adding clearly stated items.
@@ -122,6 +129,13 @@ Examples:
 - Next room: offer "Kitchen|Let's catalog the Kitchen" / "Bathroom|Let's catalog the Bathroom" / "I'm done|I'm done adding items for now"
 - Confirmation: offer "Add all 5|Yes, add all 5 items" / "Let me review|Hold on, let me review the list first"
 Keep button labels short (2-5 words). Always include 2-4 options. Use buttons whenever the user needs to make a quick decision.
+
+AUTONOMOUS EXECUTION:
+- NEVER announce what you're about to do and then stop. If you have more work to do, keep calling tools.
+- Only produce a final text response when you're truly done OR you need user input (confirmation, clarification, a choice).
+- You CAN include brief progress text alongside tool calls (e.g. "Kitchen done! Moving to the living room..." while simultaneously calling add_item for living room items). The system will stream this to the user as you keep working.
+- Example of WRONG behavior: "I've added the kitchen items. Next I'll do the living room and bedroom." (stops)
+- Example of RIGHT behavior: call add_item for kitchen items → call add_item for living room items → call add_item for bedroom items → "All done! I've added 15 items across 3 rooms. Anything I missed?"
 
 CONVERSATION FLOW (returning users):
 - If home context is unknown, ask about type, bedrooms, bathrooms.
@@ -366,6 +380,14 @@ const toolDeclarations = [
       properties: {},
     },
   },
+  {
+    name: 'mark_onboarding_complete',
+    description: 'Mark onboarding as complete. Call this AUTOMATICALLY after creating a location and at least one room during onboarding. Do not ask the user — just call it silently.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {},
+    },
+  },
 ];
 
 // ── Tool Handlers ───────────────────────────────────────────────────────────────
@@ -495,7 +517,7 @@ const toolHandlers = {
 
   async analyze_photo(args, userId, plan) {
     try {
-      const gcs = require('./gcsService');
+      const gcs = require('../services/infra/gcsService');
       const { drawBoundingBox } = require('../services/images/crop');
 
       // ── Normalize inputs ──
@@ -615,7 +637,7 @@ const toolHandlers = {
       const fs = require('fs');
       const os = require('os');
       const path = require('path');
-      const gcs = require('./gcsService');
+      const gcs = require('../services/infra/gcsService');
       const { extractSharpestFrame } = require('../services/vision/frameExtractor');
 
       const url = args.file_url;
@@ -952,6 +974,15 @@ const toolHandlers = {
     const assessment = await census.getReadinessAssessment(userId);
     return { success: true, ...assessment };
   },
+
+  async mark_onboarding_complete(args, userId) {
+    await db.none(
+      `UPDATE users SET onboarding_completed = true, updated_at = NOW() WHERE user_id = $1`,
+      [userId]
+    );
+    console.log(`[nexus] Onboarding marked complete for user: ${userId}`);
+    return { success: true, message: 'Onboarding marked complete.' };
+  },
 };
 
 // ── Conversation Loop ───────────────────────────────────────────────────────────
@@ -975,6 +1006,7 @@ const TOOL_LABELS = {
   update_location: 'Updating location',
   find_duplicates: 'Checking for duplicates',
   inventory_readiness: 'Assessing inventory readiness',
+  mark_onboarding_complete: 'Completing setup',
 };
 
 /**
@@ -1127,6 +1159,17 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     const parts = candidate.content?.parts || [];
     const functionCalls = parts.filter(p => p.functionCall);
     const textParts = parts.filter(p => p.text);
+
+    // Stream intermediate text if model produced text alongside tool calls
+    if (textParts.length > 0 && functionCalls.length > 0) {
+      const intermediateText = textParts.map(p => p.text).join('\n');
+      emit('partial_reply', { text: intermediateText });
+      // Persist intermediate text as a model message
+      await db.none(
+        `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
+        [sessionId, intermediateText]
+      );
+    }
 
     if (functionCalls.length === 0) {
       // No more tool calls — this is the final text response

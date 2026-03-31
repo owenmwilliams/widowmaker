@@ -1,6 +1,6 @@
 'use strict';
 
-const conn = require('./db');
+const conn = require('../infra/db');
 const db = conn.db;
 
 // ── Reference Data ──────────────────────────────────────────────────────────────

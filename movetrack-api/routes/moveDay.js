@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate, requireProOrAdmin } = require('../bin/authService');
+const { authenticate, requireProOrAdmin } = require('../services/infra/authService');
 const { extractQrToken } = require('../services/qrService');
 
 // Database connection using knex

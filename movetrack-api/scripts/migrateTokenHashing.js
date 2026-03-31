@@ -11,7 +11,7 @@
  */
 
 require('dotenv').config();
-const { db } = require('../bin/db');
+const { db } = require('../services/infra/db');
 
 async function migrateTokenHashing() {
     console.log('='.repeat(80));

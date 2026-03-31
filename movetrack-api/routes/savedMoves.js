@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate } = require('../bin/authService');
+const { authenticate } = require('../services/infra/authService');
 const { forwardGeocode } = require('../services/geocodingService');
 
 const knex = require('knex')({

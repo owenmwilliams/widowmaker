@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const { v4: uuidv4 } = require('uuid');
 const visionService = require('../../services/vision/visionService');
 const sharp = require('sharp');
-const { authenticate } = require('../../bin/authService');
+const { authenticate } = require('../../services/infra/authService');
 
 const router = express.Router();
 const jsonParser = bodyParser.json({ limit: '25mb' });

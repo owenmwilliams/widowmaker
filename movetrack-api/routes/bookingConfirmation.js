@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { sendReloprepConfirmationEmail } = require('../bin/authService');
+const { sendReloprepConfirmationEmail } = require('../services/infra/authService');
 
 /**
  * POST /reloprep/send-confirmation

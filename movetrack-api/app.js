@@ -16,8 +16,8 @@ const helmet = require('helmet');
 // Rate limiting configuration
 const rateLimits = require('./config/rateLimits');
 
-var jwtLib = require('./bin/auth')
-const { verifyToken } = require('./bin/jwtMiddleware');
+var jwtLib = require('./services/infra/auth')
+const { verifyToken } = require('./services/infra/jwtMiddleware');
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 var locationsRouter = require('./routes/locations');
@@ -26,9 +26,9 @@ var containersRouter = require('./routes/containers');
 var itemsRouter = require('./routes/items');
 var listsRouter = require('./routes/lists');
 var fileRouter = require('./routes/files');
-var visionRouter = require('./routes/vision');
+var visionRouter = require('./routes/vision/visionRoutes');
 var publicRouter = require('./routes/public');
-var gptRouter = require('./routes/gpt');
+
 var googleRouter = require('./routes/google');
 var emailRouter = require('./routes/email');
 var authRouter = require('./routes/auth');
@@ -42,7 +42,7 @@ var onboardingRouter = require('./routes/onboarding');
 var importsRouter = require('./routes/imports');
 var visionLabRouter = require('./routes/experimental/visionLab');
 var adminRouter = require('./routes/admin');
-var reloprepRouter = require('./routes/reloprep');
+var bookingConfirmationRouter = require('./routes/bookingConfirmation');
 var nexusRouter = require('./routes/nexus');
 var censusRouter = require('./routes/census');
 var vectorRouter = require('./routes/vector');
@@ -165,7 +165,7 @@ app.use('/public', rateLimits.publicLimiter, publicRouter)
 app.use('/file', rateLimits.uploadLimiter, fileRouter);
 app.use('/lists', listsRouter);
 app.use('/vision', rateLimits.visionLimiter, visionRouter);
-app.use('/gpt', gptRouter);
+
 app.use('/google', googleRouter)
 app.use('/email', rateLimits.emailLimiter, emailRouter)
 app.use('/auth', rateLimits.authLimiter, authRouter)
@@ -175,7 +175,7 @@ app.use('/api/move-day', rateLimits.apiLimiter, moveDayRouter)
 app.use('/api/waypoints', rateLimits.apiLimiter, waypointsRouter)
 app.use('/billing', billingRouter)
 app.use('/admin', adminRouter)
-app.use('/reloprep', reloprepRouter)
+app.use('/reloprep', bookingConfirmationRouter)
 
 // Experimental vision features - admin only
 const visionLabVideoRouter = require('./routes/experimental/visionLabVideo');

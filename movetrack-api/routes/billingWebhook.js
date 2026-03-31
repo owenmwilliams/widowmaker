@@ -1,5 +1,5 @@
 const Stripe = require('stripe');
-const { setUserPlanStatus } = require('../bin/authService');
+const { setUserPlanStatus } = require('../services/infra/authService');
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY;
 const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;

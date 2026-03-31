@@ -2,7 +2,7 @@
 var express = require('express');
 var router = express.Router();
 var bodyParser = require('body-parser');
-const { authenticate, resolveEffectivePlan } = require('../bin/authService');
+const { authenticate, resolveEffectivePlan } = require('../services/infra/authService');
 const { forwardGeocode } = require('../services/geocodingService');
 
 const knex = require('knex')({
