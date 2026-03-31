@@ -1,7 +1,7 @@
 var express = require('express');
 var router = express.Router();
 var bodyParser = require('body-parser');
-var conn = require('../bin/db');
+var conn = require('../services/infra/db');
 
 const db = conn.db;
 

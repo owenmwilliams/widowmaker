@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios'); // You need to install axios with npm or yarn
-const { authenticate } = require('../bin/authService');
+const { authenticate } = require('../services/infra/authService');
 
 // Define your Google Books API key
 const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;

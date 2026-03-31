@@ -2,12 +2,12 @@ var express = require('express');
 var router = express.Router();
 const pgp = require('pg-promise')();
 var bodyParser = require('body-parser');
-var conn = require('../bin/db');
+var conn = require('../services/infra/db');
 const { Storage } = require('@google-cloud/storage');
 const path = require('path');
 
 const db = conn.db;
-const authService = require('../bin/authService');
+const authService = require('../services/infra/authService');
 
 const knex = require('knex')({
   client: 'pg',

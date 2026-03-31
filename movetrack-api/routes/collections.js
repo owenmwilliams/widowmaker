@@ -4,8 +4,8 @@ var express = require('express');
 var router = express.Router();
 const pgp = require('pg-promise')();
 var bodyParser = require('body-parser');
-var conn = require('../bin/db');
-const { authenticate } = require('../bin/authService');
+var conn = require('../services/infra/db');
+const { authenticate } = require('../services/infra/authService');
 
 const db = conn.db;
 

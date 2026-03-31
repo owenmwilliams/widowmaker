@@ -6,7 +6,7 @@
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
-const { db } = require('../bin/db');
+const { db } = require('../services/infra/db');
 
 async function cleanupTokens() {
   try {

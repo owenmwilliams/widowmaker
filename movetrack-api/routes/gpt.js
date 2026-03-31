@@ -2,7 +2,7 @@ var express = require('express');
 var router = express.Router();
 const OpenAI = require('openai');
 const multer = require('multer');
-const { authenticate } = require('../bin/authService');
+const { authenticate } = require('../services/infra/authService');
 
 // Initialize OpenAI only if API key is provided
 let openai = null;

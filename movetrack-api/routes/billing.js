@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate, getPlanRecord, upsertPlanRecord } = require('../bin/authService');
+const { authenticate, getPlanRecord, upsertPlanRecord } = require('../services/infra/authService');
 const Stripe = require('stripe');
 
 const stripeSecret = process.env.STRIPE_SECRET_KEY;

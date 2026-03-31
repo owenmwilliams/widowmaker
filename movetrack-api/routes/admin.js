@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { Storage } = require('@google-cloud/storage');
 const path = require('path');
-const { authenticate } = require('../bin/authService');
+const { authenticate } = require('../services/infra/authService');
 const knex = require('knex')({
   client: 'pg',
   connection: {

@@ -4,7 +4,7 @@ const { Storage } = require('@google-cloud/storage');
 const multer = require('multer');
 const path = require('path');
 const crypto = require('crypto');
-const { authenticate, resolveEffectivePlan } = require('../bin/authService');
+const { authenticate, resolveEffectivePlan } = require('../services/infra/authService');
 const knex = require('knex')({
   client: 'pg',
   connection: {
@@ -143,7 +143,7 @@ router.post('/upload/:bucket', upload.single('file'), async (req, res) => {
       // Generate a signed URL for immediate display
       let signedUrl = publicUrl;
       try {
-        const { signUrl } = require('../bin/gcsService');
+        const { signUrl } = require('../services/infra/gcsService');
         signedUrl = await signUrl(file.name);
       } catch (signErr) {
         console.warn('[GCS] Signed URL generation failed (non-fatal):', signErr.message);
@@ -237,7 +237,7 @@ router.post('/create/:bucket', async (req, res) => {
 // Generate a short-lived signed URL for a GCS object.
 // Accepts either ?path=users/x/photo.jpg or ?url=https://storage.googleapis.com/...
 router.get('/signed-url', async (req, res) => {
-  const { signUrl, publicUrlToPath } = require('../bin/gcsService');
+  const { signUrl, publicUrlToPath } = require('../services/infra/gcsService');
   const gcsPath = req.query.path || publicUrlToPath(req.query.url);
 
   if (!gcsPath) {

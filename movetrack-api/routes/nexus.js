@@ -1,11 +1,11 @@
 const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-const { authenticate, resolveEffectivePlan } = require('../bin/authService');
-const nexusOrchestrator = require('../bin/nexusOrchestratorService');
-const census = require('../bin/censusService');
-const gcs = require('../bin/gcsService');
-const conn = require('../bin/db');
+const { authenticate, resolveEffectivePlan } = require('../services/infra/authService');
+const nexusOrchestrator = require('../agents/nexusOrchestratorAgent');
+const census = require('../services/census/censusService');
+const gcs = require('../services/infra/gcsService');
+const conn = require('../services/infra/db');
 const db = conn.db;
 
 const router = express.Router();

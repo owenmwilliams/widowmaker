@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
-const { authenticate } = require('../bin/authService');
+const { authenticate } = require('../services/infra/authService');
 const { reverseGeocode, batchReverseGeocode, forwardGeocode } = require('../services/geocodingService');
 // Distance utilities used by calculate-route endpoint (batch calculation)
 const { calculateEstimatedDistance, getOriginFromPolyline, estimateDriveHours } = require('../services/distanceUtils');

@@ -1,10 +1,10 @@
 const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-const gcs = require('../../bin/gcsService');
+const gcs = require('../../services/infra/gcsService');
 const videoScanService = require('../../services/vision/geminiVideoScanService');
 const { extractSharpestFrame } = require('../../services/vision/frameExtractor');
-const { authenticate, resolveEffectivePlan } = require('../../bin/authService');
+const { authenticate, resolveEffectivePlan } = require('../../services/infra/authService');
 
 const router = express.Router();
 

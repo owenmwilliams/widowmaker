@@ -17,7 +17,7 @@ require('dotenv').config();
 const {
     createMagicLinkToken,
     verifyMagicLinkToken
-} = require('../bin/authService');
+} = require('../services/infra/authService');
 
 async function testMagicLinkFlow() {
     console.log('='.repeat(80));

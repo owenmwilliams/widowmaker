@@ -1,12 +1,12 @@
 'use strict';
 
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
-const conn = require('./db');
+const conn = require('../services/infra/db');
 const db = conn.db;
-const census = require('./censusService');
-const censusAgent = require('./censusAgentService');
-const vectorService = require('./vectorService');
-const { buildGeminiContents } = require('./geminiHistoryBuilder');
+const census = require('../services/census/censusService');
+const censusAgent = require('./censusAgent');
+const vectorService = require('./vectorAgent');
+const { buildGeminiContents } = require('../services/shared/geminiHistoryBuilder');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 

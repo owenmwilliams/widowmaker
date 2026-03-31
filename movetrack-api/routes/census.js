@@ -1,11 +1,11 @@
 const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-const { authenticate, resolveEffectivePlan } = require('../bin/authService');
-const censusAgentService = require('../bin/censusAgentService');
-const census = require('../bin/censusService');
-const gcs = require('../bin/gcsService');
-const conn = require('../bin/db');
+const { authenticate, resolveEffectivePlan } = require('../services/infra/authService');
+const censusAgentService = require('../agents/censusAgent');
+const census = require('../services/census/censusService');
+const gcs = require('../services/infra/gcsService');
+const conn = require('../services/infra/db');
 const db = conn.db;
 
 const router = express.Router();
@@ -245,7 +245,7 @@ router.post('/feedback', express.json(), async (req, res) => {
   }
 
   try {
-    const metricsService = require('../bin/metricsService');
+    const metricsService = require('../services/infra/metricsService');
     await metricsService.logItemFeedback(itemId, userId, feedback, interactionLogId || null);
     res.json({ success: true });
   } catch (err) {

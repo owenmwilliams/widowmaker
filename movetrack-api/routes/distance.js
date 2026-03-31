@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { GOOGLE_MAPS_API_KEY, isGoogleMapsConfigured } = require('../config/google');
-const { authenticate } = require('../bin/authService');
+const { authenticate } = require('../services/infra/authService');
 
 router.use(authenticate);
 

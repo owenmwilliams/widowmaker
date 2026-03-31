@@ -1,7 +1,7 @@
 const express = require('express');
-const { authenticate, resolveEffectivePlan } = require('../bin/authService');
-const vectorService = require('../bin/vectorService');
-const conn = require('../bin/db');
+const { authenticate, resolveEffectivePlan } = require('../services/infra/authService');
+const vectorService = require('../agents/vectorAgent');
+const conn = require('../services/infra/db');
 const db = conn.db;
 
 const router = express.Router();

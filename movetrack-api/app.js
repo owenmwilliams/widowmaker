@@ -16,8 +16,8 @@ const helmet = require('helmet');
 // Rate limiting configuration
 const rateLimits = require('./config/rateLimits');
 
-var jwtLib = require('./bin/auth')
-const { verifyToken } = require('./bin/jwtMiddleware');
+var jwtLib = require('./services/infra/auth')
+const { verifyToken } = require('./services/infra/jwtMiddleware');
 var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 var locationsRouter = require('./routes/locations');

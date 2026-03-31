@@ -2,9 +2,9 @@ var express = require('express');
 var router = express.Router();
 const pgp = require('pg-promise')();
 var bodyParser = require('body-parser');
-var conn = require('../bin/db');
+var conn = require('../services/infra/db');
 const { QR_TYPES, buildQrUrl, generateUniqueToken, extractQrToken } = require('../services/qrService');
-const { authenticate } = require('../bin/authService');
+const { authenticate } = require('../services/infra/authService');
 
 const db = conn.db;
 
