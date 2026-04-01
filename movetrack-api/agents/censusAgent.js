@@ -8,7 +8,7 @@ const mutation = require('../services/census/inventoryMutationService');
 const query = require('../services/census/inventoryQueryService');
 const duplicates = require('../services/census/duplicateDetectionService');
 const media = require('../services/census/mediaInventoryWorkflowService');
-const { buildGeminiContents } = require('../services/shared/geminiHistoryBuilder');
+const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const metrics = require('../services/infra/metricsService');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs/promises');
 const fetch = require('node-fetch');
-const visionService = require('../../services/vision/visionService');
+const visionService = require('../../services/infra/vision/visionService');
 const { authenticate } = require('../../services/infra/authService');
 
 const CONFIG_PATH = path.join(__dirname, '../../data/experimental/visionLab.json');

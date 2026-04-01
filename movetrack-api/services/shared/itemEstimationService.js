@@ -1,5 +1,5 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
-const { fetchImageAsBase64, getMimeTypeFromUrl } = require('../vision/visionService');
+const { fetchImageAsBase64, getMimeTypeFromUrl } = require('../infra/vision/visionService');
 
 let geminiClient = null;
 if (process.env.GOOGLE_AI_API_KEY) {

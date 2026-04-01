@@ -2,8 +2,8 @@ const express = require('express');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const gcs = require('../../services/infra/gcsService');
-const videoScanService = require('../../services/vision/geminiVideoScanService');
-const { extractSharpestFrame } = require('../../services/vision/frameExtractor');
+const videoScanService = require('../../services/infra/vision/geminiVideoScanService');
+const { extractSharpestFrame } = require('../../services/infra/vision/frameExtractor');
 const { authenticate, resolveEffectivePlan } = require('../../services/infra/authService');
 
 const router = express.Router();

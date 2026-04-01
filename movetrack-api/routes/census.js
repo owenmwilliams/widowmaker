@@ -7,6 +7,7 @@ const census = require('../services/census/censusService');
 const gcs = require('../services/infra/gcsService');
 const conn = require('../services/infra/db');
 const db = conn.db;
+const { enrichMessagesWithActions } = require('../services/shared/enrichMessages');
 
 const router = express.Router();
 
@@ -16,30 +17,6 @@ const upload = multer({
 });
 
 router.use(authenticate);
-
-// ── Helper: enrich messages with tool actions ─────────────────────────────────
-function enrichMessagesWithActions(allMessages) {
-  const visibleMessages = allMessages.filter(m => m.role === 'user' || m.role === 'model');
-  return visibleMessages.map((msg, idx) => {
-    if (msg.role === 'model') {
-      const prevVisibleIdx = idx > 0 ? allMessages.indexOf(visibleMessages[idx - 1]) : -1;
-      const thisIdx = allMessages.indexOf(msg);
-      const toolCalls = allMessages
-        .slice(prevVisibleIdx + 1, thisIdx)
-        .filter(m => m.role === 'tool_call')
-        .map(tc => ({
-          tool: tc.tool_name,
-          args: tc.tool_args,
-          result: allMessages.find(
-            m => m.role === 'tool_result' && m.tool_name === tc.tool_name &&
-                 allMessages.indexOf(m) > allMessages.indexOf(tc) && allMessages.indexOf(m) < thisIdx
-          )?.tool_response,
-        }));
-      return { ...msg, actions: toolCalls };
-    }
-    return msg;
-  });
-}
 
 // ─── POST /message ───────────────────────────────────────────────────────────
 // Send a message to the Census agent with SSE streaming for progress updates.

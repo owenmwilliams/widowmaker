@@ -14,9 +14,9 @@ const os = require('os');
 const path = require('path');
 const gcs = require('../infra/gcsService');
 const { drawBoundingBox } = require('../shared/images/crop');
-const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../vision/visionService');
-const { analyzeVideo } = require('../vision/geminiVideoScanService');
-const { extractSharpestFrame } = require('../vision/frameExtractor');
+const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../infra/vision/visionService');
+const { analyzeVideo } = require('../infra/vision/geminiVideoScanService');
+const { extractSharpestFrame } = require('../infra/vision/frameExtractor');
 
 /**
  * Download a URL into a Buffer.

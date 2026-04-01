@@ -5,7 +5,7 @@ const conn = require('../services/infra/db');
 const db = conn.db;
 const census = require('../services/census/censusService');
 const { getInventoryTotals } = require('../services/census/inventoryQueryService');
-const { buildGeminiContents } = require('../services/shared/geminiHistoryBuilder');
+const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 
 // Vector services
 const { recommendTruckSize } = require('../services/vector/truckSizingService');
