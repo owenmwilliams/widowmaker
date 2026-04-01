@@ -24,10 +24,6 @@ const GEMINI_MODELS = {
   pro: 'gemini-2.5-pro',
 };
 
-// ── Knex (shared singleton) ──────────────────────────────────────────────────────
-
-const knex = require('../services/infra/knex');
-
 // ── System Prompt ───────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are Nexus, the Nexus Moves AI assistant. You help people manage their moves and catalog their belongings through natural conversation.
@@ -47,19 +43,7 @@ USER CONTEXT:
 CURRENT INVENTORY:
 {{INVENTORY_SNAPSHOT}}
 
-ONBOARDING FLOW (if user has NOT completed onboarding):
-You are driving this conversation. Ask one question at a time and take action immediately.
-1. Greet warmly: "Hi [name if known]! I'm Nexus, your moving assistant. Let's get you set up — it'll only take a minute."
-2. Ask their goal: "What brings you here — planning a move, getting organized, or something else?"
-   → Call set_user_profile with their goal (and name if you have it)
-3. Ask for their address: "Where are you moving from? Just a street address is fine."
-   → Call set_location immediately with the address
-4. Ask about the home: "Is that an apartment or house? How many bedrooms?"
-   → Based on their answer, call add_room for each room (e.g. Kitchen, Living Room, Bedroom 1, Bedroom 2, Bathroom)
-   → Call mark_onboarding_complete immediately after creating rooms
-5. Transition to cataloging: "You're all set! Let's start with the [first room]. What's in there? You can also snap a photo and I'll identify everything."
-
-IMPORTANT: Do NOT wait for the user to ask what to do next. YOU drive the conversation forward after each answer. Keep it fast and natural.
+NOTE: If the user hasn't completed onboarding (no location or rooms yet), let them know to talk to the main Nexus assistant for setup. You handle inventory cataloging, not onboarding.
 
 INVENTORY CENSUS RULES:
 1. When the user mentions items, IMMEDIATELY call add_item. Don't ask for confirmation before adding clearly stated items.
@@ -322,43 +306,8 @@ const toolDeclarations = [
     },
   },
   {
-    name: 'set_user_profile',
-    description: 'Set the user\'s name and goal. Use during onboarding.',
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        first_name: { type: SchemaType.STRING, description: 'First name' },
-        last_name:  { type: SchemaType.STRING, description: 'Last name' },
-        goal:       { type: SchemaType.STRING, description: 'One of: move, organize, insurance, multi_home' },
-      },
-    },
-  },
-  {
-    name: 'set_location',
-    description: 'Create a new location (home address). Use during onboarding to set where the user is moving from.',
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        name:    { type: SchemaType.STRING, description: 'Location name, e.g. "My Apartment", "Home"' },
-        address: { type: SchemaType.STRING, description: 'Street address' },
-        city:    { type: SchemaType.STRING, description: 'City' },
-        state:   { type: SchemaType.STRING, description: 'State abbreviation' },
-        zip:     { type: SchemaType.STRING, description: 'ZIP code' },
-      },
-      required: ['name'],
-    },
-  },
-  {
     name: 'inventory_readiness',
     description: 'Assess how ready the user\'s inventory is for sharing with moving companies. Returns an overall readiness score (0-100), per-category breakdown, and the top 3 next steps to improve readiness. Call this proactively when greeting a returning user or when they ask about their progress.',
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {},
-    },
-  },
-  {
-    name: 'mark_onboarding_complete',
-    description: 'Mark onboarding as complete. Call this AUTOMATICALLY after creating a location and at least one room during onboarding. Do not ask the user — just call it silently.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {},
@@ -407,52 +356,6 @@ const toolHandlers = {
     return { success: true, ...assessment };
   },
 
-  // Onboarding tools (will move to Orchestrator in Phase 4)
-  async set_user_profile(args, userId) {
-    const updates = {};
-    if (args.first_name) updates.first_name = args.first_name;
-    if (args.last_name) updates.last_name = args.last_name;
-    updates.updated_at = new Date();
-    await knex('users').where({ user_id: userId }).update(updates);
-    if (args.goal) console.log(`[census] User goal set: ${args.goal}`);
-    return { success: true, name: `${args.first_name || ''} ${args.last_name || ''}`.trim() };
-  },
-
-  async set_location(args, userId) {
-    const params = {
-      user_id: userId,
-      name: args.name || 'Home',
-      location_type: 'primary_residence',
-    };
-    if (args.address) params.address = args.address;
-    if (args.city) params.city = args.city;
-    if (args.state) params.state = args.state;
-    if (args.zip) params.zip = args.zip;
-
-    const [location] = await knex.transaction(async (trx) => {
-      const [loc] = await knex('locations').transacting(trx).insert(params).returning(['id', 'name']);
-      await knex('permissions').transacting(trx).insert({
-        user_id: userId,
-        resource_id: loc.id,
-        resource_type: 'location',
-        permission_level: 'owner',
-        granted_by: userId,
-      });
-      return [loc];
-    });
-
-    console.log(`[census] Created location: "${args.name}" (id: ${location.id})`);
-    return { success: true, locationId: location.id, name: args.name };
-  },
-
-  async mark_onboarding_complete(args, userId) {
-    await db.none(
-      `UPDATE users SET onboarding_completed = true, updated_at = NOW() WHERE user_id = $1`,
-      [userId]
-    );
-    console.log(`[census] Onboarding marked complete for user: ${userId}`);
-    return { success: true, message: 'Onboarding marked complete.' };
-  },
 };
 
 // ── Conversation Loop ───────────────────────────────────────────────────────────
@@ -471,12 +374,9 @@ const TOOL_LABELS = {
   get_missing_context: 'Checking for gaps',
   analyze_photo: 'Analyzing photo',
   analyze_video: 'Analyzing video',
-  set_user_profile: 'Setting up profile',
-  set_location: 'Setting location',
   update_location: 'Updating location',
   find_duplicates: 'Checking for duplicates',
   inventory_readiness: 'Assessing inventory readiness',
-  mark_onboarding_complete: 'Completing setup',
 };
 
 /**
