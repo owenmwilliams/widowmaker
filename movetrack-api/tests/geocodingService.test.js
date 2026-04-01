@@ -5,7 +5,7 @@
  * without making actual API calls
  */
 
-const { parseAddressComponents, getCacheKey, clearCache, getCacheStats } = require('../services/geocodingService');
+const { parseAddressComponents, getCacheKey, clearCache, getCacheStats } = require('../services/infra/geocodingService');
 
 describe('Geocoding Service', () => {
   describe('getCacheKey', () => {

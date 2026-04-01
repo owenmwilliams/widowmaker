@@ -3,7 +3,7 @@ var express = require('express');
 var router = express.Router();
 var bodyParser = require('body-parser');
 const { authenticate, resolveEffectivePlan } = require('../services/infra/authService');
-const { forwardGeocode } = require('../services/geocodingService');
+const { forwardGeocode } = require('../services/infra/geocodingService');
 
 const knex = require('knex')({
   client: 'pg',

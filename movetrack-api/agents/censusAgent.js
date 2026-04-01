@@ -22,18 +22,9 @@ const GEMINI_MODELS = {
   pro: 'gemini-2.5-pro',
 };
 
-// ── Knex (for transactional inserts) ────────────────────────────────────────────
+// ── Knex (shared singleton) ──────────────────────────────────────────────────────
 
-const knex = require('knex')({
-  client: 'pg',
-  connection: {
-    host: process.env.MT_DATALAYER_HOSTNAME,
-    user: process.env.MT_DATALAYER_USERNAME,
-    password: process.env.MT_DATALAYER_PASSWORD,
-    database: process.env.MT_DATALAYER_DATABASE,
-  },
-  pool: { min: 0, max: 5 },
-});
+const knex = require('../services/infra/knex');
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
@@ -518,7 +509,7 @@ const toolHandlers = {
   async analyze_photo(args, userId, plan) {
     try {
       const gcs = require('../services/infra/gcsService');
-      const { drawBoundingBox } = require('../services/images/crop');
+      const { drawBoundingBox } = require('../services/shared/images/crop');
 
       // ── Normalize inputs ──
       let files = args.files || [];

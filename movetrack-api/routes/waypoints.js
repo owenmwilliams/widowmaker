@@ -2,9 +2,9 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { authenticate } = require('../services/infra/authService');
-const { reverseGeocode, batchReverseGeocode, forwardGeocode } = require('../services/geocodingService');
+const { reverseGeocode, batchReverseGeocode, forwardGeocode } = require('../services/infra/geocodingService');
 // Distance utilities used by calculate-route endpoint (batch calculation)
-const { calculateEstimatedDistance, getOriginFromPolyline, estimateDriveHours } = require('../services/distanceUtils');
+const { calculateEstimatedDistance, getOriginFromPolyline, estimateDriveHours } = require('../services/shared/distanceUtils');
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 

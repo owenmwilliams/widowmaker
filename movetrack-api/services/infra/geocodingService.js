@@ -9,7 +9,7 @@
  */
 
 const axios = require('axios');
-const { GOOGLE_MAPS_API_KEY, isGoogleMapsConfigured } = require('../config/google');
+const { GOOGLE_MAPS_API_KEY, isGoogleMapsConfigured } = require('../../config/google');
 
 // In-memory cache for geocoding results
 // Key: "lat,lng" (rounded to 4 decimal places ~11m accuracy)

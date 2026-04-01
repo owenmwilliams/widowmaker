@@ -4,12 +4,12 @@ const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('../services/infra/db');
 const db = conn.db;
 const census = require('../services/census/censusService');
-const { generateItemEstimate } = require('../services/itemEstimationService');
+const { generateItemEstimate } = require('../services/shared/itemEstimationService');
 const {
   haversineDistanceMiles,
   estimateRoadDistance,
   estimateDriveHours,
-} = require('../services/distanceUtils');
+} = require('../services/shared/distanceUtils');
 const { buildGeminiContents } = require('../services/shared/geminiHistoryBuilder');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
@@ -25,18 +25,9 @@ const GEMINI_MODELS = {
   pro: 'gemini-2.5-pro',
 };
 
-// ── Knex (for transactional inserts) ────────────────────────────────────────────
+// ── Knex (shared singleton) ──────────────────────────────────────────────────────
 
-const knex = require('knex')({
-  client: 'pg',
-  connection: {
-    host: process.env.MT_DATALAYER_HOSTNAME,
-    user: process.env.MT_DATALAYER_USERNAME,
-    password: process.env.MT_DATALAYER_PASSWORD,
-    database: process.env.MT_DATALAYER_DATABASE,
-  },
-  pool: { min: 0, max: 5 },
-});
+const knex = require('../services/infra/knex');
 
 // ── Truck sizing constants ──────────────────────────────────────────────────────
 
