@@ -417,7 +417,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     session = await db.one(
       `INSERT INTO nexus_sessions (user_id) VALUES ($1) RETURNING *`, [userId]
     );
-    console.log(`[nexus] New session for user: ${session.id}`);
+    console.log(`[census] New session for user: ${session.id}`);
   }
   const sessionId = session.id;
 
@@ -569,7 +569,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
       // Fire-and-forget context summary generation
       generateContextSummary(sessionId).catch(err =>
-        console.error('[nexus] Summary generation failed:', err.message)
+        console.error('[census] Summary generation failed:', err.message)
       );
 
       // Fire-and-forget metrics logging
@@ -600,7 +600,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     const toolResponses = [];
     for (const part of functionCalls) {
       const { name, args } = part.functionCall;
-      console.log(`[nexus] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
+      console.log(`[census] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
 
       const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
       const detail = args.name || args.room_name || args.item_name || '';
@@ -615,7 +615,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
           toolResult = await handler(args, userId, plan);
         }
       } catch (err) {
-        console.error(`[nexus] Tool ${name} failed:`, err.message);
+        console.error(`[census] Tool ${name} failed:`, err.message);
         toolResult = { success: false, error: err.message };
       }
 
@@ -766,7 +766,7 @@ Write in third person: "The user..." not "You..."`,
     [summary, newSummaryThroughId, sessionId]
   );
 
-  console.log(`[nexus] Summary updated for session ${sessionId} (through msg ${newSummaryThroughId}, ${newMessages.length} new messages summarized)`);
+  console.log(`[census] Summary updated for session ${sessionId} (through msg ${newSummaryThroughId}, ${newMessages.length} new messages summarized)`);
 }
 
 module.exports = { processMessage, generateContextSummary, SYSTEM_PROMPT };

@@ -12,7 +12,7 @@ const { buildToolHandlers } = require('../services/orchestrator/agentDelegationS
 let geminiClient = null;
 if (process.env.GOOGLE_AI_API_KEY) {
   geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-  console.log('[nexusOrchestrator] Gemini configured');
+  console.log('[orchestrator] Gemini configured');
 }
 
 const GEMINI_MODELS = {
@@ -199,7 +199,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       `INSERT INTO nexus_sessions (user_id, session_type) VALUES ($1, 'nexus') RETURNING *`,
       [userId]
     );
-    console.log(`[nexusOrchestrator] New session for user: ${session.id}`);
+    console.log(`[orchestrator] New session for user: ${session.id}`);
   }
   const sessionId = session.id;
 
@@ -316,7 +316,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
       // Fire-and-forget summary
       generateContextSummary(sessionId).catch(err =>
-        console.error('[nexusOrchestrator] Summary generation failed:', err.message)
+        console.error('[orchestrator] Summary generation failed:', err.message)
       );
 
       emit('done', { reply, actions, sessionId });
@@ -327,7 +327,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     const toolResponses = [];
     for (const part of functionCalls) {
       const { name, args } = part.functionCall;
-      console.log(`[nexusOrchestrator] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
+      console.log(`[orchestrator] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
 
       const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
       emit('tool_call', { tool: name, label: toolLabel });
@@ -341,7 +341,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
           toolResult = await handler(args);
         }
       } catch (err) {
-        console.error(`[nexusOrchestrator] Tool ${name} failed:`, err.message);
+        console.error(`[orchestrator] Tool ${name} failed:`, err.message);
         toolResult = { success: false, error: err.message };
       }
 
@@ -454,7 +454,7 @@ Keep it under 300 words. Write in third person: "The user..." not "You..."`,
     [summary, newSummaryThroughId, sessionId]
   );
 
-  console.log(`[nexusOrchestrator] Summary updated for session ${sessionId}`);
+  console.log(`[orchestrator] Summary updated for session ${sessionId}`);
 }
 
 module.exports = { processMessage, generateContextSummary };

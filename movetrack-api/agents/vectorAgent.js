@@ -20,7 +20,7 @@ const { getMoveSummary, estimateMissingItems, getRoomBreakdown } = require('../s
 let geminiClient = null;
 if (process.env.GOOGLE_AI_API_KEY) {
   geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-  console.log('[vectorService] Gemini configured');
+  console.log('[vector] Gemini configured');
 }
 
 const GEMINI_MODELS = {
@@ -69,7 +69,7 @@ RULES:
 7. Flag items over 300 lbs or over 84 inches in any dimension as needing special handling.
 8. When recommending truck size, add 15-20% buffer to the raw volume for packing inefficiency.
 9. NEVER invent data. If you don't have enough information, say so and suggest what's needed.
-10. If the user asks about things outside your scope (adding items, scanning rooms), suggest they use the Inventory assistant instead.
+10. If the user asks about things outside your scope (adding items, scanning rooms, onboarding), let them know to use the main Nexus assistant instead. You own logistics — not inventory cataloging or onboarding.
 
 INLINE BUTTONS:
 When presenting the user with a choice, use inline buttons so they can tap instead of typing. Format:
