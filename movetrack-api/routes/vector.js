@@ -3,7 +3,7 @@ const { authenticate, resolveEffectivePlan } = require('../services/infra/authSe
 const vectorService = require('../agents/vectorAgent');
 const conn = require('../services/infra/db');
 const db = conn.db;
-const { enrichMessagesWithActions } = require('../services/shared/enrichMessages');
+const { enrichMessagesWithActions } = require('../services/primitives/enrichMessages');
 
 const router = express.Router();
 

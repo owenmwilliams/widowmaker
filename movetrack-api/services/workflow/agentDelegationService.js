@@ -2,7 +2,7 @@
 
 const conn = require('../infra/db');
 const db = conn.db;
-const census = require('../census/censusService');
+const census = require('../inventory/censusService');
 const censusAgent = require('../../agents/censusAgent');
 const vectorAgent = require('../../agents/vectorAgent');
 const onboarding = require('./onboardingService');

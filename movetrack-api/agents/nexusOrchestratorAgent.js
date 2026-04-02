@@ -3,9 +3,9 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('../services/infra/db');
 const db = conn.db;
-const census = require('../services/census/censusService');
+const census = require('../services/inventory/censusService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
-const { buildToolHandlers } = require('../services/orchestrator/agentDelegationService');
+const { buildToolHandlers } = require('../services/workflow/agentDelegationService');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 

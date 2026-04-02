@@ -7,7 +7,7 @@
  */
 
 const knex = require('../infra/knex');
-const { estimateRoadDistance, estimateDriveHours } = require('../shared/distanceUtils');
+const { estimateRoadDistance, estimateDriveHours } = require('../primitives/distanceUtils');
 const { COST_PARAMS } = require('./moveCostService');
 
 /**

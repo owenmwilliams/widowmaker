@@ -7,11 +7,11 @@ routes/          → Transport only (HTTP, SSE, file upload). No business logic.
 agents/          → AI orchestration (Gemini tool-calling loops, session management).
                    Thin delegates to services for all business logic.
 services/
-  census/        → Inventory domain (CRUD, queries, duplicates, media workflows)
-  vector/        → Logistics domain (truck sizing, costs, labor, routes, summaries)
-  orchestrator/  → Cross-agent (onboarding, delegation)
-  shared/        → Neutral reusable utilities (distance, QR, estimation, enrichMessages)
-  infra/         → Plumbing (DB, auth, GCS, Gemini history, vision providers, metrics)
+  workflow/      → User + session + progression logic (onboarding, delegation)
+  inventory/     → Items, rooms, inference, readiness (read + write)
+  move/          → Truck, labor, cost, route (read + compute)
+  primitives/    → Reusable calculations (estimation, distance, QR, enrichMessages)
+  infra/         → DB, auth, storage, models (vision providers, Gemini history, metrics)
 scripts/         → CLI tools, one-off tests, migration helpers
 ```
 
@@ -20,12 +20,12 @@ scripts/         → CLI tools, one-off tests, migration helpers
 ```
 routes  →  agents  →  services/*
 routes  →  services/infra  (auth middleware, DB)
-routes  →  services/shared (enrichMessages)
+routes  →  services/primitives (enrichMessages, QR, estimation)
 
-services/census      →  services/infra
-services/vector      →  services/infra, services/census (inventoryQueryService for totals)
-services/orchestrator →  services/infra, services/census, agents (delegation)
-services/shared      →  services/infra only
+services/inventory   →  services/infra
+services/move        →  services/infra, services/inventory (inventoryQueryService for totals)
+services/workflow    →  services/infra, services/inventory, agents (delegation)
+services/primitives  →  services/infra only
 services/infra       →  external packages only (no intra-project deps)
 ```
 

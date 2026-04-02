@@ -7,8 +7,8 @@
  */
 
 const knex = require('../infra/knex');
-const { getInventoryTotals } = require('../census/inventoryQueryService');
-const { generateItemEstimate } = require('../shared/itemEstimationService');
+const { getInventoryTotals } = require('../inventory/inventoryQueryService');
+const { generateItemEstimate } = require('../primitives/itemEstimationService');
 
 /**
  * Get a comprehensive move summary.

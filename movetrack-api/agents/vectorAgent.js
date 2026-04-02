@@ -3,17 +3,17 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('../services/infra/db');
 const db = conn.db;
-const census = require('../services/census/censusService');
-const { getInventoryTotals } = require('../services/census/inventoryQueryService');
+const census = require('../services/inventory/censusService');
+const { getInventoryTotals } = require('../services/inventory/inventoryQueryService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 
 // Vector services
-const { recommendTruckSize } = require('../services/vector/truckSizingService');
-const { estimateMoveCost } = require('../services/vector/moveCostService');
-const { estimateLabor } = require('../services/vector/laborEstimationService');
-const { flagSpecialItems } = require('../services/vector/specialHandlingService');
-const { calculateRoute } = require('../services/vector/routeService');
-const { getMoveSummary, estimateMissingItems, getRoomBreakdown } = require('../services/vector/moveSummaryService');
+const { recommendTruckSize } = require('../services/move/truckSizingService');
+const { estimateMoveCost } = require('../services/move/moveCostService');
+const { estimateLabor } = require('../services/move/laborEstimationService');
+const { flagSpecialItems } = require('../services/move/specialHandlingService');
+const { calculateRoute } = require('../services/move/routeService');
+const { getMoveSummary, estimateMissingItems, getRoomBreakdown } = require('../services/move/moveSummaryService');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 

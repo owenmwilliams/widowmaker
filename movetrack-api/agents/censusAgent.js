@@ -3,11 +3,11 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('../services/infra/db');
 const db = conn.db;
-const census = require('../services/census/censusService');
-const mutation = require('../services/census/inventoryMutationService');
-const query = require('../services/census/inventoryQueryService');
-const duplicates = require('../services/census/duplicateDetectionService');
-const media = require('../services/census/mediaInventoryWorkflowService');
+const census = require('../services/inventory/censusService');
+const mutation = require('../services/inventory/inventoryMutationService');
+const query = require('../services/inventory/inventoryQueryService');
+const duplicates = require('../services/inventory/duplicateDetectionService');
+const media = require('../services/inventory/mediaInventoryWorkflowService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const metrics = require('../services/infra/metricsService');
 

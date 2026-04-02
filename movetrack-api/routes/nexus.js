@@ -3,11 +3,11 @@ const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const { authenticate, resolveEffectivePlan } = require('../services/infra/authService');
 const nexusOrchestrator = require('../agents/nexusOrchestratorAgent');
-const census = require('../services/census/censusService');
+const census = require('../services/inventory/censusService');
 const gcs = require('../services/infra/gcsService');
 const conn = require('../services/infra/db');
 const db = conn.db;
-const { enrichMessagesWithActions } = require('../services/shared/enrichMessages');
+const { enrichMessagesWithActions } = require('../services/primitives/enrichMessages');
 
 const router = express.Router();
 
