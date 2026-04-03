@@ -93,4 +93,68 @@ async function extractSharpestFrame(videoSource, seconds) {
   }
 }
 
-module.exports = { extractSharpestFrame };
+/**
+ * Diagnostic check: verifies that ffmpeg-static and sharp are functional.
+ * Returns a plain object (never throws); suitable for a health/debug endpoint.
+ *
+ * @returns {{ ffmpegPath: string|null, ffmpegExists: boolean, sharpOk: boolean, sharpBufferSize?: number, error?: string, env: string }}
+ */
+async function getInfraDiagnostics() {
+  const diag = {
+    ffmpegPath: ffmpegPath || null,
+    ffmpegExists: ffmpegPath ? fs.existsSync(ffmpegPath) : false,
+    sharpOk: false,
+    env: process.env.NODE_ENV,
+  };
+  try {
+    const buf = await sharp({ create: { width: 4, height: 4, channels: 3, background: 'red' } }).jpeg().toBuffer();
+    diag.sharpOk = buf.length > 0;
+    diag.sharpBufferSize = buf.length;
+  } catch (err) {
+    diag.error = err.message;
+  }
+  return diag;
+}
+
+/**
+ * Extract thumbnail frames for an array of items that have `timestamp_seconds`.
+ * Uploads each JPEG to GCS and sets `item.thumbnailUrl`.
+ * Mutates `items` in place.
+ *
+ * @param {string} videoPath       - Local file path to the video
+ * @param {Array}  items           - Items with `timestamp_seconds`
+ * @param {string} userId
+ * @param {string} scanId
+ * @param {{ uploadBuffer: Function, BUCKET: string }} gcs
+ * @returns {{ successCount: number, errors: string[] }}
+ */
+async function extractThumbnails(videoPath, items, userId, scanId, gcs) {
+  const debug = { successCount: 0, errors: [] };
+  const thumbnailPromises = items.map(async (item, idx) => {
+    const ts = item.timestamp_seconds;
+    if (typeof ts !== 'number') {
+      debug.errors.push(`item[${idx}]: no timestamp_seconds`);
+      return;
+    }
+    try {
+      const frameBuffer = await extractSharpestFrame(videoPath, ts);
+      if (!frameBuffer) {
+        debug.errors.push(`item[${idx}] t=${ts}s: ffmpeg returned no frames`);
+        return;
+      }
+      const thumbPath = `users/${userId}/room-scans/${scanId}/thumbnails/${idx}-t${ts}.jpg`;
+      const { gcsPath } = await gcs.uploadBuffer(frameBuffer, thumbPath, 'image/jpeg');
+      item.thumbnailUrl = gcsPath
+        ? `https://storage.googleapis.com/${gcs.BUCKET}/${gcsPath}`
+        : null;
+      if (item.thumbnailUrl) debug.successCount++;
+    } catch (err) {
+      debug.errors.push(`item[${idx}] t=${ts}s: ${err.message}`);
+    }
+  });
+  await Promise.all(thumbnailPromises);
+  console.log(`[frameExtractor] Thumbnails: ${debug.successCount}/${items.length} succeeded`);
+  return debug;
+}
+
+module.exports = { extractSharpestFrame, getInfraDiagnostics, extractThumbnails };

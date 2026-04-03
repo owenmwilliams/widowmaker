@@ -14,8 +14,8 @@ const os = require('os');
 const path = require('path');
 const gcs = require('../infra/gcsService');
 const { drawBoundingBox } = require('../primitives/images/crop');
-const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../infra/vision/visionService');
-const { analyzeVideo } = require('../infra/vision/geminiVideoScanService');
+const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../infra/vision/imageService');
+const { analyzeVideo } = require('../infra/vision/videoService');
 const { extractSharpestFrame } = require('../infra/vision/frameExtractor');
 
 /**

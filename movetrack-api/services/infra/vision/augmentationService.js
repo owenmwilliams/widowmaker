@@ -1,6 +1,6 @@
 'use strict';
 
-const visionService = require('./visionService');
+const visionService = require('./imageService');
 
 async function augmentItemFromImage(imageSource, mimeType, provider, itemHint) {
   return visionService.analyzeItemPhoto(imageSource, mimeType, provider, undefined, itemHint);

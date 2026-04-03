@@ -8,7 +8,7 @@ const { getInventoryTotals } = require('../services/inventory/inventoryQueryServ
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 
 // Vector services
-const { recommendTruckSize } = require('../services/move/truckSizingService');
+const { recommendTruckSize } = require('../services/move/trucksService');
 const { estimateMoveCost } = require('../services/move/moveCostService');
 const { estimateLabor } = require('../services/move/laborEstimationService');
 const { flagSpecialItems } = require('../services/move/specialHandlingService');

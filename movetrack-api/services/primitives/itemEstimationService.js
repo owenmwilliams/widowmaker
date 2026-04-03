@@ -1,5 +1,7 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
-const { fetchImageAsBase64, getMimeTypeFromUrl } = require('../infra/vision/visionService');
+const { fetchImageAsBase64, getMimeTypeFromUrl } = require('../infra/vision/imageService');
+const knex = require('../infra/knex');
+const { toOptionalNumber, normalizeTags } = require('./itemParsingUtils');
 
 let geminiClient = null;
 if (process.env.GOOGLE_AI_API_KEY) {
@@ -448,6 +450,161 @@ async function generateItemEstimate(context = {}, options = {}) {
   }
 }
 
+/**
+ * Merge a DB item record with override fields for AI estimation context.
+ * Numeric overrides are coerced with toOptionalNumber; tags with normalizeTags.
+ */
+function buildEstimationContext(record, overrides = {}) {
+  const merged = { ...record };
+
+  const directFields = ['name', 'description', 'quantity', 'notes', 'material', 'primary_color', 'estimated_value'];
+  directFields.forEach((field) => {
+    if (overrides[field] !== undefined && overrides[field] !== null) {
+      merged[field] = overrides[field];
+    }
+  });
+
+  const numericFields = ['weight_lbs', 'length_in', 'width_in', 'height_in'];
+  numericFields.forEach((field) => {
+    if (overrides[field] !== undefined && overrides[field] !== null) {
+      merged[field] = toOptionalNumber(overrides[field]);
+    }
+  });
+
+  if (overrides.tags !== undefined) {
+    merged.tags = normalizeTags(overrides.tags);
+  }
+
+  return merged;
+}
+
+/**
+ * Full AI estimate orchestration for a single item:
+ * fetches the item, builds context, calls generateItemEstimate, and
+ * logs the result (success or failure) to item_estimate_events.
+ *
+ * @returns {{ success: true, estimate: object, logEntry: object }}
+ * @throws  On item-not-found (attach .status = 404) or generation failure
+ */
+async function runItemEstimate(userId, itemId, overrideFields = {}, modelOption = null) {
+  const itemRecord = await knex('items')
+    .select({
+      id: 'items.id',
+      name: 'items.name',
+      description: 'items.description',
+      quantity: 'items.quantity',
+      weight_lbs: 'items.weight_lbs',
+      length_in: 'items.length_in',
+      width_in: 'items.width_in',
+      height_in: 'items.height_in',
+      notes: 'items.notes',
+      material: 'items.material',
+      primary_color: 'items.primary_color',
+      tags: 'items.tags',
+      estimated_value: 'items.estimated_value',
+      picture_url: 'items.picture_url',
+      collection_name: 'collections.name',
+      container_name: 'containers.name',
+      location_name: 'locations.name',
+    })
+    .leftJoin('permissions', function () {
+      this.on('permissions.resource_id', '=', 'items.id')
+        .andOn('permissions.resource_type', '=', knex.raw('?', ['item']));
+    })
+    .leftJoin('collections', 'collections.id', 'items.collection_id')
+    .leftJoin('locations', 'locations.id', 'collections.location_id')
+    .leftJoin('containers', 'containers.id', 'items.container_id')
+    .where('items.id', itemId)
+    .andWhere('permissions.user_id', userId)
+    .first();
+
+  if (!itemRecord) {
+    const err = new Error('Item not found or not accessible');
+    err.status = 404;
+    throw err;
+  }
+
+  const contextSnapshot = buildEstimationContext(
+    { ...itemRecord, tags: normalizeTags(itemRecord.tags) },
+    overrideFields
+  );
+
+  try {
+    const estimationResult = await generateItemEstimate(contextSnapshot, {
+      model: modelOption,
+      pictureUrl: itemRecord.picture_url || null,
+    });
+
+    const estimate = estimationResult.estimate || {};
+    const payload = {
+      item_id: itemRecord.id,
+      user_id: userId,
+      provider: estimationResult.provider,
+      model: estimationResult.model,
+      prompt: estimationResult.prompt,
+      request_context: contextSnapshot,
+      response_text: estimationResult.rawText,
+      response_json: estimationResult.parsed || null,
+      estimated_weight_lbs: estimate.weight_lbs?.value ?? null,
+      estimated_length_in: estimate.dimensions?.length_in?.value ?? null,
+      estimated_width_in: estimate.dimensions?.width_in?.value ?? null,
+      estimated_height_in: estimate.dimensions?.height_in?.value ?? null,
+      volume_cuft: estimate.volume_cuft ?? null,
+      confidence:
+        estimate.confidence ??
+        estimate.weight_lbs?.confidence ??
+        estimate.dimensions?.length_in?.confidence ??
+        null,
+      notes: estimate.notes || null,
+      token_usage: estimationResult.usage || null,
+      error_message: null,
+      error_stage: null,
+    };
+
+    const inserted = await knex('item_estimate_events').insert(payload).returning(['id', 'created_at']);
+    const logEntry = inserted?.[0] || null;
+
+    return {
+      success: true,
+      provider: estimationResult.provider,
+      model: estimationResult.model,
+      estimate,
+      logEntry,
+    };
+  } catch (error) {
+    const failurePayload = {
+      item_id: itemRecord.id,
+      user_id: userId,
+      provider: error.provider || 'gemini',
+      model: error.model || modelOption || 'gemini-2.5-flash',
+      prompt: error.prompt || null,
+      request_context: contextSnapshot,
+      response_text: error.rawText || null,
+      response_json: error.parsed || null,
+      estimated_weight_lbs: null,
+      estimated_length_in: null,
+      estimated_width_in: null,
+      estimated_height_in: null,
+      volume_cuft: null,
+      confidence: null,
+      notes: null,
+      token_usage: error.usage || null,
+      error_message: error.message || 'Failed to generate estimate',
+      error_stage: error.stage || 'unknown',
+    };
+
+    try {
+      await knex('item_estimate_events').insert(failurePayload);
+    } catch (logError) {
+      console.error('[itemEstimationService] Failed to log estimation error:', logError);
+    }
+
+    throw error;
+  }
+}
+
 module.exports = {
-  generateItemEstimate
+  generateItemEstimate,
+  buildEstimationContext,
+  runItemEstimate,
 };

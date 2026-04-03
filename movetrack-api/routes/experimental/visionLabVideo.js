@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const bodyParser = require('body-parser');
 const { v4: uuidv4 } = require('uuid');
-const visionService = require('../../services/infra/vision/visionService');
+const visionService = require('../../services/infra/vision/imageService');
 const sharp = require('sharp');
 const { authenticate } = require('../../services/infra/authService');
 

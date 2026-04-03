@@ -1,0 +1,59 @@
+const express = require('express');
+const router = express.Router();
+const { authenticate } = require('../../services/infra/authService');
+const { cleanupOrphanedImages } = require('../../services/infra/imageCleanupService');
+
+router.use(authenticate);
+router.use((req, res, next) => {
+  if (!req.user?.is_admin) return res.status(403).json({ error: 'Admins only' });
+  next();
+});
+
+/**
+ * POST /admin/maintenance/cleanup-orphaned-images
+ * Automated cleanup for Cloud Scheduler.
+ * Deletes orphaned images older than MAX_AGE_HOURS (default 48h).
+ */
+router.post('/cleanup-orphaned-images', async (_req, res) => {
+  try {
+    const result = await cleanupOrphanedImages();
+    res.json({
+      success: true,
+      message: result.deleted === 0 ? 'No orphaned images to clean up' : 'Orphaned image cleanup completed',
+      ...result,
+    });
+  } catch (err) {
+    console.error('[maintenance] cleanup-orphaned-images failed:', err);
+    res.status(500).json({ success: false, error: 'Cleanup failed', message: err.message });
+  }
+});
+
+/**
+ * POST /admin/maintenance/cleanup-tokens
+ * Purge expired auth tokens from the database.
+ * See scripts/cleanupTokens.js for the current standalone script.
+ * TODO: extract logic into services/infra/tokenCleanupService.js
+ */
+router.post('/cleanup-tokens', (_req, res) => {
+  res.status(501).json({ error: 'Not yet implemented' });
+});
+
+/**
+ * POST /admin/maintenance/reindex-vectors
+ * Trigger re-indexing of the vector store for stale embeddings.
+ * TODO: implement via vector agent services
+ */
+router.post('/reindex-vectors', (_req, res) => {
+  res.status(501).json({ error: 'Not yet implemented' });
+});
+
+/**
+ * GET /admin/maintenance/health
+ * Internal health check for dependent services (DB, GCS, Gemini).
+ * TODO: implement
+ */
+router.get('/health', (_req, res) => {
+  res.status(501).json({ error: 'Not yet implemented' });
+});
+
+module.exports = router;
