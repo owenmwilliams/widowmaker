@@ -61,7 +61,7 @@ export const nexusStore = defineStore("nexus", () => {
   async function loadActiveSession() {
     try {
       const headers = getHeaders();
-      const res = await axios.get(core_url + "/nexus/active-session", {
+      const res = await axios.get(core_url + "/api/agents/nexus/active-session", {
         headers,
       });
       if (res.data.session) {
@@ -104,7 +104,7 @@ export const nexusStore = defineStore("nexus", () => {
 
     try {
       const headers = getHeaders();
-      const response = await fetch(core_url + "/nexus/message", {
+      const response = await fetch(core_url + "/api/agents/nexus/message", {
         method: "POST",
         headers: {
           ...headers,
@@ -148,6 +148,18 @@ export const nexusStore = defineStore("nexus", () => {
               case "tool_call":
                 statusText.value = event.label || event.tool || "Working…";
                 break;
+              case "partial_reply": {
+                // Intermediate text from the agent while it keeps working
+                const partialMsg: NexusMessage = {
+                  id: Date.now(),
+                  role: "model",
+                  content: event.text,
+                  actions: [],
+                  created_at: new Date().toISOString(),
+                };
+                messages.value.push(partialMsg);
+                break;
+              }
               case "tool_result":
                 break;
               case "done":
@@ -213,7 +225,7 @@ export const nexusStore = defineStore("nexus", () => {
         "Content-Type": "multipart/form-data",
       };
 
-      const res = await axios.post(core_url + "/nexus/upload", formData, {
+      const res = await axios.post(core_url + "/api/agents/nexus/upload", formData, {
         headers,
         timeout: 120000,
       });
@@ -228,7 +240,7 @@ export const nexusStore = defineStore("nexus", () => {
     if (!sessionId.value) return;
     try {
       const headers = getHeaders();
-      await axios.delete(core_url + `/nexus/sessions/${sessionId.value}`, {
+      await axios.delete(core_url + `/api/agents/nexus/sessions/${sessionId.value}`, {
         headers,
       });
       session.value = null;

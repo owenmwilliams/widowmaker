@@ -52,7 +52,7 @@ export const vectorStore = defineStore("vector", () => {
   async function loadActiveSession() {
     try {
       const headers = getHeaders();
-      const res = await axios.get(core_url + "/vector/active-session", {
+      const res = await axios.get(core_url + "/api/agents/vector/active-session", {
         headers,
       });
       if (res.data.session) {
@@ -89,7 +89,7 @@ export const vectorStore = defineStore("vector", () => {
 
     try {
       const headers = getHeaders();
-      const response = await fetch(core_url + "/vector/message", {
+      const response = await fetch(core_url + "/api/agents/vector/message", {
         method: "POST",
         headers: {
           ...headers,
@@ -172,7 +172,7 @@ export const vectorStore = defineStore("vector", () => {
     if (!sessionId.value) return;
     try {
       const headers = getHeaders();
-      await axios.delete(core_url + `/vector/sessions/${sessionId.value}`, {
+      await axios.delete(core_url + `/api/agents/vector/sessions/${sessionId.value}`, {
         headers,
       });
       session.value = null;

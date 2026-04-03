@@ -247,6 +247,7 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const sessionToken = localStorage.getItem('session_token');
   const isOnboardingRoute = to.path.startsWith('/onboarding');
+  const isNexusRoute = to.path === '/mobile/nexus' || to.path === '/mobile/census';
   const isLoginRoute = to.path === '/login';
 
   console.log('[Router Guard] Navigation:', {
@@ -254,6 +255,7 @@ router.beforeEach(async (to, from, next) => {
     from: from.path,
     hasToken: !!sessionToken,
     isOnboardingRoute,
+    isNexusRoute,
     isLoginRoute
   });
 
@@ -284,9 +286,9 @@ router.beforeEach(async (to, from, next) => {
   const completed = hasCompletedOnboarding();
   console.log('[Router Guard] Onboarding completed:', completed);
 
-  if (!completed && !isOnboardingRoute) {
-    console.log('[Router Guard] Onboarding not completed, redirecting to onboarding');
-    return next({ name: 'onboarding-welcome' });
+  if (!completed && !isOnboardingRoute && !isNexusRoute) {
+    console.log('[Router Guard] Onboarding not completed, redirecting to Nexus agent');
+    return next({ name: 'mobile-nexus' });
   }
 
   if (completed && to.name === 'onboarding-welcome' && from.name && !from.path.startsWith('/onboarding')) {

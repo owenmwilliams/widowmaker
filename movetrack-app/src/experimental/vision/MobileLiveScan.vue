@@ -424,7 +424,7 @@ async function processSelectedItems() {
     addDebugLog('info', `Sending ${images.length} images to API`);
 
     const res = await axios.post(
-      `${API_BASE}/vision/analyze-batch`,
+      `${API_BASE}/api/vision/analyze-batch`,
       { images, category: 'large_furniture' },
       { headers: buildHeaders() }
     );

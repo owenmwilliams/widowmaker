@@ -28,7 +28,6 @@ var agentsRouter = require('./routes/api/agents');
 
 // ── auth/ ─────────────────────────────────────────────────────────────────────
 var authRouter = require('./routes/auth/auth');
-var googleRouter = require('./routes/auth/google');
 
 // ── admin/ ────────────────────────────────────────────────────────────────────
 var adminAnalyticsRouter = require('./routes/admin/analytics');
@@ -152,25 +151,37 @@ app.use(helmet({
 app.use(rateLimits.globalLimiter);
 
 //** MAKE SURE TO ADD THE jwtcheck BACK IN HERE */
+
+// ── Root ─────────────────────────────────────────────────────────────────────
 app.use('/', indexRouter);
+
+// ── API — Inventory ──────────────────────────────── /items /collections /locations /containers /snapshot
 app.use('/', inventoryRouter);
+
+// ── API — User ───────────────────────────────────── /users /onboarding /imports /file
 app.use('/', userRouter);
-app.use('/vision', rateLimits.visionLimiter, visionRouter);
 
-app.use('/google', googleRouter)
-app.use('/auth', rateLimits.authLimiter, authRouter)
-app.use('/', moveRouter)
-app.use('/billing', billingRouter)
-app.use('/admin/analytics', adminAnalyticsRouter)
-app.use('/admin/maintenance', adminMaintenanceRouter)
-app.use('/', rateLimits.emailLimiter, adminEmailRouter)
+// ── API — Move ───────────────────────────────────── /move /api/saved-moves /api/move-day /api/waypoints
+app.use('/', moveRouter);
 
-// Experimental vision lab (admin-gated internally)
-app.use('/vision-lab-video', visionLabVideoRouter);
+// ── API — Vision ─────────────────────────────────── /api/vision /api/vision/video
+app.use('/api/vision', rateLimits.visionLimiter, visionRouter);
+
+// ── API — Agents ─────────────────────────────────── /api/agents/nexus /api/agents/census /api/agents/vector
+app.use('/api/agents', agentsRouter);
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+app.use('/auth', rateLimits.authLimiter, authRouter);
+
+// ── Billing ──────────────────────────────────────────────────────────────────
+app.use('/billing', billingRouter);
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+app.use('/admin/analytics', adminAnalyticsRouter);
+app.use('/admin/maintenance', adminMaintenanceRouter);
+app.use('/', rateLimits.emailLimiter, adminEmailRouter);
 app.use('/admin/vision-lab', visionLabRouter);
-
-// Conversational agents
-app.use('/', agentsRouter);
+app.use('/admin/vision-lab-video', visionLabVideoRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

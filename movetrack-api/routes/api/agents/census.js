@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
-const censusAgentService = require('../../agents/censusAgent');
+const censusAgentService = require('../../../agents/censusAgent');
 const census = require('../../../services/inventory/censusService');
 const gcs = require('../../../services/infra/gcsService');
 const sessions = require('../../../services/infra/agentSessionService');

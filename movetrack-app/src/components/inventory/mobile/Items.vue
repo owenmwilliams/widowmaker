@@ -95,7 +95,7 @@ const multiQuota = ref<{ plan: string; limit: number | null; remaining: number |
 const fetchMultiQuota = async () => {
   try {
     const token = localStorage.getItem('session_token');
-    const response = await axios.get(`${core_url}/vision/multi-quota`, {
+    const response = await axios.get(`${core_url}/api/vision/multi-quota`, {
       headers: { Authorization: `Bearer ${token}` }
     });
     multiQuota.value = response.data;

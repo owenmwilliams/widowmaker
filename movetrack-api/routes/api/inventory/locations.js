@@ -2,6 +2,7 @@ var express = require('express');
 var router = express.Router();
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
 const { getAllLocations, getSingleLocation } = require('../../../services/inventory/inventoryQueryService');
+const { getPlacesAutocomplete, getPlaceDetails, validateAddress } = require('../../../services/infra/geocodingService');
 const {
   BASIC_LOCATION_CAP,
   getLocationCount,
@@ -133,6 +134,46 @@ router.put('/update', async function(req, res, next) {
     res.send('OK');
   } catch (err) {
     next(err);
+  }
+});
+
+// ─── GET /places-autocomplete ─────────────────────────────────────────────────
+// Proxy for Google Places Autocomplete — used during address entry.
+router.get('/places-autocomplete', async (req, res) => {
+  const { input } = req.query;
+  if (!input) return res.json({ predictions: [] });
+  try {
+    const data = await getPlacesAutocomplete(input);
+    res.json(data);
+  } catch (err) {
+    console.error('[locations] places-autocomplete error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── GET /places-details ──────────────────────────────────────────────────────
+// Proxy for Google Places Details — resolves address components from a place_id.
+router.get('/places-details', async (req, res) => {
+  const { place_id } = req.query;
+  if (!place_id) return res.status(400).json({ error: 'place_id required' });
+  try {
+    const data = await getPlaceDetails(place_id);
+    res.json(data);
+  } catch (err) {
+    console.error('[locations] places-details error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /validate-address ───────────────────────────────────────────────────
+// Validate a structured address via Google Address Validation API.
+router.post('/validate-address', express.json(), async (req, res) => {
+  try {
+    const data = await validateAddress(req.body.address || req.body);
+    res.json(data);
+  } catch (err) {
+    console.error('[locations] validate-address error:', err.message);
+    res.status(500).json({ error: err.message });
   }
 });
 

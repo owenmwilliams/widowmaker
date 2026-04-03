@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { marked } from 'marked';
 import { nexusStore, type NexusMessage, type NexusAction } from '../../stores/NexusStore';
+import { hasCompletedOnboarding } from '../../utils/onboarding';
 
 const props = defineProps<{ user: string }>();
 
@@ -267,6 +268,10 @@ const confirmClear = () => {
             @click="inputText = chip.message; send()"
           >{{ chip.label }}</q-chip>
         </div>
+        <p v-if="!hasCompletedOnboarding()" class="wizard-fallback">
+          Prefer a step-by-step setup?
+          <router-link :to="{ name: 'onboarding-profile' }">Use the wizard</router-link>
+        </p>
       </div>
 
       <!-- Message list -->
@@ -445,6 +450,15 @@ const confirmClear = () => {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
+}
+.wizard-fallback {
+  font-size: 12px;
+  color: #999;
+  margin-top: 16px;
+  a {
+    color: #666;
+    text-decoration: underline;
+  }
 }
 
 /* Messages */

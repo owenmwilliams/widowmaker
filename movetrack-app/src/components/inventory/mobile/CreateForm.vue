@@ -68,7 +68,7 @@
     }
     placeSearchTimer = setTimeout(async () => {
       try {
-        const res = await fetch(`${apiBase}/google/places-autocomplete?input=${encodeURIComponent(val)}`, {
+        const res = await fetch(`${apiBase}/locations/places-autocomplete?input=${encodeURIComponent(val)}`, {
           headers: authHeaders()
         });
         const data = await res.json();
@@ -87,7 +87,7 @@
   const onPlaceSelect = async (selected: { label: string; value: string } | null) => {
     if (!selected) return;
     try {
-      const res = await fetch(`${apiBase}/google/places-details?place_id=${encodeURIComponent(selected.value)}`, {
+      const res = await fetch(`${apiBase}/locations/places-details?place_id=${encodeURIComponent(selected.value)}`, {
         headers: authHeaders()
       });
       const data = await res.json();

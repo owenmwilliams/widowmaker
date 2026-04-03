@@ -164,6 +164,50 @@ async function uploadVideoScan(buffer, userId, scanId, originalname, mimeType) {
   return uploadBuffer(buffer, gcsPath, mimeType);
 }
 
+// ── File utilities ────────────────────────────────────────────────────────────
+
+/**
+ * Generate a collision-resistant filename for a user upload.
+ * Format: {timestamp}_{randomHex}_{sanitizedOriginalName}.{ext}
+ */
+function generateUniqueFilename(originalName, mimeType) {
+  const crypto = require('crypto');
+  const timestamp = Date.now();
+  const randomHash = crypto.randomBytes(8).toString('hex');
+  const ext = mimeType.split('/')[1] || 'jpg';
+  const safeName = (originalName || 'file')
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .substring(0, 50);
+  return `${timestamp}_${randomHash}_${safeName}.${ext}`;
+}
+
+/**
+ * Stream a GCS object directly to an Express response.
+ *
+ * @param {string} bucketName
+ * @param {string} gcsPath
+ * @param {import('express').Response} res
+ */
+async function streamFileToResponse(bucketName, gcsPath, res) {
+  const file = storage.bucket(bucketName).file(gcsPath);
+  const [exists] = await file.exists();
+  if (!exists) { res.status(404).send('File not found.'); return; }
+  file.createReadStream().pipe(res);
+}
+
+/**
+ * Delete a GCS object. Resolves silently if the file does not exist.
+ *
+ * @param {string} bucketName
+ * @param {string} gcsPath
+ */
+async function deleteGcsFile(bucketName, gcsPath) {
+  const file = storage.bucket(bucketName).file(gcsPath);
+  const [exists] = await file.exists();
+  if (exists) await file.delete();
+}
+
 // ── Image source resolution ───────────────────────────────────────────────────
 
 /**
@@ -200,4 +244,7 @@ module.exports = {
   uploadAgentFile,
   uploadVideoScan,
   resolveImageSource,
+  generateUniqueFilename,
+  streamFileToResponse,
+  deleteGcsFile,
 };

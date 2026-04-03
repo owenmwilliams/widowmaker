@@ -75,6 +75,50 @@ async function consumeBasicMultiScan(userId) {
   return { allowed: true, remaining: BASIC_MULTI_LIMIT - (usage.multi_scans + 1), limit: BASIC_MULTI_LIMIT, nextReset: null };
 }
 
+// ── User profile ──────────────────────────────────────────────────────────────
+
+/**
+ * Fetch a user's public profile fields.
+ * @returns {{ user_id, first_name, last_name, user_name } | null}
+ */
+async function getUserProfile(userId) {
+  if (!userId) return null;
+  return knex('users').select('user_id', 'first_name', 'last_name', 'user_name').where({ user_id: userId }).first();
+}
+
+/**
+ * Count how many rows match a given username (for availability check).
+ * @returns {number}
+ */
+async function checkUsernameAvailability(username) {
+  const [{ count }] = await knex('users').countDistinct('user_name as count').where(knex.raw('user_name = ?', username));
+  return Number(count);
+}
+
+/**
+ * Upsert a user's profile fields (create row if not exists, merge on conflict).
+ * Undefined fields in payload are omitted.
+ */
+async function upsertUserProfile(userId, payload) {
+  const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined));
+  await knex('users')
+    .insert({ user_id: userId, ...clean })
+    .onConflict('user_id')
+    .merge(clean);
+}
+
+/**
+ * Update a user's first and last name.
+ * @returns {{ user_id, first_name, last_name } | null}
+ */
+async function updateUserName(userId, firstName, lastName) {
+  const result = await knex('users')
+    .update({ first_name: firstName.trim(), last_name: typeof lastName === 'string' ? lastName.trim() : null })
+    .where({ user_id: userId })
+    .returning(['user_id', 'first_name', 'last_name']);
+  return result?.[0] || null;
+}
+
 // ── Route guards ──────────────────────────────────────────────────────────────
 
 /**
@@ -90,4 +134,13 @@ function ensureProOrAdmin(req, res, next) {
   return res.status(403).json({ success: false, error: 'Pro plan required' });
 }
 
-module.exports = { getBasicMultiScanStatus, consumeBasicMultiScan, BASIC_MULTI_LIMIT, ensureProOrAdmin };
+module.exports = {
+  getBasicMultiScanStatus,
+  consumeBasicMultiScan,
+  BASIC_MULTI_LIMIT,
+  ensureProOrAdmin,
+  getUserProfile,
+  checkUsernameAvailability,
+  upsertUserProfile,
+  updateUserName,
+};

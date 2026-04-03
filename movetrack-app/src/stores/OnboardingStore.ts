@@ -192,8 +192,8 @@ export const onboardingStore = defineStore("onboarding", {
 
       if (token && !skipRemote) {
         try {
-          await axios.put(
-            `${core_url}/users/onboarding`,
+          await axios.post(
+            `${core_url}/users/onboarding/complete`,
             {},
             {
               headers: {
@@ -432,7 +432,7 @@ export const onboardingStore = defineStore("onboarding", {
       };
 
       console.log("[OnboardingStore] Sending onboarding completion request");
-      const response = await axios.post(`${core_url}/onboarding/complete`, payload, {
+      const response = await axios.post(`${core_url}/users/onboarding/complete`, payload, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

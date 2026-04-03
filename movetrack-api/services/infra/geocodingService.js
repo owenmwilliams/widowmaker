@@ -9,7 +9,7 @@
  */
 
 const axios = require('axios');
-const { GOOGLE_MAPS_API_KEY, isGoogleMapsConfigured } = require('../../config/google');
+const { GOOGLE_MAPS_API_KEY, GOOGLE_API_KEY, isGoogleMapsConfigured } = require('../../config/google');
 
 // In-memory cache for geocoding results
 // Key: "lat,lng" (rounded to 4 decimal places ~11m accuracy)
@@ -450,12 +450,102 @@ function getCacheStats() {
   };
 }
 
+/**
+ * Parse city and state from a full address string.
+ * e.g. "123 Main St, Dallas, TX 75211" → { city: 'Dallas', state: 'TX' }
+ *
+ * @param {string} address
+ * @returns {{ city: string|null, state: string|null }}
+ */
+function parseCityStateFromAddress(address) {
+  if (!address || typeof address !== 'string') return {};
+  const match = address.match(/,\s*([^,]+),\s*([A-Z]{2})(?:\s*\d{5})?$/i);
+  if (!match) return {};
+  return {
+    city: match[1]?.trim() || null,
+    state: match[2]?.trim()?.toUpperCase() || null
+  };
+}
+
+/**
+ * Resolve city, state, and country from a location record.
+ * Falls back through multiple fields in priority order.
+ *
+ * @param {object} location - Location row from DB (may use loc_* or plain field names)
+ * @returns {{ city: string|null, state: string|null, country: string }}
+ */
+function resolveCityStateFromLocation(location = {}) {
+  const parsed = parseCityStateFromAddress(location.loc_address || location.address);
+  const city =
+    location.loc_city ||
+    location.city ||
+    parsed.city ||
+    (location.location_name || '').split(',')[0]?.trim() ||
+    null;
+  const state = location.loc_state || location.state || parsed.state || null;
+  const country = location.loc_country || location.country || 'USA';
+  return { city, state, country };
+}
+
+// ── Google Places & Address Validation ───────────────────────────────────────
+
+/**
+ * Autocomplete an address prefix using Google Places API.
+ *
+ * @param {string} input - Partial address typed by the user
+ * @returns {Promise<object>} Raw Google Places autocomplete response
+ */
+async function getPlacesAutocomplete(input) {
+  if (!GOOGLE_API_KEY) throw new Error('Google API key not configured');
+  const response = await axios.get('https://maps.googleapis.com/maps/api/place/autocomplete/json', {
+    params: { input, types: 'address', language: 'en', key: GOOGLE_API_KEY },
+    timeout: 10000,
+  });
+  return response.data;
+}
+
+/**
+ * Fetch full address details for a Google Places place_id.
+ *
+ * @param {string} placeId - Google Places place_id
+ * @returns {Promise<object>} Raw Google Places details response
+ */
+async function getPlaceDetails(placeId) {
+  if (!GOOGLE_API_KEY) throw new Error('Google API key not configured');
+  const response = await axios.get('https://maps.googleapis.com/maps/api/place/details/json', {
+    params: { place_id: placeId, fields: 'address_components,formatted_address', key: GOOGLE_API_KEY },
+    timeout: 10000,
+  });
+  return response.data;
+}
+
+/**
+ * Validate a structured address using the Google Address Validation API.
+ *
+ * @param {{ postalCode?: string, administrativeArea?: string, locality?: string, addressLines?: string[] }} address
+ * @returns {Promise<object>} Raw Google Address Validation response
+ */
+async function validateAddress(address) {
+  if (!GOOGLE_API_KEY) throw new Error('Google API key not configured');
+  const response = await axios.post(
+    `https://addressvalidation.googleapis.com/v1:validateAddress?key=${GOOGLE_API_KEY}`,
+    { address },
+    { headers: { 'Content-Type': 'application/json' }, timeout: 10000 }
+  );
+  return response.data;
+}
+
 module.exports = {
   reverseGeocode,
   batchReverseGeocode,
   forwardGeocode,
+  getPlacesAutocomplete,
+  getPlaceDetails,
+  validateAddress,
   clearCache,
   getCacheStats,
+  parseCityStateFromAddress,
+  resolveCityStateFromLocation,
   // Export for testing
   parseAddressComponents,
   getCacheKey

@@ -296,7 +296,7 @@ const analyzeItemByUrl = async (imageUrl: string, attempt = 1, itemHint?: string
 
   try {
     const response = await axios.post(
-      `${core_url}/vision/analyze-item${providerParam}`,
+      `${core_url}/api/vision/analyze-item${providerParam}`,
       {
         imageUrl,
         mimeType: "image/jpeg",
@@ -349,7 +349,7 @@ const analyzeItemBlob = async (blob: Blob, attempt = 1): Promise<any> => {
 
   try {
     const response = await axios.post(
-      `${core_url}/vision/analyze-item${providerParam}`,
+      `${core_url}/api/vision/analyze-item${providerParam}`,
       formData,
       {
         headers: {
@@ -492,7 +492,7 @@ const fetchMultiQuota = async () => {
   const sessionToken = localStorage.getItem("session_token");
   if (!sessionToken) return;
   try {
-    const response = await axios.get(`${core_url}/vision/multi-quota`, {
+    const response = await axios.get(`${core_url}/api/vision/multi-quota`, {
       headers: {
         Authorization: `Bearer ${sessionToken}`,
       },
@@ -795,7 +795,7 @@ const handleMultiItemCapture = async (file: File) => {
       ? `?provider=${props.visionProvider}`
       : "";
     const response = await axios.post(
-      `${core_url}/vision/analyze-multi-item${providerParam}`,
+      `${core_url}/api/vision/analyze-multi-item${providerParam}`,
       {
         imageUrl: publicUrl,
         mimeType: "image/jpeg",

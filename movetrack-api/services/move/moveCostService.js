@@ -6,7 +6,7 @@
  * DIY and professional move cost estimation.
  */
 
-const { TRUCK_SIZES } = require('./truckSizingService');
+const { TRUCK_SIZES } = require('./trucksService');
 
 const COST_PARAMS = {
   laborRatePerHour: 35,

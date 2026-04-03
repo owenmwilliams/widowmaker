@@ -7,6 +7,10 @@
 
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 
+// Used for Places Autocomplete, Places Details, and Address Validation.
+// Often the same key as GOOGLE_MAPS_API_KEY; configure separately if needed.
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+
 // Validate at startup - warn but don't crash (some features can work without it)
 if (!GOOGLE_MAPS_API_KEY) {
   console.warn(
@@ -51,6 +55,7 @@ function requireGoogleMapsApiKey() {
 
 module.exports = {
   GOOGLE_MAPS_API_KEY,
+  GOOGLE_API_KEY,
   isGoogleMapsConfigured,
   getGoogleMapsApiKey,
   requireGoogleMapsApiKey
