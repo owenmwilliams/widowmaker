@@ -328,7 +328,7 @@ const resetSampling = () => {
 async function loadDefaultPrompt() {
   try {
     promptLoading.value = true;
-    const response = await axios.get(`${core_url}/vision-lab-video/prompt`, {
+    const response = await axios.get(`${core_url}/admin/vision-lab-video/prompt`, {
       headers: buildHeaders()
     });
     const prompt = response.data?.prompt;
@@ -356,7 +356,7 @@ const startSession = async () => {
   if (!prompt) return;
   try {
     const response = await axios.post(
-      `${core_url}/vision-lab-video/sessions`,
+      `${core_url}/admin/vision-lab-video/sessions`,
       { prompt },
       { headers: buildHeaders() }
     );

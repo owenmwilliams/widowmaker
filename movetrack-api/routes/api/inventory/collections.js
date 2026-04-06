@@ -6,7 +6,7 @@ const {
   getSingleCollection,
   getAllCollections,
   getAllCollectionsGrouped,
-} = require('../../../services/inventory/inventoryQueryService');
+} = require('../../../services/inventory/inventoryStructureQueryService');
 const {
   createCollection,
   deleteCollection,

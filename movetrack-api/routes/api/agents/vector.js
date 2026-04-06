@@ -2,7 +2,7 @@ const express = require('express');
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
 const vectorService = require('../../../agents/vectorAgent');
 const sessions = require('../../../services/infra/agentSessionService');
-const { enrichMessagesWithActions } = require('../../../services/primitives/enrichMessages');
+const { enrichMessagesWithActions } = sessions;
 
 const router = express.Router();
 

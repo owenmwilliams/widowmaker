@@ -3,7 +3,7 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('../services/infra/db');
 const db = conn.db;
-const census = require('../services/inventory/censusService');
+const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const { buildToolHandlers } = require('../services/workflow/agentDelegationService');
 
@@ -249,7 +249,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   );
 
   // ── 5. Build system prompt with context ─────────────────────────────────
-  const inventorySnapshot = await census.getInventorySnapshot(userId);
+  const inventorySnapshot = await getInventoryTextSummary(userId);
   const user = await db.oneOrNone(
     `SELECT first_name, last_name, email, onboarding_completed FROM users WHERE user_id = $1`,
     [userId]

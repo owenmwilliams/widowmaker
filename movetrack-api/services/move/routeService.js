@@ -9,7 +9,7 @@
 
 const knex = require('../infra/knex');
 const axios = require('axios');
-const { estimateRoadDistance, estimateDriveHours } = require('../primitives/distanceService');
+const { estimateRoadDistance, estimateDriveHours } = require('./distanceService');
 const { COST_PARAMS } = require('./moveCostService');
 const { forwardGeocode, batchReverseGeocode, resolveCityStateFromLocation } = require('../infra/geocodingService');
 

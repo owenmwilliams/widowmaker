@@ -5,7 +5,7 @@
  */
 
 const knex = require('../infra/knex');
-const { getUTCWeekStart } = require('../primitives/dateService');
+const { getUTCWeekStart } = require('../infra/dateUtils');
 
 const BASIC_MULTI_LIMIT = parseInt(process.env.BASIC_MULTI_SCANS_PER_WEEK || '3', 10);
 

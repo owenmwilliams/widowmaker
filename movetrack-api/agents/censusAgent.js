@@ -3,11 +3,13 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('../services/infra/db');
 const db = conn.db;
-const census = require('../services/inventory/censusService');
 const mutation = require('../services/inventory/inventoryMutationService');
-const query = require('../services/inventory/inventoryQueryService');
+const { searchItems, getItemPhoto } = require('../services/inventory/inventoryItemQueryService');
+const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
+const { getMissingContext, inventoryReadinessAssessment } = require('../services/inventory/inventoryMaturityService');
 const duplicates = require('../services/inventory/duplicateDetectionService');
 const media = require('../services/inventory/mediaInventoryWorkflowService');
+const { getConversationStarters } = require('../services/infra/agentSessionService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const metrics = require('../services/infra/metricsService');
 
@@ -326,7 +328,7 @@ const toolHandlers = {
   async update_location(args, userId) { return mutation.updateLocation(userId, args); },
 
   async get_inventory_summary(args, userId) {
-    const snapshot = await census.getInventorySnapshot(userId);
+    const snapshot = await getInventoryTextSummary(userId);
     return { success: true, summary: snapshot };
   },
 
@@ -335,7 +337,7 @@ const toolHandlers = {
       `SELECT name FROM collections WHERE user_id = $1`, [userId]
     );
     const roomNames = rooms.map(r => r.name);
-    const result = census.getMissingContext(
+    const result = getMissingContext(
       roomNames,
       args.home_type || 'apartment',
       args.bedroom_count || 1,
@@ -347,12 +349,12 @@ const toolHandlers = {
   async analyze_photo(args, userId, plan) { return media.analyzePhotoForInventory(args, userId, plan); },
   async analyze_video(args, userId, plan) { return media.analyzeVideoForInventory(args, userId, plan); },
 
-  async get_item_photo(args, userId) { return query.getItemPhoto(userId, args); },
-  async search_items(args, userId) { return query.searchItems(userId, args); },
+  async get_item_photo(args, userId) { return getItemPhoto(userId, args); },
+  async search_items(args, userId) { return searchItems(userId, args); },
   async find_duplicates(args, userId) { return duplicates.findDuplicates(userId, args); },
 
   async inventory_readiness(args, userId) {
-    const assessment = await census.getReadinessAssessment(userId);
+    const assessment = await inventoryReadinessAssessment(userId);
     return { success: true, ...assessment };
   },
 
@@ -475,7 +477,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   );
 
   // ── 5. Build system prompt with context ───────────────────────────────────
-  const inventorySnapshot = await census.getInventorySnapshot(userId);
+  const inventorySnapshot = await getInventoryTextSummary(userId);
   const user = await db.oneOrNone(
     `SELECT first_name, last_name, email, onboarding_completed FROM users WHERE user_id = $1`,
     [userId]
@@ -490,7 +492,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
   // Inject conversation starters for new sessions
   if (historyRows.length === 0) {
-    const starters = await census.getConversationStarters(userId);
+    const starters = await getConversationStarters(userId);
     if (starters.length > 0) {
       systemInstruction += `\n\nCONVERSATION STARTERS (this is a new session — use these to greet the user with something relevant and actionable):\n${starters.join('\n')}`;
     }

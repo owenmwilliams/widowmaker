@@ -1,7 +1,7 @@
 'use strict';
 
 const knex = require('../infra/knex');
-const { extractQrToken } = require('../primitives/qrService');
+const { extractQrToken } = require('../inventory/qrService');
 const {
   resolveTruckZoneCount,
   createTruckLocationStructure,

@@ -532,7 +532,7 @@ async function updateContainer(userId, containerId, fields) {
  * Assign or regenerate a QR code for a container.
  */
 async function assignContainerQr(userId, containerId, { token, regenerate } = {}) {
-  const { QR_TYPES, buildQrUrl, generateUniqueToken, extractQrToken } = require('../primitives/qrService');
+  const { QR_TYPES, buildQrUrl, generateUniqueToken, extractQrToken } = require('./qrService');
 
   const container = await knex('containers')
     .select('id', 'user_id', 'qr_code')
@@ -675,7 +675,7 @@ async function updateItemById(userId, itemId, params) {
  * Mirrors assignContainerQr but for the items table.
  */
 async function assignItemQr(userId, itemId, { token, regenerate } = {}) {
-  const { QR_TYPES, buildQrUrl, generateUniqueToken, extractQrToken } = require('../primitives/qrService');
+  const { QR_TYPES, buildQrUrl, generateUniqueToken, extractQrToken } = require('./qrService');
 
   const item = await knex('items')
     .select('id', 'user_id', 'qr_code')

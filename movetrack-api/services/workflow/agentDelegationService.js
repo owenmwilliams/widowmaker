@@ -2,7 +2,7 @@
 
 const conn = require('../infra/db');
 const db = conn.db;
-const census = require('../inventory/censusService');
+const { getInventoryTextSummary } = require('../inventory/inventorySummaryQueryService');
 const censusAgent = require('../../agents/censusAgent');
 const vectorAgent = require('../../agents/vectorAgent');
 const onboarding = require('./onboardingService');
@@ -45,7 +45,7 @@ function buildToolHandlers(userId, attachments, plan, onEvent) {
     },
 
     async get_inventory_status() {
-      const snapshot = await census.getInventorySnapshot(userId);
+      const snapshot = await getInventoryTextSummary(userId);
       return { success: true, snapshot };
     },
 

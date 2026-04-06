@@ -2,10 +2,10 @@ var express = require('express');
 var router = express.Router();
 const { signItemUrls } = require('../../../services/infra/gcsService');
 const gcs = require('../../../services/infra/gcsService');
-const { parseDimensionString, normalizeTags } = require('../../../services/primitives/itemParsingUtils');
-const { getItemsByContainer, getSingleItem, getAllItems } = require('../../../services/inventory/inventoryQueryService');
+const { parseDimensionString, normalizeTags } = require('../../../services/inventory/itemParsingUtils');
+const { getItemsByContainer, getSingleItem, getAllItems } = require('../../../services/inventory/inventoryItemQueryService');
 const { createItem, updateItemById, deleteItem, assignItemQr } = require('../../../services/inventory/inventoryMutationService');
-const { runItemEstimate } = require('../../../services/primitives/itemEstimationService');
+const { runItemEstimate } = require('../../../services/inventory/itemEstimationService');
 const { markImageLinked } = require('../../../services/infra/imageCleanupService');
 
 /* GET items by container. */

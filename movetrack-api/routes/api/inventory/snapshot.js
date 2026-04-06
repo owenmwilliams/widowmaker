@@ -1,7 +1,7 @@
 var express = require('express');
 var router = express.Router();
 const { authenticate } = require('../../../services/infra/authService');
-const { getInventorySnapshot } = require('../../../services/inventory/inventoryQueryService');
+const { getInventorySnapshot } = require('../../../services/inventory/inventorySummaryQueryService');
 
 router.use(authenticate);
 

@@ -1,7 +1,7 @@
 var express = require('express');
 var router = express.Router();
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
-const { getAllLocations, getSingleLocation } = require('../../../services/inventory/inventoryQueryService');
+const { getAllLocations, getSingleLocation } = require('../../../services/inventory/inventoryStructureQueryService');
 const { getPlacesAutocomplete, getPlaceDetails, validateAddress } = require('../../../services/infra/geocodingService');
 const {
   BASIC_LOCATION_CAP,

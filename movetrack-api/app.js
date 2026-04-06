@@ -161,8 +161,8 @@ app.use('/', inventoryRouter);
 // ── API — User ───────────────────────────────────── /users /onboarding /imports /file
 app.use('/', userRouter);
 
-// ── API — Move ───────────────────────────────────── /move /api/saved-moves /api/move-day /api/waypoints
-app.use('/', moveRouter);
+// ── API — Move ───────────────────────────────────── /api/move /api/saved-moves /api/move-day /api/waypoints
+app.use('/api', moveRouter);
 
 // ── API — Vision ─────────────────────────────────── /api/vision /api/vision/video
 app.use('/api/vision', rateLimits.visionLimiter, visionRouter);

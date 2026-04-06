@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../../../services/infra/authService');
-const { calculateDrivingDistance } = require('../../../services/primitives/distanceService');
+const { calculateDrivingDistance } = require('../../../services/move/distanceService');
 const trucks = require('../../../services/move/trucksService');
 const moveQuery = require('../../../services/move/moveQueryService');
 const moveMutation = require('../../../services/move/moveMutationService');

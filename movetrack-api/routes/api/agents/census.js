@@ -2,10 +2,9 @@ const express = require('express');
 const multer = require('multer');
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
 const censusAgentService = require('../../../agents/censusAgent');
-const census = require('../../../services/inventory/censusService');
 const gcs = require('../../../services/infra/gcsService');
 const sessions = require('../../../services/infra/agentSessionService');
-const { enrichMessagesWithActions } = require('../../../services/primitives/enrichMessages');
+const { enrichMessagesWithActions, getQuickStartChips } = sessions;
 
 const router = express.Router();
 
@@ -81,7 +80,7 @@ router.get('/active-session', async (req, res) => {
       ', items_added, rooms_added'
     );
 
-    const quickStartChips = await census.getQuickStartChips(userId);
+    const quickStartChips = await getQuickStartChips(userId);
 
     if (!session) {
       return res.json({ session: null, messages: [], quickStartChips, shouldAutoGreet: true });

@@ -6,7 +6,7 @@ const {
   getSingleContainer,
   getAllContainers,
   getAllContainersGrouped,
-} = require('../../../services/inventory/inventoryQueryService');
+} = require('../../../services/inventory/inventoryStructureQueryService');
 const {
   createContainer,
   deleteContainer,

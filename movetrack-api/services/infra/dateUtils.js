@@ -1,5 +1,5 @@
 /**
- * dateService.js
+ * dateUtils.js
  *
  * Lightweight date utilities (no external dependencies).
  */

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate, requireProOrAdmin } = require('../../../services/infra/authService');
 const svc = require('../../../services/move/moveCoordinationService');
-const { getLooseItems } = require('../../../services/inventory/inventoryQueryService');
+const { getLooseItems } = require('../../../services/inventory/inventoryItemQueryService');
 
 router.use(authenticate, requireProOrAdmin);
 
