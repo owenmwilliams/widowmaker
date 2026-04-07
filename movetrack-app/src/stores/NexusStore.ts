@@ -150,6 +150,9 @@ export const nexusStore = defineStore("nexus", () => {
 
       sessionId.value = result.sessionId;
 
+      console.log('[NexusStore] guidance result.reply:', result.reply);
+      console.log('[NexusStore] guidance has [BUTTONS]:', result.reply?.includes('[BUTTONS]'));
+
       const modelMsg: NexusMessage = {
         id: Date.now(),
         role: "model",

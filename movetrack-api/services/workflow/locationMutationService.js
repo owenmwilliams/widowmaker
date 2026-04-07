@@ -48,13 +48,34 @@ async function geocodeLocationPayload(payload, correlationId) {
 }
 
 /**
+ * Parse a Google formatted address string into components.
+ * E.g. "10145 Oakmoor Pl, Las Vegas, NV 89144, USA"
+ *   → { address: "10145 Oakmoor Pl", city: "Las Vegas", state: "NV", zip: "89144" }
+ */
+function parseFormattedAddress(formatted) {
+  if (!formatted) return null;
+  // Typical format: "street, city, STATE ZIP, COUNTRY"
+  const parts = formatted.split(',').map(p => p.trim());
+  if (parts.length < 3) return null;
+
+  const address = parts[0];
+  const city = parts[1];
+  // "NV 89144" or "NV 89144-1234"
+  const stateZipMatch = parts[2].match(/^([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/);
+  if (!stateZipMatch) return null;
+
+  return { address, city, state: stateZipMatch[1], zip: stateZipMatch[2] };
+}
+
+/**
  * Validate an address via forward geocoding.
- * Returns { valid: true, lat, lng } or { valid: false, message }.
+ * Returns { valid, lat, lng, corrected } where corrected contains
+ * Google's parsed address components if they differ from the input.
  */
 async function validateAddressViaGeocode(addressFields, correlationId) {
   const addressParts = [addressFields.address, addressFields.city, addressFields.state, addressFields.zip].filter(Boolean);
   const fullAddress = addressParts.join(', ');
-  if (!fullAddress) return { valid: true, lat: null, lng: null };
+  if (!fullAddress) return { valid: true, lat: null, lng: null, corrected: null };
 
   const geo = await forwardGeocode(null, null, null, {
     correlationId,
@@ -68,7 +89,16 @@ async function validateAddressViaGeocode(addressFields, correlationId) {
     };
   }
 
-  return { valid: true, lat: geo.lat || null, lng: geo.lng || null };
+  // Parse Google's corrected address to detect differences
+  const corrected = parseFormattedAddress(geo.formattedAddress);
+
+  return {
+    valid: true,
+    lat: geo.lat || null,
+    lng: geo.lng || null,
+    formattedAddress: geo.formattedAddress || null,
+    corrected,
+  };
 }
 
 // ── Holding Location ─────────────────────────────────────────────────────────
@@ -132,6 +162,18 @@ async function setLocation(userId, args = {}) {
   if (validation.lat) params.lat = validation.lat;
   if (validation.lng) params.lng = validation.lng;
 
+  // Apply Google's corrected address components if available
+  if (validation.corrected) {
+    const c = validation.corrected;
+    if (c.address) params.address = c.address;
+    if (c.city) params.city = c.city;
+    if (c.state) params.state = c.state;
+    if (c.zip) params.zip = c.zip;
+    // Update the name if it was auto-generated from address fields
+    params.name = `${c.address}, ${c.city}, ${c.state} ${c.zip}`;
+    console.log(`[location] Address corrected to: "${validation.formattedAddress}"`);
+  }
+
   const [location] = await knex.transaction(async (trx) => {
     const [loc] = await knex('locations').transacting(trx).insert(params).returning(['id', 'name']);
     await knex('permissions').transacting(trx).insert({
@@ -144,8 +186,8 @@ async function setLocation(userId, args = {}) {
     return [loc];
   });
 
-  console.log(`[location] Created: "${args.name}" (id: ${location.id})`);
-  return { success: true, locationId: location.id, name: args.name };
+  console.log(`[location] Created: "${params.name}" (id: ${location.id})`);
+  return { success: true, locationId: location.id, name: params.name };
 }
 
 /**
@@ -210,8 +252,9 @@ async function updateLocation(userId, args) {
 
   // Validate address if any address fields are being updated
   const hasAddressUpdate = args.address || args.city || args.state || args.zip;
+  let validation = null;
   if (hasAddressUpdate) {
-    const validation = await validateAddressViaGeocode(args, `update-location-${locationId}`);
+    validation = await validateAddressViaGeocode(args, `update-location-${locationId}`);
     if (!validation.valid) {
       return { success: false, error: 'address_not_found', message: validation.message };
     }
@@ -223,12 +266,25 @@ async function updateLocation(userId, args) {
   if (args.city) updates.city = args.city;
   if (args.state) updates.state = args.state;
   if (args.zip) updates.zip = args.zip;
+
+  // Apply Google's corrected address components if available
+  if (validation?.corrected) {
+    const c = validation.corrected;
+    if (c.address) updates.address = c.address;
+    if (c.city) updates.city = c.city;
+    if (c.state) updates.state = c.state;
+    if (c.zip) updates.zip = c.zip;
+    console.log(`[location] Address corrected to: "${validation.formattedAddress}"`);
+  }
+  if (validation?.lat) updates.lat = validation.lat;
+  if (validation?.lng) updates.lng = validation.lng;
   updates.updated_at = new Date();
 
   await knex('locations').where({ id: loc.id, user_id: userId }).update(updates);
 
-  console.log(`[location] Updated: "${loc.name}" → "${args.name || loc.name}" (id: ${loc.id})`);
-  return { success: true, locationId: loc.id, oldName: loc.name, newName: args.name || loc.name };
+  const newName = updates.name || loc.name;
+  console.log(`[location] Updated: "${loc.name}" → "${newName}" (id: ${loc.id})`);
+  return { success: true, locationId: loc.id, oldName: loc.name, newName };
 }
 
 /**

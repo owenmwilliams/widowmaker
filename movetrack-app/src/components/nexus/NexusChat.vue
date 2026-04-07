@@ -175,8 +175,11 @@ interface InlineButton {
 
 const parseButtons = (content: string): InlineButton[] => {
   const match = content.match(/\[BUTTONS\]([\s\S]*?)\[\/BUTTONS\]/);
-  if (!match) return [];
-  return match[1]
+  if (!match) {
+    console.log('[NexusChat] parseButtons: no [BUTTONS] block found in content:', content.slice(-200));
+    return [];
+  }
+  const buttons = match[1]
     .split('\n')
     .map(line => line.trim())
     .filter(line => line && line.includes('|'))
@@ -184,6 +187,8 @@ const parseButtons = (content: string): InlineButton[] => {
       const [label, ...rest] = line.split('|');
       return { label: label.trim(), message: rest.join('|').trim() };
     });
+  console.log('[NexusChat] parseButtons: found', buttons.length, 'buttons:', buttons);
+  return buttons;
 };
 
 const usedButtonMsgIds = ref<Set<number>>(new Set());
