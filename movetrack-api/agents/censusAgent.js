@@ -10,8 +10,10 @@ const { getMissingContext, inventoryReadinessAssessment } = require('../services
 const duplicates = require('../services/inventory/duplicateDetectionService');
 const media = require('../services/inventory/mediaInventoryWorkflowService');
 const { getConversationStarters } = require('../services/infra/agentSessionService');
+const { estimateMissingItems } = require('../services/move/moveSummaryService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const metrics = require('../services/infra/metricsService');
+const { parseJsonBlock, deriveFieldsFromActions, buildSpecialistResponse, buildFallbackResponse } = require('./schemas/specialistResponse');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
@@ -109,7 +111,33 @@ PROACTIVE GREETING (when the user's message is a session greeting like "hi", "he
 1. Call inventory_readiness to get the current assessment.
 2. Greet the user warmly and share a brief, friendly summary of their readiness status — don't dump raw numbers, interpret them conversationally. For example: "Your inventory is shaping up nicely! You've got 34 items across 6 rooms. A few things would make it even stronger for movers..."
 3. Present exactly 3 suggested next steps as inline buttons based on the readiness results. Make the buttons actionable (e.g. "Add weights to items", "Catalog the Kitchen", "Take room photos").
-4. Keep the greeting short — 2-3 sentences max before the buttons.`;
+4. Keep the greeting short — 2-3 sentences max before the buttons.
+
+STRUCTURED RESPONSE FORMAT:
+When you give your FINAL response (no more tool calls), you MUST wrap it in a JSON code block. This is how the orchestrator understands your output. The format is:
+
+\`\`\`json
+{
+  "summary": "Your user-facing message goes here. This is what the user sees. Use all normal formatting (buttons, [IMG:] tags, markdown, etc.) inside this string.",
+  "workflow": "inventory_cataloging",
+  "step": "add_items",
+  "confidence": 0.9,
+  "recommended_orchestrator_action": "continue",
+  "next_suggested_step": "check_missing_context",
+  "state_delta": { "items_added": 3 }
+}
+\`\`\`
+
+Field guide:
+- summary: REQUIRED. The full user-facing message, exactly as you'd normally write it.
+- workflow: REQUIRED. One of: "inventory_cataloging", "photo_analysis", "video_analysis", "inventory_review", "room_management", "duplicate_check", "readiness_check", "item_estimation", "greeting".
+- step: REQUIRED. The specific step just completed, e.g. "add_items", "analyze_photo", "confirm_items", "summarize_room", "check_gaps", "greet_user".
+- confidence: Optional 0.0-1.0. How confident you are in the overall result.
+- recommended_orchestrator_action: REQUIRED. One of: "continue" (normal flow), "ask_user" (you need user input to proceed), "stop_and_summarize" (task is done), "switch_agent" (user needs Vector), "retry_step" (something failed, worth retrying), "abort" (unrecoverable error).
+- next_suggested_step: Optional. What should happen next, e.g. "catalog_next_room", "review_duplicates", null if done.
+- state_delta: Optional. Key changes made, e.g. { "items_added": 3, "room_created": "Kitchen" }.
+
+IMPORTANT: Always use this format for your final response. Never return plain text without the JSON block.`;
 
 // ── Tool Declarations ───────────────────────────────────────────────────────────
 
@@ -315,6 +343,16 @@ const toolDeclarations = [
       properties: {},
     },
   },
+  {
+    name: 'estimate_missing_items',
+    description: 'Fill in estimated weights and dimensions for items that are missing them, using typical values for common household items. Use when many items lack measurements and the user wants a more complete inventory before sharing with movers.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        max_items: { type: SchemaType.INTEGER, description: 'Maximum number of items to estimate at once (default 20, max 50)' },
+      },
+    },
+  },
 ];
 
 // ── Tool Handlers (thin delegates to services) ──────────────────────────────────
@@ -358,6 +396,7 @@ const toolHandlers = {
     return { success: true, ...assessment };
   },
 
+  async estimate_missing_items(args, userId) { return estimateMissingItems(userId, args); },
 };
 
 // ── Conversation Loop ───────────────────────────────────────────────────────────
@@ -379,6 +418,7 @@ const TOOL_LABELS = {
   update_location: 'Updating location',
   find_duplicates: 'Checking for duplicates',
   inventory_readiness: 'Assessing inventory readiness',
+  estimate_missing_items: 'Estimating missing measurements',
 };
 
 /**
@@ -545,12 +585,26 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
     if (functionCalls.length === 0) {
       // No more tool calls — this is the final text response
-      const reply = textParts.map(p => p.text).join('\n');
+      const rawText = textParts.map(p => p.text).join('\n');
 
-      // Persist model reply
+      // Build structured SpecialistResponse
+      const derived = deriveFieldsFromActions(actions, 'census', false);
+      const geminiFields = parseJsonBlock(rawText);
+      let structuredResponse;
+
+      if (geminiFields && geminiFields.summary) {
+        structuredResponse = buildSpecialistResponse(
+          { agent: 'census', ...derived },
+          geminiFields
+        );
+      } else {
+        structuredResponse = buildFallbackResponse(rawText, 'census', actions, false);
+      }
+
+      // Persist model reply (store summary as the message content)
       await db.none(
         `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
-        [sessionId, reply]
+        [sessionId, structuredResponse.summary]
       );
 
       // Update session
@@ -594,8 +648,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
         error: { hadError: false },
       }).catch(() => {});
 
-      emit('done', { reply, actions, sessionId });
-      return { reply, actions, sessionId };
+      emit('done', { reply: structuredResponse.summary, actions, sessionId });
+      return { ...structuredResponse, actions, sessionId };
     }
 
     // Execute function calls
@@ -667,6 +721,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
   // Fallback if we hit max rounds
   const fallbackReply = 'I\'ve processed your request. Let me know what you\'d like to do next!';
+  const fallbackResponse = buildFallbackResponse(fallbackReply, 'census', actions, true);
+
   await db.none(
     `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
     [sessionId, fallbackReply]
@@ -693,7 +749,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   }).catch(() => {});
 
   emit('done', { reply: fallbackReply, actions, sessionId });
-  return { reply: fallbackReply, actions, sessionId };
+  return { ...fallbackResponse, actions, sessionId };
 }
 
 // ── Context Summary Generation ──────────────────────────────────────────────────

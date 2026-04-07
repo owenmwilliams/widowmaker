@@ -345,9 +345,13 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
         toolResult = { success: false, error: err.message };
       }
 
-      // For delegation tools, collect the worker's actions
+      // For delegation tools, collect the worker's actions and log structured response
       if ((name === 'delegate_to_census' || name === 'delegate_to_vector') && toolResult.actions) {
         actions.push(...toolResult.actions);
+        console.log(`[orchestrator] ${toolResult.agent || 'specialist'} response: status=${toolResult.status}, workflow=${toolResult.workflow}, recommendation=${toolResult.recommended_orchestrator_action}`);
+        if (toolResult.warnings?.length > 0) {
+          console.warn(`[orchestrator] ${toolResult.agent} warnings:`, toolResult.warnings);
+        }
       }
       actions.push({ tool: name, args, result: toolResult });
 

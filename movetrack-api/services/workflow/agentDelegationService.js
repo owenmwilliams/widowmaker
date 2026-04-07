@@ -6,6 +6,7 @@ const { getInventoryTextSummary } = require('../inventory/inventorySummaryQueryS
 const censusAgent = require('../../agents/censusAgent');
 const vectorAgent = require('../../agents/vectorAgent');
 const onboarding = require('./onboardingService');
+const { validateSpecialistResponse } = require('../../agents/schemas/specialistResponse');
 
 /**
  * Build tool handlers for the Nexus orchestrator agent.
@@ -24,24 +25,40 @@ function buildToolHandlers(userId, attachments, plan, onEvent) {
       const result = await censusAgent.processMessage(
         userId, args.message, workerAttachments, plan, workerEvent
       );
-      return {
-        success: true,
-        reply: result.reply,
-        actions: result.actions || [],
-        sessionId: result.sessionId,
-      };
+      try {
+        const validated = validateSpecialistResponse(result);
+        return { ...validated, actions: result.actions || [], sessionId: result.sessionId };
+      } catch (err) {
+        console.error('[delegation] Census response validation failed:', err.message, result);
+        return {
+          status: 'failed', agent: 'census', workflow: 'unknown', step: 'unknown',
+          step_status: 'failed', summary: result.summary || result.reply || 'Census returned an invalid response.',
+          user_action_required: false, recommended_orchestrator_action: 'continue',
+          next_suggested_step: null, state_delta: {}, artifacts: {},
+          warnings: ['Specialist response validation failed: ' + err.message], errors: [],
+          actions: result.actions || [], sessionId: result.sessionId,
+        };
+      }
     },
 
     async delegate_to_vector(args) {
       const result = await vectorAgent.processMessage(
         userId, args.message, [], plan, workerEvent
       );
-      return {
-        success: true,
-        reply: result.reply,
-        actions: result.actions || [],
-        sessionId: result.sessionId,
-      };
+      try {
+        const validated = validateSpecialistResponse(result);
+        return { ...validated, actions: result.actions || [], sessionId: result.sessionId };
+      } catch (err) {
+        console.error('[delegation] Vector response validation failed:', err.message, result);
+        return {
+          status: 'failed', agent: 'vector', workflow: 'unknown', step: 'unknown',
+          step_status: 'failed', summary: result.summary || result.reply || 'Vector returned an invalid response.',
+          user_action_required: false, recommended_orchestrator_action: 'continue',
+          next_suggested_step: null, state_delta: {}, artifacts: {},
+          warnings: ['Specialist response validation failed: ' + err.message], errors: [],
+          actions: result.actions || [], sessionId: result.sessionId,
+        };
+      }
     },
 
     async get_inventory_status() {

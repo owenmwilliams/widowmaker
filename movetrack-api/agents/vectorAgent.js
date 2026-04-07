@@ -12,7 +12,8 @@ const { estimateMoveCost } = require('../services/move/moveCostService');
 const { estimateLabor } = require('../services/move/laborEstimationService');
 const { flagSpecialItems } = require('../services/move/specialHandlingService');
 const { calculateRoute } = require('../services/move/routeService');
-const { getMoveSummary, estimateMissingItems, getRoomBreakdown } = require('../services/move/moveSummaryService');
+const { getMoveSummary, getRoomBreakdown } = require('../services/move/moveSummaryService');
+const { parseJsonBlock, deriveFieldsFromActions, buildSpecialistResponse, buildFallbackResponse } = require('./schemas/specialistResponse');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
@@ -83,6 +84,32 @@ Examples:
 - After truck recommendation: "Get cost estimate|Now estimate the total cost" / "See room breakdown|Show me the breakdown by room"
 Keep labels short (2-5 words). Include 2-4 options. Use buttons whenever the user can take a natural next step.
 
+STRUCTURED RESPONSE FORMAT:
+When you give your FINAL response (no more tool calls), you MUST wrap it in a JSON code block. This is how the orchestrator understands your output. The format is:
+
+\`\`\`json
+{
+  "summary": "Your user-facing message goes here. This is what the user sees. Use all normal formatting (buttons, bullet points, markdown, etc.) inside this string.",
+  "workflow": "move_planning",
+  "step": "recommend_truck",
+  "confidence": 0.85,
+  "recommended_orchestrator_action": "continue",
+  "next_suggested_step": "estimate_costs",
+  "state_delta": { "truck_recommended": "20ft" }
+}
+\`\`\`
+
+Field guide:
+- summary: REQUIRED. The full user-facing message, exactly as you'd normally write it.
+- workflow: REQUIRED. One of: "move_planning", "cost_estimation", "route_planning", "labor_estimation", "special_handling", "room_analysis", "greeting".
+- step: REQUIRED. The specific step just completed, e.g. "get_summary", "recommend_truck", "calculate_route", "estimate_labor", "estimate_cost", "flag_special", "room_breakdown", "greet_user".
+- confidence: Optional 0.0-1.0. How confident you are in the overall result.
+- recommended_orchestrator_action: REQUIRED. One of: "continue" (normal flow), "ask_user" (you need user input to proceed), "stop_and_summarize" (task is done), "switch_agent" (user needs Census), "retry_step" (something failed, worth retrying), "abort" (unrecoverable error).
+- next_suggested_step: Optional. What should happen next, e.g. "estimate_costs", "flag_special_items", null if done.
+- state_delta: Optional. Key changes made, e.g. { "truck_recommended": "20ft", "estimated_cost_range": "$800-$1200" }.
+
+IMPORTANT: Always use this format for your final response. Never return plain text without the JSON block.
+
 CONVERSATION STARTERS (for new sessions):
 {{CONVERSATION_STARTERS}}`;
 
@@ -95,16 +122,6 @@ const toolDeclarations = [
     parameters: {
       type: SchemaType.OBJECT,
       properties: {},
-    },
-  },
-  {
-    name: 'estimate_missing_items',
-    description: 'Estimate weights and dimensions for items that are missing them. Returns the updated totals after estimation.',
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        max_items: { type: SchemaType.INTEGER, description: 'Maximum number of items to estimate at once (default 20, max 50)' },
-      },
     },
   },
   {
@@ -174,7 +191,6 @@ const toolDeclarations = [
 
 const toolHandlers = {
   async get_move_summary(args, userId) { return getMoveSummary(userId); },
-  async estimate_missing_items(args, userId) { return estimateMissingItems(userId, args); },
 
   async recommend_truck_size(args, userId) {
     const totals = await getInventoryTotals(userId);
@@ -201,7 +217,6 @@ const toolHandlers = {
 
 const TOOL_LABELS = {
   get_move_summary: 'Summarizing move',
-  estimate_missing_items: 'Estimating missing items',
   recommend_truck_size: 'Sizing truck',
   calculate_route: 'Calculating route',
   estimate_labor: 'Estimating labor',
@@ -324,12 +339,26 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     const textParts = parts.filter(p => p.text);
 
     if (functionCalls.length === 0) {
-      const reply = textParts.map(p => p.text).join('\n');
+      const rawText = textParts.map(p => p.text).join('\n');
 
-      // Persist model reply
+      // Build structured SpecialistResponse
+      const derived = deriveFieldsFromActions(actions, 'vector', false);
+      const geminiFields = parseJsonBlock(rawText);
+      let structuredResponse;
+
+      if (geminiFields && geminiFields.summary) {
+        structuredResponse = buildSpecialistResponse(
+          { agent: 'vector', ...derived },
+          geminiFields
+        );
+      } else {
+        structuredResponse = buildFallbackResponse(rawText, 'vector', actions, false);
+      }
+
+      // Persist model reply (store summary as the message content)
       await db.none(
         `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
-        [sessionId, reply]
+        [sessionId, structuredResponse.summary]
       );
 
       // Update session title for new sessions
@@ -350,8 +379,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
         console.error('[vector] Summary generation failed:', err.message)
       );
 
-      emit('done', { reply, actions, sessionId });
-      return { reply, actions, sessionId };
+      emit('done', { reply: structuredResponse.summary, actions, sessionId });
+      return { ...structuredResponse, actions, sessionId };
     }
 
     // Execute function calls
@@ -405,11 +434,15 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
   // Fallback if we hit max rounds
   const fallbackReply = 'I\'ve finished analyzing your move. Let me know what else you\'d like to know!';
+  const fallbackResponse = buildFallbackResponse(fallbackReply, 'vector', actions, true);
+
   await db.none(
     `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
     [sessionId, fallbackReply]
   );
-  return { reply: fallbackReply, actions, sessionId };
+
+  emit('done', { reply: fallbackReply, actions, sessionId });
+  return { ...fallbackResponse, actions, sessionId };
 }
 
 // ── Context Summary Generation ──────────────────────────────────────────────────
