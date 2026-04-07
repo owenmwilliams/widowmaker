@@ -64,7 +64,7 @@ export const censusStore = defineStore("census", () => {
   async function loadActiveSession() {
     try {
       const headers = getHeaders();
-      const res = await axios.get(core_url + "/census/active-session", {
+      const res = await axios.get(core_url + "/api/agents/census/active-session", {
         headers,
       });
       if (res.data.session) {
@@ -111,7 +111,7 @@ export const censusStore = defineStore("census", () => {
 
     try {
       const headers = getHeaders();
-      const response = await fetch(core_url + "/census/message", {
+      const response = await fetch(core_url + "/api/agents/census/message", {
         method: "POST",
         headers: {
           ...headers,
@@ -232,7 +232,7 @@ export const censusStore = defineStore("census", () => {
         "Content-Type": "multipart/form-data",
       };
 
-      const res = await axios.post(core_url + "/census/upload", formData, {
+      const res = await axios.post(core_url + "/api/agents/census/upload", formData, {
         headers,
         timeout: 120000, // 2 min for large video uploads
       });
@@ -247,7 +247,7 @@ export const censusStore = defineStore("census", () => {
     if (!sessionId.value) return;
     try {
       const headers = getHeaders();
-      await axios.delete(core_url + `/census/sessions/${sessionId.value}`, {
+      await axios.delete(core_url + `/api/agents/census/sessions/${sessionId.value}`, {
         headers,
       });
       // Reset to welcome state — next message creates a fresh session

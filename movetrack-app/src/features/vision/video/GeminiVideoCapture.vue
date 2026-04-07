@@ -81,7 +81,7 @@ onUnmounted(() => {
 async function loadDefaultPrompt() {
   promptLoading.value = true;
   try {
-    const res = await axios.get(`${API_BASE}/vision/video/prompt`, { headers: buildHeaders() });
+    const res = await axios.get(`${API_BASE}/api/vision/video/prompt`, { headers: buildHeaders() });
     prompt.value = res.data.prompt || '';
   } catch {
     // Non-fatal — user can type a prompt manually
@@ -157,7 +157,7 @@ async function startUpload() {
     }
 
     const res = await axios.post(
-      `${API_BASE}/vision/video/upload`,
+      `${API_BASE}/api/vision/video/upload`,
       formData,
       {
         headers: { ...buildHeaders(), 'Content-Type': 'multipart/form-data' },

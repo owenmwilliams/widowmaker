@@ -70,7 +70,7 @@ const getAuthHeaders = (): AxiosRequestHeaders | undefined => {
 // Fetch current provider info
 const fetchProviderInfo = async () => {
   try {
-    const response = await axios.get(`${core_url}/vision/provider`, {
+    const response = await axios.get(`${core_url}/api/vision/provider`, {
       headers: getAuthHeaders()
     });
     currentProvider.value = response.data.current;
@@ -102,7 +102,7 @@ const setProvider = async (provider: string) => {
   isLoading.value = true;
 
   try {
-    const response = await axios.post(`${core_url}/vision/provider`, {
+    const response = await axios.post(`${core_url}/api/vision/provider`, {
       provider: provider
     }, {
       headers: getAuthHeaders()
@@ -140,7 +140,7 @@ const testProvider = async (provider: string) => {
   testResults.value[provider] = null;
 
   try {
-    const response = await axios.post(`${core_url}/vision/test-provider`, {
+    const response = await axios.post(`${core_url}/api/vision/test-provider`, {
       provider: provider
     }, {
       headers: getAuthHeaders()

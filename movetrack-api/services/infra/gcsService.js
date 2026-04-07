@@ -7,6 +7,7 @@
  */
 
 const { Storage } = require('@google-cloud/storage');
+const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
 const isLocalEnvironment = process.env.NODE_ENV !== 'production';
@@ -85,12 +86,38 @@ function toPublicUrl(url) {
   return url; // data-URL, null, or non-GCS URL
 }
 
+// ── Item URL signing ─────────────────────────────────────────────────────────
+
+/**
+ * Replace public GCS picture_url with signed URLs in an array of items.
+ * Non-GCS URLs (data URLs, nulls) pass through unchanged.
+ * Mutates the array in place and returns it.
+ */
+async function signItemUrls(items) {
+  if (!Array.isArray(items) || isLocalEnvironment) return items;
+  await Promise.all(items.map(async (item) => {
+    if (item.picture_url) {
+      item.picture_url = await signPublicUrl(item.picture_url).catch(() => item.picture_url);
+    }
+  }));
+  return items;
+}
+
 // ── Upload helpers ────────────────────────────────────────────────────────────
 
 /**
  * Upload a buffer to GCS and return { gcsPath, signedUrl }.
  * In local dev, returns a placeholder without uploading.
  */
+async function uploadAgentFile(userId, buffer, mimeType, originalname, folder = 'nexus') {
+  const fileId = uuidv4();
+  const ext = originalname?.split('.').pop() || 'jpg';
+  const gcsPath = `users/${userId}/${folder}/${fileId}.${ext}`;
+  const { signedUrl } = await uploadBuffer(buffer, gcsPath, mimeType);
+  const url = signedUrl || `https://storage.googleapis.com/${BUCKET}/${gcsPath}`;
+  return { url, mimeType, gcsPath };
+}
+
 async function uploadBuffer(buffer, gcsPath, contentType) {
   if (isLocalEnvironment) {
     return {
@@ -120,6 +147,90 @@ async function uploadBuffer(buffer, gcsPath, contentType) {
   return { gcsPath, signedUrl };
 }
 
+// ── Video scan upload ─────────────────────────────────────────────────────────
+
+/**
+ * Upload a video buffer to GCS under the standard room-scan path.
+ * Returns { gcsPath, signedUrl } — signedUrl is null in local dev.
+ *
+ * @param {Buffer} buffer
+ * @param {string} userId
+ * @param {string} scanId   - UUID for this scan session
+ * @param {string} originalname - Original filename (for extension)
+ * @param {string} mimeType
+ */
+async function uploadVideoScan(buffer, userId, scanId, originalname, mimeType) {
+  const gcsPath = `users/${userId}/room-scans/${scanId}/${originalname}`;
+  return uploadBuffer(buffer, gcsPath, mimeType);
+}
+
+// ── File utilities ────────────────────────────────────────────────────────────
+
+/**
+ * Generate a collision-resistant filename for a user upload.
+ * Format: {timestamp}_{randomHex}_{sanitizedOriginalName}.{ext}
+ */
+function generateUniqueFilename(originalName, mimeType) {
+  const crypto = require('crypto');
+  const timestamp = Date.now();
+  const randomHash = crypto.randomBytes(8).toString('hex');
+  const ext = mimeType.split('/')[1] || 'jpg';
+  const safeName = (originalName || 'file')
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9]/g, '_')
+    .substring(0, 50);
+  return `${timestamp}_${randomHash}_${safeName}.${ext}`;
+}
+
+/**
+ * Stream a GCS object directly to an Express response.
+ *
+ * @param {string} bucketName
+ * @param {string} gcsPath
+ * @param {import('express').Response} res
+ */
+async function streamFileToResponse(bucketName, gcsPath, res) {
+  const file = storage.bucket(bucketName).file(gcsPath);
+  const [exists] = await file.exists();
+  if (!exists) { res.status(404).send('File not found.'); return; }
+  file.createReadStream().pipe(res);
+}
+
+/**
+ * Delete a GCS object. Resolves silently if the file does not exist.
+ *
+ * @param {string} bucketName
+ * @param {string} gcsPath
+ */
+async function deleteGcsFile(bucketName, gcsPath) {
+  const file = storage.bucket(bucketName).file(gcsPath);
+  const [exists] = await file.exists();
+  if (exists) await file.delete();
+}
+
+// ── Image source resolution ───────────────────────────────────────────────────
+
+/**
+ * Resolve an image source from an Express request.
+ * Accepts either a JSON body with `imageUrl` (GCS or data URL) or a multer file upload.
+ *
+ * @param {import('express').Request} req
+ * @returns {{ imageSource: string, mimeType: string } | { error: string }}
+ */
+function resolveImageSource(req) {
+  if (req.body.imageUrl) {
+    const url = req.body.imageUrl;
+    const isGcsUrl = url.includes('storage.googleapis.com') || url.startsWith('gs://');
+    const isDataUrl = url.startsWith('data:');
+    if (!isGcsUrl && !isDataUrl) return { error: 'Only Google Cloud Storage URLs or data URLs are allowed' };
+    return { imageSource: url, mimeType: req.body.mimeType || 'image/jpeg' };
+  }
+  if (req.file) {
+    return { imageSource: req.file.buffer.toString('base64'), mimeType: req.file.mimetype };
+  }
+  return { error: 'No image provided (imageUrl or file required)' };
+}
+
 module.exports = {
   storage,
   BUCKET,
@@ -128,5 +239,12 @@ module.exports = {
   publicUrlToPath,
   toPublicUrl,
   signPublicUrl,
-  uploadBuffer
+  signItemUrls,
+  uploadBuffer,
+  uploadAgentFile,
+  uploadVideoScan,
+  resolveImageSource,
+  generateUniqueFilename,
+  streamFileToResponse,
+  deleteGcsFile,
 };

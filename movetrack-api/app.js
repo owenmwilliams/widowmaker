@@ -9,7 +9,6 @@ var path = require('path');
 var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 var cors = require('cors');
-var bodyParser = require('body-parser');
 const helmet = require('helmet');
 // const { expressjwt: jwt } = require('express-jwt');
 
@@ -17,35 +16,33 @@ const helmet = require('helmet');
 const rateLimits = require('./config/rateLimits');
 
 var jwtLib = require('./services/infra/auth')
-const { verifyToken } = require('./services/infra/jwtMiddleware');
-var indexRouter = require('./routes/index');
-var usersRouter = require('./routes/users');
-var locationsRouter = require('./routes/locations');
-var collectionsRouter = require('./routes/collections');
-var containersRouter = require('./routes/containers');
-var itemsRouter = require('./routes/items');
-var listsRouter = require('./routes/lists');
-var fileRouter = require('./routes/files');
-var visionRouter = require('./routes/vision/visionRoutes');
-var publicRouter = require('./routes/public');
 
-var googleRouter = require('./routes/google');
-var emailRouter = require('./routes/email');
-var authRouter = require('./routes/auth');
-var distanceRouter = require('./routes/distance');
-var savedMovesRouter = require('./routes/savedMoves');
-var moveDayRouter = require('./routes/moveDay');
-var waypointsRouter = require('./routes/waypoints');
-var billingRouter = require('./routes/billing');
-var billingWebhook = require('./routes/billingWebhook');
-var onboardingRouter = require('./routes/onboarding');
-var importsRouter = require('./routes/imports');
+// ── Root ──────────────────────────────────────────────────────────────────────
+var indexRouter = require('./routes/index');
+
+// ── api/ ─────────────────────────────────────────────────────────────────────
+var inventoryRouter = require('./routes/api/inventory');
+var userRouter = require('./routes/api/user');
+var moveRouter = require('./routes/api/move');
+var agentsRouter = require('./routes/api/agents');
+
+// ── auth/ ─────────────────────────────────────────────────────────────────────
+var authRouter = require('./routes/auth/auth');
+
+// ── admin/ ────────────────────────────────────────────────────────────────────
+var adminAnalyticsRouter = require('./routes/admin/analytics');
+var adminMaintenanceRouter = require('./routes/admin/maintenance');
+var adminEmailRouter = require('./routes/admin/email');
+
+// ── billing/ ──────────────────────────────────────────────────────────────────
+var billingRouter = require('./routes/billing/billing');
+
+// ── api/vision/ ───────────────────────────────────────────────────────────────
+var visionRouter = require('./routes/api/vision');
+
+// ── experimental/ (admin-only sandboxes — each route file gates via ensureAdmin) ──
 var visionLabRouter = require('./routes/experimental/visionLab');
-var adminRouter = require('./routes/admin');
-var bookingConfirmationRouter = require('./routes/bookingConfirmation');
-var nexusRouter = require('./routes/nexus');
-var censusRouter = require('./routes/census');
-var vectorRouter = require('./routes/vector');
+var visionLabVideoRouter = require('./routes/experimental/visionLabVideo');
 
 var app = express();
 app.set('trust proxy', 1);
@@ -55,7 +52,8 @@ app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'jade');
 
 app.use(logger('dev'));
-app.post('/billing/webhook', bodyParser.raw({ type: 'application/json' }), billingWebhook);
+// POST /billing/webhook — Stripe webhook (raw body required for signature verification)
+// Implementation pending; see routes/billing.js for endpoint description.
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 app.use(cookieParser());
@@ -153,44 +151,37 @@ app.use(helmet({
 app.use(rateLimits.globalLimiter);
 
 //** MAKE SURE TO ADD THE jwtcheck BACK IN HERE */
+
+// ── Root ─────────────────────────────────────────────────────────────────────
 app.use('/', indexRouter);
-app.use('/users', usersRouter);
-app.use('/locations', locationsRouter);
-app.use('/collections', collectionsRouter);
-app.use('/containers', containersRouter);
-app.use('/items', verifyToken, itemsRouter);
-app.use('/imports', verifyToken, importsRouter);
-app.use('/onboarding', verifyToken, onboardingRouter);
-app.use('/public', rateLimits.publicLimiter, publicRouter)
-app.use('/file', rateLimits.uploadLimiter, fileRouter);
-app.use('/lists', listsRouter);
-app.use('/vision', rateLimits.visionLimiter, visionRouter);
 
-app.use('/google', googleRouter)
-app.use('/email', rateLimits.emailLimiter, emailRouter)
-app.use('/auth', rateLimits.authLimiter, authRouter)
-app.use('/api', rateLimits.apiLimiter, distanceRouter)
-app.use('/api/saved-moves', rateLimits.apiLimiter, savedMovesRouter)
-app.use('/api/move-day', rateLimits.apiLimiter, moveDayRouter)
-app.use('/api/waypoints', rateLimits.apiLimiter, waypointsRouter)
-app.use('/billing', billingRouter)
-app.use('/admin', adminRouter)
-app.use('/reloprep', bookingConfirmationRouter)
+// ── API — Inventory ──────────────────────────────── /items /collections /locations /containers /snapshot
+app.use('/', inventoryRouter);
 
-// Experimental vision features - admin only
-const visionLabVideoRouter = require('./routes/experimental/visionLabVideo');
-app.use('/vision-lab-video', visionLabVideoRouter);
+// ── API — User ───────────────────────────────────── /users /onboarding /imports /file
+app.use('/', userRouter);
+
+// ── API — Move ───────────────────────────────────── /api/move /api/saved-moves /api/move-day /api/waypoints
+app.use('/api', moveRouter);
+
+// ── API — Vision ─────────────────────────────────── /api/vision /api/vision/video
+app.use('/api/vision', rateLimits.visionLimiter, visionRouter);
+
+// ── API — Agents ─────────────────────────────────── /api/agents/nexus /api/agents/census /api/agents/vector
+app.use('/api/agents', agentsRouter);
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+app.use('/auth', rateLimits.authLimiter, authRouter);
+
+// ── Billing ──────────────────────────────────────────────────────────────────
+app.use('/billing', billingRouter);
+
+// ── Admin ─────────────────────────────────────────────────────────────────────
+app.use('/admin/analytics', adminAnalyticsRouter);
+app.use('/admin/maintenance', adminMaintenanceRouter);
+app.use('/', rateLimits.emailLimiter, adminEmailRouter);
 app.use('/admin/vision-lab', visionLabRouter);
-
-const videoGeminiRouter = require('./routes/vision/video-gemini');
-app.use('/vision/video', videoGeminiRouter);
-// Backwards-compatible alias (deprecated)
-app.use('/video-12labs', videoGeminiRouter);
-
-// Conversational agents
-app.use('/nexus', rateLimits.apiLimiter, nexusRouter);
-app.use('/census', rateLimits.apiLimiter, censusRouter);
-app.use('/vector', rateLimits.apiLimiter, vectorRouter);
+app.use('/admin/vision-lab-video', visionLabVideoRouter);
 
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {

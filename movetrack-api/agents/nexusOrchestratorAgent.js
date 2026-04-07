@@ -3,17 +3,16 @@
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('../services/infra/db');
 const db = conn.db;
-const census = require('../services/census/censusService');
-const censusAgent = require('./censusAgent');
-const vectorService = require('./vectorAgent');
-const { buildGeminiContents } = require('../services/shared/geminiHistoryBuilder');
+const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
+const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
+const { buildToolHandlers } = require('../services/workflow/agentDelegationService');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
 let geminiClient = null;
 if (process.env.GOOGLE_AI_API_KEY) {
   geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-  console.log('[nexusOrchestrator] Gemini configured');
+  console.log('[orchestrator] Gemini configured');
 }
 
 const GEMINI_MODELS = {
@@ -56,6 +55,20 @@ PERSONALITY:
 
 USER CONTEXT:
 {{USER_CONTEXT}}
+
+ONBOARDING FLOW (if user has NOT completed onboarding):
+You are driving this conversation. Ask one question at a time and take action immediately.
+1. Greet warmly: "Hi [name if known]! I'm Nexus, your moving assistant. Let's get you set up — it'll only take a minute."
+2. Ask their goal: "What brings you here — planning a move, getting organized, or something else?"
+   → Call set_user_profile with their goal (and name if you have it)
+3. Ask for their address: "Where are you moving from? Just a street address is fine."
+   → Call set_location immediately with the address
+4. Ask about the home: "Is that an apartment or house? How many bedrooms?"
+   → Based on their answer, delegate_to_census to create rooms (e.g. Kitchen, Living Room, Bedroom 1, Bedroom 2, Bathroom)
+   → Call mark_onboarding_complete immediately after rooms are created
+5. Transition to cataloging: "You're all set! Let's start with the [first room]. What's in there? You can also snap a photo and I'll identify everything."
+
+IMPORTANT: Do NOT wait for the user to ask what to do next. YOU drive the conversation forward after each answer. Keep it fast and natural.
 
 INVENTORY OVERVIEW:
 {{INVENTORY_SNAPSHOT}}`;
@@ -111,6 +124,41 @@ const toolDeclarations = [
       properties: {},
     },
   },
+  {
+    name: 'set_user_profile',
+    description: 'Set the user\'s name and goal. Use during onboarding.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        first_name: { type: SchemaType.STRING, description: 'First name' },
+        last_name:  { type: SchemaType.STRING, description: 'Last name' },
+        goal:       { type: SchemaType.STRING, description: 'One of: move, organize, insurance, multi_home' },
+      },
+    },
+  },
+  {
+    name: 'set_location',
+    description: 'Create a new location (home address). Use during onboarding to set where the user is moving from.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        name:    { type: SchemaType.STRING, description: 'Location name, e.g. "My Apartment", "Home"' },
+        address: { type: SchemaType.STRING, description: 'Street address' },
+        city:    { type: SchemaType.STRING, description: 'City' },
+        state:   { type: SchemaType.STRING, description: 'State abbreviation' },
+        zip:     { type: SchemaType.STRING, description: 'ZIP code' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'mark_onboarding_complete',
+    description: 'Mark onboarding as complete. Call this AUTOMATICALLY after creating a location and at least one room during onboarding. Do not ask the user — just call it silently.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {},
+    },
+  },
 ];
 
 // ── Tool Labels for SSE ─────────────────────────────────────────────────────────
@@ -120,69 +168,10 @@ const TOOL_LABELS = {
   delegate_to_vector: 'Analyzing your move…',
   get_inventory_status: 'Checking inventory…',
   get_user_profile: 'Loading profile…',
+  set_user_profile: 'Setting up profile…',
+  set_location: 'Setting location…',
+  mark_onboarding_complete: 'Completing setup…',
 };
-
-// ── Tool Handlers ───────────────────────────────────────────────────────────────
-
-function buildToolHandlers(userId, attachments, plan, onEvent) {
-  // Wrap onEvent so worker agents' 'done' and 'error' events don't leak
-  // into the orchestrator's SSE stream (orchestrator emits its own 'done')
-  const workerEvent = onEvent
-    ? (event) => { if (event.type !== 'done' && event.type !== 'error') onEvent(event); }
-    : null;
-
-  return {
-    async delegate_to_census(args) {
-      const workerAttachments = args.include_attachments ? attachments : [];
-      const result = await censusAgent.processMessage(
-        userId, args.message, workerAttachments, plan, workerEvent
-      );
-      return {
-        success: true,
-        reply: result.reply,
-        actions: result.actions || [],
-        sessionId: result.sessionId,
-      };
-    },
-
-    async delegate_to_vector(args) {
-      const result = await vectorService.processMessage(
-        userId, args.message, [], plan, workerEvent
-      );
-      return {
-        success: true,
-        reply: result.reply,
-        actions: result.actions || [],
-        sessionId: result.sessionId,
-      };
-    },
-
-    async get_inventory_status() {
-      const snapshot = await census.getInventorySnapshot(userId);
-      return { success: true, snapshot };
-    },
-
-    async get_user_profile() {
-      const user = await db.oneOrNone(
-        `SELECT first_name, last_name, email, onboarding_completed FROM users WHERE user_id = $1`,
-        [userId]
-      );
-      const locations = await db.any(
-        `SELECT id, name, type, is_primary FROM locations WHERE user_id = $1 ORDER BY is_primary DESC, name ASC`,
-        [userId]
-      );
-      return {
-        success: true,
-        user: user ? {
-          name: `${user.first_name || ''} ${user.last_name || ''}`.trim(),
-          email: user.email,
-          onboarding_completed: user.onboarding_completed,
-        } : null,
-        locations: locations.map(l => ({ id: l.id, name: l.name, type: l.type, isPrimary: l.is_primary })),
-      };
-    },
-  };
-}
 
 // ── Conversation Loop ───────────────────────────────────────────────────────────
 
@@ -210,7 +199,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       `INSERT INTO nexus_sessions (user_id, session_type) VALUES ($1, 'nexus') RETURNING *`,
       [userId]
     );
-    console.log(`[nexusOrchestrator] New session for user: ${session.id}`);
+    console.log(`[orchestrator] New session for user: ${session.id}`);
   }
   const sessionId = session.id;
 
@@ -260,7 +249,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   );
 
   // ── 5. Build system prompt with context ─────────────────────────────────
-  const inventorySnapshot = await census.getInventorySnapshot(userId);
+  const inventorySnapshot = await getInventoryTextSummary(userId);
   const user = await db.oneOrNone(
     `SELECT first_name, last_name, email, onboarding_completed FROM users WHERE user_id = $1`,
     [userId]
@@ -327,7 +316,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
       // Fire-and-forget summary
       generateContextSummary(sessionId).catch(err =>
-        console.error('[nexusOrchestrator] Summary generation failed:', err.message)
+        console.error('[orchestrator] Summary generation failed:', err.message)
       );
 
       emit('done', { reply, actions, sessionId });
@@ -338,7 +327,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     const toolResponses = [];
     for (const part of functionCalls) {
       const { name, args } = part.functionCall;
-      console.log(`[nexusOrchestrator] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
+      console.log(`[orchestrator] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
 
       const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
       emit('tool_call', { tool: name, label: toolLabel });
@@ -352,13 +341,17 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
           toolResult = await handler(args);
         }
       } catch (err) {
-        console.error(`[nexusOrchestrator] Tool ${name} failed:`, err.message);
+        console.error(`[orchestrator] Tool ${name} failed:`, err.message);
         toolResult = { success: false, error: err.message };
       }
 
-      // For delegation tools, collect the worker's actions
+      // For delegation tools, collect the worker's actions and log structured response
       if ((name === 'delegate_to_census' || name === 'delegate_to_vector') && toolResult.actions) {
         actions.push(...toolResult.actions);
+        console.log(`[orchestrator] ${toolResult.agent || 'specialist'} response: status=${toolResult.status}, workflow=${toolResult.workflow}, recommendation=${toolResult.recommended_orchestrator_action}`);
+        if (toolResult.warnings?.length > 0) {
+          console.warn(`[orchestrator] ${toolResult.agent} warnings:`, toolResult.warnings);
+        }
       }
       actions.push({ tool: name, args, result: toolResult });
 
@@ -465,7 +458,7 @@ Keep it under 300 words. Write in third person: "The user..." not "You..."`,
     [summary, newSummaryThroughId, sessionId]
   );
 
-  console.log(`[nexusOrchestrator] Summary updated for session ${sessionId}`);
+  console.log(`[orchestrator] Summary updated for session ${sessionId}`);
 }
 
 module.exports = { processMessage, generateContextSummary };

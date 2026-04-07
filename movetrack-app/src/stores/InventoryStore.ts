@@ -133,7 +133,7 @@ export const inventoryStore = defineStore("inventory", () => {
     const headers = getHeaders();
     return axios({
       method: "get",
-      url: core_url + "/lists/",
+      url: core_url + "/snapshot/",
       params: {
         user: user,
       },
