@@ -6,6 +6,7 @@ const db = conn.db;
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const { buildToolHandlers } = require('../services/workflow/agentDelegationService');
+const { getAllowedDecisions, POLICY_DEFAULTS, buildDecisionPrompt, parseDecisionResponse, validateDecision } = require('./schemas/orchestratorPolicy');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
@@ -69,6 +70,15 @@ You are driving this conversation. Ask one question at a time and take action im
 5. Transition to cataloging: "You're all set! Let's start with the [first room]. What's in there? You can also snap a photo and I'll identify everything."
 
 IMPORTANT: Do NOT wait for the user to ask what to do next. YOU drive the conversation forward after each answer. Keep it fast and natural.
+
+ORCHESTRATOR DECISIONS:
+When a delegation tool result includes an _orchestrator_decision field, you MUST follow it:
+- "continue": present the specialist's summary naturally and continue the conversation. You may make further delegation calls if appropriate.
+- "ask_user": present the specialist's summary and ask the user what they'd like to do next. Do NOT make additional delegation calls.
+- "stop_and_summarize": present a final summary of what was accomplished. Do NOT make additional delegation calls.
+- "switch_agent": the user needs the other specialist. Delegate to the appropriate agent as a follow-up.
+- "abort": something went wrong. Present the error to the user helpfully and ask how they'd like to proceed. Do NOT retry.
+These decisions are authoritative. Always respect them.
 
 INVENTORY OVERVIEW:
 {{INVENTORY_SNAPSHOT}}`;
@@ -172,6 +182,39 @@ const TOOL_LABELS = {
   set_location: 'Setting location…',
   mark_onboarding_complete: 'Completing setup…',
 };
+
+// ── Decision Engine ─────────────────────────────────────────────────────────────
+
+/**
+ * Make a lightweight Gemini call to choose a decision from the allowed set.
+ * Falls back to first allowed decision if model returns garbage.
+ */
+async function chooseDecisionWithModel(specialistResponse, ctx, allowed) {
+  if (!geminiClient) return allowed[0];
+
+  try {
+    const prompt = buildDecisionPrompt(specialistResponse, ctx, allowed);
+    const decisionModel = geminiClient.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      systemInstruction: 'You are an orchestrator decision engine. Given a specialist agent response and context, choose the best next action from the allowed set. Respond with ONLY a JSON object: {"decision": "<value>", "reason": "<brief>"}',
+      generationConfig: { maxOutputTokens: 128 },
+    });
+
+    const result = await decisionModel.generateContent(prompt);
+    const text = result.response.text();
+    const parsed = parseDecisionResponse(text);
+
+    if (parsed) {
+      return validateDecision(parsed, allowed);
+    }
+
+    console.warn('[orchestrator] Decision model returned unparseable response, using fallback:', text);
+    return allowed[0];
+  } catch (err) {
+    console.error('[orchestrator] Decision model call failed:', err.message);
+    return allowed[0];
+  }
+}
 
 // ── Conversation Loop ───────────────────────────────────────────────────────────
 
@@ -278,6 +321,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
   const toolHandlers = buildToolHandlers(userId, attachments, plan, onEvent);
   const actions = [];
+  const delegationRetries = {}; // keyed by agent name
+  let delegationCount = 0;
   let maxToolRounds = 4; // Orchestrator usually only needs 1-2 rounds
 
   emit('thinking');
@@ -345,13 +390,75 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
         toolResult = { success: false, error: err.message };
       }
 
-      // For delegation tools, collect the worker's actions and log structured response
-      if ((name === 'delegate_to_census' || name === 'delegate_to_vector') && toolResult.actions) {
+      // For delegation tools, run the orchestrator decision engine
+      const isDelegation = (name === 'delegate_to_census' || name === 'delegate_to_vector');
+      if (isDelegation && toolResult.actions) {
         actions.push(...toolResult.actions);
-        console.log(`[orchestrator] ${toolResult.agent || 'specialist'} response: status=${toolResult.status}, workflow=${toolResult.workflow}, recommendation=${toolResult.recommended_orchestrator_action}`);
+        delegationCount++;
+
+        const agentName = toolResult.agent || 'specialist';
+        console.log(`[orchestrator] ${agentName} response: status=${toolResult.status}, workflow=${toolResult.workflow}, recommendation=${toolResult.recommended_orchestrator_action}`);
         if (toolResult.warnings?.length > 0) {
-          console.warn(`[orchestrator] ${toolResult.agent} warnings:`, toolResult.warnings);
+          console.warn(`[orchestrator] ${agentName} warnings:`, toolResult.warnings);
         }
+
+        // ── Decision engine: hard guards → model reasoning → validation ──
+        const ctx = {
+          retriesUsed: delegationRetries[agentName] || 0,
+          maxRetries: POLICY_DEFAULTS.maxRetries,
+          hardFailure: toolResult.status === 'failed' && (toolResult.errors?.length || 0) > 0,
+          userActionRequired: !!toolResult.user_action_required,
+          specialistStatus: toolResult.status,
+          specialistRecommendation: toolResult.recommended_orchestrator_action,
+          specialistInvocationsThisTurn: delegationCount,
+        };
+
+        const allowed = getAllowedDecisions(ctx);
+        let decision;
+
+        if (allowed.length === 1) {
+          // Hard guards narrowed to single option — skip model call
+          decision = allowed[0];
+          console.log(`[orchestrator] Decision (guard-forced): ${decision}`);
+        } else {
+          // Gemini reasons within bounded options
+          decision = await chooseDecisionWithModel(toolResult, ctx, allowed);
+          console.log(`[orchestrator] Decision (model-assisted): ${decision} (allowed: [${allowed.join(', ')}])`);
+        }
+
+        // Handle retry in code — re-invoke same delegation
+        if (decision === 'retry_step') {
+          delegationRetries[agentName] = (delegationRetries[agentName] || 0) + 1;
+          console.log(`[orchestrator] Retrying ${name} (attempt ${delegationRetries[agentName]})`);
+          try {
+            toolResult = await handler(args);
+            if (toolResult.actions) actions.push(...toolResult.actions);
+          } catch (retryErr) {
+            console.error(`[orchestrator] Retry of ${name} failed:`, retryErr.message);
+            toolResult = { ...toolResult, status: 'failed', errors: [retryErr.message] };
+          }
+          // After retry, force a non-retry decision
+          decision = toolResult.status === 'failed' ? 'abort' : 'continue';
+          console.log(`[orchestrator] Post-retry decision: ${decision}`);
+        }
+
+        // Handle abort — short-circuit with error message
+        if (decision === 'abort') {
+          const abortReply = toolResult.summary
+            ? `I ran into an issue: ${toolResult.summary}. Let me know how you'd like to proceed.`
+            : 'Something went wrong while processing your request. Please try again or let me know what you\'d like to do.';
+
+          await db.none(
+            `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
+            [sessionId, abortReply]
+          );
+          emit('done', { reply: abortReply, actions, sessionId });
+          return { reply: abortReply, actions, sessionId };
+        }
+
+        // Inject decision for main Gemini to follow
+        toolResult._orchestrator_decision = decision;
+        toolResult._allowed_decisions = allowed;
       }
       actions.push({ tool: name, args, result: toolResult });
 
