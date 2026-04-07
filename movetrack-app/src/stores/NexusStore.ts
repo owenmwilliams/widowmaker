@@ -81,8 +81,92 @@ export const nexusStore = defineStore("nexus", () => {
         messages.value = [];
       }
       quickStartChips.value = res.data.quickStartChips || [];
+      return res.data.guidance || null;
     } catch (err) {
       console.error("[NexusStore] loadActiveSession failed:", err);
+      return null;
+    }
+  }
+
+  async function requestGuidance() {
+    isLoading.value = true;
+    statusText.value = "Catching up…";
+
+    try {
+      const headers = getHeaders();
+      const response = await fetch(core_url + "/api/agents/nexus/guidance", {
+        method: "POST",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({}),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        throw new Error(errBody.error || "Guidance request failed");
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let result: any = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            switch (event.type) {
+              case "thinking":
+                statusText.value = "Catching up…";
+                break;
+              case "tool_call":
+                statusText.value = event.label || event.tool || "Working…";
+                break;
+              case "done":
+                result = event;
+                break;
+              case "error":
+                throw new Error(event.error);
+            }
+          } catch (parseErr: any) {
+            if (parseErr.message && !parseErr.message.includes("JSON"))
+              throw parseErr;
+          }
+        }
+      }
+
+      if (!result) throw new Error("Stream ended without result");
+
+      sessionId.value = result.sessionId;
+
+      const modelMsg: NexusMessage = {
+        id: Date.now(),
+        role: "model",
+        content: result.reply,
+        actions: result.actions || [],
+        created_at: new Date().toISOString(),
+      };
+      messages.value.push(modelMsg);
+
+      if (result.quickStartChips) {
+        quickStartChips.value = result.quickStartChips;
+      }
+    } catch (err: any) {
+      console.error("[NexusStore] requestGuidance failed:", err);
+    } finally {
+      isLoading.value = false;
+      statusText.value = "";
     }
   }
 
@@ -262,6 +346,7 @@ export const nexusStore = defineStore("nexus", () => {
     sendMessage,
     uploadPhoto,
     loadActiveSession,
+    requestGuidance,
     clearConversation,
   };
 });

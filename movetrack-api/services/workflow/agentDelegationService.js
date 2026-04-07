@@ -6,6 +6,7 @@ const { getInventoryTextSummary } = require('../inventory/inventorySummaryQueryS
 const censusAgent = require('../../agents/censusAgent');
 const vectorAgent = require('../../agents/vectorAgent');
 const onboarding = require('./onboardingService');
+const locationMutation = require('./locationMutationService');
 const { validateSpecialistResponse } = require('../../agents/schemas/specialistResponse');
 
 /**
@@ -92,7 +93,11 @@ function buildToolHandlers(userId, attachments, plan, onEvent) {
     },
 
     async set_location(args) {
-      return onboarding.setLocation(userId, args);
+      return locationMutation.setLocation(userId, args);
+    },
+
+    async update_location(args) {
+      return locationMutation.updateLocation(userId, args);
     },
 
     async mark_onboarding_complete() {

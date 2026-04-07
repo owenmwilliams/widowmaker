@@ -212,7 +212,10 @@ const renderMessageContent = (content: string): string => {
 
 // ── Auto-resume on mount ─────────────────────────────────────────────────────
 onMounted(async () => {
-  await store.loadActiveSession();
+  const guidance = await store.loadActiveSession();
+  if (guidance?.isStale && store.session) {
+    await store.requestGuidance();
+  }
 });
 
 const confirmClear = () => {

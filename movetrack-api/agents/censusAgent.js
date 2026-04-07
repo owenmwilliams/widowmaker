@@ -75,7 +75,7 @@ INVENTORY CENSUS RULES:
 8. After covering a room, summarize and suggest the next room.
 9. Periodically call get_inventory_summary to share progress.
 10. NEVER invent or hallucinate items. Only add items the user explicitly mentioned or that were returned by analyze_photo or analyze_video. If a tool returns no data, tell the user — do not fill in the gap yourself.
-11. If the user corrects you, call update_item immediately. If they want to rename a room, use update_room — do NOT create a new room. Similarly, use update_location to change location details.
+11. If the user corrects you, call update_item immediately. If they want to rename a room, use update_room — do NOT create a new room. If the user wants to change location details (address, name), let them know to ask the main Nexus assistant — you handle inventory, not location management.
 12. If the user asks to remove or delete an item, ALWAYS confirm before calling delete_item. Say which item you're about to delete and wait for their "yes".
 13. After adding 3+ items at once (e.g. from a photo or video scan), call find_duplicates to check for accidental duplicates. If duplicates are found, list them and ask the user which to keep or remove.
 14. If the user asks to see a photo of an item, call get_item_photo. If the tool returns a picture_url, include it in your response using the exact format: [IMG:url] — the app will render it as an image. Example: "Here's your sofa: [IMG:https://storage.googleapis.com/bucket/path.jpg]"
@@ -310,21 +310,6 @@ const toolDeclarations = [
     },
   },
   {
-    name: 'update_location',
-    description: 'Update an existing location. Use when the user wants to rename or change address details of a location.',
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        location_id: { type: SchemaType.STRING, description: 'The ID of the location to update' },
-        name:        { type: SchemaType.STRING, description: 'New name for the location' },
-        address:     { type: SchemaType.STRING, description: 'New street address' },
-        city:        { type: SchemaType.STRING, description: 'New city' },
-        state:       { type: SchemaType.STRING, description: 'New state abbreviation' },
-        zip:         { type: SchemaType.STRING, description: 'New ZIP code' },
-      },
-    },
-  },
-  {
     name: 'find_duplicates',
     description: 'Scan the inventory for potential duplicate items using name similarity. Returns pairs of items that may be duplicates, sorted by similarity score. Use proactively after adding multiple items (especially from photo/video scans) or when the user asks about duplicates.',
     parameters: {
@@ -363,8 +348,6 @@ const toolHandlers = {
   async update_item(args, userId) { return mutation.updateItem(userId, args); },
   async delete_item(args, userId) { return mutation.deleteItem(userId, args); },
   async update_room(args, userId) { return mutation.updateRoom(userId, args); },
-  async update_location(args, userId) { return mutation.updateLocation(userId, args); },
-
   async get_inventory_summary(args, userId) {
     const snapshot = await getInventoryTextSummary(userId);
     return { success: true, summary: snapshot };
@@ -415,7 +398,6 @@ const TOOL_LABELS = {
   get_missing_context: 'Checking for gaps',
   analyze_photo: 'Analyzing photo',
   analyze_video: 'Analyzing video',
-  update_location: 'Updating location',
   find_duplicates: 'Checking for duplicates',
   inventory_readiness: 'Assessing inventory readiness',
   estimate_missing_items: 'Estimating missing measurements',

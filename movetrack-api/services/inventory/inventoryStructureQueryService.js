@@ -9,74 +9,9 @@
 
 const knex = require('../infra/knex');
 
-// ── Locations ─────────────────────────────────────────────────────────────────
-
-/**
- * Get all locations for a user with aggregate counts of rooms, containers, and items.
- */
-async function getAllLocations(userId) {
-  return knex
-    .select(
-      'locations.id',
-      'locations.name',
-      'locations.description',
-      'locations.address',
-      'locations.address_2',
-      'locations.city',
-      'locations.state',
-      'locations.zip',
-      'locations.country',
-      'locations.location_type',
-      'locations.lat',
-      'locations.lng'
-    )
-    .countDistinct('collections.id', { as: 'total_rooms' })
-    .countDistinct('containers.id', { as: 'total_containers' })
-    .countDistinct('items.id', { as: 'total_items' })
-    .from('locations')
-    .leftJoin('permissions', function () {
-      this.on('permissions.resource_id', '=', 'locations.id')
-          .andOn('permissions.resource_type', '=', knex.raw('?', ['location']));
-    })
-    .leftJoin('collections', 'collections.location_id', 'locations.id')
-    .leftJoin('containers', 'containers.collection_id', 'collections.id')
-    .leftJoin('items', 'items.container_id', 'containers.id')
-    .where(knex.raw('permissions.user_id = ?', userId))
-    .groupBy(
-      'locations.id', 'locations.name', 'locations.description',
-      'locations.address', 'locations.address_2', 'locations.city',
-      'locations.state', 'locations.zip', 'locations.country',
-      'locations.location_type', 'locations.lat', 'locations.lng'
-    );
-}
-
-/**
- * Get a single location by ID (must be owned/permitted by userId).
- */
-async function getSingleLocation(userId, locationId) {
-  return knex
-    .select({
-      id: 'locations.id',
-      name: 'locations.name',
-      description: 'locations.description',
-      address: 'locations.address',
-      address_2: 'locations.address_2',
-      city: 'locations.city',
-      state: 'locations.state',
-      zip: 'locations.zip',
-      location_type: 'locations.location_type',
-      country: 'locations.country',
-      lat: 'locations.lat',
-      lng: 'locations.lng',
-    })
-    .from('locations')
-    .leftJoin('permissions', function () {
-      this.on('permissions.resource_id', '=', 'locations.id')
-          .andOn('permissions.resource_type', '=', knex.raw('?', ['location']));
-    })
-    .where(knex.raw('permissions.user_id = ?', userId))
-    .andWhere(knex.raw('locations.id = ?', locationId));
-}
+// Location queries have moved to workflow/locationQueryService.
+// Re-exported below for backwards compatibility.
+const { getAllLocations, getSingleLocation } = require('../workflow/locationQueryService');
 
 // ── Collections ───────────────────────────────────────────────────────────────
 

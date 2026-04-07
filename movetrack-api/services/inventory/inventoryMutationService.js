@@ -10,77 +10,13 @@
 const knex = require('../infra/knex');
 const conn = require('../infra/db');
 const db = conn.db;
-const { forwardGeocode } = require('../infra/geocodingService');
 
-// ── Location constants ────────────────────────────────────────────────────────
-const BASIC_LOCATION_CAP = 2;
-const HOLDING_LOCATION_TYPE = 'holding_area';
-const HOLDING_LOCATION_NAME = 'Unassigned Items';
-const HOLDING_LOCATION_DESCRIPTION = 'Auto-generated holding area for reassigned items';
+// Location functions have moved to workflow/locationQueryService + workflow/locationMutationService.
+// Re-exported below for backwards compatibility.
+const locationQuery = require('../workflow/locationQueryService');
+const locationMutation = require('../workflow/locationMutationService');
 
-function parseCoordinateInput(value) {
-  if (value === undefined || value === null || value === '') return null;
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-async function geocodeLocationPayload(payload, correlationId) {
-  const query = [payload.address, payload.address_2, payload.city, payload.state, payload.zip]
-    .filter(Boolean).join(', ').trim() || payload.city || payload.name;
-
-  if (!query) return { lat: null, lng: null };
-
-  try {
-    const result = await forwardGeocode(query, null, payload.country || 'USA', { correlationId });
-    if (result?.lat != null && result?.lng != null) return { lat: result.lat, lng: result.lng };
-  } catch (error) {
-    console.warn(`[inventoryMutationService] Failed to geocode "${query}":`, error.message);
-  }
-  return { lat: null, lng: null };
-}
-
-async function ensureHoldingLocation(trx, userId) {
-  const existing = await trx('locations')
-    .where({ user_id: userId, location_type: HOLDING_LOCATION_TYPE })
-    .first();
-  if (existing) return existing.id;
-
-  const [created] = await trx('locations')
-    .insert({
-      user_id: userId,
-      name: HOLDING_LOCATION_NAME,
-      description: HOLDING_LOCATION_DESCRIPTION,
-      location_type: HOLDING_LOCATION_TYPE,
-    })
-    .returning(['id']);
-
-  if (!created?.id) throw new Error('Failed to create holding location');
-
-  await trx('permissions')
-    .insert({
-      user_id: userId,
-      resource_id: created.id,
-      resource_type: 'location',
-      permission_level: 'owner',
-      granted_by: userId,
-    })
-    .onConflict(['user_id', 'resource_id', 'resource_type'])
-    .ignore();
-
-  return created.id;
-}
-
-/**
- * Get the user's primary location_id. Returns null if none exists.
- */
-async function getPrimaryLocationId(userId) {
-  const loc = await db.oneOrNone(
-    `SELECT id FROM locations WHERE user_id = $1
-     ORDER BY location_type = 'primary_residence' DESC, created_at ASC LIMIT 1`,
-    [userId]
-  );
-  return loc ? loc.id : null;
-}
+const { getPrimaryLocationId } = locationQuery;
 
 /**
  * Find a collection by name for a user, or create one.
@@ -259,41 +195,6 @@ async function updateRoom(userId, args) {
 
   console.log(`[census] Updated room: "${room.name}" → "${args.name || room.name}" (id: ${room.id})`);
   return { success: true, roomId: room.id, oldName: room.name, newName: args.name || room.name };
-}
-
-/**
- * Update a location's details.
- */
-async function updateLocation(userId, args) {
-  let locationId = args.location_id;
-  if (!locationId) {
-    locationId = await getPrimaryLocationId(userId);
-  }
-  if (!locationId) {
-    return { success: false, error: 'No location found' };
-  }
-
-  const loc = await knex('locations')
-    .select('id', 'name')
-    .where({ id: locationId, user_id: userId })
-    .first();
-
-  if (!loc) {
-    return { success: false, error: 'Location not found or not authorized' };
-  }
-
-  const updates = {};
-  if (args.name) updates.name = args.name;
-  if (args.address) updates.address = args.address;
-  if (args.city) updates.city = args.city;
-  if (args.state) updates.state = args.state;
-  if (args.zip) updates.zip = args.zip;
-  updates.updated_at = new Date();
-
-  await knex('locations').where({ id: loc.id, user_id: userId }).update(updates);
-
-  console.log(`[census] Updated location: "${loc.name}" → "${args.name || loc.name}" (id: ${loc.id})`);
-  return { success: true, locationId: loc.id, oldName: loc.name, newName: args.name || loc.name };
 }
 
 // ── Collections (CRUD) ────────────────────────────────────────────────────────
@@ -725,301 +626,8 @@ async function assignItemQr(userId, itemId, { token, regenerate } = {}) {
   };
 }
 
-// ── Locations (REST API) ──────────────────────────────────────────────────────
-
-/**
- * Return current location count for a user (used by plan-cap middleware).
- */
-async function getLocationCount(userId) {
-  const [row] = await knex('locations').count('* as cnt').where('user_id', userId);
-  return Number(row?.cnt || 0);
-}
-
-/**
- * Create a new location, geocoding if lat/lng not provided.
- * Demotes any existing primary_residence if is_primary is true.
- */
-async function createLocation(userId, params) {
-  const {
-    name, description, address, address_2, city, state, zip,
-    country = 'USA', location_type, is_primary,
-    lat: latRaw, lng: lngRaw,
-  } = params;
-
-  const isPrimary = is_primary === true || is_primary === 'true';
-  const locationType = location_type || (isPrimary ? 'primary_residence' : 'residence');
-
-  const basePayload = {
-    user_id: userId, name, description, address, address_2, city, state, zip,
-    country, location_type: locationType,
-    lat: parseCoordinateInput(latRaw),
-    lng: parseCoordinateInput(lngRaw),
-  };
-
-  if (basePayload.lat == null || basePayload.lng == null) {
-    const coords = await geocodeLocationPayload(basePayload, `location-create-${userId}`);
-    basePayload.lat = coords.lat;
-    basePayload.lng = coords.lng;
-  }
-
-  return knex.transaction(async (trx) => {
-    if (isPrimary) {
-      await trx('locations').update({ location_type: 'residence' })
-        .where('user_id', userId).andWhere('location_type', 'primary_residence');
-    }
-    return trx('locations').insert(basePayload).returning('id');
-  });
-}
-
-/**
- * Update a location, geocoding if lat/lng not provided.
- * Demotes existing primary_residence if is_primary is true.
- */
-async function updateLocationById(userId, locationId, params) {
-  const {
-    name, description, address, address_2, city, state, zip,
-    country = 'USA', location_type, is_primary,
-    lat: latRaw, lng: lngRaw,
-  } = params;
-
-  const isPrimary = is_primary === true || is_primary === 'true';
-  const locationType = location_type || (isPrimary ? 'primary_residence' : 'residence');
-
-  const updatePayload = {
-    name, description, address, address_2, city, state, zip,
-    country, location_type: locationType,
-    updated_at: knex.fn.now(),
-    lat: parseCoordinateInput(latRaw),
-    lng: parseCoordinateInput(lngRaw),
-  };
-
-  if (updatePayload.lat == null || updatePayload.lng == null) {
-    const coords = await geocodeLocationPayload(
-      { ...updatePayload, user_id: userId },
-      `location-update-${locationId}`
-    );
-    updatePayload.lat = coords.lat;
-    updatePayload.lng = coords.lng;
-  }
-
-  await knex.transaction(async (trx) => {
-    if (isPrimary) {
-      await trx('locations').update({ location_type: 'residence' })
-        .where('user_id', userId).andWhere('location_type', 'primary_residence');
-    }
-    await trx('locations').update(updatePayload).where('id', locationId).andWhere('user_id', userId);
-  });
-}
-
-/**
- * Preview what will be affected by deleting a location.
- */
-async function getLocationDeletePreview(userId, locationId) {
-  const location = await knex('locations').where({ id: locationId, user_id: userId }).first();
-  if (!location) return { success: false, status: 404, error: 'Location not found' };
-  if (location.location_type === HOLDING_LOCATION_TYPE) {
-    return { success: false, status: 400, error: 'Cannot delete the default holding location' };
-  }
-
-  const collectionSubquery = knex('collections').select('id').where({ location_id: locationId, user_id: userId });
-  const [collectionsCount] = await knex('collections').count('* as count').where({ location_id: locationId, user_id: userId });
-  const [itemsCount] = await knex('items').count('* as count').where({ collection_id: collectionSubquery });
-  const [containersCount] = await knex('containers').count('* as count').where({ collection_id: collectionSubquery });
-
-  const affectedMoveIds = new Set();
-  (await knex('saved_moves').where({ user_id: userId, origin_location_id: locationId }).pluck('id')).forEach(id => affectedMoveIds.add(id));
-  (await knex('saved_moves').where({ user_id: userId, destination_location_id: locationId }).pluck('id')).forEach(id => affectedMoveIds.add(id));
-  (await knex('move_waypoints').where({ location_id: locationId }).pluck('saved_move_id')).forEach(id => affectedMoveIds.add(id));
-  (await knex('move_locations').where({ location_id: locationId }).pluck('move_id')).forEach(id => affectedMoveIds.add(id));
-
-  const affectedMovesCount = affectedMoveIds.size;
-  const affectedMoveNames = affectedMovesCount > 0
-    ? await knex('saved_moves').select('id', 'name').whereIn('id', Array.from(affectedMoveIds)).orderBy('name')
-    : [];
-
-  const otherLocations = await knex('locations')
-    .select('id', 'name', 'location_type', 'address', 'city', 'state')
-    .where({ user_id: userId }).whereNot({ id: locationId }).orderBy('name');
-
-  const moveWarning = (count) =>
-    count > 0 ? `${count} saved move(s) will be affected` : 'No moves will be affected';
-
-  return {
-    success: true,
-    location: { id: location.id, name: location.name, location_type: location.location_type },
-    affectedData: {
-      collections: Number(collectionsCount.count),
-      items: Number(itemsCount.count),
-      containers: Number(containersCount.count),
-      moves: affectedMovesCount,
-    },
-    affectedMoves: affectedMoveNames,
-    availableDestinations: otherLocations,
-    deletionStrategies: [
-      {
-        id: 'reassign', name: 'Move to another location',
-        description: 'Collections and items will be moved to the selected location',
-        moveBehavior: affectedMovesCount > 0
-          ? `${affectedMovesCount} saved move(s) will be updated to use the new location`
-          : 'No moves will be affected',
-        recommended: otherLocations.length > 0, requiresDestination: true,
-      },
-      {
-        id: 'unassigned', name: 'Move to Unassigned Items',
-        description: 'Collections will be moved to a holding area',
-        moveBehavior: moveWarning(affectedMovesCount) + (affectedMovesCount > 0 ? ' and permanently deleted' : ''),
-        recommended: otherLocations.length === 0, requiresDestination: false,
-      },
-      {
-        id: 'delete_all', name: 'Delete all inventory',
-        description: 'Permanently delete all collections, items, and containers at this location',
-        moveBehavior: moveWarning(affectedMovesCount) + (affectedMovesCount > 0 ? ' and permanently deleted' : ''),
-        recommended: false, requiresDestination: false, requiresConfirmation: true,
-      },
-    ],
-  };
-}
-
-/**
- * Delete a location using one of three strategies:
- *   'reassign'   — move collections to destinationLocationId; update moves
- *   'unassigned' — move collections to holding area; delete affected moves
- *   'delete_all' — delete all collections/items/containers; delete affected moves
- */
-async function executeLocationDeletion(userId, locationId, strategy, destinationLocationId = null) {
-  const VALID_STRATEGIES = ['reassign', 'unassigned', 'delete_all'];
-  if (!VALID_STRATEGIES.includes(strategy)) {
-    return { success: false, status: 400, error: 'Invalid deletion strategy. Must be: reassign, unassigned, or delete_all' };
-  }
-  if (strategy === 'reassign' && !destinationLocationId) {
-    return { success: false, status: 400, error: 'destination_location_id is required for reassign strategy' };
-  }
-
-  const result = await knex.transaction(async (trx) => {
-    const location = await trx('locations').where({ id: locationId, user_id: userId }).first();
-    if (!location) throw Object.assign(new Error('Location not found'), { status: 404 });
-    if (location.location_type === HOLDING_LOCATION_TYPE) {
-      throw Object.assign(new Error('Cannot delete the default holding location'), { status: 400 });
-    }
-
-    let targetLocationId = null;
-    let deletedCounts = { collections: 0, items: 0, containers: 0 };
-
-    if (strategy === 'delete_all') {
-      const collectionIds = (await trx('collections').where({ location_id: locationId, user_id: userId }).select('id')).map(c => c.id);
-      if (collectionIds.length > 0) {
-        const [ic] = await trx('items').count('* as count').whereIn('collection_id', collectionIds);
-        const [cc] = await trx('containers').count('* as count').whereIn('collection_id', collectionIds);
-        deletedCounts.items = Number(ic.count);
-        deletedCounts.containers = Number(cc.count);
-        deletedCounts.collections = collectionIds.length;
-        await trx('collections').whereIn('id', collectionIds).delete();
-      }
-    } else {
-      if (strategy === 'reassign') {
-        const destLocation = await trx('locations').where({ id: destinationLocationId, user_id: userId }).first();
-        if (!destLocation) throw Object.assign(new Error('Destination location not found'), { status: 404 });
-        targetLocationId = destinationLocationId;
-      } else {
-        targetLocationId = await ensureHoldingLocation(trx, userId);
-      }
-      deletedCounts.moved = await trx('collections')
-        .where({ location_id: locationId, user_id: userId })
-        .update({ location_id: targetLocationId, updated_at: knex.fn.now() });
-    }
-
-    if (strategy === 'reassign') {
-      deletedCounts.movesUpdated =
-        (await trx('saved_moves').where({ user_id: userId, origin_location_id: locationId }).update({ origin_location_id: targetLocationId, updated_at: knex.fn.now() })) +
-        (await trx('saved_moves').where({ user_id: userId, destination_location_id: locationId }).update({ destination_location_id: targetLocationId, updated_at: knex.fn.now() }));
-      deletedCounts.waypointsUpdated = await trx('move_waypoints').where({ location_id: locationId }).update({ location_id: targetLocationId });
-      await trx('move_locations').where({ location_id: locationId }).update({ location_id: targetLocationId });
-      for (const col of ['session_start_location_id', 'session_end_location_id', 'truck_location_id']) {
-        await trx('move_sessions').where({ [col]: locationId, user_id: userId }).update({ [col]: targetLocationId, updated_at: knex.fn.now() });
-      }
-    } else {
-      const affectedMoveIds = new Set();
-      (await trx('saved_moves').where({ user_id: userId, origin_location_id: locationId }).pluck('id')).forEach(id => affectedMoveIds.add(id));
-      (await trx('saved_moves').where({ user_id: userId, destination_location_id: locationId }).pluck('id')).forEach(id => affectedMoveIds.add(id));
-      (await trx('move_waypoints').where({ location_id: locationId }).pluck('saved_move_id')).forEach(id => affectedMoveIds.add(id));
-      (await trx('move_locations').where({ location_id: locationId }).pluck('move_id')).forEach(id => affectedMoveIds.add(id));
-
-      const ids = Array.from(affectedMoveIds);
-      if (ids.length > 0) {
-        await trx('move_waypoints').whereIn('saved_move_id', ids).del();
-        await trx('move_locations').whereIn('move_id', ids).del();
-        deletedCounts.sessionsDeleted = await trx('move_sessions').whereIn('saved_move_id', ids).del();
-        deletedCounts.movesDeleted = await trx('saved_moves').whereIn('id', ids).del();
-      } else {
-        deletedCounts.movesDeleted = 0;
-        deletedCounts.sessionsDeleted = 0;
-      }
-    }
-
-    await trx('locations').where({ id: locationId, user_id: userId }).del();
-    return { strategy, targetLocationId, deletedCounts };
-  });
-
-  return { success: true, ...result };
-}
-
-/**
- * Simple delete: moves collections to a holding area, cleans up move references,
- * and deletes the location. Legacy endpoint behaviour.
- */
-async function deleteLocation(userId, locationId) {
-  const result = await knex.transaction(async (trx) => {
-    const location = await trx('locations').where({ id: locationId, user_id: userId }).first();
-    if (!location) throw Object.assign(new Error('Location not found'), { status: 404 });
-    if (location.location_type === HOLDING_LOCATION_TYPE) {
-      throw Object.assign(new Error('Cannot delete the default holding location'), { status: 400 });
-    }
-
-    const fallbackId = await ensureHoldingLocation(trx, userId);
-    const movesNeedingReview = new Set();
-
-    await trx('collections').where({ location_id: locationId, user_id: userId }).update({ location_id: fallbackId, updated_at: knex.fn.now() });
-    await trx('containers').where({ location_id: locationId, user_id: userId }).update({ location_id: fallbackId, updated_at: knex.fn.now() });
-    await trx('items').where({ location_id: locationId, user_id: userId }).update({ location_id: null, updated_at: knex.fn.now() });
-    await trx('move_sessions').where({ session_start_location_id: locationId, user_id: userId }).update({ session_start_location_id: fallbackId, updated_at: knex.fn.now() });
-    await trx('move_sessions').where({ session_end_location_id: locationId, user_id: userId }).update({ session_end_location_id: fallbackId, updated_at: knex.fn.now() });
-
-    const moveLocationIds = await trx('move_locations').where({ location_id: locationId }).pluck('move_id');
-    if (moveLocationIds.length) {
-      await trx('move_locations').where({ location_id: locationId }).del();
-      moveLocationIds.forEach(id => movesNeedingReview.add(id));
-    }
-
-    const originMoves = await trx('saved_moves').where({ user_id: userId, origin_location_id: locationId }).pluck('id');
-    if (originMoves.length) {
-      await trx('saved_moves').whereIn('id', originMoves).update({ origin_location_id: fallbackId, updated_at: knex.fn.now() });
-      originMoves.forEach(id => movesNeedingReview.add(id));
-    }
-
-    const destMoves = await trx('saved_moves').where({ user_id: userId, destination_location_id: locationId }).pluck('id');
-    if (destMoves.length) {
-      await trx('saved_moves').whereIn('id', destMoves).update({ destination_location_id: fallbackId, updated_at: knex.fn.now() });
-      destMoves.forEach(id => movesNeedingReview.add(id));
-    }
-
-    const waypointRows = await trx('move_waypoints').select('id', 'saved_move_id').where({ location_id: locationId });
-    if (waypointRows.length) {
-      for (const row of waypointRows) {
-        await trx('move_sessions').where({ saved_move_id: row.saved_move_id }).andWhere('start_waypoint_id', row.id).update({ start_waypoint_id: null, updated_at: knex.fn.now() });
-        await trx('move_sessions').where({ saved_move_id: row.saved_move_id }).andWhere('end_waypoint_id', row.id).update({ end_waypoint_id: null, updated_at: knex.fn.now() });
-        movesNeedingReview.add(row.saved_move_id);
-      }
-      await trx('move_waypoints').whereIn('id', waypointRows.map(r => r.id)).del();
-    }
-
-    await trx('locations').where({ id: locationId, user_id: userId }).del();
-    return { fallbackLocationId: fallbackId, movesNeedingReview: Array.from(movesNeedingReview) };
-  });
-
-  return { success: true, ...result };
-}
-
 module.exports = {
+  // Local inventory functions
   getPrimaryLocationId,
   findOrCreateRoom,
   addItem,
@@ -1027,7 +635,6 @@ module.exports = {
   deleteItem,
   addRoom,
   updateRoom,
-  updateLocation,
   createCollection,
   deleteCollection,
   updateCollection,
@@ -1038,11 +645,14 @@ module.exports = {
   createItem,
   updateItemById,
   assignItemQr,
-  BASIC_LOCATION_CAP,
-  getLocationCount,
-  createLocation,
-  updateLocationById,
-  getLocationDeletePreview,
-  executeLocationDeletion,
-  deleteLocation,
+  // Re-exported from workflow/locationQueryService for backwards compatibility
+  BASIC_LOCATION_CAP: locationMutation.BASIC_LOCATION_CAP,
+  getLocationCount: locationQuery.getLocationCount,
+  // Re-exported from workflow/locationMutationService for backwards compatibility
+  updateLocation: locationMutation.updateLocation,
+  createLocation: locationMutation.createLocation,
+  updateLocationById: locationMutation.updateLocationById,
+  getLocationDeletePreview: locationMutation.getLocationDeletePreview,
+  executeLocationDeletion: locationMutation.executeLocationDeletion,
+  deleteLocation: locationMutation.deleteLocation,
 };

@@ -6,6 +6,9 @@ const gcs = require('../../../services/infra/gcsService');
 const sessions = require('../../../services/infra/agentSessionService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
 
+const { isConversationStale } = require('../../../agents/schemas/orchestratorModes');
+const { buildWorkflowGuidanceContext } = require('../../../agents/schemas/workflowGuidance');
+
 const router = express.Router();
 
 const upload = multer({
@@ -76,14 +79,83 @@ router.get('/active-session', async (req, res) => {
     const quickStartChips = await getQuickStartChips(userId);
 
     if (!session) {
-      return res.json({ session: null, messages: [], quickStartChips });
+      return res.json({ session: null, messages: [], quickStartChips, guidance: null });
     }
 
     const messages = await sessions.getSessionMessages(session.id);
-    res.json({ session, messages: enrichMessagesWithActions(messages), quickStartChips });
+
+    // Compute staleness + workflow guidance for the frontend
+    const lastUserMsg = messages.filter(m => m.role === 'user').pop();
+    const lastUserMessageAt = lastUserMsg ? new Date(lastUserMsg.created_at).getTime() : Date.now();
+    const stale = isConversationStale(lastUserMessageAt);
+
+    const workflowGuidance = await buildWorkflowGuidanceContext(userId);
+
+    res.json({
+      session,
+      messages: enrichMessagesWithActions(messages),
+      quickStartChips,
+      guidance: {
+        isStale: stale,
+        interactionModeHint: stale ? 'guide' : 'execute',
+        ...workflowGuidance,
+      },
+    });
   } catch (err) {
     console.error('[nexus] active-session failed:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── POST /guidance ──────────────────────────────────────────────────────────
+// System-initiated guidance request. Called by the frontend when the session is
+// stale. Triggers a Gemini response in guidance mode without persisting a user
+// message. Returns the guidance reply + updated quick-start chips.
+router.post('/guidance', express.json(), async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
+  const syntheticMessage = 'The user just opened the chat after being away. Summarize where they left off, highlight the most important gaps, and suggest 1–2 next steps.';
+
+  const wantsStream = req.headers.accept === 'text/event-stream';
+
+  if (!wantsStream) {
+    try {
+      const result = await nexusOrchestrator.processMessage(
+        userId, syntheticMessage, [], plan, null, { guidanceOnly: true }
+      );
+      const quickStartChips = await getQuickStartChips(userId);
+      return res.json({ ...result, quickStartChips });
+    } catch (err) {
+      console.error('[nexus] guidance failed:', err);
+      return res.status(500).json({ error: err.message || 'Guidance request failed' });
+    }
+  }
+
+  // SSE streaming path
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+
+  const sendSSE = (event) => {
+    res.write(`data: ${JSON.stringify(event)}\n\n`);
+  };
+
+  try {
+    const result = await nexusOrchestrator.processMessage(
+      userId, syntheticMessage, [], plan, sendSSE, { guidanceOnly: true }
+    );
+    const quickStartChips = await getQuickStartChips(userId);
+    sendSSE({ type: 'done', reply: result.reply, actions: result.actions, sessionId: result.sessionId, quickStartChips });
+  } catch (err) {
+    console.error('[nexus] guidance (stream) failed:', err);
+    sendSSE({ type: 'error', error: err.message || 'Guidance request failed' });
+  } finally {
+    res.end();
   }
 });
 

@@ -1,17 +1,16 @@
 var express = require('express');
 var router = express.Router();
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
-const { getAllLocations, getSingleLocation } = require('../../../services/inventory/inventoryStructureQueryService');
+const { getAllLocations, getSingleLocation, getLocationCount } = require('../../../services/workflow/locationQueryService');
 const { getPlacesAutocomplete, getPlaceDetails, validateAddress } = require('../../../services/infra/geocodingService');
 const {
   BASIC_LOCATION_CAP,
-  getLocationCount,
   createLocation,
   updateLocationById,
   getLocationDeletePreview,
   executeLocationDeletion,
   deleteLocation,
-} = require('../../../services/inventory/inventoryMutationService');
+} = require('../../../services/workflow/locationMutationService');
 
 router.use(authenticate);
 

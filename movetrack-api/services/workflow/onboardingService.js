@@ -3,6 +3,7 @@
 const knex = require('../infra/knex');
 const conn = require('../infra/db');
 const db = conn.db;
+const locationMutation = require('./locationMutationService');
 
 /**
  * Set the user's name and goal during onboarding.
@@ -15,36 +16,6 @@ async function setUserProfile(userId, args = {}) {
   await knex('users').where({ user_id: userId }).update(updates);
   if (args.goal) console.log(`[orchestrator] User goal set: ${args.goal}`);
   return { success: true, name: `${args.first_name || ''} ${args.last_name || ''}`.trim() };
-}
-
-/**
- * Create a new location (home address) during onboarding.
- */
-async function setLocation(userId, args = {}) {
-  const params = {
-    user_id: userId,
-    name: args.name || 'Home',
-    location_type: 'primary_residence',
-  };
-  if (args.address) params.address = args.address;
-  if (args.city) params.city = args.city;
-  if (args.state) params.state = args.state;
-  if (args.zip) params.zip = args.zip;
-
-  const [location] = await knex.transaction(async (trx) => {
-    const [loc] = await knex('locations').transacting(trx).insert(params).returning(['id', 'name']);
-    await knex('permissions').transacting(trx).insert({
-      user_id: userId,
-      resource_id: loc.id,
-      resource_type: 'location',
-      permission_level: 'owner',
-      granted_by: userId,
-    });
-    return [loc];
-  });
-
-  console.log(`[orchestrator] Created location: "${args.name}" (id: ${location.id})`);
-  return { success: true, locationId: location.id, name: args.name };
 }
 
 /**
@@ -97,17 +68,19 @@ async function completeOnboarding(userId, { profile = null, location = null, roo
     let locationId = null;
     if (location && location.name && location.address && location.city && location.state && location.zip) {
       if (location.id) {
-        const updated = await trx('locations')
-          .update({ name: location.name, address: location.address, address_2: location.address2 || null, city: location.city, state: location.state, zip: location.zip, updated_at: trx.fn.now() })
-          .where({ id: location.id, user_id: userId })
-          .returning('id');
-        locationId = updated?.[0]?.id || updated?.[0] || null;
+        await locationMutation.updateLocationById(userId, location.id, {
+          name: location.name, address: location.address, address_2: location.address2 || null,
+          city: location.city, state: location.state, zip: location.zip,
+        });
+        locationId = location.id;
       }
       if (!locationId) {
-        const inserted = await trx('locations')
-          .insert({ user_id: userId, name: location.name, address: location.address, address_2: location.address2 || null, city: location.city, state: location.state, zip: location.zip, location_type: 'primary_residence' })
-          .returning('id');
-        locationId = inserted?.[0]?.id || inserted?.[0];
+        const result = await locationMutation.createLocation(userId, {
+          name: location.name, address: location.address, address_2: location.address2 || null,
+          city: location.city, state: location.state, zip: location.zip,
+          location_type: 'primary_residence', is_primary: true,
+        });
+        locationId = result?.[0]?.id || result?.[0];
       }
     }
 
@@ -215,7 +188,7 @@ async function importInventory(userId, locationId, items) {
 
 module.exports = {
   setUserProfile,
-  setLocation,
+  setLocation: locationMutation.setLocation,
   markOnboardingComplete,
   completeOnboarding,
   importInventory,

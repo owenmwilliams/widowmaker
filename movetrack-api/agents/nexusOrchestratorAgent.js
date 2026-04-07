@@ -7,6 +7,8 @@ const { getInventoryTextSummary } = require('../services/inventory/inventorySumm
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const { buildToolHandlers } = require('../services/workflow/agentDelegationService');
 const { getAllowedDecisions, POLICY_DEFAULTS, buildDecisionPrompt, parseDecisionResponse, validateDecision } = require('./schemas/orchestratorPolicy');
+const { isConversationStale, explicitlyRequestsContext, chooseInteractionMode, buildIntentDetectionPrompt, parseIntentDetectionResponse } = require('./schemas/orchestratorModes');
+const { buildWorkflowGuidanceContext, formatGuidanceForPrompt } = require('./schemas/workflowGuidance');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
@@ -33,9 +35,10 @@ ROUTING RULES:
 1. If the user wants to add, edit, scan, organize, or ask about specific items → delegate_to_census
 2. If the user asks about move size, costs, truck size, route, labor, or logistics → delegate_to_vector
 3. If the user sends a photo or video → delegate_to_census (set include_attachments to true)
-4. For greetings, general questions, "what can you do", or meta-questions → respond directly (no tool call)
-5. If unclear whether it's inventory or logistics, ask a clarifying question
-6. NEVER try to modify inventory yourself — always delegate to Census
+4. If the user wants to update a location name or address → use update_location directly (do NOT delegate)
+5. For greetings, general questions, "what can you do", or meta-questions → respond directly (no tool call)
+6. If unclear whether it's inventory or logistics, ask a clarifying question
+7. NEVER try to modify inventory yourself — always delegate to Census
 7. After a Census delegation that adds items, you might suggest the user try Vector for move analysis
 8. MESSAGE PASSING — each agent maintains its own conversation history, so preserve detail:
    a. For single-agent messages (one clear delegation): pass the user's message verbatim. Do NOT rephrase or summarize.
@@ -79,6 +82,9 @@ When a delegation tool result includes an _orchestrator_decision field, you MUST
 - "switch_agent": the user needs the other specialist. Delegate to the appropriate agent as a follow-up.
 - "abort": something went wrong. Present the error to the user helpfully and ask how they'd like to proceed. Do NOT retry.
 These decisions are authoritative. Always respect them.
+
+SESSION RE-ENTRY:
+If the user returns after a long gap and asks for context, progress, or what to do next, switch into guidance mode. In guidance mode, briefly summarize where the workflow stands, identify the most important blockers or missing information, and offer 1–2 concrete next steps. If the user gives a direct request, fulfill that request instead of overriding it with proactive guidance. Never propose more than 2 next steps unless explicitly asked.
 
 INVENTORY OVERVIEW:
 {{INVENTORY_SNAPSHOT}}`;
@@ -162,6 +168,21 @@ const toolDeclarations = [
     },
   },
   {
+    name: 'update_location',
+    description: 'Update an existing location. Use when the user wants to rename or change address details of a location.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        location_id: { type: SchemaType.STRING, description: 'The ID of the location to update' },
+        name:        { type: SchemaType.STRING, description: 'New name for the location' },
+        address:     { type: SchemaType.STRING, description: 'New street address' },
+        city:        { type: SchemaType.STRING, description: 'New city' },
+        state:       { type: SchemaType.STRING, description: 'New state abbreviation' },
+        zip:         { type: SchemaType.STRING, description: 'New ZIP code' },
+      },
+    },
+  },
+  {
     name: 'mark_onboarding_complete',
     description: 'Mark onboarding as complete. Call this AUTOMATICALLY after creating a location and at least one room during onboarding. Do not ask the user — just call it silently.',
     parameters: {
@@ -180,6 +201,7 @@ const TOOL_LABELS = {
   get_user_profile: 'Loading profile…',
   set_user_profile: 'Setting up profile…',
   set_location: 'Setting location…',
+  update_location: 'Updating location…',
   mark_onboarding_complete: 'Completing setup…',
 };
 
@@ -216,13 +238,50 @@ async function chooseDecisionWithModel(specialistResponse, ctx, allowed) {
   }
 }
 
+// ── Intent Detection ────────────────────────────────────────────────────────────
+
+const INTENT_FALLBACK = Object.freeze({
+  hasDirectUserRequest: false,
+  intentConfidence: 0.5,
+  intentType: null,
+});
+
+/**
+ * Make a lightweight Gemini call to assess user intent.
+ * Falls back to low-confidence defaults if model returns garbage.
+ */
+async function detectUserIntent(message) {
+  if (!geminiClient || !message) return INTENT_FALLBACK;
+
+  try {
+    const prompt = buildIntentDetectionPrompt(message);
+    const intentModel = geminiClient.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      systemInstruction: 'You assess user messages and determine if they contain a direct, actionable request. Respond with ONLY a JSON object.',
+      generationConfig: { maxOutputTokens: 128 },
+    });
+
+    const result = await intentModel.generateContent(prompt);
+    const text = result.response.text();
+    const parsed = parseIntentDetectionResponse(text);
+
+    if (parsed) return parsed;
+
+    console.warn('[orchestrator] Intent detection returned unparseable response, using fallback:', text);
+    return INTENT_FALLBACK;
+  } catch (err) {
+    console.error('[orchestrator] Intent detection failed:', err.message);
+    return INTENT_FALLBACK;
+  }
+}
+
 // ── Conversation Loop ───────────────────────────────────────────────────────────
 
 /**
  * Process a user message through the Nexus orchestrator.
  * Routes to Census or Vector specialist agents as needed.
  */
-async function processMessage(userId, message, attachments = [], plan = 'basic', onEvent = null) {
+async function processMessage(userId, message, attachments = [], plan = 'basic', onEvent = null, options = {}) {
   const emit = (type, data = {}) => {
     if (onEvent) onEvent({ type, ...data });
   };
@@ -284,14 +343,56 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   if (userParts.length === 0) userParts.push({ text: '(empty message)' });
   contents.push({ role: 'user', parts: userParts });
 
-  // Persist user message
-  await db.none(
-    `INSERT INTO nexus_messages (session_id, role, content, attachments)
-     VALUES ($1, 'user', $2, $3)`,
-    [sessionId, message, JSON.stringify(attachments)]
-  );
+  const { guidanceOnly } = options;
 
-  // ── 5. Build system prompt with context ─────────────────────────────────
+  // Persist user message (skip for system-initiated guidance requests)
+  if (!guidanceOnly) {
+    await db.none(
+      `INSERT INTO nexus_messages (session_id, role, content, attachments)
+       VALUES ($1, 'user', $2, $3)`,
+      [sessionId, message, JSON.stringify(attachments)]
+    );
+  }
+
+  // ── 5. Pre-turn assessment: interaction mode ───────────────────────────
+  let interactionMode;
+  let workflowGuidance;
+
+  if (guidanceOnly) {
+    // Guidance-only: force guide mode, skip intent detection
+    interactionMode = 'guide';
+    workflowGuidance = await buildWorkflowGuidanceContext(userId);
+    console.log(`[orchestrator] Mode: guide (guidanceOnly=true)`);
+  } else {
+    // Normal flow: detect intent + compute guidance in parallel
+    const lastUserMsg = await db.oneOrNone(
+      `SELECT created_at FROM nexus_messages
+       WHERE session_id = $1 AND role = 'user'
+       ORDER BY created_at DESC LIMIT 1 OFFSET 1`,
+      [sessionId]
+    );
+    const lastUserMessageAt = lastUserMsg ? new Date(lastUserMsg.created_at).getTime() : Date.now();
+
+    const [intent, guidance] = await Promise.all([
+      detectUserIntent(message),
+      buildWorkflowGuidanceContext(userId),
+    ]);
+    workflowGuidance = guidance;
+
+    const stale = isConversationStale(lastUserMessageAt);
+    const explicitContext = explicitlyRequestsContext(message || '');
+
+    interactionMode = chooseInteractionMode({
+      hasDirectUserRequest: intent.hasDirectUserRequest,
+      intentConfidence: intent.intentConfidence,
+      isConversationStale: stale,
+      explicitlyRequestsContext: explicitContext,
+    });
+
+    console.log(`[orchestrator] Mode: ${interactionMode} (stale=${stale}, explicitContext=${explicitContext}, intent=${intent.intentConfidence}, type=${intent.intentType})`);
+  }
+
+  // ── 6. Build system prompt with context ───────────────────────────────
   const inventorySnapshot = await getInventoryTextSummary(userId);
   const user = await db.oneOrNone(
     `SELECT first_name, last_name, email, onboarding_completed FROM users WHERE user_id = $1`,
@@ -309,7 +410,22 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     systemInstruction += `\n\nCONVERSATION HISTORY SUMMARY:\n${contextSummaryText}`;
   }
 
-  // ── 6. Call Gemini ──────────────────────────────────────────────────────
+  // Inject interaction mode + workflow guidance
+  const modeInstructions = interactionMode === 'guide'
+    ? `You are in GUIDANCE MODE. The user has returned after a gap or asked for context. Briefly summarize where the workflow stands, identify the most important blockers or missing information, and offer 1–2 concrete next steps as choices. Do NOT make delegation calls unless the user gives a clear follow-up request.
+
+FORMAT: After your summary, include a [BUTTONS] block with 1–2 suggested next actions. Each line is "Label|message to send". Example:
+[BUTTONS]
+Add items to kitchen|Let's catalog what's in my kitchen
+Set my destination|I'm moving to 123 Main St, Austin TX
+[/BUTTONS]
+The buttons let the user tap to take action immediately. Keep labels short (2–5 words). The message should be a natural user request that will trigger the right delegation.`
+    : `You are in EXECUTION MODE. The user has a direct request. Fulfill it by delegating to the appropriate specialist. Include caveats if the current workflow state limits confidence, and optionally suggest one next step after completion.`;
+
+  systemInstruction += `\n\nINTERACTION MODE: ${interactionMode.toUpperCase()}\n${modeInstructions}`;
+  systemInstruction += `\n\nWORKFLOW STATE:\n${formatGuidanceForPrompt(workflowGuidance)}`;
+
+  // ── 7. Call Gemini ──────────────────────────────────────────────────────
   // Always use flash for the orchestrator loop — fast + reliable tool-calling.
   const modelId = 'gemini-2.5-flash';
   const model = geminiClient.getGenerativeModel({
@@ -346,8 +462,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
         [sessionId, reply]
       );
 
-      // Update session title if new
-      if (!session.title && message) {
+      // Update session title if new (skip for guidance-only requests)
+      if (!session.title && message && !guidanceOnly) {
         await db.none(
           `UPDATE nexus_sessions SET title = $1, updated_at = NOW() WHERE id = $2`,
           [message.substring(0, 100), sessionId]
