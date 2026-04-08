@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, watch } from "vue";
 import { useRouter } from "vue-router";
-import { inventoryStore } from "../../stores/InventoryStore"
+import { inventoryStore } from "../../stores/InventoryStore";
+import { logout as serverLogout } from "../../utils/auth";
 
 interface SavedMove {
   id: string | number;
@@ -68,16 +69,6 @@ watch(
   { immediate: true },
 );
 
-const isAdmin = computed(() => {
-  try {
-    const raw = localStorage.getItem('user_data');
-    const parsed = raw ? JSON.parse(raw) : null;
-    return !!parsed?.is_admin;
-  } catch {
-    return false;
-  }
-});
-
 const closeDrawer = () => {
   emit("update:modelValue", false);
 };
@@ -105,9 +96,8 @@ const goTo = (path: string) => {
   closeDrawer();
 };
 
-const logout = () => {
-  localStorage.removeItem("session_token");
-  localStorage.removeItem("user_data");
+const logout = async () => {
+  await serverLogout();
   router.push("/login");
   closeDrawer();
 };
@@ -124,7 +114,17 @@ const logout = () => {
     elevated
   >
     <q-list padding class="rounded-borders text-primary nav-list">
+      <q-item-label header>AI Assistant</q-item-label>
+
+      <q-item clickable v-ripple class="drawer-item" @click="goTo('/mobile/nexus')">
+        <q-item-section avatar>
+          <q-icon name="auto_awesome" />
+        </q-item-section>
+        <q-item-section>Nexus</q-item-section>
+      </q-item>
+
       <template v-if="showLocations">
+        <q-separator class="q-my-md" />
         <q-item-label header>Locations</q-item-label>
         <q-item
           v-for="location in locations"
@@ -176,23 +176,6 @@ const logout = () => {
           </q-item-section>
         </q-item>
       </template>
-
-      <q-separator class="q-my-md" />
-      <q-item-label header>AI Assistant</q-item-label>
-
-      <q-item clickable v-ripple class="drawer-item" @click="goTo('/mobile/nexus')">
-        <q-item-section avatar>
-          <q-icon name="auto_awesome" />
-        </q-item-section>
-        <q-item-section>Nexus</q-item-section>
-      </q-item>
-
-      <q-item v-if="isAdmin" clickable v-ripple class="drawer-item" @click="goTo('/mobile/census')">
-        <q-item-section avatar>
-          <q-icon name="inventory_2" />
-        </q-item-section>
-        <q-item-section>Census</q-item-section>
-      </q-item>
 
       <q-separator class="q-my-md" />
       <q-item-label header>Settings</q-item-label>

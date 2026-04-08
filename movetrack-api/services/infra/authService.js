@@ -510,8 +510,20 @@ async function getUserFromToken(sessionToken) {
             return null;
         }
 
-        // JWT is valid, now fetch user from database
-        // We trust the JWT since it's cryptographically signed
+        // Check that the session token hasn't been revoked (logout sets used_at)
+        const hashedToken = hashToken(sessionToken);
+        const tokenRecord = await db.oneOrNone(
+            `SELECT id FROM auth_tokens
+             WHERE token = $1 AND token_type = 'session'
+               AND used_at IS NULL AND expires_at > NOW()`,
+            [hashedToken]
+        );
+        if (!tokenRecord) {
+            console.log('[getUserFromToken] Session token revoked or expired in DB');
+            return null;
+        }
+
+        // JWT is valid and not revoked, fetch user from database
         const hasOnboarding = await hasOnboardingColumn();
         const onboardingSelect = hasOnboarding ? ', onboarding_completed' : ', NULL::boolean AS onboarding_completed';
 

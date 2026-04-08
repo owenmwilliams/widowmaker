@@ -85,9 +85,14 @@ router.get('/active-session', async (req, res) => {
     const messages = await sessions.getSessionMessages(session.id);
 
     // Compute staleness + workflow guidance for the frontend
+    // Check both last user message AND last model message to prevent runaway guidance.
+    // If guidance (model message) was sent recently, the session isn't stale.
     const lastUserMsg = messages.filter(m => m.role === 'user').pop();
+    const lastModelMsg = messages.filter(m => m.role === 'model').pop();
     const lastUserMessageAt = lastUserMsg ? new Date(lastUserMsg.created_at).getTime() : Date.now();
-    const stale = isConversationStale(lastUserMessageAt);
+    const lastModelMessageAt = lastModelMsg ? new Date(lastModelMsg.created_at).getTime() : 0;
+    const lastActivityAt = Math.max(lastUserMessageAt, lastModelMessageAt);
+    const stale = isConversationStale(lastActivityAt);
 
     const workflowGuidance = await buildWorkflowGuidanceContext(userId);
 

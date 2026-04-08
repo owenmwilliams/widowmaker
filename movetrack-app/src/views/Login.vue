@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import ReloPrepLogo from '../components/brand/ReloPrepLogo.vue';
 import { useQuasar } from 'quasar';
-import { hasCompletedOnboarding } from '../utils/onboarding';
+
 
 const route = useRoute();
 const router = useRouter();
@@ -86,6 +86,10 @@ const requestMagicLink = async () => {
     return;
   }
 
+  // Clear any existing session so the old user doesn't persist
+  localStorage.removeItem('session_token');
+  localStorage.removeItem('user_data');
+
   isSubmitting.value = true;
 
   try {
@@ -147,7 +151,9 @@ const verifyMagicLink = async (token: string) => {
         message: `Welcome back!`
       });
 
-      // Keep loading screen visible and redirect immediately
+      // Hide loading before redirect — target page handles its own loading state
+      isVerifying.value = false;
+      emits('app:loading', false);
       redirectAfterLogin(response.data.user);
     } else {
       // Only on error: show error and hide loading
@@ -177,9 +183,9 @@ const tryAgain = () => {
   email.value = '';
 };
 
-const redirectAfterLogin = (user: any) => {
-  const shouldOnboard = !hasCompletedOnboarding(user);
-  router.push(shouldOnboard ? '/onboarding' : '/items');
+const redirectAfterLogin = (_user: any) => {
+  const isMobile = window.innerWidth < 768 || screen.width < 768;
+  router.push(isMobile ? '/mobile/nexus' : '/nexus');
 };
 </script>
 

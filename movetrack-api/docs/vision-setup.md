@@ -1,6 +1,8 @@
 # Vision AI Setup Guide
 
-Nexus Moves supports three vision AI providers for analyzing item photos:
+> Written: 2025-11-09 | Status: **Current** | Multi-provider vision configuration
+
+Nexus Moves supports multiple vision AI providers for analyzing item photos:
 
 1. **Google Gemini 2.0 Flash** (Recommended for MVP)
 2. **Anthropic Claude 3.5 Sonnet**
@@ -68,25 +70,17 @@ npm start
 
 ### Authentication Required
 
-**IMPORTANT**: All vision features require user authentication. Users must be logged in to access vision AI capabilities.
-
-### In the Authenticated App
-
-1. **Log in** to your Nexus Moves account
-2. Navigate to the **Items** page (authenticated area)
-3. Open the **menu** (hamburger icon on mobile, profile icon on desktop)
-4. Select **"Vision AI Settings"**
-5. Choose your preferred provider (Gemini, Claude, or GPT-4)
-6. Click the **camera FAB button** (bottom-right) to photograph an item
-7. The selected provider will analyze the photo with AI
+All vision features require user authentication. Users must be logged in to access vision AI capabilities.
 
 ### API Endpoints
 
-**All endpoints require authentication** via `Authorization: Bearer <session_token>` header.
+All endpoints require authentication via `Authorization: Bearer <session_token>` header.
+
+Routes are mounted under `/api/vision/` (see `routes/api/vision/`).
 
 #### Analyze Item Photo
 ```bash
-POST /vision/analyze-item
+POST /api/vision/analyze-item
 Content-Type: multipart/form-data
 Authorization: Bearer <session_token>
 
@@ -96,90 +90,47 @@ Authorization: Bearer <session_token>
 
 #### Get Current Provider
 ```bash
-GET /vision/provider
+GET /api/vision/provider
 Authorization: Bearer <session_token>
-
-# Response:
-{
-  "current": "gemini",
-  "available": ["gemini", "claude", "gpt4"]
-}
 ```
 
 #### Set Provider
 ```bash
-POST /vision/provider
+POST /api/vision/provider
 Content-Type: application/json
 Authorization: Bearer <session_token>
 
-{
-  "provider": "claude"
-}
-
-# Response:
-{
-  "success": true,
-  "provider": "claude",
-  "available": ["gemini", "claude", "gpt4"]
-}
+{ "provider": "claude" }
 ```
 
 ## Cost Comparison
 
 | Provider | Free Tier | Cost per 1K Images | Speed | Accuracy |
 |----------|-----------|-------------------|-------|----------|
-| **Gemini 2.0 Flash** | Yes (1M tokens/day) | $0-3 | ⚡⚡⚡ | ⭐⭐⭐⭐ |
-| **Claude 3.5 Sonnet** | No | $5-15 | ⚡⚡ | ⭐⭐⭐⭐⭐ |
-| **GPT-4o** | No | $10-30 | ⚡⚡ | ⭐⭐⭐⭐⭐ |
+| Gemini 2.0 Flash | Yes (1M tokens/day) | $0-3 | Fast | High |
+| Claude 3.5 Sonnet | No | $5-15 | Medium | Highest |
+| GPT-4o | No | $10-30 | Medium | Highest |
 
 ## Recommended Setup
 
 ### For Development/Testing
-Use Gemini's free tier:
 ```bash
 VISION_PROVIDER=gemini
 GOOGLE_AI_API_KEY=your-key
 ```
 
 ### For Production (Low Volume)
-Use Gemini for cost savings:
 ```bash
 VISION_PROVIDER=gemini
 GOOGLE_AI_API_KEY=your-key
 ```
 
 ### For Production (High Accuracy)
-Use Claude for best results:
 ```bash
 VISION_PROVIDER=claude
 ANTHROPIC_API_KEY=your-key
-GOOGLE_AI_API_KEY=your-fallback-key  # Fallback option
+GOOGLE_AI_API_KEY=your-fallback-key
 ```
-
-### For Production (Enterprise)
-Configure all three and let users choose:
-```bash
-VISION_PROVIDER=gemini  # Default
-GOOGLE_AI_API_KEY=your-google-key
-ANTHROPIC_API_KEY=your-anthropic-key
-OPENAI_API_KEY=your-openai-key
-```
-
-## Troubleshooting
-
-### "No vision providers configured"
-- Make sure at least one API key is set in `.env`
-- Restart the API server after adding keys
-
-### "Failed to analyze image"
-- Check API key is valid
-- Ensure you have credits/quota remaining
-- Check console logs for specific error messages
-
-### "Provider not available"
-- The requested provider's API key is not configured
-- Check `.env` has the correct key for that provider
-- Restart server after adding new keys
 
 ## Response Format
 
@@ -194,11 +145,7 @@ All providers return data in this format:
     "name": "Ceramic Vase",
     "material": "ceramic",
     "color": "white",
-    "estimatedDimensions": {
-      "length": 8,
-      "width": 4,
-      "height": 4
-    },
+    "estimatedDimensions": { "length": 8, "width": 4, "height": 4 },
     "estimatedWeight": 1.5,
     "fragile": true,
     "tags": ["Fragile", "Ceramic", "Decorative"],
@@ -208,9 +155,10 @@ All providers return data in this format:
 }
 ```
 
-## Support
+## Troubleshooting
 
-For issues with:
-- **Gemini**: [Google AI Studio Support](https://ai.google.dev/docs)
-- **Claude**: [Anthropic Support](https://support.anthropic.com/)
-- **GPT-4**: [OpenAI Support](https://help.openai.com/)
+| Error | Fix |
+|-------|-----|
+| "No vision providers configured" | Set at least one API key in `.env`, restart server |
+| "Failed to analyze image" | Check API key validity and remaining quota |
+| "Provider not available" | The requested provider's API key is not configured |

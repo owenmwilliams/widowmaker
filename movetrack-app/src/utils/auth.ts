@@ -81,6 +81,24 @@ export async function validateSessionToken(): Promise<boolean> {
 }
 
 /**
+ * Logs out by revoking the session token on the server, then clearing local data.
+ */
+export async function logout(): Promise<void> {
+  const sessionToken = localStorage.getItem('session_token');
+  if (sessionToken) {
+    try {
+      await axios.post(`${core_url}/auth/logout`, {}, {
+        headers: { Authorization: `Bearer ${sessionToken}` },
+        timeout: 5000,
+      });
+    } catch {
+      // Server revocation is best-effort — still clear local data
+    }
+  }
+  clearAuthData();
+}
+
+/**
  * Clears all authentication data from localStorage
  */
 export function clearAuthData(): void {

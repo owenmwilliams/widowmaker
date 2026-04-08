@@ -55,6 +55,7 @@ export const nexusStore = defineStore("nexus", () => {
   const isUploading = ref(false);
   const quickStartChips = ref<QuickStartChip[]>([]);
   const statusText = ref("");
+  const guidanceRequestedThisSession = ref(false);
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,9 @@ export const nexusStore = defineStore("nexus", () => {
   }
 
   async function requestGuidance() {
+    if (guidanceRequestedThisSession.value) return;
+    guidanceRequestedThisSession.value = true;
+
     isLoading.value = true;
     statusText.value = "Catching up…";
 
@@ -333,6 +337,7 @@ export const nexusStore = defineStore("nexus", () => {
       session.value = null;
       sessionId.value = null;
       messages.value = [];
+      guidanceRequestedThisSession.value = false;
     } catch (err) {
       console.error("[NexusStore] clearConversation failed:", err);
     }

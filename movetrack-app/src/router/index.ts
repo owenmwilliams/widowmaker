@@ -102,15 +102,9 @@ const router = createRouter({
       beforeEnter: authGuard
     },
     {
-      path: "/mobile/census",
-      name: "mobile-census",
-      component: () => import('../views/MobileCensus.vue'),
-      beforeEnter: authGuard
-    },
-    {
-      path: "/mobile/vector",
-      name: "mobile-vector",
-      component: () => import('../views/MobileVector.vue'),
+      path: "/nexus",
+      name: "desktop-nexus",
+      component: () => import('../views/DesktopNexus.vue'),
       beforeEnter: authGuard
     },
     {
@@ -247,7 +241,7 @@ const router = createRouter({
 router.beforeEach(async (to, from, next) => {
   const sessionToken = localStorage.getItem('session_token');
   const isOnboardingRoute = to.path.startsWith('/onboarding');
-  const isNexusRoute = to.path === '/mobile/nexus' || to.path === '/mobile/census';
+  const isNexusRoute = to.path === '/mobile/nexus' || to.path === '/nexus';
   const isLoginRoute = to.path === '/login';
 
   console.log('[Router Guard] Navigation:', {
@@ -288,7 +282,8 @@ router.beforeEach(async (to, from, next) => {
 
   if (!completed && !isOnboardingRoute && !isNexusRoute) {
     console.log('[Router Guard] Onboarding not completed, redirecting to Nexus agent');
-    return next({ name: 'mobile-nexus' });
+    const isMobile = window.innerWidth < 768 || screen.width < 768;
+    return next(isMobile ? { name: 'mobile-nexus' } : { path: '/nexus' });
   }
 
   if (completed && to.name === 'onboarding-welcome' && from.name && !from.path.startsWith('/onboarding')) {

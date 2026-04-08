@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import { useQuasar } from 'quasar';
 import { marked } from 'marked';
 import { nexusStore, type NexusMessage, type NexusAction } from '../../stores/NexusStore';
@@ -8,7 +7,6 @@ import { hasCompletedOnboarding } from '../../utils/onboarding';
 
 const props = defineProps<{ user: string }>();
 
-const router = useRouter();
 const $q = useQuasar();
 const store = nexusStore();
 const inputText = ref('');
@@ -48,6 +46,14 @@ const send = async () => {
         : 'Failed to send message. Please try again.',
       position: 'bottom',
     });
+  }
+};
+
+// ── Keyboard handling: Enter to send, Shift+Enter for newline ────────────────
+const handleKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    send();
   }
 };
 
@@ -91,7 +97,6 @@ const removeAttachment = (idx: number) => {
 // ── Action display helpers (merged Census + Vector icons) ────────────────────
 const actionIcon = (tool: string): string => {
   switch (tool) {
-    // Census tools
     case 'add_item': return 'add_circle';
     case 'add_room': return 'meeting_room';
     case 'update_item': return 'edit';
@@ -103,7 +108,6 @@ const actionIcon = (tool: string): string => {
     case 'delete_item': return 'delete';
     case 'analyze_video': return 'videocam';
     case 'find_duplicates': return 'content_copy';
-    // Vector tools
     case 'get_move_summary': return 'summarize';
     case 'estimate_missing_items': return 'scale';
     case 'recommend_truck_size': return 'local_shipping';
@@ -112,7 +116,6 @@ const actionIcon = (tool: string): string => {
     case 'estimate_move_cost': return 'payments';
     case 'flag_special_items': return 'warning';
     case 'get_room_breakdown': return 'grid_view';
-    // Orchestrator tools
     case 'delegate_to_census': return 'inventory_2';
     case 'delegate_to_vector': return 'local_shipping';
     default: return 'build';
@@ -120,99 +123,193 @@ const actionIcon = (tool: string): string => {
 };
 
 const actionLabel = (action: NexusAction): string => {
-  // Census actions
   if (action.tool === 'add_item' && action.result?.success) {
     const qty = action.args.quantity && action.args.quantity > 1 ? `${action.args.quantity}x ` : '';
     return `${qty}${action.args.name}`;
   }
-  if (action.tool === 'add_room' && action.result?.success) {
-    return `Room: ${action.args.name}`;
-  }
-  if (action.tool === 'set_location' && action.result?.success) {
-    return `Location: ${action.args.name}`;
-  }
-  if (action.tool === 'update_item' && action.result?.success) {
-    return 'Updated item';
-  }
-  if (action.tool === 'delete_item' && action.result?.success) {
-    return `Removed: ${action.result.name || action.args.name || 'item'}`;
-  }
-  // Vector actions
-  if (action.tool === 'recommend_truck_size' && action.result?.recommendation?.size) {
-    return action.result.recommendation.size;
-  }
-  if (action.tool === 'calculate_route' && action.result?.distanceMiles) {
-    return `${action.result.distanceMiles} mi`;
-  }
-  if (action.tool === 'estimate_labor' && action.result?.totalLaborHours) {
-    return `${action.result.totalLaborHours}h labor`;
-  }
-  if (action.tool === 'estimate_missing_items' && action.result?.estimated) {
-    return `Estimated ${action.result.estimated} items`;
-  }
-  if (action.tool === 'flag_special_items' && action.result?.flaggedCount) {
-    return `${action.result.flaggedCount} flagged`;
-  }
-  // Orchestrator delegation — hide from user
-  if (action.tool === 'delegate_to_census' || action.tool === 'delegate_to_vector') {
-    return '';
-  }
+  if (action.tool === 'add_room' && action.result?.success) return `Room: ${action.args.name}`;
+  if (action.tool === 'set_location' && action.result?.success) return `Location: ${action.args.name}`;
+  if (action.tool === 'update_item' && action.result?.success) return 'Updated item';
+  if (action.tool === 'delete_item' && action.result?.success) return `Removed: ${action.result.name || action.args.name || 'item'}`;
+  if (action.tool === 'recommend_truck_size' && action.result?.recommendation?.size) return action.result.recommendation.size;
+  if (action.tool === 'calculate_route' && action.result?.distanceMiles) return `${action.result.distanceMiles} mi`;
+  if (action.tool === 'estimate_labor' && action.result?.totalLaborHours) return `${action.result.totalLaborHours}h labor`;
+  if (action.tool === 'estimate_missing_items' && action.result?.estimated) return `Estimated ${action.result.estimated} items`;
+  if (action.tool === 'flag_special_items' && action.result?.flaggedCount) return `${action.result.flaggedCount} flagged`;
+  if (action.tool === 'delegate_to_census' || action.tool === 'delegate_to_vector') return '';
   return action.tool.replace(/_/g, ' ');
 };
 
 const isActionChip = (action: NexusAction): boolean => {
-  // Hide orchestrator delegation tools from chips
   if (action.tool === 'delegate_to_census' || action.tool === 'delegate_to_vector') return false;
   if (action.tool === 'get_inventory_status' || action.tool === 'get_user_profile') return false;
   return !!action.result?.success;
 };
 
 // ── Inline buttons parsing ───────────────────────────────────────────────────
+type ButtonAction = 'send' | 'prefill' | 'camera';
+const VALID_ACTIONS = new Set<ButtonAction>(['send', 'prefill', 'camera']);
+
 interface InlineButton {
   label: string;
   message: string;
+  actions: ButtonAction[];
 }
 
+const parseActions = (raw: string | undefined): ButtonAction[] => {
+  if (!raw || !raw.trim()) return []; // empty = no explicit actions, will be inferred
+  const parsed = raw
+    .toLowerCase()
+    .split(/[,\s]+/)
+    .map(s => s.trim().replace(/[^a-z]/g, ''))
+    .filter((s): s is ButtonAction => VALID_ACTIONS.has(s as ButtonAction));
+  return parsed;
+};
+
+// Infer action from message content when model omits the action field
+const inferActions = (message: string): ButtonAction[] => {
+  const msg = message.toLowerCase();
+  // Messages about scanning/photos/camera → open camera
+  if (/\b(scan|photo|video|camera|snap|picture|image)\b/.test(msg)) return ['camera'];
+  // Messages ending with colon → prefill
+  if (message.trimEnd().endsWith(':')) return ['prefill'];
+  return ['send'];
+};
+
 const parseButtons = (content: string): InlineButton[] => {
-  const match = content.match(/\[BUTTONS\]([\s\S]*?)\[\/BUTTONS\]/);
-  if (!match) {
-    console.log('[NexusChat] parseButtons: no [BUTTONS] block found in content:', content.slice(-200));
-    return [];
-  }
-  const buttons = match[1]
+  // Tolerant regex: handles [BUTTONS], [Buttons], [buttons], extra whitespace
+  const match = content.match(/\[buttons\]([\s\S]*?)\[\/buttons\]/i);
+  if (!match) return [];
+  return match[1]
     .split('\n')
     .map(line => line.trim())
     .filter(line => line && line.includes('|'))
     .map(line => {
-      const [label, ...rest] = line.split('|');
-      return { label: label.trim(), message: rest.join('|').trim() };
-    });
-  console.log('[NexusChat] parseButtons: found', buttons.length, 'buttons:', buttons);
-  return buttons;
+      const parts = line.split('|');
+      const label = (parts[0] || '').trim();
+      // If model accidentally included extra pipes in message, rejoin middle parts
+      // Last part is actions ONLY if it looks like an action token (no spaces, short)
+      const lastPart = (parts[parts.length - 1] || '').trim();
+      const looksLikeActions = parts.length >= 3 && /^[a-z, ]+$/i.test(lastPart) && lastPart.length < 30;
+      const message = looksLikeActions
+        ? parts.slice(1, -1).join('|').trim()
+        : parts.slice(1).join('|').trim();
+      const explicit = looksLikeActions ? parseActions(lastPart) : [];
+      const actions = explicit.length > 0 ? explicit : inferActions(message);
+      return { label, message, actions };
+    })
+    .filter(btn => btn.label && btn.message);
 };
 
-const usedButtonMsgIds = ref<Set<number>>(new Set());
+// Buttons disable after the user's next message actually sends (not on click)
+const lastButtonClickMsgId = ref<number | null>(null);
+const disabledButtonMsgIds = ref<Set<number>>(new Set());
 
-const handleButtonClick = (msgId: number, message: string) => {
-  usedButtonMsgIds.value = new Set([...usedButtonMsgIds.value, msgId]);
-  inputText.value = message;
+// Watch for new user messages — when one appears, disable the buttons that were clicked
+watch(() => store.messages.length, () => {
+  if (lastButtonClickMsgId.value !== null) {
+    const lastMsg = store.messages[store.messages.length - 1];
+    if (lastMsg?.role === 'user') {
+      disabledButtonMsgIds.value = new Set([...disabledButtonMsgIds.value, lastButtonClickMsgId.value]);
+      lastButtonClickMsgId.value = null;
+    }
+  }
+});
+
+// Prefill modal state
+const prefillModal = ref(false);
+const prefillPrompt = ref('');
+const prefillUserInput = ref('');
+const prefillSourceMsgId = ref<number | null>(null);
+
+const submitPrefill = () => {
+  const full = prefillPrompt.value.trimEnd() + ' ' + prefillUserInput.value.trim();
+  prefillModal.value = false;
+  prefillUserInput.value = '';
+  inputText.value = full;
   send();
 };
 
+const cancelPrefill = () => {
+  prefillModal.value = false;
+  prefillUserInput.value = '';
+  prefillSourceMsgId.value = null;
+};
+
+const handleButtonClick = (msgId: number, btn: InlineButton) => {
+  const { message, actions } = btn;
+
+  const hasSend = actions.includes('send');
+  const hasPrefill = actions.includes('prefill');
+  const hasCamera = actions.includes('camera');
+
+  // Track which message's buttons should disable after send
+  if (msgId >= 0) lastButtonClickMsgId.value = msgId;
+
+  // Prefill → open modal for user to complete the message
+  if (hasPrefill) {
+    prefillPrompt.value = message.trimEnd();
+    prefillUserInput.value = '';
+    prefillSourceMsgId.value = msgId;
+    prefillModal.value = true;
+    return;
+  }
+
+  // Camera → pre-fill message + open picker, user sends manually
+  if (hasCamera) {
+    inputText.value = message.trimEnd();
+    nextTick(() => fileInput.value?.click());
+    return;
+  }
+
+  // Send → auto-send immediately
+  if (hasSend) {
+    inputText.value = message;
+    send();
+  }
+};
+
 // ── Message content rendering ────────────────────────────────────────────────
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-});
+marked.setOptions({ breaks: true, gfm: true });
 
 const renderMessageContent = (content: string): string => {
   let text = content.replace(/\[BUTTONS\][\s\S]*?\[\/BUTTONS\]/g, '').trim();
-  // Handle inline photo tags before markdown parsing
   text = text.replace(
     /\[IMG:(https?:\/\/[^\]]+)\]/g,
     '<img src="$1" class="msg-inline-photo" />'
   );
   return marked.parse(text) as string;
+};
+
+// ── Timestamp formatting ────────────────────────────────────────────────────
+const formatTime = (dateStr: string): string => {
+  try {
+    return new Date(dateStr).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+};
+
+// ── Welcome state ───────────────────────────────────────────────────────────
+const isOnboarded = hasCompletedOnboarding();
+
+const onboardingChips: { icon: string; label: string; message: string; actions?: ButtonAction[] }[] = [
+  { icon: 'waving_hand', label: "I'm planning a move", message: "I'm planning a move" },
+  { icon: 'home', label: "Help me get organized", message: "I want to catalog and organize my stuff" },
+  { icon: 'explore', label: "Just looking around", message: "I'm just exploring — show me what you can do" },
+];
+
+const returningCards: { icon: string; title: string; subtitle: string; message: string; actions?: ButtonAction[] }[] = [
+  { icon: 'photo_camera', title: 'Catalog a room', subtitle: 'Snap photos to add items', message: "Scanning my room", actions: ['camera'] },
+  { icon: 'local_shipping', title: 'Plan my move', subtitle: 'Estimate costs and timeline', message: 'Help me plan my move' },
+  { icon: 'search', title: 'Search inventory', subtitle: 'Find items across locations', message: 'Search my inventory' },
+  { icon: 'photo_library', title: 'Upload photos', subtitle: 'Bulk import from your gallery', message: 'I want to upload photos', actions: ['camera'] },
+];
+
+const handleCardClick = (card: { message: string; actions?: ButtonAction[] }) => {
+  const actions = card.actions || ['send'];
+  const btn: InlineButton = { label: '', message: card.message, actions };
+  handleButtonClick(-1, btn);
 };
 
 // ── Auto-resume on mount ─────────────────────────────────────────────────────
@@ -237,49 +334,54 @@ const confirmClear = () => {
 
 <template>
   <div class="nexus-chat">
-    <!-- Header -->
-    <div class="chat-header">
-      <div class="header-left">
-        <q-btn flat dense round icon="arrow_back" @click="router.back()" />
-        <q-icon name="auto_awesome" size="24px" color="primary" />
-        <span class="header-title">Nexus</span>
-      </div>
-      <div class="header-right">
-        <q-btn flat dense round icon="more_vert">
-          <q-menu>
-            <q-list style="min-width: 180px">
-              <q-item clickable v-close-popup @click="confirmClear">
-                <q-item-section avatar><q-icon name="refresh" /></q-item-section>
-                <q-item-section>Start fresh</q-item-section>
-              </q-item>
-            </q-list>
-          </q-menu>
-        </q-btn>
-      </div>
-    </div>
-
     <!-- Messages -->
     <div ref="messagesContainer" class="chat-messages">
       <!-- Welcome state -->
-      <div v-if="store.messages.length === 0 && !store.isLoading" class="welcome-state">
-        <q-icon name="auto_awesome" size="48px" color="primary" class="q-mb-md" />
-        <h3 class="welcome-title">Hi! I'm Nexus</h3>
-        <p class="welcome-sub">
-          I can help you catalog your belongings and plan your move.
-          Tell me what you have, snap a photo, or ask about your move!
-        </p>
-        <div class="quick-starts">
-          <q-chip
-            v-for="chip in store.quickStartChips"
-            :key="chip.label"
-            clickable outline color="primary"
-            @click="inputText = chip.message; send()"
-          >{{ chip.label }}</q-chip>
+      <!-- Welcome state: New user (not onboarded) -->
+      <div v-if="store.messages.length === 0 && !store.isLoading && !isOnboarded" class="welcome-state">
+        <div class="welcome-icon-wrap">
+          <q-icon name="auto_awesome" size="48px" color="cyan-4" />
         </div>
-        <p v-if="!hasCompletedOnboarding()" class="wizard-fallback">
-          Prefer a step-by-step setup?
-          <router-link :to="{ name: 'onboarding-profile' }">Use the wizard</router-link>
+        <h3 class="welcome-title">Welcome to Nexus</h3>
+        <p class="welcome-sub">
+          I'm your AI moving assistant. I'll help you catalog everything you own, plan your move, and keep track of it all. Let's start by getting to know you.
         </p>
+        <div class="onboarding-chips">
+          <div
+            v-for="chip in onboardingChips"
+            :key="chip.label"
+            class="onboarding-chip"
+            @click="handleCardClick(chip)"
+          >
+            <q-icon :name="chip.icon" size="20px" color="cyan-4" />
+            <span>{{ chip.label }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Welcome state: Returning user (onboarded) -->
+      <div v-if="store.messages.length === 0 && !store.isLoading && isOnboarded" class="welcome-state">
+        <div class="welcome-icon-wrap">
+          <q-icon name="auto_awesome" size="48px" color="cyan-4" />
+        </div>
+        <h3 class="welcome-title">How can I help with your move?</h3>
+        <p class="welcome-sub">
+          I can catalog your belongings, plan your move, and answer questions about your inventory.
+        </p>
+        <div class="suggestion-grid">
+          <div
+            v-for="card in returningCards"
+            :key="card.title"
+            class="suggestion-card"
+            @click="handleCardClick(card)"
+          >
+            <q-icon :name="card.icon" size="24px" color="cyan-4" />
+            <div class="suggestion-text">
+              <div class="suggestion-title">{{ card.title }}</div>
+              <div class="suggestion-subtitle">{{ card.subtitle }}</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Message list -->
@@ -288,58 +390,74 @@ const confirmClear = () => {
         :key="msg.id"
         :class="['message-row', msg.role]"
       >
-        <div :class="['message-bubble', msg.role]">
-          <!-- Photo attachments -->
-          <div v-if="msg.attachments && msg.attachments.length > 0" class="msg-attachments">
-            <img
-              v-for="(att, i) in msg.attachments"
-              :key="i"
-              :src="att.url"
-              class="msg-photo"
-              @error="($event.target as HTMLImageElement).style.display = 'none'"
-            />
+        <!-- Model avatar -->
+        <div v-if="msg.role === 'model'" class="model-avatar">
+          <q-icon name="auto_awesome" size="14px" />
+        </div>
+
+        <div class="message-content-wrap">
+          <div :class="['message-bubble', msg.role]">
+            <!-- Photo attachments -->
+            <div v-if="msg.attachments && msg.attachments.length > 0" class="msg-attachments">
+              <img
+                v-for="(att, i) in msg.attachments"
+                :key="i"
+                :src="att.url"
+                class="msg-photo"
+                @error="($event.target as HTMLImageElement).style.display = 'none'"
+              />
+            </div>
+
+            <!-- Text -->
+            <div v-if="msg.content && msg.role === 'model'"
+                 class="msg-text" v-html="renderMessageContent(msg.content)"></div>
+            <div v-else-if="msg.content" class="msg-text">{{ msg.content }}</div>
+
+            <!-- Action chips (on model messages) -->
+            <div v-if="msg.actions && msg.actions.filter(isActionChip).length > 0" class="msg-actions">
+              <q-chip
+                v-for="(action, i) in msg.actions.filter(isActionChip)"
+                :key="i"
+                :icon="actionIcon(action.tool)"
+                size="sm"
+                class="action-chip"
+                :class="{ 'action-chip--delete': action.tool === 'delete_item' }"
+              >{{ actionLabel(action) }}</q-chip>
+            </div>
+
+            <!-- Inline quick-reply buttons -->
+            <div v-if="msg.role === 'model' && parseButtons(msg.content).length > 0"
+                 class="msg-inline-buttons">
+              <q-btn
+                v-for="(btn, i) in parseButtons(msg.content)"
+                :key="i"
+                outline rounded no-caps
+                class="inline-btn"
+                :disable="store.isLoading || disabledButtonMsgIds.has(msg.id)"
+                @click="handleButtonClick(msg.id, btn)"
+              >{{ btn.label }}</q-btn>
+            </div>
           </div>
 
-          <!-- Text -->
-          <div v-if="msg.content && msg.role === 'model'"
-               class="msg-text" v-html="renderMessageContent(msg.content)"></div>
-          <div v-else-if="msg.content" class="msg-text">{{ msg.content }}</div>
-
-          <!-- Action chips (on model messages) -->
-          <div v-if="msg.actions && msg.actions.filter(isActionChip).length > 0" class="msg-actions">
-            <q-chip
-              v-for="(action, i) in msg.actions.filter(isActionChip)"
-              :key="i"
-              :icon="actionIcon(action.tool)"
-              size="sm"
-              :color="action.tool === 'delete_item' ? 'negative' : 'positive'"
-              text-color="white"
-              dense
-            >{{ actionLabel(action) }}</q-chip>
-          </div>
-
-          <!-- Inline quick-reply buttons -->
-          <div v-if="msg.role === 'model' && parseButtons(msg.content).length > 0"
-               class="msg-inline-buttons">
-            <q-btn
-              v-for="(btn, i) in parseButtons(msg.content)"
-              :key="i"
-              outline rounded no-caps
-              color="primary"
-              size="sm"
-              class="inline-btn"
-              :disable="store.isLoading || usedButtonMsgIds.has(msg.id)"
-              @click="handleButtonClick(msg.id, btn.message)"
-            >{{ btn.label }}</q-btn>
+          <!-- Timestamp -->
+          <div v-if="msg.created_at" :class="['msg-timestamp', msg.role]">
+            {{ formatTime(msg.created_at) }}
           </div>
         </div>
       </div>
 
       <!-- Typing / status indicator -->
       <div v-if="store.isLoading" class="message-row model">
-        <div class="message-bubble model typing">
-          <div class="status-indicator">
-            <q-spinner-dots size="18px" color="primary" />
+        <div class="model-avatar">
+          <q-icon name="auto_awesome" size="14px" />
+        </div>
+        <div class="message-content-wrap">
+          <div class="message-bubble model typing">
+            <div class="bounce-dots">
+              <span class="dot"></span>
+              <span class="dot"></span>
+              <span class="dot"></span>
+            </div>
             <span v-if="store.statusText" class="status-label">{{ store.statusText }}</span>
           </div>
         </div>
@@ -362,20 +480,40 @@ const confirmClear = () => {
 
     <!-- Input area -->
     <div class="chat-input-area">
-      <q-btn round flat icon="attach_file" color="grey-7"
-             @click="openPhotoUpload" :loading="store.isUploading" />
-      <q-input
-        v-model="inputText"
-        placeholder="Ask me anything about your move..."
-        outlined rounded dense
-        class="chat-text-input"
-        @keyup.enter="send"
-        :disable="store.isLoading"
-      />
-      <q-btn round color="primary" icon="send"
-             :loading="store.isLoading"
-             :disable="!inputText.trim() && pendingAttachments.length === 0"
-             @click="send" />
+      <div class="input-container">
+        <q-input
+          v-model="inputText"
+          placeholder="Ask me anything about your move..."
+          type="textarea"
+          autogrow
+          borderless
+          dense
+          class="chat-text-input"
+          input-class="chat-textarea"
+          @keydown="handleKeydown"
+          :disable="store.isLoading"
+        />
+        <div class="input-toolbar">
+          <div class="toolbar-left-btns">
+            <q-btn round flat dense icon="photo_camera" class="tool-btn"
+                   @click="openPhotoUpload" :loading="store.isUploading" />
+            <q-btn round flat dense icon="attach_file" class="tool-btn"
+                   @click="openPhotoUpload" />
+            <q-btn v-if="store.messages.length > 0" round flat dense icon="refresh" class="tool-btn"
+                   @click="confirmClear">
+              <q-tooltip>Start fresh</q-tooltip>
+            </q-btn>
+          </div>
+          <q-btn
+            round dense unelevated icon="arrow_upward"
+            class="send-btn"
+            :class="{ 'send-btn-visible': inputText.trim() || pendingAttachments.length > 0 }"
+            :loading="store.isLoading"
+            :disable="!inputText.trim() && pendingAttachments.length === 0"
+            @click="send"
+          />
+        </div>
+      </div>
     </div>
 
     <!-- Hidden file input -->
@@ -386,6 +524,39 @@ const confirmClear = () => {
       style="display: none"
       @change="handleFileSelected"
     />
+
+    <!-- Prefill modal -->
+    <q-dialog v-model="prefillModal" persistent>
+      <q-card class="prefill-card">
+        <q-card-section class="prefill-header">
+          <div class="prefill-title">Add your details</div>
+          <div class="prefill-subtitle">{{ prefillPrompt }}</div>
+        </q-card-section>
+        <q-card-section class="prefill-body">
+          <q-input
+            v-model="prefillUserInput"
+            type="textarea"
+            autogrow
+            autofocus
+            placeholder="Type here…"
+            class="prefill-input"
+            input-class="prefill-textarea"
+            borderless
+            @keydown.enter.exact.prevent="prefillUserInput.trim() && submitPrefill()"
+          />
+        </q-card-section>
+        <q-card-actions align="right" class="prefill-actions">
+          <q-btn flat no-caps label="Cancel" class="prefill-cancel" @click="cancelPrefill" />
+          <q-btn
+            unelevated no-caps
+            label="Send"
+            class="prefill-send"
+            :disable="!prefillUserInput.trim()"
+            @click="submitPrefill"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </div>
 </template>
 
@@ -395,43 +566,25 @@ const confirmClear = () => {
   flex-direction: column;
   height: 100%;
   max-height: 100dvh;
-  background: #f8f9fa;
+  background: #1e1e1e;
 }
 
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  background: white;
-  border-bottom: 1px solid #e0e0e0;
-  flex-shrink: 0;
-}
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.header-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: #1a1a1a;
-}
-.header-right {
-  display: flex;
-  gap: 4px;
-}
-
+/* ── Messages ────────────────────────────────────────────────────────────────── */
 .chat-messages {
   flex: 1;
   overflow-y: auto;
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.chat-messages::-webkit-scrollbar {
+  display: none;
 }
 
-/* Welcome state */
+/* ── Welcome state ───────────────────────────────────────────────────────────── */
 .welcome-state {
   display: flex;
   flex-direction: column;
@@ -441,37 +594,117 @@ const confirmClear = () => {
   padding: 40px 20px;
   flex: 1;
 }
+.welcome-icon-wrap {
+  margin-bottom: 16px;
+  filter: drop-shadow(0 0 12px rgba(28, 161, 193, 0.4));
+}
 .welcome-title {
   font-size: 22px;
   font-weight: 600;
   margin: 0 0 8px;
-  color: #1a1a1a;
+  color: #e0e0e0;
 }
 .welcome-sub {
   font-size: 14px;
-  color: #666;
+  color: #999;
   margin: 0 0 24px;
-  max-width: 300px;
+  max-width: 360px;
 }
+
+.suggestion-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-width: 400px;
+  width: 100%;
+  margin-bottom: 16px;
+}
+@media (max-width: 480px) {
+  .suggestion-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.suggestion-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.suggestion-card:hover {
+  border-color: #1CA1C1;
+  background: #303030;
+}
+.suggestion-text {
+  text-align: left;
+}
+.suggestion-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 2px;
+}
+.suggestion-subtitle {
+  font-size: 12px;
+  color: #888;
+}
+
 .quick-starts {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
 }
-.wizard-fallback {
-  font-size: 12px;
-  color: #999;
-  margin-top: 16px;
-  a {
-    color: #666;
-    text-decoration: underline;
-  }
+.quick-chip {
+  border: 0.5px solid rgba(160, 190, 180, 0.25);
+  background: rgba(40, 45, 50, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #d4d8dc;
+  padding: 5px 14px;
+  font-size: 13px;
+}
+.quick-chip:hover {
+  border-color: rgba(160, 190, 180, 0.45);
+  background: rgba(50, 55, 60, 0.65);
 }
 
-/* Messages */
+.onboarding-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 320px;
+  margin: 0 auto;
+}
+.onboarding-chip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  border-radius: 16px;
+  border: 0.5px solid rgba(160, 190, 180, 0.25);
+  background: rgba(40, 45, 50, 0.55);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #d4d8dc;
+  font-size: 15px;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.onboarding-chip:hover {
+  border-color: rgba(160, 190, 180, 0.45);
+  background: rgba(50, 55, 60, 0.65);
+}
+
+/* ── Messages ────────────────────────────────────────────────────────────────── */
 .message-row {
   display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 .message-row.user {
   justify-content: flex-end;
@@ -480,23 +713,83 @@ const confirmClear = () => {
   justify-content: flex-start;
 }
 
+.model-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #274690, #1ca1c1, #7dd3fc);
+  background-size: 240% 240%;
+  animation: avatarShimmer 3.5s ease-in-out infinite;
+  color: white;
+  margin-top: 2px;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+.model-avatar::after {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(6px 6px at 25% 35%, rgba(255, 215, 0, 0.5), transparent 60%),
+    radial-gradient(4px 4px at 65% 25%, rgba(255, 255, 255, 0.6), transparent 60%),
+    radial-gradient(3px 3px at 45% 70%, rgba(192, 192, 192, 0.4), transparent 60%);
+  opacity: 0.9;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  animation: avatarSparkle 4s linear infinite;
+}
+@keyframes avatarShimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+@keyframes avatarSparkle {
+  0% { transform: rotate(0deg); opacity: 0.7; }
+  50% { opacity: 1; }
+  100% { transform: rotate(360deg); opacity: 0.7; }
+}
+
+.message-content-wrap {
+  max-width: 85%;
+  display: flex;
+  flex-direction: column;
+}
+@media (min-width: 768px) {
+  .message-content-wrap {
+    max-width: 680px;
+  }
+}
+
 .message-bubble {
-  max-width: 80%;
-  padding: 10px 14px;
+  padding: 12px 16px;
   border-radius: 16px;
   word-wrap: break-word;
 }
 .message-bubble.user {
   white-space: pre-wrap;
-  background: #1976d2;
+  background: linear-gradient(135deg, #274690, #1CA1C1);
   color: white;
   border-bottom-right-radius: 4px;
 }
 .message-bubble.model {
-  background: white;
-  color: #1a1a1a;
+  background: #2a2a2a;
+  color: #e0e0e0;
+  border: 1px solid #3a3a3a;
   border-bottom-left-radius: 4px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+}
+
+.msg-timestamp {
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+  padding: 0 4px;
+}
+.msg-timestamp.user {
+  text-align: right;
 }
 
 .msg-text {
@@ -521,7 +814,7 @@ const confirmClear = () => {
   font-weight: 600;
 }
 .msg-text :deep(code) {
-  background: rgba(0,0,0,0.06);
+  background: rgba(255, 255, 255, 0.08);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 13px;
@@ -545,11 +838,11 @@ const confirmClear = () => {
 }
 .msg-text :deep(th),
 .msg-text :deep(td) {
-  border: 1px solid #ddd;
+  border: 1px solid #444;
   padding: 4px 8px;
 }
 .msg-text :deep(th) {
-  background: rgba(0,0,0,0.04);
+  background: rgba(255, 255, 255, 0.06);
   font-weight: 600;
 }
 
@@ -575,8 +868,28 @@ const confirmClear = () => {
 .msg-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
   margin-top: 8px;
+}
+.action-chip {
+  border: 0.5px solid rgba(160, 190, 180, 0.2) !important;
+  background: rgba(40, 45, 50, 0.5) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #b0b8bc !important;
+  padding: 5px 12px;
+  font-size: 12px;
+}
+.action-chip :deep(.q-icon) {
+  color: #8a9498 !important;
+  font-size: 14px !important;
+}
+.action-chip--delete {
+  border-color: rgba(200, 120, 120, 0.25) !important;
+  color: #c49a9a !important;
+}
+.action-chip--delete :deep(.q-icon) {
+  color: #c49a9a !important;
 }
 
 /* Inline quick-reply buttons */
@@ -588,35 +901,78 @@ const confirmClear = () => {
 }
 .inline-btn {
   font-size: 13px;
-  padding: 2px 12px;
+  padding: 6px 16px;
+  border: 0.5px solid rgba(255, 255, 255, 0.15) !important;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.03) 50%,
+    rgba(255, 255, 255, 0.06) 100%
+  ) !important;
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  color: #e4e8ec !important;
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12), 0 1px 3px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+}
+.inline-btn:hover {
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.05) 50%,
+    rgba(255, 255, 255, 0.09) 100%
+  ) !important;
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.18), 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
-/* Status indicator */
+/* ── Loading / Thinking ──────────────────────────────────────────────────────── */
 .message-bubble.typing {
-  padding: 10px 16px;
-}
-.status-indicator {
+  padding: 12px 16px;
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bounce-dots {
+  display: flex;
+  gap: 4px;
   align-items: center;
-  gap: 8px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1CA1C1;
+  animation: dotBounce 1.4s ease-in-out infinite;
+}
+.dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+@keyframes dotBounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-8px);
+    opacity: 1;
+  }
 }
 .status-label {
-  font-size: 13px;
-  color: #666;
-  animation: statusFade 1.5s ease-in-out infinite;
-}
-@keyframes statusFade {
-  0%, 100% { opacity: 0.6; }
-  50% { opacity: 1; }
+  font-size: 11px;
+  color: #999;
 }
 
-/* Attachment preview */
+/* ── Attachment preview ──────────────────────────────────────────────────────── */
 .attachment-preview {
   display: flex;
   gap: 8px;
   padding: 8px 16px;
-  background: white;
-  border-top: 1px solid #eee;
+  background: #2a2a2a;
+  border-top: 1px solid #3a3a3a;
   flex-shrink: 0;
 }
 .att-thumb-wrap {
@@ -638,22 +994,145 @@ const confirmClear = () => {
   position: absolute;
   top: -4px;
   right: -4px;
-  background: rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.6);
   color: white;
 }
 
-/* Input area */
+/* ── Input area ──────────────────────────────────────────────────────────────── */
 .chat-input-area {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   padding: 12px 16px;
-  background: white;
-  border-top: 1px solid #e0e0e0;
+  background: #1e1e1e;
   flex-shrink: 0;
   padding-bottom: max(12px, env(safe-area-inset-bottom));
 }
+
+.input-container {
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 24px;
+  padding: 8px 16px;
+  transition: border-color 0.2s ease;
+  max-width: 680px;
+  margin: 0 auto;
+}
+.input-container:focus-within {
+  border-color: #1CA1C1;
+}
+
 .chat-text-input {
-  flex: 1;
+  width: 100%;
+}
+.chat-text-input :deep(.q-field__control) {
+  padding: 0;
+}
+.chat-text-input :deep(.chat-textarea) {
+  color: #e0e0e0;
+  max-height: 150px;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.chat-text-input :deep(.q-field__native::placeholder) {
+  color: #666;
+}
+
+.input-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+.toolbar-left-btns {
+  display: flex;
+  gap: 4px;
+}
+.tool-btn {
+  color: #888;
+}
+.tool-btn:hover {
+  color: #e0e0e0;
+}
+
+/* ── Send button ───────────────────────────────────────────────────────────── */
+.send-btn {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  background: #3a3a3a;
+  color: #ccc;
+  opacity: 0;
+  transform: scale(0.8);
+  transition: opacity 0.2s ease, transform 0.2s ease, background 0.15s ease, color 0.15s ease;
+}
+.send-btn:hover {
+  background: #4a4a4a;
+  color: #e0e0e0;
+}
+.send-btn-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* ── Prefill modal ──────────────────────────────────────────────────────────── */
+.prefill-card {
+  background: #2a2a2a;
+  border: 1px solid #3a3a3a;
+  border-radius: 20px;
+  min-width: 340px;
+  max-width: 480px;
+  width: 90vw;
+}
+.prefill-header {
+  padding: 20px 24px 8px;
+}
+.prefill-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 6px;
+}
+.prefill-subtitle {
+  font-size: 14px;
+  color: #999;
+  line-height: 1.4;
+}
+.prefill-body {
+  padding: 4px 24px 8px;
+}
+.prefill-input {
+  background: #1e1e1e;
+  border: 1px solid #3a3a3a;
+  border-radius: 12px;
+  padding: 4px 12px;
+}
+.prefill-input .prefill-textarea {
+  color: #e0e0e0 !important;
+  min-height: 60px;
+  max-height: 150px;
+  font-size: 15px;
+}
+.prefill-input :deep(.q-field__control) {
+  color: #e0e0e0;
+}
+.prefill-input :deep(.q-placeholder) {
+  color: #666 !important;
+}
+.prefill-actions {
+  padding: 8px 20px 16px;
+}
+.prefill-cancel {
+  color: #999;
+  font-size: 14px;
+}
+.prefill-send {
+  background: linear-gradient(135deg, #274690, #1CA1C1);
+  color: #fff;
+  border-radius: 10px;
+  padding: 4px 20px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.prefill-send[disabled] {
+  opacity: 0.4;
 }
 </style>

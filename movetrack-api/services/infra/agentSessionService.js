@@ -225,15 +225,14 @@ async function getQuickStartChips(userId) {
     candidates.push({ label: "Let's go room by room", message: "Let's go room by room and catalog everything", priority: 90 });
   }
 
-  if (emptyRooms.length > 0 && totalItems < 10) {
-    const room = emptyRooms[0].name;
-    candidates.push({ label: `Let's catalog the ${room}`, message: `Let's catalog the ${room}`, priority: 80 });
-  }
   if (collections.length > 0 && totalItems < 10) {
-    candidates.push({ label: 'Scan a room with my camera', message: 'I want to scan a room with a photo or video', priority: 80 });
+    const room = emptyRooms.length > 0 ? emptyRooms[0].name : collections[0].name;
+    candidates.push({ label: `📸 Scan my ${room}`, message: `I want to scan my ${room} with a photo or video`, priority: 82 });
+    candidates.push({ label: `✏️ Type my items`, message: `I'll list my ${room} items by text`, priority: 81 });
+    candidates.push({ label: `🪄 Fill it in for me`, message: `Auto-generate typical items for my ${room}`, priority: 80 });
   }
   if (collections.length < 3 || !hasKitchen || !hasLivingRoom) {
-    candidates.push({ label: 'What rooms should I add?', message: 'What rooms am I missing?', priority: 80 });
+    candidates.push({ label: 'What rooms should I add?', message: 'What rooms am I missing?', priority: 75 });
   }
 
   if (emptyRooms.length > 0 && totalItems >= 10) {
