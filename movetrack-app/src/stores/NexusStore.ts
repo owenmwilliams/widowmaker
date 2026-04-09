@@ -1,6 +1,6 @@
 import axios from "axios";
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { ref, computed } from "vue";
 import { inventoryStore } from "./InventoryStore";
 
 export interface NexusAction {
@@ -9,12 +9,23 @@ export interface NexusAction {
   result?: Record<string, any>;
 }
 
+export interface ActivityStep {
+  tool: string;
+  label: string;
+  detail: string;
+  source: string; // 'orchestrator' | 'census' | 'vector'
+  status: "running" | "done" | "failed";
+  resultSummary?: Record<string, any>;
+  timestamp: number;
+}
+
 export interface NexusMessage {
   id: number;
   role: "user" | "model";
   content: string;
   attachments?: { url: string; mimeType: string }[];
   actions?: NexusAction[];
+  activitySteps?: ActivityStep[];
   created_at: string;
 }
 
@@ -54,8 +65,148 @@ export const nexusStore = defineStore("nexus", () => {
   const isLoading = ref(false);
   const isUploading = ref(false);
   const quickStartChips = ref<QuickStartChip[]>([]);
-  const statusText = ref("");
   const guidanceRequestedThisSession = ref(false);
+
+  // Phase-aware status (replaces old single statusText)
+  const phaseText = ref("");
+  const detailText = ref("");
+  const activitySteps = ref<ActivityStep[]>([]);
+
+  // Backward-compatible alias
+  const statusText = computed(() => phaseText.value);
+
+  // ── Detail Queue (minimum display time) ─────────────────────────────────
+
+  const DETAIL_MIN_MS = 800;
+  const _detailQueue: string[] = [];
+  let _detailTimer: ReturnType<typeof setTimeout> | null = null;
+  let _detailShownAt = 0;
+
+  function pushDetail(text: string) {
+    if (!text) return;
+    const now = Date.now();
+    const elapsed = now - _detailShownAt;
+
+    if (elapsed >= DETAIL_MIN_MS || !detailText.value) {
+      detailText.value = text;
+      _detailShownAt = now;
+    } else {
+      _detailQueue.push(text);
+      if (!_detailTimer) {
+        _detailTimer = setTimeout(drainDetailQueue, DETAIL_MIN_MS - elapsed);
+      }
+    }
+  }
+
+  function drainDetailQueue() {
+    _detailTimer = null;
+    if (_detailQueue.length > 0) {
+      detailText.value = _detailQueue.shift()!;
+      _detailShownAt = Date.now();
+      if (_detailQueue.length > 0) {
+        _detailTimer = setTimeout(drainDetailQueue, DETAIL_MIN_MS);
+      }
+    }
+  }
+
+  function resetStatus() {
+    phaseText.value = "";
+    detailText.value = "";
+    activitySteps.value = [];
+    _detailQueue.length = 0;
+    if (_detailTimer) {
+      clearTimeout(_detailTimer);
+      _detailTimer = null;
+    }
+  }
+
+  // ── SSE Event Handler ───────────────────────────────────────────────────
+
+  function handleSSEEvent(event: any, defaultPhase: string) {
+    switch (event.type) {
+      case "thinking": {
+        const phase = event.phase || "initial";
+        if (phase === "finalizing") {
+          phaseText.value = "Putting it together\u2026";
+        } else if (!phaseText.value || phase === "initial") {
+          phaseText.value = defaultPhase;
+        }
+        // Don't reset phaseText mid-delegation — this prevents flashing
+        break;
+      }
+      case "tool_call": {
+        // Update phase line only for orchestrator-level delegation events
+        if (event.source === "orchestrator" && event.phase === "delegation") {
+          const target = event.delegationTarget;
+          if (target === "census" && event.hasAttachments) {
+            phaseText.value = "Scanning your photo\u2026";
+          } else if (target === "census") {
+            phaseText.value = "Working on your inventory\u2026";
+          } else if (target === "vector") {
+            phaseText.value = "Planning your move\u2026";
+          } else {
+            phaseText.value = event.label || "Working\u2026";
+          }
+        } else if (event.source === "orchestrator") {
+          // Non-delegation orchestrator tool (set_location, etc.)
+          phaseText.value = event.label || "Working\u2026";
+        }
+
+        // Update detail line for specialist tool calls (not orchestrator-level)
+        if (event.source !== "orchestrator") {
+          const detailStr = event.detail
+            ? `${event.label}: ${event.detail}`
+            : event.label || event.tool;
+          pushDetail(detailStr);
+        }
+
+        // Backward compat: if no source field, update phase directly
+        if (!event.source) {
+          phaseText.value = event.label || event.tool || "Working\u2026";
+        }
+
+        // Add to activity log
+        activitySteps.value.push({
+          tool: event.tool,
+          label: event.label || event.tool.replace(/_/g, " "),
+          detail: event.detail || "",
+          source: event.source || "unknown",
+          status: "running",
+          timestamp: Date.now(),
+        });
+        break;
+      }
+      case "tool_result": {
+        // Mark the matching step as done/failed
+        const step = [...activitySteps.value]
+          .reverse()
+          .find((s) => s.tool === event.tool && s.status === "running");
+        if (step) {
+          step.status = event.success ? "done" : "failed";
+          if (event.resultSummary) step.resultSummary = event.resultSummary;
+        }
+
+        // Surface interesting result info in the detail line
+        if (event.resultSummary?.itemCount) {
+          pushDetail(`Found ${event.resultSummary.itemCount} items`);
+        }
+        break;
+      }
+      case "partial_reply": {
+        const partialMsg: NexusMessage = {
+          id: Date.now(),
+          role: "model",
+          content: event.text,
+          actions: [],
+          created_at: new Date().toISOString(),
+        };
+        messages.value.push(partialMsg);
+        break;
+      }
+      case "error":
+        throw new Error(event.error);
+    }
+  }
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
@@ -94,7 +245,7 @@ export const nexusStore = defineStore("nexus", () => {
     guidanceRequestedThisSession.value = true;
 
     isLoading.value = true;
-    statusText.value = "Catching up…";
+    phaseText.value = "Catching up\u2026";
 
     try {
       const headers = getHeaders();
@@ -130,18 +281,10 @@ export const nexusStore = defineStore("nexus", () => {
           if (!line.startsWith("data: ")) continue;
           try {
             const event = JSON.parse(line.slice(6));
-            switch (event.type) {
-              case "thinking":
-                statusText.value = "Catching up…";
-                break;
-              case "tool_call":
-                statusText.value = event.label || event.tool || "Working…";
-                break;
-              case "done":
-                result = event;
-                break;
-              case "error":
-                throw new Error(event.error);
+            if (event.type === "done") {
+              result = event;
+            } else {
+              handleSSEEvent(event, "Catching up\u2026");
             }
           } catch (parseErr: any) {
             if (parseErr.message && !parseErr.message.includes("JSON"))
@@ -154,14 +297,14 @@ export const nexusStore = defineStore("nexus", () => {
 
       sessionId.value = result.sessionId;
 
-      console.log('[NexusStore] guidance result.reply:', result.reply);
-      console.log('[NexusStore] guidance has [BUTTONS]:', result.reply?.includes('[BUTTONS]'));
-
       const modelMsg: NexusMessage = {
         id: Date.now(),
         role: "model",
         content: result.reply,
         actions: result.actions || [],
+        activitySteps: activitySteps.value.length >= 2
+          ? [...activitySteps.value]
+          : undefined,
         created_at: new Date().toISOString(),
       };
       messages.value.push(modelMsg);
@@ -173,7 +316,7 @@ export const nexusStore = defineStore("nexus", () => {
       console.error("[NexusStore] requestGuidance failed:", err);
     } finally {
       isLoading.value = false;
-      statusText.value = "";
+      resetStatus();
     }
   }
 
@@ -191,7 +334,7 @@ export const nexusStore = defineStore("nexus", () => {
     };
     messages.value.push(userMsg);
     isLoading.value = true;
-    statusText.value = "Thinking…";
+    phaseText.value = "Thinking\u2026";
 
     try {
       const headers = getHeaders();
@@ -232,32 +375,10 @@ export const nexusStore = defineStore("nexus", () => {
           if (!line.startsWith("data: ")) continue;
           try {
             const event = JSON.parse(line.slice(6));
-            switch (event.type) {
-              case "thinking":
-                statusText.value = "Thinking…";
-                break;
-              case "tool_call":
-                statusText.value = event.label || event.tool || "Working…";
-                break;
-              case "partial_reply": {
-                // Intermediate text from the agent while it keeps working
-                const partialMsg: NexusMessage = {
-                  id: Date.now(),
-                  role: "model",
-                  content: event.text,
-                  actions: [],
-                  created_at: new Date().toISOString(),
-                };
-                messages.value.push(partialMsg);
-                break;
-              }
-              case "tool_result":
-                break;
-              case "done":
-                result = event;
-                break;
-              case "error":
-                throw new Error(event.error);
+            if (event.type === "done") {
+              result = event;
+            } else {
+              handleSSEEvent(event, "Thinking\u2026");
             }
           } catch (parseErr: any) {
             if (parseErr.message && !parseErr.message.includes("JSON"))
@@ -275,6 +396,9 @@ export const nexusStore = defineStore("nexus", () => {
         role: "model",
         content: result.reply,
         actions: result.actions || [],
+        activitySteps: activitySteps.value.length >= 2
+          ? [...activitySteps.value]
+          : undefined,
         created_at: new Date().toISOString(),
       };
       messages.value.push(modelMsg);
@@ -299,7 +423,7 @@ export const nexusStore = defineStore("nexus", () => {
       throw err;
     } finally {
       isLoading.value = false;
-      statusText.value = "";
+      resetStatus();
     }
   }
 
@@ -351,6 +475,9 @@ export const nexusStore = defineStore("nexus", () => {
     isUploading,
     quickStartChips,
     statusText,
+    phaseText,
+    detailText,
+    activitySteps,
     sendMessage,
     uploadPhoto,
     loadActiveSession,

@@ -2,7 +2,7 @@
 import { ref, nextTick, watch, onMounted } from 'vue';
 import { useQuasar } from 'quasar';
 import { marked } from 'marked';
-import { nexusStore, type NexusMessage, type NexusAction } from '../../stores/NexusStore';
+import { nexusStore, type NexusMessage, type NexusAction, type ActivityStep } from '../../stores/NexusStore';
 import { hasCompletedOnboarding } from '../../utils/onboarding';
 
 const props = defineProps<{ user: string }>();
@@ -144,6 +144,23 @@ const isActionChip = (action: NexusAction): boolean => {
   if (action.tool === 'delegate_to_census' || action.tool === 'delegate_to_vector') return false;
   if (action.tool === 'get_inventory_status' || action.tool === 'get_user_profile') return false;
   return !!action.result?.success;
+};
+
+// ── Activity log helpers ─────────────────────────────────────────────────────
+const activityStepLabel = (step: ActivityStep): string => {
+  if (step.detail) return `${step.label}: ${step.detail}`;
+  return step.label;
+};
+
+const expandedActivityLogs = ref<Set<number>>(new Set());
+const liveActivityExpanded = ref(false);
+
+const toggleActivityLog = (msgId: number) => {
+  if (expandedActivityLogs.value.has(msgId)) {
+    expandedActivityLogs.value.delete(msgId);
+  } else {
+    expandedActivityLogs.value.add(msgId);
+  }
 };
 
 // ── Inline buttons parsing ───────────────────────────────────────────────────
@@ -425,6 +442,25 @@ const confirmClear = () => {
               >{{ actionLabel(action) }}</q-chip>
             </div>
 
+            <!-- Activity log (on completed model messages) -->
+            <div v-if="msg.activitySteps && msg.activitySteps.length >= 2"
+                 class="activity-log-section">
+              <div class="activity-log-toggle"
+                   @click="toggleActivityLog(msg.id)">
+                <span class="activity-arrow">{{ expandedActivityLogs.has(msg.id) ? '&#9662;' : '&#9656;' }}</span>
+                {{ msg.activitySteps.length }} steps
+              </div>
+              <div v-if="expandedActivityLogs.has(msg.id)" class="activity-log">
+                <div v-for="(step, i) in msg.activitySteps" :key="i" class="activity-step">
+                  <q-icon :name="actionIcon(step.tool)" size="12px"
+                          :class="{ 'step-done': step.status === 'done', 'step-failed': step.status === 'failed' }" />
+                  <span class="step-label">{{ activityStepLabel(step) }}</span>
+                  <q-icon v-if="step.status === 'done'" name="check_circle" size="12px" class="step-check" />
+                  <q-icon v-else name="error" size="12px" class="step-error" />
+                </div>
+              </div>
+            </div>
+
             <!-- Inline quick-reply buttons -->
             <div v-if="msg.role === 'model' && parseButtons(msg.content).length > 0"
                  class="msg-inline-buttons">
@@ -458,7 +494,28 @@ const confirmClear = () => {
               <span class="dot"></span>
               <span class="dot"></span>
             </div>
-            <span v-if="store.statusText" class="status-label">{{ store.statusText }}</span>
+            <!-- Two-tier status -->
+            <div v-if="store.phaseText" class="status-phase">{{ store.phaseText }}</div>
+            <div v-if="store.detailText" class="status-detail" :key="store.detailText">
+              {{ store.detailText }}
+            </div>
+            <!-- Live activity log (collapsed) -->
+            <div v-if="store.activitySteps.filter(s => s.status !== 'running').length >= 2"
+                 class="activity-log-toggle"
+                 @click="liveActivityExpanded = !liveActivityExpanded">
+              <span class="activity-arrow">{{ liveActivityExpanded ? '&#9662;' : '&#9656;' }}</span>
+              {{ store.activitySteps.filter(s => s.status === 'done').length }} steps completed
+            </div>
+            <div v-if="liveActivityExpanded && store.activitySteps.length >= 2" class="activity-log">
+              <div v-for="(step, i) in store.activitySteps" :key="i" class="activity-step">
+                <q-icon :name="actionIcon(step.tool)" size="12px"
+                        :class="{ 'step-done': step.status === 'done', 'step-running': step.status === 'running', 'step-failed': step.status === 'failed' }" />
+                <span class="step-label">{{ activityStepLabel(step) }}</span>
+                <q-icon v-if="step.status === 'done'" name="check_circle" size="12px" class="step-check" />
+                <q-icon v-else-if="step.status === 'running'" name="pending" size="12px" class="step-spinner" />
+                <q-icon v-else name="error" size="12px" class="step-error" />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -961,9 +1018,90 @@ const confirmClear = () => {
     opacity: 1;
   }
 }
-.status-label {
+/* ── Phase-aware status ──────────────────────────────────────────────── */
+.status-phase {
+  font-size: 12px;
+  color: #b0b8bc;
+  font-weight: 500;
+}
+.status-detail {
   font-size: 11px;
+  color: #777;
+  animation: detailFadeIn 0.3s ease;
+}
+@keyframes detailFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Activity log ────────────────────────────────────────────────────── */
+.activity-log-section {
+  margin-top: 6px;
+}
+.activity-log-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+}
+.activity-log-toggle:hover {
   color: #999;
+}
+.activity-arrow {
+  font-size: 10px;
+  width: 12px;
+  text-align: center;
+}
+.activity-log {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px 0 2px 4px;
+  border-left: 1px solid #3a3a3a;
+  margin-left: 5px;
+  animation: logSlideDown 0.2s ease;
+}
+@keyframes logSlideDown {
+  from { opacity: 0; max-height: 0; }
+  to   { opacity: 1; max-height: 500px; }
+}
+.activity-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #888;
+}
+.step-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-done {
+  color: #666;
+}
+.step-running {
+  color: #1CA1C1;
+  animation: stepPulse 1.2s ease-in-out infinite;
+}
+@keyframes stepPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+.step-check {
+  color: #4caf50;
+}
+.step-spinner {
+  color: #1CA1C1;
+  animation: stepPulse 1.2s ease-in-out infinite;
+}
+.step-error {
+  color: #e57373;
 }
 
 /* ── Attachment preview ──────────────────────────────────────────────────────── */

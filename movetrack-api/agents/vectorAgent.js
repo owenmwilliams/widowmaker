@@ -396,7 +396,14 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       console.log(`[vector] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
 
       const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
-      emit('tool_call', { tool: name, label: toolLabel });
+      let detail = '';
+      if (name === 'calculate_route') {
+        detail = args.origin_text && args.destination_text
+          ? `${args.origin_text} → ${args.destination_text}` : '';
+      } else if (name === 'estimate_labor' && args.num_movers) {
+        detail = `${args.num_movers} movers`;
+      }
+      emit('tool_call', { tool: name, label: toolLabel, detail });
 
       let toolResult;
       try {

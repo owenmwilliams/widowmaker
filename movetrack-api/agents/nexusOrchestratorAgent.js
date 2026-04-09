@@ -452,7 +452,7 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
   let delegationCount = 0;
   let maxToolRounds = 4; // Orchestrator usually only needs 1-2 rounds
 
-  emit('thinking');
+  emit('thinking', { phase: 'initial', source: 'orchestrator' });
   let result = await model.generateContent({ contents });
 
   while (maxToolRounds > 0) {
@@ -502,7 +502,13 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
       console.log(`[orchestrator] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
 
       const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
-      emit('tool_call', { tool: name, label: toolLabel });
+      const isDelegation = (name === 'delegate_to_census' || name === 'delegate_to_vector');
+      emit('tool_call', {
+        tool: name, label: toolLabel, source: 'orchestrator',
+        phase: isDelegation ? 'delegation' : 'orchestrator',
+        delegationTarget: isDelegation ? (name === 'delegate_to_census' ? 'census' : 'vector') : undefined,
+        hasAttachments: isDelegation ? !!(args.include_attachments) : undefined,
+      });
 
       let toolResult;
       try {
@@ -516,9 +522,6 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
         console.error(`[orchestrator] Tool ${name} failed:`, err.message);
         toolResult = { success: false, error: err.message };
       }
-
-      // For delegation tools, run the orchestrator decision engine
-      const isDelegation = (name === 'delegate_to_census' || name === 'delegate_to_vector');
       if (isDelegation && toolResult.actions) {
         actions.push(...toolResult.actions);
         delegationCount++;
@@ -610,7 +613,7 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
     contents.push({ role: 'model', parts: functionCalls.map(p => ({ functionCall: p.functionCall })) });
     contents.push({ role: 'user', parts: toolResponses });
 
-    emit('thinking');
+    emit('thinking', { phase: 'finalizing', source: 'orchestrator' });
     result = await model.generateContent({ contents });
     maxToolRounds--;
   }

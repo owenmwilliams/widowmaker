@@ -651,7 +651,22 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       console.log(`[census] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
 
       const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
-      const detail = args.name || args.room_name || args.item_name || '';
+      let detail = '';
+      if (name === 'add_item' && args.name) {
+        detail = args.room_name ? `${args.name} → ${args.room_name}` : args.name;
+      } else if (name === 'add_room') {
+        detail = args.name || '';
+      } else if (name === 'analyze_photo') {
+        detail = args.room_hint ? `Scanning ${args.room_hint}` : '';
+      } else if (name === 'analyze_video') {
+        detail = args.room_hint ? `Scanning ${args.room_hint} video` : '';
+      } else if (name === 'search_items') {
+        detail = args.search || args.room_name || '';
+      } else if (name === 'delete_item') {
+        detail = args.name || '';
+      } else {
+        detail = args.name || args.room_name || args.item_name || '';
+      }
       emit('tool_call', { tool: name, label: toolLabel, detail });
 
       let toolResult;
@@ -682,7 +697,15 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
       actions.push({ tool: name, args, result: toolResult });
 
-      emit('tool_result', { tool: name, success: !!toolResult.success });
+      const resultSummary = {};
+      if (name === 'add_item' && toolResult.success) {
+        resultSummary.itemName = toolResult.name || args.name;
+        resultSummary.room = toolResult.room || args.room_name;
+      }
+      if ((name === 'analyze_photo' || name === 'analyze_video') && toolResult.items) {
+        resultSummary.itemCount = toolResult.items.length;
+      }
+      emit('tool_result', { tool: name, success: !!toolResult.success, resultSummary });
 
       // Persist tool call and result
       await db.none(
