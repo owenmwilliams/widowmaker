@@ -14,6 +14,7 @@
   import PhotoCapture from '../../capture/PhotoCapture.vue';
   import VideoInventoryScan from '../../capture/VideoInventoryScan.vue';
   import VisionProviderToggle from '../../capture/VisionProviderToggle.vue';
+  import ReloPrepLogo from '../../brand/ReloPrepLogo.vue';
   import { storeToRefs } from 'pinia';
   import axios from 'axios';
   import { useQuasar } from 'quasar';
@@ -243,10 +244,11 @@
         <q-toolbar>
           <div class="toolbar-left">
             <div class="nexus-logo-btn" @click="router.push('/nexus')">
-              <div class="nexus-logo-icon">
-                <q-icon name="auto_awesome" size="20px" color="white" />
-              </div>
-              <span class="nexus-logo-text">Nexus</span>
+              <ReloPrepLogo
+                :width="120"
+                :height="28"
+                logo-src="https://storage.googleapis.com/widowmaker-site-images/wordlogo_dark.png"
+              />
             </div>
             <q-btn-group flat class="primary-nav">
               <q-btn
@@ -563,7 +565,6 @@
 .nexus-logo-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 8px;
@@ -571,28 +572,6 @@
 }
 .nexus-logo-btn:hover {
   background: rgba(39, 70, 144, 0.08);
-}
-.nexus-logo-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #274690, #1ca1c1, #7dd3fc);
-  background-size: 240% 240%;
-  animation: logoShimmer 2.8s ease-in-out infinite;
-}
-.nexus-logo-text {
-  font-size: 16px;
-  font-weight: 700;
-  color: #274690;
-  letter-spacing: 0.02em;
-}
-@keyframes logoShimmer {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
 }
 
 .primary-nav {

@@ -6,7 +6,7 @@ const db = conn.db;
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const { buildToolHandlers } = require('../services/workflow/agentDelegationService');
-const { getAllowedDecisions, POLICY_DEFAULTS, buildDecisionPrompt, parseDecisionResponse, validateDecision } = require('./schemas/orchestratorPolicy');
+const { getAllowedDecisions, AGENT_LIMITS, buildDecisionPrompt, parseDecisionResponse, validateDecision } = require('./schemas/orchestratorPolicy');
 const { isConversationStale, explicitlyRequestsContext, chooseInteractionMode, buildIntentDetectionPrompt, parseIntentDetectionResponse } = require('./schemas/orchestratorModes');
 const { buildWorkflowGuidanceContext, formatGuidanceForPrompt } = require('./schemas/workflowGuidance');
 
@@ -22,6 +22,33 @@ const GEMINI_MODELS = {
   basic: 'gemini-2.5-flash',
   pro: 'gemini-2.5-pro',
 };
+
+// ── Concurrency Utility ──────────────────────────────────────────────────────────
+
+async function runWithConcurrencyLimit(items, maxConcurrency, worker) {
+  const results = [];
+  const queue = [...items];
+  const running = [];
+
+  async function runOne(item) {
+    const result = await worker(item);
+    results.push(result);
+  }
+
+  while (queue.length > 0 || running.length > 0) {
+    while (queue.length > 0 && running.length < maxConcurrency) {
+      const item = queue.shift();
+      const p = runOne(item).finally(() => {
+        const idx = running.indexOf(p);
+        if (idx >= 0) running.splice(idx, 1);
+      });
+      running.push(p);
+    }
+    if (running.length > 0) await Promise.race(running);
+  }
+
+  return results;
+}
 
 // ── System Prompt ───────────────────────────────────────────────────────────────
 
@@ -39,12 +66,24 @@ ROUTING RULES:
 5. For greetings, general questions, "what can you do", or meta-questions → respond directly (no tool call)
 6. If unclear whether it's inventory or logistics, ask a clarifying question
 7. NEVER try to modify inventory yourself — always delegate to Census
-7. After a Census delegation that adds items, you might suggest the user try Vector for move analysis
-8. MESSAGE PASSING — each agent maintains its own conversation history, so preserve detail:
+8. After a Census delegation that adds items, you might suggest the user try Vector for move analysis
+9. MESSAGE PASSING — each agent maintains its own conversation history, so preserve detail:
    a. For single-agent messages (one clear delegation): pass the user's message verbatim. Do NOT rephrase or summarize.
    b. For continuation turns (user confirming items, answering an agent's question): pass the user's exact response to the same agent.
    c. For compound messages that need multiple agents (e.g., "add my couch and estimate truck size"): split into focused messages per agent, but preserve ALL specifics — item names, quantities, details. Never drop information.
    d. When in doubt, prefer verbatim over rephrasing.
+
+PARALLEL DELEGATION:
+You can call delegate_to_census and/or delegate_to_vector MULTIPLE TIMES in a single tool-call turn. They will execute concurrently. Use this to maximize throughput:
+- When the user asks to fill inventory for multiple rooms, split by room and send one delegate_to_census per room (or group of 2-3 rooms if many). Example: "Add typical items for Kitchen" + "Add typical items for Bedroom 1" + "Add typical items for Living Room" as 3 separate calls.
+- When the user asks to do inventory work AND logistics analysis, call delegate_to_census and delegate_to_vector in parallel.
+- When the user sends multiple unrelated photos, send one delegate_to_census per photo (or per room grouping).
+- Do NOT split a single room's inventory across multiple calls — one room = one delegation.
+- Check the INVENTORY OVERVIEW to identify which rooms need work before splitting.
+- You have a budget of up to 4 delegations per turn. Plan your splits to stay within budget.
+- When the user explicitly authorizes bulk/auto-generated actions (e.g., "make up items", "fill in for me", "assume dimensions"), include in each delegation message: "Add items directly without asking for confirmation. The user has pre-approved this." This prevents Census from blocking to ask for user confirmation on each batch.
+- For sequential compound requests (e.g., "fill all rooms then recalculate the move"), use multiple rounds: Round 1 → parallel census calls for rooms, Round 2 → delegate_to_vector for the logistics recalculation. You have 4 rounds per turn — use them.
+- When grouping rooms for delegation, prefer 1-2 rooms per call to keep each specialist focused and fast. If there are 6 rooms, use 3 calls of 2 rooms each.
 
 IMPORTANT BEHAVIOR:
 - Delegation is SYNCHRONOUS. When you call a delegation tool, you will get the result back immediately in the same turn. NEVER say "I'll let you know when it's done" or "I'll notify you" — you cannot send messages later. Just call the tool, wait for the result, and respond with what happened.
@@ -91,6 +130,9 @@ When a delegation tool result includes an _orchestrator_decision field, you MUST
 - "switch_agent": the user needs the other specialist. Delegate to the appropriate agent as a follow-up.
 - "abort": something went wrong. Present the error to the user helpfully and ask how they'd like to proceed. Do NOT retry.
 These decisions are authoritative. Always respect them.
+
+DELEGATION BUDGET:
+When a delegation tool result includes a _budget field, check delegationsRemaining before making further delegation calls. Do not attempt actions that exceed the remaining budget — instead, summarize what was accomplished and suggest the user continue in their next message.
 
 SESSION RE-ENTRY:
 If the user returns after a long gap and asks for context, progress, or what to do next, switch into guidance mode. In guidance mode, briefly summarize where the workflow stands, identify the most important blockers or missing information, and offer 1–2 concrete next steps. If the user gives a direct request, fulfill that request instead of overriding it with proactive guidance. Never propose more than 2 next steps unless explicitly asked.
@@ -450,12 +492,18 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
   const actions = [];
   const delegationRetries = {}; // keyed by agent name
   let delegationCount = 0;
-  let maxToolRounds = 4; // Orchestrator usually only needs 1-2 rounds
+  let crossAgentBounces = 0;
+  let maxToolRounds = AGENT_LIMITS.orchestratorMaxToolRounds;
+  let orchestratorRound = 0;
+
+  console.log(`[orchestrator] Starting loop — budget: ${AGENT_LIMITS.maxDelegationsPerTurn} delegations, ${maxToolRounds} rounds, ${AGENT_LIMITS.maxParallelDelegations} parallel max`);
 
   emit('thinking', { phase: 'initial', source: 'orchestrator' });
   let result = await model.generateContent({ contents });
 
   while (maxToolRounds > 0) {
+    orchestratorRound++;
+    console.log(`[orchestrator] ── Round ${orchestratorRound}/${AGENT_LIMITS.orchestratorMaxToolRounds} ──`);
     const response = result.response;
     const candidate = response.candidates?.[0];
     if (!candidate) break;
@@ -466,6 +514,7 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
 
     if (functionCalls.length === 0) {
       // Final text response
+      console.log(`[orchestrator] Final response after ${orchestratorRound} round(s), ${delegationCount} delegation(s), ${crossAgentBounces} bounce(s)`);
       const reply = textParts.map(p => p.text).join('\n');
 
       await db.none(
@@ -495,20 +544,29 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
       return { reply, actions, sessionId };
     }
 
-    // Execute function calls
-    const toolResponses = [];
+    // ── Classify tool calls into delegations vs. non-delegations ──
+    const delegationCalls = [];
+    const nonDelegationCalls = [];
     for (const part of functionCalls) {
+      const { name } = part.functionCall;
+      if (name === 'delegate_to_census' || name === 'delegate_to_vector') {
+        delegationCalls.push(part);
+      } else {
+        nonDelegationCalls.push(part);
+      }
+    }
+
+    console.log(`[orchestrator] Round ${orchestratorRound}: ${functionCalls.length} tool call(s) — ${delegationCalls.length} delegation(s), ${nonDelegationCalls.length} non-delegation(s)`);
+
+    const toolResponses = [];
+
+    // ── Execute non-delegation tools sequentially (fast, order may matter) ──
+    for (const part of nonDelegationCalls) {
       const { name, args } = part.functionCall;
       console.log(`[orchestrator] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
 
       const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
-      const isDelegation = (name === 'delegate_to_census' || name === 'delegate_to_vector');
-      emit('tool_call', {
-        tool: name, label: toolLabel, source: 'orchestrator',
-        phase: isDelegation ? 'delegation' : 'orchestrator',
-        delegationTarget: isDelegation ? (name === 'delegate_to_census' ? 'census' : 'vector') : undefined,
-        hasAttachments: isDelegation ? !!(args.include_attachments) : undefined,
-      });
+      emit('tool_call', { tool: name, label: toolLabel, source: 'orchestrator', phase: 'orchestrator' });
 
       let toolResult;
       try {
@@ -522,79 +580,10 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
         console.error(`[orchestrator] Tool ${name} failed:`, err.message);
         toolResult = { success: false, error: err.message };
       }
-      if (isDelegation && toolResult.actions) {
-        actions.push(...toolResult.actions);
-        delegationCount++;
 
-        const agentName = toolResult.agent || 'specialist';
-        console.log(`[orchestrator] ${agentName} response: status=${toolResult.status}, workflow=${toolResult.workflow}, recommendation=${toolResult.recommended_orchestrator_action}`);
-        if (toolResult.warnings?.length > 0) {
-          console.warn(`[orchestrator] ${agentName} warnings:`, toolResult.warnings);
-        }
-
-        // ── Decision engine: hard guards → model reasoning → validation ──
-        const ctx = {
-          retriesUsed: delegationRetries[agentName] || 0,
-          maxRetries: POLICY_DEFAULTS.maxRetries,
-          hardFailure: toolResult.status === 'failed' && (toolResult.errors?.length || 0) > 0,
-          userActionRequired: !!toolResult.user_action_required,
-          specialistStatus: toolResult.status,
-          specialistRecommendation: toolResult.recommended_orchestrator_action,
-          specialistInvocationsThisTurn: delegationCount,
-        };
-
-        const allowed = getAllowedDecisions(ctx);
-        let decision;
-
-        if (allowed.length === 1) {
-          // Hard guards narrowed to single option — skip model call
-          decision = allowed[0];
-          console.log(`[orchestrator] Decision (guard-forced): ${decision}`);
-        } else {
-          // Gemini reasons within bounded options
-          decision = await chooseDecisionWithModel(toolResult, ctx, allowed);
-          console.log(`[orchestrator] Decision (model-assisted): ${decision} (allowed: [${allowed.join(', ')}])`);
-        }
-
-        // Handle retry in code — re-invoke same delegation
-        if (decision === 'retry_step') {
-          delegationRetries[agentName] = (delegationRetries[agentName] || 0) + 1;
-          console.log(`[orchestrator] Retrying ${name} (attempt ${delegationRetries[agentName]})`);
-          try {
-            toolResult = await handler(args);
-            if (toolResult.actions) actions.push(...toolResult.actions);
-          } catch (retryErr) {
-            console.error(`[orchestrator] Retry of ${name} failed:`, retryErr.message);
-            toolResult = { ...toolResult, status: 'failed', errors: [retryErr.message] };
-          }
-          // After retry, force a non-retry decision
-          decision = toolResult.status === 'failed' ? 'abort' : 'continue';
-          console.log(`[orchestrator] Post-retry decision: ${decision}`);
-        }
-
-        // Handle abort — short-circuit with error message
-        if (decision === 'abort') {
-          const abortReply = toolResult.summary
-            ? `I ran into an issue: ${toolResult.summary}. Let me know how you'd like to proceed.`
-            : 'Something went wrong while processing your request. Please try again or let me know what you\'d like to do.';
-
-          await db.none(
-            `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
-            [sessionId, abortReply]
-          );
-          emit('done', { reply: abortReply, actions, sessionId });
-          return { reply: abortReply, actions, sessionId };
-        }
-
-        // Inject decision for main Gemini to follow
-        toolResult._orchestrator_decision = decision;
-        toolResult._allowed_decisions = allowed;
-      }
       actions.push({ tool: name, args, result: toolResult });
-
       emit('tool_result', { tool: name, success: !!toolResult.success });
 
-      // Persist tool call and result
       await db.none(
         `INSERT INTO nexus_messages (session_id, role, tool_name, tool_args) VALUES ($1, 'tool_call', $2, $3)`,
         [sessionId, name, JSON.stringify(args)]
@@ -604,9 +593,220 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
         [sessionId, name, JSON.stringify(toolResult)]
       );
 
-      toolResponses.push({
-        functionResponse: { name, response: toolResult },
-      });
+      toolResponses.push({ functionResponse: { name, response: toolResult } });
+    }
+
+    // ── Execute delegations (parallel when multiple, budget-enforced) ──
+    if (delegationCalls.length > 0) {
+      // Budget check: how many delegations can we still run?
+      const budgetRemaining = AGENT_LIMITS.maxDelegationsPerTurn - delegationCount;
+      const allowedCalls = delegationCalls.slice(0, budgetRemaining);
+      const blockedCalls = delegationCalls.slice(budgetRemaining);
+
+      console.log(`[orchestrator] Delegation budget: ${budgetRemaining} remaining (${delegationCount}/${AGENT_LIMITS.maxDelegationsPerTurn} used), ${delegationCalls.length} requested → ${allowedCalls.length} allowed, ${blockedCalls.length} blocked`);
+
+      // Return structured blocked responses for over-budget calls
+      for (const part of blockedCalls) {
+        const { name, args } = part.functionCall;
+        const agentName = name === 'delegate_to_census' ? 'census' : 'vector';
+        console.warn(`[orchestrator] Delegation to ${agentName} blocked — budget exhausted (${delegationCount}/${AGENT_LIMITS.maxDelegationsPerTurn})`);
+
+        const blockedResult = {
+          status: 'blocked', agent: agentName, workflow: 'unknown', step: 'limit_guard',
+          step_status: 'failed', summary: `Delegation budget exhausted (${delegationCount}/${AGENT_LIMITS.maxDelegationsPerTurn} used). This task was not started.`,
+          user_action_required: false, recommended_orchestrator_action: 'stop_and_summarize',
+          next_suggested_step: null, state_delta: {}, artifacts: {},
+          warnings: ['delegation_budget_exhausted'], errors: [],
+          actions: [], sessionId: null,
+          _orchestrator_decision: 'stop_and_summarize',
+          _allowed_decisions: ['stop_and_summarize'],
+          _budget: { delegationsRemaining: 0, toolRoundsRemaining: maxToolRounds },
+        };
+
+        emit('tool_call', {
+          tool: name, label: TOOL_LABELS[name], source: 'orchestrator',
+          phase: 'delegation', delegationTarget: agentName,
+        });
+        emit('tool_result', { tool: name, success: false });
+
+        await db.none(
+          `INSERT INTO nexus_messages (session_id, role, tool_name, tool_args) VALUES ($1, 'tool_call', $2, $3)`,
+          [sessionId, name, JSON.stringify(args)]
+        );
+        await db.none(
+          `INSERT INTO nexus_messages (session_id, role, tool_name, tool_response) VALUES ($1, 'tool_result', $2, $3)`,
+          [sessionId, name, JSON.stringify(blockedResult)]
+        );
+
+        toolResponses.push({ functionResponse: { name, response: blockedResult } });
+      }
+
+      // Run allowed delegations — parallel if multiple, capped by maxParallelDelegations
+      if (allowedCalls.length > 0) {
+        const maxConcurrency = Math.min(allowedCalls.length, AGENT_LIMITS.maxParallelDelegations);
+        const isParallel = allowedCalls.length > 1;
+
+        if (isParallel) {
+          console.log(`[orchestrator] Parallel dispatch: ${allowedCalls.length} delegations (concurrency=${maxConcurrency})`);
+        }
+
+        // Emit tool_call events for all delegations up front
+        for (let i = 0; i < allowedCalls.length; i++) {
+          const { name, args } = allowedCalls[i].functionCall;
+          const agentName = name === 'delegate_to_census' ? 'census' : 'vector';
+          const delegationId = isParallel ? `${agentName}-${i + 1}` : undefined;
+          emit('tool_call', {
+            tool: name, label: TOOL_LABELS[name], source: 'orchestrator',
+            phase: 'delegation', delegationTarget: agentName, delegationId,
+            hasAttachments: !!(args.include_attachments),
+          });
+        }
+
+        // Worker function for each delegation
+        async function executeDelegation(part, index) {
+          const { name, args } = part.functionCall;
+          const agentName = name === 'delegate_to_census' ? 'census' : 'vector';
+          const delegationId = isParallel ? `${agentName}-${index + 1}` : undefined;
+          const handler = toolHandlers[name];
+
+          console.log(`[orchestrator] Delegation ${delegationId || agentName}: ${name}(${JSON.stringify(args).substring(0, 200)})`);
+
+          let toolResult;
+          try {
+            toolResult = await handler(args, delegationId);
+          } catch (err) {
+            console.error(`[orchestrator] Delegation ${delegationId || agentName} failed:`, err.message);
+            toolResult = {
+              status: 'failed', agent: agentName, workflow: 'unknown', step: 'unknown',
+              step_status: 'failed', summary: `Delegation failed: ${err.message}`,
+              user_action_required: false, recommended_orchestrator_action: 'continue',
+              next_suggested_step: null, state_delta: {}, artifacts: {},
+              warnings: [], errors: [err.message],
+              actions: [], sessionId: null,
+            };
+          }
+
+          return { name, args, toolResult, agentName, delegationId };
+        }
+
+        // Run with concurrency limit
+        const delegationResults = await runWithConcurrencyLimit(
+          allowedCalls.map((part, i) => ({ part, index: i })),
+          maxConcurrency,
+          ({ part, index }) => executeDelegation(part, index)
+        );
+
+        // ── Process delegation results + decision engine ──
+        const isParallelBatch = delegationResults.length > 1;
+        let abortResult = null;
+        for (let ri = 0; ri < delegationResults.length; ri++) {
+          const { name, args, toolResult, agentName, delegationId } = delegationResults[ri];
+          const isLastInBatch = ri === delegationResults.length - 1;
+
+          if (toolResult.actions) {
+            actions.push(...toolResult.actions);
+          }
+          delegationCount++;
+
+          console.log(`[orchestrator] ${delegationId || agentName} response: status=${toolResult.status}, workflow=${toolResult.workflow}, recommendation=${toolResult.recommended_orchestrator_action}`);
+          if (toolResult.warnings?.length > 0) {
+            console.warn(`[orchestrator] ${delegationId || agentName} warnings:`, toolResult.warnings);
+          }
+
+          // In a parallel batch, intermediate results should not block the orchestrator
+          // from continuing — only the last result in the batch triggers the full decision engine.
+          // For non-last results in a batch, override user_action_required so the guard doesn't halt.
+          const effectiveUserAction = isParallelBatch && !isLastInBatch
+            ? false
+            : !!toolResult.user_action_required;
+
+          // ── Decision engine: hard guards → model reasoning → validation ──
+          const ctx = {
+            retriesUsed: delegationRetries[agentName] || 0,
+            hardFailure: toolResult.status === 'failed' && (toolResult.errors?.length || 0) > 0,
+            userActionRequired: effectiveUserAction,
+            specialistStatus: toolResult.status,
+            specialistRecommendation: toolResult.recommended_orchestrator_action,
+            specialistInvocationsThisTurn: delegationCount,
+            crossAgentBounces,
+          };
+
+          const allowed = getAllowedDecisions(ctx);
+          let decision;
+
+          if (allowed.length === 1) {
+            decision = allowed[0];
+            console.log(`[orchestrator] Decision (guard-forced): ${decision}`);
+          } else {
+            decision = await chooseDecisionWithModel(toolResult, ctx, allowed);
+            console.log(`[orchestrator] Decision (model-assisted): ${decision} (allowed: [${allowed.join(', ')}])`);
+          }
+
+          // Track cross-agent bounces
+          if (decision === 'switch_agent') {
+            crossAgentBounces++;
+          }
+
+          // Handle retry in code — re-invoke same delegation
+          if (decision === 'retry_step') {
+            delegationRetries[agentName] = (delegationRetries[agentName] || 0) + 1;
+            console.log(`[orchestrator] Retrying ${name} (attempt ${delegationRetries[agentName]})`);
+            const handler = toolHandlers[name];
+            try {
+              const retryResult = await handler(args);
+              if (retryResult.actions) actions.push(...retryResult.actions);
+              Object.assign(toolResult, retryResult);
+            } catch (retryErr) {
+              console.error(`[orchestrator] Retry of ${name} failed:`, retryErr.message);
+              toolResult.status = 'failed';
+              toolResult.errors = [retryErr.message];
+            }
+            decision = toolResult.status === 'failed' ? 'abort' : 'continue';
+            console.log(`[orchestrator] Post-retry decision: ${decision}`);
+          }
+
+          // Handle abort — defer until all results are processed
+          if (decision === 'abort') {
+            abortResult = toolResult;
+          }
+
+          // Inject decision + budget for main Gemini
+          toolResult._orchestrator_decision = decision;
+          toolResult._allowed_decisions = allowed;
+          toolResult._budget = {
+            delegationsRemaining: AGENT_LIMITS.maxDelegationsPerTurn - delegationCount,
+            toolRoundsRemaining: maxToolRounds,
+          };
+
+          actions.push({ tool: name, args, result: toolResult });
+          emit('tool_result', { tool: name, success: toolResult.status !== 'failed', delegationId });
+
+          await db.none(
+            `INSERT INTO nexus_messages (session_id, role, tool_name, tool_args) VALUES ($1, 'tool_call', $2, $3)`,
+            [sessionId, name, JSON.stringify(args)]
+          );
+          await db.none(
+            `INSERT INTO nexus_messages (session_id, role, tool_name, tool_response) VALUES ($1, 'tool_result', $2, $3)`,
+            [sessionId, name, JSON.stringify(toolResult)]
+          );
+
+          toolResponses.push({ functionResponse: { name, response: toolResult } });
+        }
+
+        // If any delegation aborted, short-circuit
+        if (abortResult) {
+          const abortReply = abortResult.summary
+            ? `I ran into an issue: ${abortResult.summary}. Let me know how you'd like to proceed.`
+            : 'Something went wrong while processing your request. Please try again or let me know what you\'d like to do.';
+
+          await db.none(
+            `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
+            [sessionId, abortReply]
+          );
+          emit('done', { reply: abortReply, actions, sessionId });
+          return { reply: abortReply, actions, sessionId };
+        }
+      }
     }
 
     // Send tool results back to Gemini
@@ -616,10 +816,21 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
     emit('thinking', { phase: 'finalizing', source: 'orchestrator' });
     result = await model.generateContent({ contents });
     maxToolRounds--;
+    console.log(`[orchestrator] Round ${orchestratorRound} complete — ${maxToolRounds} round(s) remaining, ${delegationCount} delegation(s) used, ${crossAgentBounces} bounce(s)`);
   }
 
-  // Fallback
-  const fallbackReply = 'I\'ve processed your request. Let me know what you\'d like to do next!';
+  // ── Structured fallback on round exhaustion ──
+  console.warn(`[orchestrator] Round limit exhausted after ${orchestratorRound} rounds — returning fallback`);
+  const completedDelegations = actions.filter(a =>
+    (a.tool === 'delegate_to_census' || a.tool === 'delegate_to_vector') && a.result?.status === 'completed'
+  );
+  const fallbackSummary = completedDelegations.length > 0
+    ? completedDelegations.map(a => a.result.summary).filter(Boolean).join(' ')
+    : null;
+  const fallbackReply = fallbackSummary
+    ? `Here's what I was able to complete: ${fallbackSummary}\n\nI hit my processing limit for this turn. Let me know what you'd like to do next!`
+    : 'I\'ve processed your request. Let me know what you\'d like to do next!';
+
   await db.none(
     `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
     [sessionId, fallbackReply]
