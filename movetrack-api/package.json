@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node ./bin/www.js",
     "test": "jest",
+    "test:unit": "jest tests/unit",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:verbose": "jest --verbose",
@@ -46,5 +47,9 @@
     "sharp": "^0.33.4",
     "stripe": "^15.0.0",
     "twelvelabs-js": "^1.2.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0"
   }
 }

@@ -10,12 +10,15 @@ var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 var cors = require('cors');
 const helmet = require('helmet');
-// const { expressjwt: jwt } = require('express-jwt');
 
 // Rate limiting configuration
 const rateLimits = require('./config/rateLimits');
 
-var jwtLib = require('./services/infra/auth')
+// Application-level authentication gate (default-deny)
+const { requireAuth } = require('./middleware/auth');
+
+// Health/readiness probes (public)
+var healthRouter = require('./routes/health');
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 var indexRouter = require('./routes/index');
@@ -51,7 +54,7 @@ app.set('trust proxy', 1);
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'jade');
 
-app.use(logger('dev'));
+app.use(logger(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 // POST /billing/webhook — Stripe webhook (raw body required for signature verification)
 // Implementation pending; see routes/billing.js for endpoint description.
 app.use(express.json({ limit: '50mb' }));
@@ -59,20 +62,8 @@ app.use(express.urlencoded({ extended: false, limit: '50mb' }));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname, 'public')));
 
-//** UPDATE HERE TO ADD AUTH REQUIREMENT */
-// app.use(process.env.NODE_ENV == 'development' ? jwtCheck.jwtDemoCheck : jwtCheck.jwtProdCheck)
-
-
-if (process.env.NODE_ENV == 'development') {
-  jwtCheck = jwtLib.jwtDemoCheck
-} else {
-  jwtCheck = jwtLib.jwtProdCheck
-}
-
-//** RE-ADD THIS BEFORE PUSHING TO PROD */
-// app.use(jwtCheck)
-
-
+// ── Health / readiness (public, mounted before rate-limiting so probes are never throttled) ──
+app.use('/health', healthRouter);
 
 var corsOptions = {
   origin: [
@@ -150,7 +141,12 @@ app.use(helmet({
 // Skips static files and webhook endpoints automatically
 app.use(rateLimits.globalLimiter);
 
-//** MAKE SURE TO ADD THE jwtcheck BACK IN HERE */
+// ========================================
+// AUTHENTICATION (default-deny)
+// ========================================
+// Every route below requires a valid magic-link session token unless its path is
+// on the public allowlist in middleware/auth.js (/auth, /health, root, OPTIONS).
+app.use(requireAuth);
 
 // ── Root ─────────────────────────────────────────────────────────────────────
 app.use('/', indexRouter);

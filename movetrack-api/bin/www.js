@@ -30,6 +30,25 @@ server.on('error', onError);
 server.on('listening', onListening);
 
 /**
+ * Graceful shutdown — drain in-flight requests on SIGTERM/SIGINT (Cloud Run sends
+ * SIGTERM before reclaiming a container).
+ */
+function shutdown(signal) {
+  console.log(`[server] ${signal} received — shutting down gracefully`);
+  server.close(() => {
+    console.log('[server] closed remaining connections, exiting');
+    process.exit(0);
+  });
+  // Failsafe: force-exit if connections don't drain in time.
+  setTimeout(() => {
+    console.error('[server] forced shutdown after timeout');
+    process.exit(1);
+  }, 10000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+/**
  * Normalize a port into a number, string, or false.
  */
 
@@ -87,4 +106,12 @@ function onListening() {
     ? 'pipe ' + addr
     : 'port ' + addr.port;
   debug('Listening on ' + bind);
+  console.log('[server] listening on ' + bind);
+
+  // Non-fatal startup DB ping so a broken connection surfaces immediately in logs
+  // rather than only on the first user request.
+  const { checkDatabase } = require('../services/infra/healthService');
+  checkDatabase().then((ok) => {
+    console.log(ok ? '[server] database connection OK' : '[server] WARNING: database unreachable at startup');
+  });
 }

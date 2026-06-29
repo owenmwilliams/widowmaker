@@ -1,5 +1,19 @@
 # Cloud Build configuration for automated deployments
 steps:
+  # Run API unit tests (DB-free) — gates the build. Integration suites in
+  # movetrack-api/tests/*.test.js require a Postgres instance and are run
+  # separately; wire a Cloud SQL/Postgres service in here to include them.
+  - name: 'node:18'
+    id: 'test-api'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+        cd movetrack-api
+        npm ci --no-audit --no-fund
+        npm run test:unit
+
   # Build API Docker image
   - name: 'gcr.io/cloud-builders/docker'
     args:
@@ -11,6 +25,7 @@ steps:
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-api:latest'
       - './movetrack-api'
     id: 'build-api'
+    waitFor: ['test-api']
 
   # Debug secret visibility (optional safety net)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
