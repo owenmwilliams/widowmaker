@@ -710,6 +710,27 @@ CREATE INDEX idx_item_estimate_events_item_id ON item_estimate_events(item_id);
 CREATE INDEX idx_item_estimate_events_user_id ON item_estimate_events(user_id);
 CREATE INDEX idx_item_estimate_events_created_at ON item_estimate_events(created_at);
 
+-- Image uploads tracking (from migration 023). Baseline so fresh builds match
+-- production; migration 028 (unified media assets) extends this table.
+CREATE TABLE IF NOT EXISTS image_uploads (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    image_url TEXT NOT NULL,
+    gcs_bucket TEXT NOT NULL,
+    gcs_path TEXT NOT NULL,
+    file_size INTEGER,
+    mime_type VARCHAR(50),
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    linked_to_item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+    linked_at TIMESTAMP,
+    is_orphaned BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_image_uploads_user_id ON image_uploads(user_id);
+CREATE INDEX IF NOT EXISTS idx_image_uploads_orphaned ON image_uploads(is_orphaned, uploaded_at);
+CREATE INDEX IF NOT EXISTS idx_image_uploads_item_id ON image_uploads(linked_to_item_id);
+CREATE INDEX IF NOT EXISTS idx_image_uploads_url ON image_uploads(image_url);
+
 -- ============================================================================
 -- COMMENTS FOR DOCUMENTATION
 -- ============================================================================
