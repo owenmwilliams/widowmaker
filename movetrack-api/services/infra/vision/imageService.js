@@ -7,6 +7,7 @@ const sharp = require('sharp');
 const { Storage } = require('@google-cloud/storage');
 const path = require('path');
 const { jsonrepair } = require('jsonrepair');
+const { buildProviderOrder, runWithFailover } = require('./visionFailover');
 
 // Initialize GCS client for fetching images from URLs
 const isLocalEnvironment = process.env.NODE_ENV !== 'production';
@@ -1305,33 +1306,36 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt =
         : prompt;
 
     const geminiModel = plan === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
-    console.log(`Analyzing photo with provider: ${providerToUse} (model: ${geminiModel})`, itemHint ? `(hint: ${itemHint})` : '');
 
-    switch (providerToUse.toLowerCase()) {
-        case 'claude':
-            return await analyzeWithClaude(base64Image, mimeType, effectivePrompt);
-        case 'gpt4':
-        case 'openai':
-            return await analyzeWithGPT4(base64Image, mimeType, effectivePrompt);
-        case 'gemini':
-        case 'google':
-        case 'gemini-pro':
-            return await analyzeWithGemini(base64Image, mimeType, effectivePrompt, geminiModel);
-        case 'together':
-        case 'scout':
-            return await analyzeWithTogetherScout(base64Image, mimeType, prompt);
-        case 'qwen':
-            return await analyzeWithTogetherQwen(base64Image, mimeType, prompt);
-        case 'florence':
-            return await analyzeWithFlorence(base64Image, mimeType, prompt);
-        case 'nemotron':
-            return await analyzeWithNemotron(base64Image, mimeType, prompt);
-        default:
-            return {
-                success: false,
-                error: `Unknown provider: ${providerToUse}. Valid options: claude, gpt4, gemini, together/scout, qwen, florence, nemotron`
-            };
-    }
+    const dispatch = (p) => {
+        switch (p) {
+            case 'claude':
+                return analyzeWithClaude(base64Image, mimeType, effectivePrompt);
+            case 'gpt4':
+            case 'openai':
+                return analyzeWithGPT4(base64Image, mimeType, effectivePrompt);
+            case 'gemini':
+            case 'google':
+            case 'gemini-pro':
+                return analyzeWithGemini(base64Image, mimeType, effectivePrompt, geminiModel);
+            case 'together':
+            case 'scout':
+                return analyzeWithTogetherScout(base64Image, mimeType, prompt);
+            case 'qwen':
+                return analyzeWithTogetherQwen(base64Image, mimeType, prompt);
+            case 'florence':
+                return analyzeWithFlorence(base64Image, mimeType, prompt);
+            case 'nemotron':
+                return analyzeWithNemotron(base64Image, mimeType, prompt);
+            default:
+                return { success: false, error: `Unknown provider: ${p}` };
+        }
+    };
+
+    // Try the chosen provider first, then fall back through the plan's chain.
+    const order = buildProviderOrder(providerToUse, plan);
+    console.log(`Analyzing photo — provider order: ${order.join(' -> ')} (model: ${geminiModel})`, itemHint ? `(hint: ${itemHint})` : '');
+    return runWithFailover(order, dispatch);
 }
 
 /**
@@ -1342,33 +1346,35 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, opt
     const promptOverride = options.prompt;
 
     const geminiModel = plan === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
-    console.log(`Analyzing photo for multiple items with provider: ${providerToUse} (model: ${geminiModel})`);
 
-    switch (providerToUse.toLowerCase()) {
-        case 'claude':
-            return await analyzeMultiItemWithClaude(base64Image, mimeType);
-        case 'gpt4':
-        case 'openai':
-            return await analyzeMultiItemWithGPT4(base64Image, mimeType);
-        case 'gemini':
-        case 'google':
-        case 'gemini-3-pro':
-            return await analyzeMultiItemWithGemini(base64Image, mimeType, geminiModel);
-        case 'together':
-        case 'scout':
-            return await analyzeMultiItemWithTogetherScout(base64Image, mimeType, promptOverride);
-        case 'qwen':
-            return await analyzeMultiItemWithTogetherQwen(base64Image, mimeType, promptOverride);
-        case 'florence':
-            return await analyzeMultiItemWithFlorence(base64Image, mimeType);
-        case 'nemotron':
-            return await analyzeMultiItemWithNemotron(base64Image, mimeType);
-        default:
-            return {
-                success: false,
-                error: `Unknown provider: ${providerToUse}. Valid options: claude, gpt4, gemini, together/scout, qwen, florence, nemotron`
-            };
-    }
+    const dispatch = (p) => {
+        switch (p) {
+            case 'claude':
+                return analyzeMultiItemWithClaude(base64Image, mimeType);
+            case 'gpt4':
+            case 'openai':
+                return analyzeMultiItemWithGPT4(base64Image, mimeType);
+            case 'gemini':
+            case 'google':
+            case 'gemini-3-pro':
+                return analyzeMultiItemWithGemini(base64Image, mimeType, geminiModel);
+            case 'together':
+            case 'scout':
+                return analyzeMultiItemWithTogetherScout(base64Image, mimeType, promptOverride);
+            case 'qwen':
+                return analyzeMultiItemWithTogetherQwen(base64Image, mimeType, promptOverride);
+            case 'florence':
+                return analyzeMultiItemWithFlorence(base64Image, mimeType);
+            case 'nemotron':
+                return analyzeMultiItemWithNemotron(base64Image, mimeType);
+            default:
+                return { success: false, error: `Unknown provider: ${p}` };
+        }
+    };
+
+    const order = buildProviderOrder(providerToUse, plan);
+    console.log(`Analyzing photo for multiple items — provider order: ${order.join(' -> ')} (model: ${geminiModel})`);
+    return runWithFailover(order, dispatch);
 }
 
 /**
