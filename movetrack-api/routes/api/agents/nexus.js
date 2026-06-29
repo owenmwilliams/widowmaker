@@ -40,7 +40,7 @@ router.post('/message', express.json(), async (req, res) => {
       return res.json(result);
     } catch (err) {
       console.error('[nexus] processMessage failed:', err);
-      return res.status(500).json({ error: err.message || 'Nexus processing failed' });
+      return res.status(err.status || 500).json({ error: err.message || 'Nexus processing failed' });
     }
   }
 
@@ -134,7 +134,7 @@ router.post('/guidance', express.json(), async (req, res) => {
       return res.json({ ...result, quickStartChips });
     } catch (err) {
       console.error('[nexus] guidance failed:', err);
-      return res.status(500).json({ error: err.message || 'Guidance request failed' });
+      return res.status(err.status || 500).json({ error: err.message || 'Guidance request failed' });
     }
   }
 

@@ -7,7 +7,7 @@ const mutation = require('../services/inventory/inventoryMutationService');
 const { searchItems, getItemPhoto } = require('../services/inventory/inventoryItemQueryService');
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { sanitizeForPrompt, fenceUntrusted } = require('../services/infra/promptSafety');
-const { wrapModelForCost } = require('../services/infra/cost/aiCostService');
+const { instrumentModel, AiUnavailableError } = require('../services/infra/ai/resilientModel');
 const { getMissingContext, inventoryReadinessAssessment } = require('../services/inventory/inventoryMaturityService');
 const duplicates = require('../services/inventory/duplicateDetectionService');
 const media = require('../services/inventory/mediaInventoryWorkflowService');
@@ -439,7 +439,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     if (onEvent) onEvent({ type, ...data });
   };
   if (!geminiClient) {
-    throw new Error('GOOGLE_AI_API_KEY is not configured');
+    console.error('[census] GOOGLE_AI_API_KEY is not configured — AI unavailable');
+    throw new AiUnavailableError();
   }
 
   // ── 1. Resolve active session (one per user) ──────────────────────────────
@@ -543,7 +544,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   // Always use flash for the agent loop — fast + reliable tool-calling.
   // Vision functions handle their own model selection based on plan.
   const modelId = 'gemini-2.5-flash';
-  const model = wrapModelForCost(geminiClient.getGenerativeModel({
+  const model = instrumentModel(geminiClient.getGenerativeModel({
     model: modelId,
     systemInstruction,
     tools: [{ functionDeclarations: toolDeclarations }],

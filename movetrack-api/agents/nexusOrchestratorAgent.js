@@ -5,7 +5,7 @@ const conn = require('../services/infra/db');
 const db = conn.db;
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { sanitizeForPrompt, fenceUntrusted } = require('../services/infra/promptSafety');
-const { wrapModelForCost } = require('../services/infra/cost/aiCostService');
+const { instrumentModel, AiUnavailableError } = require('../services/infra/ai/resilientModel');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const { buildToolHandlers } = require('../services/workflow/agentDelegationService');
 const { getAllowedDecisions, POLICY_DEFAULTS, buildDecisionPrompt, parseDecisionResponse, validateDecision } = require('./schemas/orchestratorPolicy');
@@ -297,7 +297,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     if (onEvent) onEvent({ type, ...data });
   };
   if (!geminiClient) {
-    throw new Error('GOOGLE_AI_API_KEY is not configured');
+    console.error('[orchestrator] GOOGLE_AI_API_KEY is not configured — AI unavailable');
+    throw new AiUnavailableError();
   }
 
   // ── 1. Resolve active Nexus orchestrator session ────────────────────────
@@ -443,7 +444,7 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
   // ── 7. Call Gemini ──────────────────────────────────────────────────────
   // Always use flash for the orchestrator loop — fast + reliable tool-calling.
   const modelId = 'gemini-2.5-flash';
-  const model = wrapModelForCost(geminiClient.getGenerativeModel({
+  const model = instrumentModel(geminiClient.getGenerativeModel({
     model: modelId,
     systemInstruction,
     tools: [{ functionDeclarations: toolDeclarations }],

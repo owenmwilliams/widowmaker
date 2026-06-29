@@ -114,29 +114,9 @@ async function checkBudget(userId, { isAdmin = false } = {}) {
   return { ...verdict, todayUsd, monthUsd, dailyCap: DAILY_CAP_USD, monthlyCap: MONTHLY_CAP_USD };
 }
 
-/**
- * Wrap a Gemini GenerativeModel so every generateContent() call records token
- * usage for the given user. Mutates and returns the (per-request) model.
- */
-function wrapModelForCost(model, { userId, modelName } = {}) {
-  if (!model || !userId || typeof model.generateContent !== 'function') return model;
-  const original = model.generateContent.bind(model);
-  model.generateContent = async (...args) => {
-    const result = await original(...args);
-    try {
-      const um = result?.response?.usageMetadata;
-      if (um) {
-        recordUsage(userId, {
-          model: modelName,
-          inputTokens: um.promptTokenCount || 0,
-          outputTokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0),
-        });
-      }
-    } catch (_) { /* never let metering break a model call */ }
-    return result;
-  };
-  return model;
-}
+// NOTE: token usage is recorded by services/infra/ai/resilientModel.js
+// (instrumentModel), which wraps the model with timeout + retry and calls
+// recordUsage() on success — a single wrap point for reliability + cost.
 
 module.exports = {
   PRICING,
@@ -148,5 +128,4 @@ module.exports = {
   recordUsage,
   getSpend,
   checkBudget,
-  wrapModelForCost,
 };
