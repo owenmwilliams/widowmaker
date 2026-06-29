@@ -157,9 +157,11 @@ async function getSingleItem(userId, itemId) {
 
 /**
  * Get all items for a user across all locations, with hierarchy context.
+ * Supports optional { limit, offset } paging; an ordered result is returned so
+ * paging is stable. Callers that omit opts get the full (uncapped) result.
  */
-async function getAllItems(userId) {
-  return knex('locations')
+async function getAllItems(userId, { limit, offset } = {}) {
+  let query = knex('locations')
     .distinct({
       location_id: 'locations.id',
       location_name: 'locations.name',
@@ -182,7 +184,12 @@ async function getAllItems(userId) {
     .leftJoin('containers', 'containers.collection_id', 'collections.id')
     .leftJoin('items', 'items.container_id', 'containers.id')
     .whereNotNull('items.id')
-    .andWhere(knex.raw('permissions.user_id = ?', userId));
+    .andWhere(knex.raw('permissions.user_id = ?', userId))
+    .orderBy('id');
+
+  if (Number.isFinite(limit)) query = query.limit(limit);
+  if (Number.isFinite(offset) && offset > 0) query = query.offset(offset);
+  return query;
 }
 
 /**

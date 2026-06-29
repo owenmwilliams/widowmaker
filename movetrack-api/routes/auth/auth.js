@@ -1,24 +1,15 @@
 var express = require('express');
 var router = express.Router();
 const authService = require('../../services/infra/authService');
+const { requireValidEmail } = require('../../middleware/validation');
 
 /**
  * POST /auth/request-magic-link
  * Request a magic link to be sent to the user's email
  */
-router.post('/request-magic-link', async function(req, res, next) {
+router.post('/request-magic-link', requireValidEmail, async function(req, res, next) {
     try {
         const { email } = req.body;
-
-        if (!email) {
-            return res.status(400).json({ success: false, error: 'Email is required' });
-        }
-
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(email)) {
-            return res.status(400).json({ success: false, error: 'Invalid email format' });
-        }
 
         // Get client IP and user agent
         const ipAddress = req.ip || req.connection.remoteAddress;

@@ -4,6 +4,7 @@ const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('../services/infra/db');
 const db = conn.db;
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
+const { sanitizeForPrompt, fenceUntrusted } = require('../services/infra/promptSafety');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const { buildToolHandlers } = require('../services/workflow/agentDelegationService');
 const { getAllowedDecisions, POLICY_DEFAULTS, buildDecisionPrompt, parseDecisionResponse, validateDecision } = require('./schemas/orchestratorPolicy');
@@ -408,12 +409,14 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     [userId]
   );
   const userContext = user
-    ? `Name: ${user.first_name || 'Unknown'} ${user.last_name || ''}\nOnboarding completed: ${user.onboarding_completed}`
+    ? `Name: ${sanitizeForPrompt(`${user.first_name || 'Unknown'} ${user.last_name || ''}`, 200)}\nOnboarding completed: ${user.onboarding_completed}`
     : 'Unknown user';
 
+  // User profile + inventory text are user-controlled — fence them as untrusted
+  // data so a crafted name/item can't override the system instructions.
   let systemInstruction = SYSTEM_PROMPT
-    .replace('{{USER_CONTEXT}}', userContext)
-    .replace('{{INVENTORY_SNAPSHOT}}', inventorySnapshot);
+    .replace('{{USER_CONTEXT}}', fenceUntrusted('USER PROFILE', userContext, 500))
+    .replace('{{INVENTORY_SNAPSHOT}}', fenceUntrusted('INVENTORY SNAPSHOT', inventorySnapshot, 8000));
 
   if (contextSummaryText) {
     systemInstruction += `\n\nCONVERSATION HISTORY SUMMARY:\n${contextSummaryText}`;

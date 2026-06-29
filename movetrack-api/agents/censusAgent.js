@@ -6,6 +6,7 @@ const db = conn.db;
 const mutation = require('../services/inventory/inventoryMutationService');
 const { searchItems, getItemPhoto } = require('../services/inventory/inventoryItemQueryService');
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
+const { sanitizeForPrompt, fenceUntrusted } = require('../services/infra/promptSafety');
 const { getMissingContext, inventoryReadinessAssessment } = require('../services/inventory/inventoryMaturityService');
 const duplicates = require('../services/inventory/duplicateDetectionService');
 const media = require('../services/inventory/mediaInventoryWorkflowService');
@@ -515,12 +516,14 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     [userId]
   );
   const userContext = user
-    ? `Name: ${user.first_name || 'Unknown'} ${user.last_name || ''}\nOnboarding completed: ${user.onboarding_completed}`
+    ? `Name: ${sanitizeForPrompt(`${user.first_name || 'Unknown'} ${user.last_name || ''}`, 200)}\nOnboarding completed: ${user.onboarding_completed}`
     : 'Unknown user';
 
+  // User profile + inventory text are user-controlled — fence them as untrusted
+  // data so a crafted name/item can't override the system instructions.
   let systemInstruction = SYSTEM_PROMPT
-    .replace('{{USER_CONTEXT}}', userContext)
-    .replace('{{INVENTORY_SNAPSHOT}}', inventorySnapshot);
+    .replace('{{USER_CONTEXT}}', fenceUntrusted('USER PROFILE', userContext, 500))
+    .replace('{{INVENTORY_SNAPSHOT}}', fenceUntrusted('INVENTORY SNAPSHOT', inventorySnapshot, 8000));
 
   // Inject conversation starters for new sessions
   if (historyRows.length === 0) {
