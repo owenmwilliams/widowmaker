@@ -24,6 +24,10 @@
         </section>
 
         <section class="constrained plans">
+          <div class="q-pa-md q-mb-lg text-center text-weight-medium"
+               style="background:#FFF3E0; color:#8a5a00; border-radius:8px;">
+            🎉 Everything’s free while we’re in launch — paid plans are coming soon.
+          </div>
           <div class="plan-grid">
             <q-card flat bordered class="plan-card">
               <q-card-section class="plan-head">
@@ -48,7 +52,7 @@
                 <div class="plan-type">Pro</div>
                 <div class="plan-price">$8<span>/month</span></div>
                 <div class="plan-desc">Unlimited scanning and move-day tools.</div>
-                <q-btn unelevated color="primary" class="plan-cta" to="/pricing">Upgrade to Pro</q-btn>
+                <q-btn unelevated color="primary" class="plan-cta" disable>Coming soon</q-btn>
               </q-card-section>
               <q-card-section class="plan-body">
                 <ul>
@@ -67,7 +71,7 @@
                 <div class="plan-type-movepack">Move Pack</div>
                 <div class="plan-price-movepack">$20<span>/3 months</span></div>
                 <div class="plan-desc">Perfect for a single move or short project.</div>
-                <q-btn unelevated class="plan-cta shimmer-btn" to="/pricing">Choose Move Pack</q-btn>
+                <q-btn unelevated class="plan-cta shimmer-btn" disable>Coming soon</q-btn>
               </q-card-section>
               <q-card-section class="plan-body">
                 <ul>
@@ -85,7 +89,7 @@
                 <div class="plan-type">Annual</div>
                 <div class="plan-price">$70<span>/year</span></div>
                 <div class="plan-desc">Best value if you plan and inventory year-round.</div>
-                <q-btn unelevated color="primary" class="plan-cta" to="/pricing">Choose Annual</q-btn>
+                <q-btn unelevated color="primary" class="plan-cta" disable>Coming soon</q-btn>
               </q-card-section>
               <q-card-section class="plan-body">
                 <ul>
@@ -105,15 +109,14 @@
 
         <section class="constrained integration">
           <div class="integration-card">
-            <h2>How billing will work</h2>
-            <p>We’ll integrate Stripe for secure subscriptions and account upgrades:</p>
+            <h2>Billing is coming soon</h2>
+            <p>While we’re in launch, every feature is free. When billing goes live we’ll add:</p>
             <ol>
-              <li>Secure checkout for Monthly ($8/mo), Annual ($70/yr), and Move Pack ($20/3 mo).</li>
-              <li>Webhook updates to flip users between basic/pro and manage expirations.</li>
-              <li>Customer portal so you can update payment methods or cancel anytime.</li>
-              <li>“Plan override” for admins to preview Basic vs Pro experiences.</li>
+              <li>Secure Stripe checkout for Monthly ($8/mo), Annual ($70/yr), and Move Pack ($20/3 mo).</li>
+              <li>Automatic plan management and renewals.</li>
+              <li>A customer portal to update payment methods or cancel anytime.</li>
             </ol>
-            <p class="text-grey-7">Frontend is ready—Stripe integration comes next so your upgrade button will launch checkout immediately.</p>
+            <p class="text-grey-7">No payment is required today — enjoy everything free while we build it out.</p>
           </div>
         </section>
       </q-page>

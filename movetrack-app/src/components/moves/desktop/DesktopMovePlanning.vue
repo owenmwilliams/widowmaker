@@ -3714,25 +3714,22 @@ const initiateStripeCheckout = async () => {
 
   // Placeholder: Show confirmation dialog
   $q.dialog({
-    title: 'Stripe Checkout (Placeholder)',
+    title: 'Confirm Move Booking Request',
     message: `
       <div class="q-mb-md"><strong>Nexus Moves Move Booking</strong></div>
-      <div class="q-mb-sm">Total Move Cost: $${totalAmount.toLocaleString()}</div>
-      <div class="q-mb-sm">Deposit (15%): $${depositAmount.toLocaleString()}</div>
-      <div class="q-mb-md">Remaining Balance: $${(totalAmount - depositAmount).toLocaleString()}</div>
+      <div class="q-mb-sm">Estimated Move Cost: $${totalAmount.toLocaleString()}</div>
       <div class="text-caption text-grey-7">
-        In production, this will redirect to Stripe Checkout.
-        After payment, you'll be redirected to a confirmation page with:
+        Booking is free while we’re in launch — no payment is required. You’ll receive:
         <ul class="q-mt-sm">
           <li>Move booking confirmation</li>
           <li>PDF download of your inventory</li>
-          <li>Email receipt with PDF attached</li>
+          <li>Email with your inventory PDF attached</li>
         </ul>
       </div>
     `,
     html: true,
     ok: {
-      label: 'Simulate Payment Success',
+      label: 'Confirm Booking Request',
       color: 'primary'
     },
     cancel: {
@@ -3741,10 +3738,10 @@ const initiateStripeCheckout = async () => {
       flat: true
     }
   }).onOk(async () => {
-    // Simulate successful payment
+    // Free during launch — no payment taken; record the booking request.
     Notify.create({
       type: 'positive',
-      message: 'Payment Successful!',
+      message: 'Booking request received!',
       caption: 'Downloading your inventory PDF and sending confirmation email...',
       timeout: 4000,
       actions: [
@@ -3811,13 +3808,13 @@ const initiateQuoteShoppingCheckout = async () => {
             <li>Direct email support throughout the process</li>
           </ul>
           <div style="margin-top: 12px; font-style: italic;">
-            In production, clicking below will redirect to secure Stripe checkout.
+            This service is free while we’re in launch — no payment required.
           </div>
         </div>
       `,
       html: true,
       ok: {
-        label: 'Proceed to Checkout',
+        label: 'Request Quotes',
         color: 'primary'
       },
       cancel: {
