@@ -69,6 +69,22 @@ CREATE TABLE locations (
     truck_identifier VARCHAR(100), -- User-defined truck name (e.g., "Big Blue", "U-Haul #1")
     truck_sequence INTEGER, -- Sequential number for auto-naming (Truck 1, Truck 2, etc.)
     truck_size VARCHAR(20), -- Size of the truck (e.g., "26ft", "15ft", "van")
+    -- Move-access info (from migration 014_move_architecture_v2): describes how to
+    -- physically access a location for a move.
+    has_stairs BOOLEAN DEFAULT false,
+    number_of_flights INTEGER,
+    has_elevator BOOLEAN DEFAULT false,
+    elevator_type VARCHAR(100),
+    elevator_distance INTEGER,
+    elevator_reservation_required BOOLEAN DEFAULT false,
+    parking_situation VARCHAR(100),
+    parking_distance INTEGER,
+    entry_type VARCHAR(100),
+    entry_challenges JSONB DEFAULT '[]',
+    access_notes TEXT,
+    -- Geocoded coordinates (read by the inventory snapshot query).
+    lat NUMERIC(10, 7),
+    lng NUMERIC(10, 7),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     qr_code VARCHAR(255) UNIQUE,
