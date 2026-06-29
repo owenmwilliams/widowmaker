@@ -222,7 +222,22 @@ async function createLocation(userId, params) {
       await trx('locations').update({ location_type: 'residence' })
         .where('user_id', userId).andWhere('location_type', 'primary_residence');
     }
-    return trx('locations').insert(basePayload).returning('id');
+    const inserted = await trx('locations').insert(basePayload).returning('id');
+    const locationId = inserted[0]?.id ?? inserted[0];
+
+    // Grant the creator owner permission. Every read path (getAllLocations,
+    // getSingleLocation, the inventory snapshot) filters locations through the
+    // permissions table, so without this the new location is invisible to its
+    // own owner. Mirrors setLocation()/ensureHoldingLocation().
+    await trx('permissions').insert({
+      user_id: userId,
+      resource_id: locationId,
+      resource_type: 'location',
+      permission_level: 'owner',
+      granted_by: userId,
+    });
+
+    return inserted;
   });
 }
 

@@ -72,3 +72,4 @@ replaying from empty.
 | `028_unified_media_assets` | Unified media-asset registry |
 | `029_reconcile_location_access_columns` | Backfill `locations` access-info + lat/lng into every DB (fixed empty inventory snapshot) |
 | `030_reconcile_init_schema_drift` | Backfill all remaining init↔migration drift: 6 tables, columns, 24 indexes |
+| `031_backfill_location_permissions` | Data repair: grant owner `permissions` to locations orphaned by the HTTP create path (made them invisible to reads) |
