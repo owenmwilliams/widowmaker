@@ -51,6 +51,9 @@ movetrack-app/.capacitor/
 movetrack-api/devkeys/*.json
 movetrack-api/start-dev.sh
 
+# Local media storage (dev-only replacement for GCS)
+movetrack-api/.local-storage/
+
 # OS
 .DS_Store
 Thumbs.db

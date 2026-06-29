@@ -7,7 +7,6 @@
  */
 
 const { Storage } = require('@google-cloud/storage');
-const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
 const isLocalEnvironment = process.env.NODE_ENV !== 'production';
@@ -105,19 +104,6 @@ async function signItemUrls(items) {
 
 // ── Upload helpers ────────────────────────────────────────────────────────────
 
-/**
- * Upload a buffer to GCS and return { gcsPath, signedUrl }.
- * In local dev, returns a placeholder without uploading.
- */
-async function uploadAgentFile(userId, buffer, mimeType, originalname, folder = 'nexus') {
-  const fileId = uuidv4();
-  const ext = originalname?.split('.').pop() || 'jpg';
-  const gcsPath = `users/${userId}/${folder}/${fileId}.${ext}`;
-  const { signedUrl } = await uploadBuffer(buffer, gcsPath, mimeType);
-  const url = signedUrl || `https://storage.googleapis.com/${BUCKET}/${gcsPath}`;
-  return { url, mimeType, gcsPath };
-}
-
 async function uploadBuffer(buffer, gcsPath, contentType) {
   if (isLocalEnvironment) {
     return {
@@ -165,22 +151,6 @@ async function uploadVideoScan(buffer, userId, scanId, originalname, mimeType) {
 }
 
 // ── File utilities ────────────────────────────────────────────────────────────
-
-/**
- * Generate a collision-resistant filename for a user upload.
- * Format: {timestamp}_{randomHex}_{sanitizedOriginalName}.{ext}
- */
-function generateUniqueFilename(originalName, mimeType) {
-  const crypto = require('crypto');
-  const timestamp = Date.now();
-  const randomHash = crypto.randomBytes(8).toString('hex');
-  const ext = mimeType.split('/')[1] || 'jpg';
-  const safeName = (originalName || 'file')
-    .replace(/\.[^/.]+$/, '')
-    .replace(/[^a-zA-Z0-9]/g, '_')
-    .substring(0, 50);
-  return `${timestamp}_${randomHash}_${safeName}.${ext}`;
-}
 
 /**
  * Stream a GCS object directly to an Express response.
@@ -241,10 +211,8 @@ module.exports = {
   signPublicUrl,
   signItemUrls,
   uploadBuffer,
-  uploadAgentFile,
   uploadVideoScan,
   resolveImageSource,
-  generateUniqueFilename,
   streamFileToResponse,
   deleteGcsFile,
 };
