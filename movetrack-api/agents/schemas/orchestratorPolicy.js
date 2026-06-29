@@ -4,8 +4,13 @@ const { ORCHESTRATOR_RECOMMENDATIONS } = require('./specialistResponse');
 
 const ALL_DECISIONS = [...ORCHESTRATOR_RECOMMENDATIONS];
 
-const POLICY_DEFAULTS = Object.freeze({
-  maxRetries: 1,
+const AGENT_LIMITS = Object.freeze({
+  orchestratorMaxToolRounds: 4,
+  specialistMaxToolRounds: 8,
+  specialistMaxRetries: 1,
+  maxDelegationsPerTurn: 4,
+  maxCrossAgentBouncesPerTurn: 2,
+  maxParallelDelegations: 3,
 });
 
 const DECISION_DESCRIPTIONS = Object.freeze({
@@ -22,19 +27,19 @@ const DECISION_DESCRIPTIONS = Object.freeze({
  *
  * @param {object} ctx
  * @param {number} ctx.retriesUsed
- * @param {number} ctx.maxRetries
  * @param {boolean} ctx.hardFailure - specialist status=failed AND errors present
  * @param {boolean} ctx.userActionRequired
  * @param {string} ctx.specialistStatus
  * @param {string} ctx.specialistRecommendation
  * @param {number} ctx.specialistInvocationsThisTurn
+ * @param {number} ctx.crossAgentBounces - times decision engine picked switch_agent this turn
  * @returns {string[]} allowed decisions
  */
 function getAllowedDecisions(ctx) {
   let allowed = [...ALL_DECISIONS];
 
   // Guard: retries exhausted → can't retry
-  if (ctx.retriesUsed >= ctx.maxRetries) {
+  if (ctx.retriesUsed >= AGENT_LIMITS.specialistMaxRetries) {
     allowed = allowed.filter(d => d !== 'retry_step');
   }
 
@@ -54,6 +59,11 @@ function getAllowedDecisions(ctx) {
   // Guard: blocked → can't continue as if nothing happened
   if (ctx.specialistStatus === 'blocked') {
     allowed = allowed.filter(d => d !== 'continue');
+  }
+
+  // Guard: cross-agent bounce limit reached → can't switch again
+  if ((ctx.crossAgentBounces || 0) >= AGENT_LIMITS.maxCrossAgentBouncesPerTurn) {
+    allowed = allowed.filter(d => d !== 'switch_agent');
   }
 
   return allowed;
@@ -132,12 +142,26 @@ function parseDecisionResponse(text) {
   return null;
 }
 
+/**
+ * Choose execution mode for image-heavy requests.
+ * Determines whether images should go to one census call or be split across parallel calls.
+ *
+ * @param {{ imageCount: number, imagesLikelyRelated: boolean, independentGroups: number }} input
+ * @returns {'single_batch' | 'parallel_groups' | 'sequential'}
+ */
+function chooseExecutionMode({ imageCount, imagesLikelyRelated, independentGroups }) {
+  if (imagesLikelyRelated) return 'single_batch';
+  if (independentGroups > 1) return 'parallel_groups';
+  return 'sequential';
+}
+
 module.exports = {
   ALL_DECISIONS,
-  POLICY_DEFAULTS,
+  AGENT_LIMITS,
   DECISION_DESCRIPTIONS,
   getAllowedDecisions,
   validateDecision,
   buildDecisionPrompt,
   parseDecisionResponse,
+  chooseExecutionMode,
 };

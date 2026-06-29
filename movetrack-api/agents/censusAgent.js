@@ -15,6 +15,7 @@ const { getConversationStarters } = require('../services/infra/agentSessionServi
 const { estimateMissingItems } = require('../services/move/moveSummaryService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const metrics = require('../services/infra/metricsService');
+const { AGENT_LIMITS } = require('./schemas/orchestratorPolicy');
 const { parseJsonBlock, deriveFieldsFromActions, buildSpecialistResponse, buildFallbackResponse } = require('./schemas/specialistResponse');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
@@ -552,7 +553,10 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   }), { userId, modelName: modelId });
 
   const actions = [];
-  let maxToolRounds = 8; // Safety limit to prevent infinite loops
+  let maxToolRounds = AGENT_LIMITS.specialistMaxToolRounds;
+  let censusRound = 0;
+
+  console.log(`[census] Starting loop — ${maxToolRounds} rounds max`);
 
   emit('thinking');
   let geminiCallStart = Date.now();
@@ -561,6 +565,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   geminiRounds++;
 
   while (maxToolRounds > 0) {
+    censusRound++;
+    console.log(`[census] ── Round ${censusRound}/${AGENT_LIMITS.specialistMaxToolRounds} ──`);
     const response = result.response;
     const candidate = response.candidates?.[0];
     if (!candidate) break;
@@ -582,6 +588,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
     if (functionCalls.length === 0) {
       // No more tool calls — this is the final text response
+      console.log(`[census] Final response after ${censusRound} round(s), ${actions.length} tool call(s)`);
       const rawText = textParts.map(p => p.text).join('\n');
 
       // Build structured SpecialistResponse
@@ -737,9 +744,11 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     geminiTotalMs += Date.now() - geminiCallStart;
     geminiRounds++;
     maxToolRounds--;
+    console.log(`[census] Round ${censusRound} complete — ${maxToolRounds} round(s) remaining, ${actions.length} tool call(s) so far`);
   }
 
   // Fallback if we hit max rounds
+  console.warn(`[census] Round limit exhausted after ${censusRound} rounds, ${actions.length} tool call(s) — returning fallback`);
   const fallbackReply = 'I\'ve processed your request. Let me know what you\'d like to do next!';
   const fallbackResponse = buildFallbackResponse(fallbackReply, 'census', actions, true);
 

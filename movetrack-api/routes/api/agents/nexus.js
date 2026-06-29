@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
 const nexusOrchestrator = require('../../../agents/nexusOrchestratorAgent');
-const gcs = require('../../../services/infra/gcsService');
+const mediaAssetService = require('../../../services/infra/mediaAssetService');
 const sessions = require('../../../services/infra/agentSessionService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
 
@@ -180,16 +180,28 @@ router.delete('/sessions/:id', async (req, res) => {
 });
 
 // ─── POST /upload ────────────────────────────────────────────────────────────
+// Persist a chat attachment via mediaAssetService. Returns an assetId that the
+// frontend must include on the next /message call so the backend can link the
+// asset to the created nexus_messages row.
 router.post('/upload', upload.single('file'), async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
   try {
-    const { url, mimeType, gcsPath } = await gcs.uploadAgentFile(
-      userId, req.file.buffer, req.file.mimetype, req.file.originalname
-    );
-    res.json({ url, mimeType, gcsPath });
+    const asset = await mediaAssetService.ingestUpload({
+      userId,
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+      originalName: req.file.originalname,
+      source: 'nexus_chat',
+    });
+    res.json({
+      assetId: asset.assetId,
+      url: asset.url,
+      mimeType: asset.mimeType,
+      gcsPath: asset.gcsPath,
+    });
   } catch (err) {
     console.error('[nexus] upload failed:', err);
     res.status(500).json({ error: err.message });

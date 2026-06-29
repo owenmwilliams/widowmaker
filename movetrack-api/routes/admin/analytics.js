@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../../services/infra/authService');
-const { getOrphanedImageStats } = require('../../services/infra/imageCleanupService');
+const { getUnlinkedAssetStats } = require('../../services/infra/mediaAssetService');
 const { getBetaMetricsSummary, getBetaMetricsRaw } = require('../../services/analytics/reportingService');
 
 router.use(authenticate);
@@ -12,11 +12,11 @@ router.use((req, res, next) => {
 
 /**
  * GET /admin/analytics/orphaned-images/stats
- * Counts and total size of orphaned images waiting for cleanup.
+ * Counts and total size of unlinked assets waiting for cleanup.
  */
 router.get('/orphaned-images/stats', async (_req, res) => {
   try {
-    const stats = await getOrphanedImageStats();
+    const stats = await getUnlinkedAssetStats();
     res.json({ success: true, stats });
   } catch (err) {
     console.error('[analytics] orphaned-images/stats failed:', err);

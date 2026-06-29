@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../../services/infra/authService');
-const { cleanupOrphanedImages } = require('../../services/infra/imageCleanupService');
+const { cleanupUnlinkedAssets } = require('../../services/infra/mediaAssetService');
 const { getReadiness } = require('../../services/infra/healthService');
 
 router.use(authenticate);
@@ -13,14 +13,14 @@ router.use((req, res, next) => {
 /**
  * POST /admin/maintenance/cleanup-orphaned-images
  * Automated cleanup for Cloud Scheduler.
- * Deletes orphaned images older than MAX_AGE_HOURS (default 48h).
+ * Deletes unlinked media assets older than MAX_AGE_HOURS (default 48h).
  */
 router.post('/cleanup-orphaned-images', async (_req, res) => {
   try {
-    const result = await cleanupOrphanedImages();
+    const result = await cleanupUnlinkedAssets();
     res.json({
       success: true,
-      message: result.deleted === 0 ? 'No orphaned images to clean up' : 'Orphaned image cleanup completed',
+      message: result.deleted === 0 ? 'No unlinked assets to clean up' : 'Unlinked asset cleanup completed',
       ...result,
     });
   } catch (err) {

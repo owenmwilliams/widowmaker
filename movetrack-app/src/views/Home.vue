@@ -427,6 +427,8 @@ const planRows = [
 }
 
 .brand {
+  display: flex;
+  align-items: center;
   font-weight: 700;
   letter-spacing: -0.4px;
   color: #1f2a44;

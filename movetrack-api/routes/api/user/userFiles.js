@@ -3,58 +3,67 @@ const router = express.Router();
 const multer = require('multer');
 const { authenticate } = require('../../../services/infra/authService');
 const {
-  storage,
   isLocalEnvironment,
   signUrl,
   publicUrlToPath,
-  generateUniqueFilename,
   streamFileToResponse,
   deleteGcsFile,
 } = require('../../../services/infra/gcsService');
-const knex = require('../../../services/infra/knex');
+const mediaAssetService = require('../../../services/infra/mediaAssetService');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+
+// ─── GET /local/:bucket/* ─────────────────────────────────────────────────────
+// Local-dev only: stream a file from .local-storage so uploads done via
+// mediaAssetService in local mode can be previewed in the UI. No auth here —
+// local dev only, scoped to LOCAL_STORAGE_ROOT by the service's path resolver.
+router.get('/local/:bucket/*', (req, res) => {
+  if (!isLocalEnvironment) {
+    return res.status(404).send('Not found');
+  }
+  const gcsPath = req.params[0];
+  const absPath = mediaAssetService.resolveLocalPath(req.params.bucket, gcsPath);
+  if (!absPath) return res.status(400).send('Invalid path');
+  res.sendFile(absPath, (err) => {
+    if (err && !res.headersSent) {
+      res.status(404).send('File not found');
+    }
+  });
+});
 
 router.use(authenticate);
 
 // ─── POST /upload/:bucket ─────────────────────────────────────────────────────
-// Upload a file to a GCS bucket. Local dev returns a base64 data URL.
-// Tracks the upload in image_uploads for GDPR compliance.
+// Upload a file and create an image_uploads row. The :bucket param is kept for
+// backward compatibility with existing frontend callers but all writes go
+// through mediaAssetService, which decides the canonical path and storage
+// backend (GCS in prod, .local-storage in dev).
 router.post('/upload/:bucket', upload.single('file'), async (req, res) => {
-  const { bucket } = req.params;
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
-  if (isLocalEnvironment) {
-    const base64Data = req.file.buffer.toString('base64');
-    return res.json({ url: `data:${req.file.mimetype};base64,${base64Data}` });
-  }
-
-  const folder = req.query.folder || 'uploads';
-  const fileName = `${folder}/${generateUniqueFilename(req.file.originalname, req.file.mimetype)}`;
-  const publicUrl = `https://storage.googleapis.com/${bucket}/${fileName}`;
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
-    const file = storage.bucket(bucket).file(fileName);
-    await new Promise((resolve, reject) => {
-      const stream = file.createWriteStream({ metadata: { contentType: req.file.mimetype }, resumable: false });
-      stream.on('error', reject);
-      stream.on('finish', resolve);
-      stream.end(req.file.buffer);
+    const asset = await mediaAssetService.ingestUpload({
+      userId,
+      buffer: req.file.buffer,
+      mimeType: req.file.mimetype,
+      originalName: req.file.originalname,
+      source: 'inventory_item',
+      folderHint: req.query.folder || 'uploads',
+      bucket: req.params.bucket,
+      metadata: { requested_bucket: req.params.bucket },
     });
 
-    // Track for GDPR cleanup (non-critical)
-    knex('image_uploads').insert({
-      user_id: req.user?.user_id || null,
-      image_url: publicUrl,
-      gcs_bucket: bucket,
-      gcs_path: fileName,
-      file_size: req.file.size,
-      mime_type: req.file.mimetype,
-      uploaded_at: new Date(),
-      is_orphaned: true,
-    }).catch((err) => console.error('[userFiles] Failed to track upload:', err.message));
-
-    const signedUrl = await signUrl(fileName).catch(() => publicUrl);
-    res.json({ url: publicUrl, signed_url: signedUrl, fileName, bucket, size: req.file.size });
+    res.json({
+      url: asset.url,
+      signed_url: asset.url,
+      fileName: asset.gcsPath,
+      bucket: asset.bucket,
+      size: asset.size,
+      assetId: asset.assetId,
+    });
   } catch (err) {
     console.error('[userFiles] Upload failed:', err.message);
     res.status(500).send('Internal server error.');

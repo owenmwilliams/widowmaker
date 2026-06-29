@@ -7,7 +7,7 @@ const { getItemsByContainer, getSingleItem, getAllItems } = require('../../../se
 const { parsePagination } = require('../../../services/infra/pagination');
 const { createItem, updateItemById, deleteItem, assignItemQr } = require('../../../services/inventory/inventoryMutationService');
 const { runItemEstimate } = require('../../../services/inventory/itemEstimationService');
-const { markImageLinked } = require('../../../services/infra/imageCleanupService');
+const { markAssetLinkedByUrl } = require('../../../services/infra/mediaAssetService');
 
 /* GET items by container. */
 router.get('/', async function(req, res, next) {
@@ -179,7 +179,7 @@ router.put('/update', async function(req, res, next) {
     }
 
     if (params.picture_url) {
-      await markImageLinked(params.picture_url, req.query.item_id);
+      await markAssetLinkedByUrl(params.picture_url, req.query.item_id);
     }
 
     res.send('OK');
