@@ -33,12 +33,18 @@ Connection is read from `MT_DATALAYER_{HOSTNAME,PORT,USERNAME,PASSWORD,DATABASE}
 ## How adoption works (important for the existing prod DB)
 
 The production database's schema was built up over time by the old loop, so it
-already contains every migration. On the **first** run of the new runner there is
-no `schema_migrations` table yet but the schema is present (sentinel: the `users`
-table exists). The runner detects this and **baselines** — records all current
-migration files as applied **without executing them**. From then on only
-genuinely new files run. This means the new system can be rolled out against prod
-with zero risk of re-running historical migrations.
+already contains every migration through the pre-runner boundary
+(`026_add_beta_instrumentation.sql`, `LEGACY_BASELINE_THROUGH` in `bin/migrate.js`).
+On the **first** run of the new runner there is no `schema_migrations` table yet
+but the schema is present (sentinel: the `users` table exists). The runner detects
+this and **adopts**: it records migrations *through the legacy boundary* as applied
+**without executing them**, then **applies** any genuinely new migration (e.g. the
+first one added under the runner, `027_add_user_costs.sql`) in the same run. This
+means the new system rolls out against prod with zero risk of re-running history,
+while still applying new migrations.
+
+(The explicit `baseline` command, by contrast, records *all* current files as
+applied and runs nothing — use it when provisioning from a complete prod dump.)
 
 ## Provisioning a brand-new environment (staging / fresh)
 

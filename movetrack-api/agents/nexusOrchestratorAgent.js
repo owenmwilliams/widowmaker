@@ -5,6 +5,7 @@ const conn = require('../services/infra/db');
 const db = conn.db;
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { sanitizeForPrompt, fenceUntrusted } = require('../services/infra/promptSafety');
+const { wrapModelForCost } = require('../services/infra/cost/aiCostService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const { buildToolHandlers } = require('../services/workflow/agentDelegationService');
 const { getAllowedDecisions, POLICY_DEFAULTS, buildDecisionPrompt, parseDecisionResponse, validateDecision } = require('./schemas/orchestratorPolicy');
@@ -442,12 +443,12 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
   // ── 7. Call Gemini ──────────────────────────────────────────────────────
   // Always use flash for the orchestrator loop — fast + reliable tool-calling.
   const modelId = 'gemini-2.5-flash';
-  const model = geminiClient.getGenerativeModel({
+  const model = wrapModelForCost(geminiClient.getGenerativeModel({
     model: modelId,
     systemInstruction,
     tools: [{ functionDeclarations: toolDeclarations }],
     generationConfig: { maxOutputTokens: 2048 },
-  });
+  }), { userId, modelName: modelId });
 
   const toolHandlers = buildToolHandlers(userId, attachments, plan, onEvent);
   const actions = [];

@@ -37,6 +37,12 @@ const MIGRATIONS_DIR = path.join(__dirname, '..', 'migrations');
 const MIGRATION_RE = /^\d{3,}_.*\.sql$/;        // NNN_description.sql only
 const SENTINEL_TABLE = 'users';                 // presence ⇒ schema already exists
 
+// The last migration applied by the pre-runner deploy loop. When auto-adopting an
+// existing database, everything up to and including this is recorded as already
+// applied (it was); migrations after it are genuinely new and get executed.
+// (Filenames are zero-padded 3-digit, so a lexical comparison is order-correct.)
+const LEGACY_BASELINE_THROUGH = '026_add_beta_instrumentation.sql';
+
 function connectionConfig() {
   const host = process.env.MT_DATALAYER_HOSTNAME;
   const cfg = {
@@ -116,10 +122,21 @@ async function run() {
     // is already present (production built by the legacy loop, or a prod dump).
     if (!trackingExisted) {
       const schemaPresent = await tableExists(client, SENTINEL_TABLE);
-      if (schemaPresent || cmd === 'baseline') {
+      if (cmd === 'baseline') {
+        // Explicit adopt of a COMPLETE schema (e.g. provisioned from a prod dump):
+        // record every current migration as applied, run nothing.
         await recordAll(client, files);
-        console.log(`[migrate] baselined ${files.length} existing migration(s) — no SQL executed.`);
-        if (cmd === 'baseline') return;
+        console.log(`[migrate] baselined ${files.length} migration(s) — no SQL executed.`);
+        return;
+      }
+      if (schemaPresent) {
+        // Auto-adopt the existing production schema: mark migrations through the
+        // legacy baseline as already-applied (the old loop ran them), then fall
+        // through to APPLY anything newer (e.g. the first migration added under
+        // the new runner).
+        const through = files.filter((f) => f <= LEGACY_BASELINE_THROUGH);
+        await recordAll(client, through);
+        console.log(`[migrate] adopted existing database: baselined ${through.length} migration(s) through ${LEGACY_BASELINE_THROUGH}.`);
       }
     } else if (cmd === 'baseline') {
       const applied = await appliedSet(client);

@@ -7,6 +7,7 @@ const mutation = require('../services/inventory/inventoryMutationService');
 const { searchItems, getItemPhoto } = require('../services/inventory/inventoryItemQueryService');
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { sanitizeForPrompt, fenceUntrusted } = require('../services/infra/promptSafety');
+const { wrapModelForCost } = require('../services/infra/cost/aiCostService');
 const { getMissingContext, inventoryReadinessAssessment } = require('../services/inventory/inventoryMaturityService');
 const duplicates = require('../services/inventory/duplicateDetectionService');
 const media = require('../services/inventory/mediaInventoryWorkflowService');
@@ -542,12 +543,12 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   // Always use flash for the agent loop — fast + reliable tool-calling.
   // Vision functions handle their own model selection based on plan.
   const modelId = 'gemini-2.5-flash';
-  const model = geminiClient.getGenerativeModel({
+  const model = wrapModelForCost(geminiClient.getGenerativeModel({
     model: modelId,
     systemInstruction,
     tools: [{ functionDeclarations: toolDeclarations }],
     generationConfig: { maxOutputTokens: 4096 },
-  });
+  }), { userId, modelName: modelId });
 
   const actions = [];
   let maxToolRounds = 8; // Safety limit to prevent infinite loops
