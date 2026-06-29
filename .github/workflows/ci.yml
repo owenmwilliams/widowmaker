@@ -25,6 +25,56 @@ jobs:
       # DB-free unit tests (the integration suites need Postgres and run elsewhere).
       - run: npm run test:unit
 
+  schema-drift:
+    name: Schema drift (init vs migrations)
+    runs-on: ubuntu-latest
+    # Builds a database the way a fresh deployment does — db/init-movetrack.sql
+    # then the migration runner — and fails if any table/column/index a migration
+    # declares is missing from it. This is the guard that catches init drifting out
+    # of sync with the migrations (the locations.lat/lng class of bug).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: movetrack
+          POSTGRES_PASSWORD: movetrack
+          POSTGRES_DB: movetrack_drift
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U movetrack"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: movetrack
+      PGPASSWORD: movetrack
+      PGDATABASE: movetrack_drift
+      MT_DATALAYER_HOSTNAME: localhost
+      MT_DATALAYER_PORT: '5432'
+      MT_DATALAYER_USERNAME: movetrack
+      MT_DATALAYER_PASSWORD: movetrack
+      MT_DATALAYER_DATABASE: movetrack_drift
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: movetrack-api/package-lock.json
+      - name: Install API deps
+        working-directory: movetrack-api
+        run: npm ci
+      - name: Build fresh schema (init + migration runner)
+        run: |
+          psql -v ON_ERROR_STOP=1 -q -f db/init-movetrack.sql
+          node movetrack-api/bin/migrate.js
+      - name: Check for schema drift
+        working-directory: movetrack-api
+        run: npm run check:schema-drift
+
   web-build:
     name: Web build
     runs-on: ubuntu-latest
