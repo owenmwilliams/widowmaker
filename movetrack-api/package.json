@@ -5,6 +5,8 @@
   "private": true,
   "scripts": {
     "start": "node ./bin/www.js",
+    "migrate": "node ./bin/migrate.js",
+    "migrate:status": "node ./bin/migrate.js status",
     "test": "jest",
     "test:unit": "jest tests/unit",
     "test:watch": "jest --watch",

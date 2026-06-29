@@ -6,7 +6,9 @@
 -- 3. Containers and items inherit location from their collection
 -- 4. Items in containers must belong to the same collection (enforced by trigger)
 
-\connect movetrack_db;
+-- NOTE: the target database is chosen by the connection (psql -d / runner env),
+-- never hardcoded here. A hardcoded "\connect movetrack_db" previously made this
+-- script silently write to the wrong database.
 
 -- Enable UUID extension for user_id generation
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -680,7 +682,7 @@ CREATE INDEX idx_auth_tokens_token ON auth_tokens(token);
 CREATE INDEX idx_auth_tokens_expires_at ON auth_tokens(expires_at);
 CREATE INDEX idx_login_history_user_id ON login_history(user_id);
 CREATE INDEX idx_login_history_created_at ON login_history(created_at);
-CREATE INDEX idx_users_email ON users(email);
+-- (idx_users_email is already created above with the user-lookup indexes)
 
 -- Track AI-generated size/weight estimates for inventory items
 CREATE TABLE item_estimate_events (
