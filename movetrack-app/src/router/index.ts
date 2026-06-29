@@ -5,7 +5,6 @@ import Profile from '../views/Profile.vue'
 import Login from '../views/Login.vue'
 import PrivacyPolicy from '../views/PrivacyPolicy.vue'
 import TermsAndConditions from '../views/TermsAndConditions.vue'
-import LearningCenter from '../views/LearningCenter.vue'
 import Pricing from '../views/Pricing.vue'
 import Items from '../views/Items.vue'
 import MobileLocations from '../views/MobileLocations.vue'
@@ -208,11 +207,6 @@ const router = createRouter({
       name: "profile",
       component: Profile,
       beforeEnter: authGuard
-    },
-    {
-      path: "/learn",
-      name: "learn",
-      component: LearningCenter,
     },
     {
       path: "/privacypolicy",
