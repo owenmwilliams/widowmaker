@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../../services/infra/authService');
-const { cleanupOrphanedImages } = require('../../services/infra/imageCleanupService');
+const { cleanupUnlinkedAssets } = require('../../services/infra/mediaAssetService');
+const { getReadiness } = require('../../services/infra/healthService');
 
 router.use(authenticate);
 router.use((req, res, next) => {
@@ -12,14 +13,14 @@ router.use((req, res, next) => {
 /**
  * POST /admin/maintenance/cleanup-orphaned-images
  * Automated cleanup for Cloud Scheduler.
- * Deletes orphaned images older than MAX_AGE_HOURS (default 48h).
+ * Deletes unlinked media assets older than MAX_AGE_HOURS (default 48h).
  */
 router.post('/cleanup-orphaned-images', async (_req, res) => {
   try {
-    const result = await cleanupOrphanedImages();
+    const result = await cleanupUnlinkedAssets();
     res.json({
       success: true,
-      message: result.deleted === 0 ? 'No orphaned images to clean up' : 'Orphaned image cleanup completed',
+      message: result.deleted === 0 ? 'No unlinked assets to clean up' : 'Unlinked asset cleanup completed',
       ...result,
     });
   } catch (err) {
@@ -49,11 +50,11 @@ router.post('/reindex-vectors', (_req, res) => {
 
 /**
  * GET /admin/maintenance/health
- * Internal health check for dependent services (DB, GCS, Gemini).
- * TODO: implement
+ * Internal readiness check for dependent services (currently the database).
  */
-router.get('/health', (_req, res) => {
-  res.status(501).json({ error: 'Not yet implemented' });
+router.get('/health', async (_req, res) => {
+  const health = await getReadiness();
+  res.status(health.ok ? 200 : 503).json(health);
 });
 
 module.exports = router;

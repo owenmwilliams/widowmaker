@@ -5,6 +5,7 @@ const conn = require('../services/infra/db');
 const db = conn.db;
 const { getInventoryTotals, getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
+const { AGENT_LIMITS } = require('./schemas/orchestratorPolicy');
 
 // Vector services
 const { recommendTruckSize } = require('../services/move/trucksService');
@@ -330,12 +331,17 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   });
 
   const actions = [];
-  let maxToolRounds = 8;
+  let maxToolRounds = AGENT_LIMITS.specialistMaxToolRounds;
+  let vectorRound = 0;
+
+  console.log(`[vector] Starting loop — ${maxToolRounds} rounds max`);
 
   emit('thinking');
   let result = await model.generateContent({ contents });
 
   while (maxToolRounds > 0) {
+    vectorRound++;
+    console.log(`[vector] ── Round ${vectorRound}/${AGENT_LIMITS.specialistMaxToolRounds} ──`);
     const response = result.response;
     const candidate = response.candidates?.[0];
     if (!candidate) break;
@@ -345,6 +351,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     const textParts = parts.filter(p => p.text);
 
     if (functionCalls.length === 0) {
+      console.log(`[vector] Final response after ${vectorRound} round(s), ${actions.length} tool call(s)`);
       const rawText = textParts.map(p => p.text).join('\n');
 
       // Build structured SpecialistResponse
@@ -443,9 +450,11 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     emit('thinking');
     result = await model.generateContent({ contents });
     maxToolRounds--;
+    console.log(`[vector] Round ${vectorRound} complete — ${maxToolRounds} round(s) remaining, ${actions.length} tool call(s) so far`);
   }
 
   // Fallback if we hit max rounds
+  console.warn(`[vector] Round limit exhausted after ${vectorRound} rounds, ${actions.length} tool call(s) — returning fallback`);
   const fallbackReply = 'I\'ve finished analyzing your move. Let me know what else you\'d like to know!';
   const fallbackResponse = buildFallbackResponse(fallbackReply, 'vector', actions, true);
 

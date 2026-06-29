@@ -13,8 +13,13 @@ const express = require('express');
 const router = express.Router();
 const nodemailer = require('nodemailer');
 const multer = require('multer');
+const { authenticate } = require('../../services/infra/authService');
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+// These routes send mail on the user's behalf — never expose them as an open relay.
+// The global requireAuth gate already covers them; this is explicit defense-in-depth.
+router.use(authenticate);
 
 // ── SMTP transport ─────────────────────────────────────────────────────────────
 

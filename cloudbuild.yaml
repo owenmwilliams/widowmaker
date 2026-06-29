@@ -1,5 +1,19 @@
 # Cloud Build configuration for automated deployments
 steps:
+  # Run API unit tests (DB-free) — gates the build. Integration suites in
+  # movetrack-api/tests/*.test.js require a Postgres instance and are run
+  # separately; wire a Cloud SQL/Postgres service in here to include them.
+  - name: 'node:18'
+    id: 'test-api'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -e
+        cd movetrack-api
+        npm ci --no-audit --no-fund
+        npm run test:unit
+
   # Build API Docker image
   - name: 'gcr.io/cloud-builders/docker'
     args:
@@ -11,6 +25,7 @@ steps:
       - 'us-central1-docker.pkg.dev/$PROJECT_ID/movetrack-repo/movetrack-api:latest'
       - './movetrack-api'
     id: 'build-api'
+    waitFor: ['test-api']
 
   # Debug secret visibility (optional safety net)
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -67,51 +82,63 @@ steps:
     id: 'push-app'
     waitFor: ['build-app']
 
-  # Run database migrations (with Cloud SQL Proxy started in-process)
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:alpine'
-    entrypoint: sh
+  # Snapshot the database BEFORE migrations so every deploy has a restore point.
+  # If the backup fails the build stops here — we never migrate without a restore
+  # point. Recovery from this backup is documented in docs/plan/backup-and-recovery.md.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'backup-db'
+    entrypoint: 'bash'
     args:
       - '-c'
       - |
-        set -eu
+        set -euo pipefail
+        echo "Creating pre-migration backup of $_CLOUD_SQL_INSTANCE ..."
+        gcloud sql backups create \
+          --instance="$_CLOUD_SQL_INSTANCE" \
+          --project="$PROJECT_ID" \
+          --description="pre-migrate ${SHORT_SHA:-manual}"
+    waitFor: ['-']
 
-        # Install PostgreSQL client and download Cloud SQL Proxy
-        apk add --no-cache postgresql-client wget
-        wget -q https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.2/cloud-sql-proxy.linux.amd64 -O /cloud-sql-proxy
+  # Run database migrations via the tracked runner (bin/migrate.js).
+  # Fails the build on the first migration error — no more `set +e` swallowing.
+  # On the existing production database (no schema_migrations table yet) the runner
+  # auto-baselines: it records the current migrations as applied without re-running
+  # them, then applies only genuinely new migrations on subsequent deploys.
+  - name: 'node:18'
+    entrypoint: 'bash'
+    secretEnv: ['DB_PASS']
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+
+        # Download + start Cloud SQL Proxy
+        curl -sS -o /cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.8.2/cloud-sql-proxy.linux.amd64
         chmod +x /cloud-sql-proxy
-
-        # Start Cloud SQL Proxy in background
         /cloud-sql-proxy --port 5432 $_CLOUD_SQL_CONNECTION &
         PROXY_PID=$$!
 
-        # Wait for proxy to be ready
-        echo "Waiting for Cloud SQL Proxy to start..."
-        sleep 10
-
-        # Get database password from Secret Manager
-        DB_PASS=$$(gcloud secrets versions access latest --secret=movetrack-db-password --project=$PROJECT_ID)
-
-        # Run all migration files in order (sorted numerically)
-        # Temporarily disable exit-on-error for migrations since many reference columns that were later renamed/removed
-        echo "Running migrations from movetrack-api/migrations/..."
-        set +e
-        for file in $$(ls movetrack-api/migrations/*.sql 2>/dev/null | sort -V); do
-          echo "Running migration: $$file"
-          PGPASSWORD=$$DB_PASS psql -h 127.0.0.1 -U $_DB_USER -d $_DB_NAME -f "$$file"
-          if [ $$? -eq 0 ]; then
-            echo "✓ $$file completed successfully"
-          else
-            echo "⚠ $$file may have already been applied or contains historical references"
-          fi
+        # Wait for the proxy to accept connections
+        echo "Waiting for Cloud SQL Proxy..."
+        for i in $$(seq 1 30); do
+          (echo > /dev/tcp/127.0.0.1/5432) >/dev/null 2>&1 && break
+          sleep 1
         done
-        set -e
 
-        # Stop the proxy
+        cd movetrack-api
+        npm install pg@^8 --no-save --no-audit --no-fund
+
+        MT_DATALAYER_HOSTNAME=127.0.0.1 \
+        MT_DATALAYER_PORT=5432 \
+        MT_DATALAYER_USERNAME=$_DB_USER \
+        MT_DATALAYER_PASSWORD=$$DB_PASS \
+        MT_DATALAYER_DATABASE=$_DB_NAME \
+        node bin/migrate.js
+
         kill $$PROXY_PID 2>/dev/null || true
-
-        echo "All migrations processing completed!"
+        echo "Migrations complete."
     id: 'run-migrations'
-    waitFor: ['build-api']
+    waitFor: ['build-api', 'backup-db']
 
   # Deploy API to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -163,6 +190,7 @@ images:
 # Substitution variables (will be configured in Cloud Build trigger)
 substitutions:
   _CLOUD_SQL_CONNECTION: 'widowmaker-477505:us-central1:movetrack-db'
+  _CLOUD_SQL_INSTANCE: 'movetrack-db'
   _DB_NAME: 'movetrack_db'
   _DB_USER: 'movetrack_user'
 
@@ -174,3 +202,5 @@ availableSecrets:
   secretManager:
     - versionName: projects/$PROJECT_ID/secrets/google-browser-key/versions/latest
       env: 'GOOGLE_MAPS_BROWSER_KEY'
+    - versionName: projects/$PROJECT_ID/secrets/movetrack-db-password/versions/latest
+      env: 'DB_PASS'

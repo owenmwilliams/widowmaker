@@ -4,9 +4,10 @@ const { signItemUrls } = require('../../../services/infra/gcsService');
 const gcs = require('../../../services/infra/gcsService');
 const { parseDimensionString, normalizeTags } = require('../../../services/inventory/itemParsingUtils');
 const { getItemsByContainer, getSingleItem, getAllItems } = require('../../../services/inventory/inventoryItemQueryService');
+const { parsePagination } = require('../../../services/infra/pagination');
 const { createItem, updateItemById, deleteItem, assignItemQr } = require('../../../services/inventory/inventoryMutationService');
 const { runItemEstimate } = require('../../../services/inventory/itemEstimationService');
-const { markImageLinked } = require('../../../services/infra/imageCleanupService');
+const { markAssetLinkedByUrl } = require('../../../services/infra/mediaAssetService');
 
 /* GET items by container. */
 router.get('/', async function(req, res, next) {
@@ -44,7 +45,8 @@ router.get('/all', async function(req, res, next) {
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
-    const data = await getAllItems(userId);
+    // Bounded by a safety cap; supports optional ?limit= & ?offset= paging.
+    const data = await getAllItems(userId, parsePagination(req.query));
     res.send(await signItemUrls(data));
   } catch (err) {
     next(err);
@@ -177,7 +179,7 @@ router.put('/update', async function(req, res, next) {
     }
 
     if (params.picture_url) {
-      await markImageLinked(params.picture_url, req.query.item_id);
+      await markAssetLinkedByUrl(params.picture_url, req.query.item_id);
     }
 
     res.send('OK');

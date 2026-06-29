@@ -12,6 +12,7 @@ const {
   deleteCollection,
   updateCollection,
 } = require('../../../services/inventory/inventoryMutationService');
+const { parsePagination } = require('../../../services/infra/pagination');
 
 router.use(authenticate);
 
@@ -41,7 +42,7 @@ router.get('/all', async (req, res, next) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const data = await getAllCollections(userId);
+    const data = await getAllCollections(userId, parsePagination(req.query));
     res.send(data);
   } catch (err) {
     next(err);
@@ -52,7 +53,7 @@ router.get('/all/grouped', async (req, res, next) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
   try {
-    const data = await getAllCollectionsGrouped(userId);
+    const data = await getAllCollectionsGrouped(userId, parsePagination(req.query));
     res.send(data);
   } catch (err) {
     next(err);

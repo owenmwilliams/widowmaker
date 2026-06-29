@@ -6,7 +6,9 @@
 -- 3. Containers and items inherit location from their collection
 -- 4. Items in containers must belong to the same collection (enforced by trigger)
 
-\connect movetrack_db;
+-- NOTE: the target database is chosen by the connection (psql -d / runner env),
+-- never hardcoded here. A hardcoded "\connect movetrack_db" previously made this
+-- script silently write to the wrong database.
 
 -- Enable UUID extension for user_id generation
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -680,7 +682,7 @@ CREATE INDEX idx_auth_tokens_token ON auth_tokens(token);
 CREATE INDEX idx_auth_tokens_expires_at ON auth_tokens(expires_at);
 CREATE INDEX idx_login_history_user_id ON login_history(user_id);
 CREATE INDEX idx_login_history_created_at ON login_history(created_at);
-CREATE INDEX idx_users_email ON users(email);
+-- (idx_users_email is already created above with the user-lookup indexes)
 
 -- Track AI-generated size/weight estimates for inventory items
 CREATE TABLE item_estimate_events (
@@ -707,6 +709,27 @@ CREATE TABLE item_estimate_events (
 CREATE INDEX idx_item_estimate_events_item_id ON item_estimate_events(item_id);
 CREATE INDEX idx_item_estimate_events_user_id ON item_estimate_events(user_id);
 CREATE INDEX idx_item_estimate_events_created_at ON item_estimate_events(created_at);
+
+-- Image uploads tracking (from migration 023). Baseline so fresh builds match
+-- production; migration 028 (unified media assets) extends this table.
+CREATE TABLE IF NOT EXISTS image_uploads (
+    id SERIAL PRIMARY KEY,
+    user_id UUID NOT NULL,
+    image_url TEXT NOT NULL,
+    gcs_bucket TEXT NOT NULL,
+    gcs_path TEXT NOT NULL,
+    file_size INTEGER,
+    mime_type VARCHAR(50),
+    uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    linked_to_item_id INTEGER REFERENCES items(id) ON DELETE SET NULL,
+    linked_at TIMESTAMP,
+    is_orphaned BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_image_uploads_user_id ON image_uploads(user_id);
+CREATE INDEX IF NOT EXISTS idx_image_uploads_orphaned ON image_uploads(is_orphaned, uploaded_at);
+CREATE INDEX IF NOT EXISTS idx_image_uploads_item_id ON image_uploads(linked_to_item_id);
+CREATE INDEX IF NOT EXISTS idx_image_uploads_url ON image_uploads(image_url);
 
 -- ============================================================================
 -- COMMENTS FOR DOCUMENTATION

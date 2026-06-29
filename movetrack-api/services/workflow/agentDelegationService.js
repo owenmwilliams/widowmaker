@@ -16,20 +16,20 @@ const { validateSpecialistResponse } = require('../../agents/schemas/specialistR
 function buildToolHandlers(userId, attachments, plan, onEvent) {
   // Wrap onEvent so worker agents' 'done' and 'error' events don't leak
   // into the orchestrator's SSE stream (orchestrator emits its own 'done').
-  // Tag each bubbled-up event with the source agent name.
+  // Tag each bubbled-up event with the source agent name and delegationId.
   const makeWorkerEvent = onEvent
-    ? (agentName) => (event) => {
+    ? (agentName, delegationId) => (event) => {
         if (event.type !== 'done' && event.type !== 'error') {
-          onEvent({ ...event, source: agentName });
+          onEvent({ ...event, source: agentName, ...(delegationId ? { delegationId } : {}) });
         }
       }
     : () => null;
 
   return {
-    async delegate_to_census(args) {
+    async delegate_to_census(args, delegationId) {
       const workerAttachments = args.include_attachments ? attachments : [];
       const result = await censusAgent.processMessage(
-        userId, args.message, workerAttachments, plan, makeWorkerEvent('census')
+        userId, args.message, workerAttachments, plan, makeWorkerEvent('census', delegationId)
       );
       try {
         const validated = validateSpecialistResponse(result);
@@ -47,9 +47,9 @@ function buildToolHandlers(userId, attachments, plan, onEvent) {
       }
     },
 
-    async delegate_to_vector(args) {
+    async delegate_to_vector(args, delegationId) {
       const result = await vectorAgent.processMessage(
-        userId, args.message, [], plan, makeWorkerEvent('vector')
+        userId, args.message, [], plan, makeWorkerEvent('vector', delegationId)
       );
       try {
         const validated = validateSpecialistResponse(result);

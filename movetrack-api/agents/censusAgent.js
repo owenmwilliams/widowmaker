@@ -6,6 +6,8 @@ const db = conn.db;
 const mutation = require('../services/inventory/inventoryMutationService');
 const { searchItems, getItemPhoto } = require('../services/inventory/inventoryItemQueryService');
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
+const { sanitizeForPrompt, fenceUntrusted } = require('../services/infra/promptSafety');
+const { instrumentModel, AiUnavailableError } = require('../services/infra/ai/resilientModel');
 const { getMissingContext, inventoryReadinessAssessment } = require('../services/inventory/inventoryMaturityService');
 const duplicates = require('../services/inventory/duplicateDetectionService');
 const media = require('../services/inventory/mediaInventoryWorkflowService');
@@ -13,6 +15,7 @@ const { getConversationStarters } = require('../services/infra/agentSessionServi
 const { estimateMissingItems } = require('../services/move/moveSummaryService');
 const { buildGeminiContents } = require('../services/infra/geminiHistoryBuilder');
 const metrics = require('../services/infra/metricsService');
+const { AGENT_LIMITS } = require('./schemas/orchestratorPolicy');
 const { parseJsonBlock, deriveFieldsFromActions, buildSpecialistResponse, buildFallbackResponse } = require('./schemas/specialistResponse');
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
@@ -437,7 +440,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     if (onEvent) onEvent({ type, ...data });
   };
   if (!geminiClient) {
-    throw new Error('GOOGLE_AI_API_KEY is not configured');
+    console.error('[census] GOOGLE_AI_API_KEY is not configured — AI unavailable');
+    throw new AiUnavailableError();
   }
 
   // ── 1. Resolve active session (one per user) ──────────────────────────────
@@ -515,12 +519,14 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     [userId]
   );
   const userContext = user
-    ? `Name: ${user.first_name || 'Unknown'} ${user.last_name || ''}\nOnboarding completed: ${user.onboarding_completed}`
+    ? `Name: ${sanitizeForPrompt(`${user.first_name || 'Unknown'} ${user.last_name || ''}`, 200)}\nOnboarding completed: ${user.onboarding_completed}`
     : 'Unknown user';
 
+  // User profile + inventory text are user-controlled — fence them as untrusted
+  // data so a crafted name/item can't override the system instructions.
   let systemInstruction = SYSTEM_PROMPT
-    .replace('{{USER_CONTEXT}}', userContext)
-    .replace('{{INVENTORY_SNAPSHOT}}', inventorySnapshot);
+    .replace('{{USER_CONTEXT}}', fenceUntrusted('USER PROFILE', userContext, 500))
+    .replace('{{INVENTORY_SNAPSHOT}}', fenceUntrusted('INVENTORY SNAPSHOT', inventorySnapshot, 8000));
 
   // Inject conversation starters for new sessions
   if (historyRows.length === 0) {
@@ -539,15 +545,18 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   // Always use flash for the agent loop — fast + reliable tool-calling.
   // Vision functions handle their own model selection based on plan.
   const modelId = 'gemini-2.5-flash';
-  const model = geminiClient.getGenerativeModel({
+  const model = instrumentModel(geminiClient.getGenerativeModel({
     model: modelId,
     systemInstruction,
     tools: [{ functionDeclarations: toolDeclarations }],
     generationConfig: { maxOutputTokens: 4096 },
-  });
+  }), { userId, modelName: modelId });
 
   const actions = [];
-  let maxToolRounds = 8; // Safety limit to prevent infinite loops
+  let maxToolRounds = AGENT_LIMITS.specialistMaxToolRounds;
+  let censusRound = 0;
+
+  console.log(`[census] Starting loop — ${maxToolRounds} rounds max`);
 
   emit('thinking');
   let geminiCallStart = Date.now();
@@ -556,6 +565,8 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   geminiRounds++;
 
   while (maxToolRounds > 0) {
+    censusRound++;
+    console.log(`[census] ── Round ${censusRound}/${AGENT_LIMITS.specialistMaxToolRounds} ──`);
     const response = result.response;
     const candidate = response.candidates?.[0];
     if (!candidate) break;
@@ -577,6 +588,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
     if (functionCalls.length === 0) {
       // No more tool calls — this is the final text response
+      console.log(`[census] Final response after ${censusRound} round(s), ${actions.length} tool call(s)`);
       const rawText = textParts.map(p => p.text).join('\n');
 
       // Build structured SpecialistResponse
@@ -732,9 +744,11 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     geminiTotalMs += Date.now() - geminiCallStart;
     geminiRounds++;
     maxToolRounds--;
+    console.log(`[census] Round ${censusRound} complete — ${maxToolRounds} round(s) remaining, ${actions.length} tool call(s) so far`);
   }
 
   // Fallback if we hit max rounds
+  console.warn(`[census] Round limit exhausted after ${censusRound} rounds, ${actions.length} tool call(s) — returning fallback`);
   const fallbackReply = 'I\'ve processed your request. Let me know what you\'d like to do next!';
   const fallbackResponse = buildFallbackResponse(fallbackReply, 'census', actions, true);
 

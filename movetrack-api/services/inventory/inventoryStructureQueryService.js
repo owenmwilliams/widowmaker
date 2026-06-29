@@ -56,8 +56,8 @@ async function getSingleCollection(userId, collectionId) {
     .andWhere(knex.raw('collections.id = ?', collectionId));
 }
 
-async function getAllCollections(userId) {
-  return knex
+async function getAllCollections(userId, { limit, offset } = {}) {
+  let query = knex
     .select({
       id: 'collections.id',
       name: 'collections.name',
@@ -77,11 +77,16 @@ async function getAllCollections(userId) {
     .leftJoin('items', 'items.container_id', 'containers.id')
     .whereNotNull('collections.id')
     .andWhere(knex.raw('permissions.user_id = ?', userId))
-    .groupBy('locations.id', 'locations.name', 'collections.id', 'collections.name', 'collections.description');
+    .groupBy('locations.id', 'locations.name', 'collections.id', 'collections.name', 'collections.description')
+    .orderBy('collections.id');
+
+  if (Number.isFinite(limit)) query = query.limit(limit);
+  if (Number.isFinite(offset) && offset > 0) query = query.offset(offset);
+  return query;
 }
 
-async function getAllCollectionsGrouped(userId) {
-  return knex.with(
+async function getAllCollectionsGrouped(userId, { limit, offset } = {}) {
+  let query = knex.with(
     'ONE',
     knex.raw(
       `SELECT
@@ -101,7 +106,12 @@ async function getAllCollectionsGrouped(userId) {
   .select('location_id', 'location_name',
     knex.raw('JSON_AGG(collections_json) AS collections'))
   .from('ONE')
-  .groupBy('location_id', 'location_name');
+  .groupBy('location_id', 'location_name')
+  .orderBy('location_id');
+
+  if (Number.isFinite(limit)) query = query.limit(limit);
+  if (Number.isFinite(offset) && offset > 0) query = query.offset(offset);
+  return query;
 }
 
 // ── Containers ────────────────────────────────────────────────────────────────

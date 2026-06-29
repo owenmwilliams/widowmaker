@@ -2,25 +2,25 @@
 'use strict';
 
 /**
- * Job: Cleanup Orphaned Images
+ * Job: Cleanup Unlinked Media Assets
  *
  * Standalone script that can be run directly (node scripts/jobs/cleanupOrphanedImages.js)
- * or scheduled via Cloud Scheduler / cron. Delegates all logic to imageCleanupService.
+ * or scheduled via Cloud Scheduler / cron. Delegates all logic to mediaAssetService.
  *
- * The /admin/cleanup-orphaned-images endpoint also calls this service and is the preferred
- * path for Cloud Scheduler HTTP triggers.
+ * The /admin/maintenance/cleanup-orphaned-images endpoint also calls this service and is
+ * the preferred path for Cloud Scheduler HTTP triggers.
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
-const { cleanupOrphanedImages } = require('../../services/infra/imageCleanupService');
+const { cleanupUnlinkedAssets } = require('../../services/infra/mediaAssetService');
 
 async function run() {
   console.log('========================================');
-  console.log('Orphaned Image Cleanup Job');
+  console.log('Unlinked Media Asset Cleanup Job');
   console.log('========================================');
 
-  const result = await cleanupOrphanedImages();
+  const result = await cleanupUnlinkedAssets();
 
   console.log('');
   console.log('Result:');

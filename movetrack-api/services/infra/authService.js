@@ -248,16 +248,21 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
 async function sendMagicLinkEmail(email, token, baseUrl) {
     const magicLink = `${baseUrl}/login?token=${token}`;
 
-    // Always log to console (useful for development and debugging)
-    console.log('\n' + '='.repeat(80));
-    console.log('MAGIC LINK');
-    console.log('='.repeat(80));
-    console.log(`Email: ${email}`);
-    console.log(`Magic Link: ${magicLink}`);
-    const maskedToken = `${token.slice(0, 4)}…${token.slice(-4)}`;
-    console.log(`Magic link generated for ${email} (token ${maskedToken})`);
-    console.log(`Expires in: ${MAGIC_LINK_EXPIRY_MINUTES} minutes`);
-    console.log('='.repeat(80) + '\n');
+    // SECURITY: never log the full magic link or raw token in production — these
+    // grant account access and would otherwise persist in Cloud Logging.
+    // In non-production, log it to make local/dev login easy.
+    if (!isProduction) {
+        console.log('\n' + '='.repeat(80));
+        console.log('MAGIC LINK (development only)');
+        console.log('='.repeat(80));
+        console.log(`Email: ${email}`);
+        console.log(`Magic Link: ${magicLink}`);
+        console.log(`Expires in: ${MAGIC_LINK_EXPIRY_MINUTES} minutes`);
+        console.log('='.repeat(80) + '\n');
+    } else {
+        const maskedEmail = email.replace(/^(.).*(@.*)$/, '$1***$2');
+        console.log(`[auth] magic link generated for ${maskedEmail} (expires in ${MAGIC_LINK_EXPIRY_MINUTES}m)`);
+    }
 
     // If no email transporter, just log and return success
     if (!emailTransporter) {
@@ -501,12 +506,9 @@ async function logout(sessionToken) {
  */
 async function getUserFromToken(sessionToken) {
     try {
-        console.log('[getUserFromToken] Verifying JWT...');
         // Verify JWT (this checks signature and expiration)
         const decoded = verifySessionToken(sessionToken);
-        console.log('[getUserFromToken] JWT decoded:', decoded ? { userId: decoded.userId, email: decoded.email } : null);
         if (!decoded) {
-            console.log('[getUserFromToken] JWT verification failed');
             return null;
         }
 
@@ -519,7 +521,6 @@ async function getUserFromToken(sessionToken) {
             [hashedToken]
         );
         if (!tokenRecord) {
-            console.log('[getUserFromToken] Session token revoked or expired in DB');
             return null;
         }
 
@@ -527,7 +528,6 @@ async function getUserFromToken(sessionToken) {
         const hasOnboarding = await hasOnboardingColumn();
         const onboardingSelect = hasOnboarding ? ', onboarding_completed' : ', NULL::boolean AS onboarding_completed';
 
-        console.log('[getUserFromToken] Fetching user from database by userId:', decoded.userId);
         // user_id is UUID type
         const user = await db.oneOrNone(
             `SELECT user_id, email, first_name, last_name, email_verified_at${onboardingSelect}
@@ -536,10 +536,7 @@ async function getUserFromToken(sessionToken) {
             [decoded.userId]
         );
 
-        console.log('[getUserFromToken] User from database:', user ? { user_id: user.user_id, email: user.email } : null);
-
         if (!user) {
-            console.log('[getUserFromToken] User not found in database');
             return null;
         }
 
@@ -566,6 +563,11 @@ async function getUserFromToken(sessionToken) {
  */
 async function authenticate(req, res, next) {
     try {
+        // Already authenticated upstream (global requireAuth gate) — don't re-verify.
+        if (req.user) {
+            return next();
+        }
+
         const authHeader = req.headers.authorization;
 
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
