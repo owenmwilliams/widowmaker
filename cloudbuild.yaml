@@ -82,6 +82,23 @@ steps:
     id: 'push-app'
     waitFor: ['build-app']
 
+  # Snapshot the database BEFORE migrations so every deploy has a restore point.
+  # If the backup fails the build stops here — we never migrate without a restore
+  # point. Recovery from this backup is documented in docs/plan/backup-and-recovery.md.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'backup-db'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        echo "Creating pre-migration backup of $_CLOUD_SQL_INSTANCE ..."
+        gcloud sql backups create \
+          --instance="$_CLOUD_SQL_INSTANCE" \
+          --project="$PROJECT_ID" \
+          --description="pre-migrate ${SHORT_SHA:-manual}"
+    waitFor: ['-']
+
   # Run database migrations via the tracked runner (bin/migrate.js).
   # Fails the build on the first migration error — no more `set +e` swallowing.
   # On the existing production database (no schema_migrations table yet) the runner
@@ -121,7 +138,7 @@ steps:
         kill $$PROXY_PID 2>/dev/null || true
         echo "Migrations complete."
     id: 'run-migrations'
-    waitFor: ['build-api']
+    waitFor: ['build-api', 'backup-db']
 
   # Deploy API to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -173,6 +190,7 @@ images:
 # Substitution variables (will be configured in Cloud Build trigger)
 substitutions:
   _CLOUD_SQL_CONNECTION: 'widowmaker-477505:us-central1:movetrack-db'
+  _CLOUD_SQL_INSTANCE: 'movetrack-db'
   _DB_NAME: 'movetrack_db'
   _DB_USER: 'movetrack_user'
 
