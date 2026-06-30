@@ -25,7 +25,7 @@ function generateToken() {
 }
 
 function shareUrl(token) {
-  const base = (process.env.APP_BASE_URL || 'https://reloprep.com').replace(/\/$/, '');
+  const base = (process.env.APP_BASE_URL || 'https://movetrack-app-7hwn7ggbiq-uc.a.run.app').replace(/\/$/, '');
   return `${base}/share/${token}`;
 }
 

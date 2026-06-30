@@ -25,11 +25,14 @@ struct Constants {
     // MARK: - Web App (embedded agent flow)
     // The native app embeds the ReloPrep web experience (onboarding, room-video
     // capture, sharing) via WKWebView. See NexusWebView.
+    // This is the deployed Cloud Run frontend. NOTE: reloprep.com is the branded
+    // domain but currently points at a Squarespace placeholder, not the app —
+    // switch these to https://reloprep.com once it's mapped to the Cloud Run app.
     #if DEBUG
-    static let webAppBaseURL = "https://reloprep.com"
+    static let webAppBaseURL = "https://movetrack-app-7hwn7ggbiq-uc.a.run.app"
     // static let webAppBaseURL = "http://localhost:5173"     // local web (movetrack-app: npm run dev)
     #else
-    static let webAppBaseURL = "https://reloprep.com"
+    static let webAppBaseURL = "https://movetrack-app-7hwn7ggbiq-uc.a.run.app"
     #endif
 
     // MARK: - URL Scheme

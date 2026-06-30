@@ -6,9 +6,10 @@ const QR_TYPES = {
 };
 
 const DEFAULT_BASE_URL =
+  process.env.APP_BASE_URL ||
   process.env.QR_BASE_URL ||
   (process.env.NODE_ENV === 'production'
-    ? 'https://reloprep.com'
+    ? 'https://movetrack-app-7hwn7ggbiq-uc.a.run.app'
     : 'http://localhost:5173');
 
 const buildQrUrl = (type, token) => {

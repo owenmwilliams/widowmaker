@@ -12,7 +12,7 @@ export const inventoryStore = defineStore("inventory", () => {
   const qr_base_url =
     import.meta.env.VITE_QR_BASE_URL ||
     (import.meta.env.MODE === "production"
-      ? "https://reloprep.com"
+      ? "https://movetrack-app-7hwn7ggbiq-uc.a.run.app"
       : typeof window !== "undefined"
         ? window.location.origin
         : "http://localhost:5173");

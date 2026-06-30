@@ -12,7 +12,7 @@ const conn = require('../infra/db');
 const db = conn.db;
 const { signItemUrls } = require('../infra/gcsService');
 
-const QR_BASE_URL = (process.env.APP_BASE_URL || 'https://reloprep.com').replace(/\/$/, '');
+const QR_BASE_URL = (process.env.APP_BASE_URL || 'https://movetrack-app-7hwn7ggbiq-uc.a.run.app').replace(/\/$/, '');
 
 function buildQrUrl(type, token) {
   if (!token) return null;
