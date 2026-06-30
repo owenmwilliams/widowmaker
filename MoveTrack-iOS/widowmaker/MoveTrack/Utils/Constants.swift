@@ -9,8 +9,15 @@ import Foundation
 
 struct Constants {
     // MARK: - API Configuration
+    // DEBUG defaults to PRODUCTION so you can build from Xcode and test against the
+    // live backend (real magic-link emails) with no local server. To develop
+    // against a LOCAL backend, comment the prod line and uncomment the local one.
+    // NOTE: the iOS Simulator reaches your Mac at 127.0.0.1; a REAL device cannot —
+    // use your Mac's LAN IP (e.g. http://192.168.1.20:3050) for device + local dev.
+    // See MoveTrack-iOS/DEV-TESTING.md.
     #if DEBUG
-    static let apiBaseURL = "http://127.0.0.1:3050"
+    static let apiBaseURL = "https://movetrack-api-7hwn7ggbiq-uc.a.run.app"
+    // static let apiBaseURL = "http://127.0.0.1:3050"        // local backend (movetrack-api: npm start)
     #else
     static let apiBaseURL = "https://movetrack-api-7hwn7ggbiq-uc.a.run.app"
     #endif
@@ -19,7 +26,8 @@ struct Constants {
     // The native app embeds the ReloPrep web experience (onboarding, room-video
     // capture, sharing) via WKWebView. See NexusWebView.
     #if DEBUG
-    static let webAppBaseURL = "http://localhost:5173"
+    static let webAppBaseURL = "https://reloprep.com"
+    // static let webAppBaseURL = "http://localhost:5173"     // local web (movetrack-app: npm run dev)
     #else
     static let webAppBaseURL = "https://reloprep.com"
     #endif
