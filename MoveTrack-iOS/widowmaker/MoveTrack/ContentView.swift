@@ -13,10 +13,10 @@ struct ContentView: View {
     var body: some View {
         Group {
             if authViewModel.isAuthenticated, authViewModel.currentUser != nil {
-                // Embed the agent-first web flow (onboarding → room-video capture
-                // → mover-shareable inventory). The native list screens remain in
-                // the codebase but the agent flow is the primary experience.
-                NexusScreen()
+                // The entire post-login experience is the native Nexus agent chat:
+                // describe your home, drop in room videos/photos, and share a
+                // mover-ready inventory. No dashboards — just the agent.
+                NexusChatView()
                     .environmentObject(authViewModel)
             } else {
                 // Show login
