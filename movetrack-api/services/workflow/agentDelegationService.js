@@ -7,6 +7,7 @@ const censusAgent = require('../../agents/censusAgent');
 const vectorAgent = require('../../agents/vectorAgent');
 const onboarding = require('./onboardingService');
 const locationMutation = require('./locationMutationService');
+const shareService = require('../inventory/shareService');
 const { validateSpecialistResponse } = require('../../agents/schemas/specialistResponse');
 
 /**
@@ -107,6 +108,15 @@ function buildToolHandlers(userId, attachments, plan, onEvent) {
 
     async mark_onboarding_complete() {
       return onboarding.markOnboardingComplete(userId);
+    },
+
+    // Create a public, mover-shareable inventory link the user can text/email.
+    async create_share(args = {}) {
+      const share = await shareService.createShare(userId, {
+        title: args.title || null,
+        moveId: args.move_id || null,
+      });
+      return { success: true, url: share.url, token: share.token };
     },
   };
 }
