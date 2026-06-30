@@ -12,6 +12,7 @@ import ItemToggleCard from "../ItemToggleCard.vue";
 import PhotoCapture from "../../capture/PhotoCapture.vue";
 import VideoInventoryScan from "../../capture/VideoInventoryScan.vue";
 import ReloPrepLogo from "../../brand/ReloPrepLogo.vue";
+import ShareInventoryButton from "../ShareInventoryButton.vue";
 import MobileNavDrawer from "../../layout/MobileNavDrawer.vue";
 import MobileSettings from "../../settings/mobile/MobileSettings.vue";
 import draggable from "vuedraggable";
@@ -1152,6 +1153,8 @@ const handleContainerHide = (containerId: string) => {
         <q-toolbar-title class="text-subtitle1 text-weight-medium">
           Inventory
         </q-toolbar-title>
+
+        <ShareInventoryButton flat dense label="" />
 
         <ReloPrepLogo
           :width="30"

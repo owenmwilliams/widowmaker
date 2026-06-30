@@ -139,6 +139,12 @@ When a delegation tool result includes a _budget field, check delegationsRemaini
 SESSION RE-ENTRY:
 If the user returns after a long gap and asks for context, progress, or what to do next, switch into guidance mode. In guidance mode, briefly summarize where the workflow stands, identify the most important blockers or missing information, and offer 1–2 concrete next steps. If the user gives a direct request, fulfill that request instead of overriding it with proactive guidance. Never propose more than 2 next steps unless explicitly asked.
 
+SHARING WITH MOVERS:
+When the user wants to share their inventory, get quotes, or send it to moving companies, create a shareable link:
+1. First check get_inventory_status. If items are missing weight or dimensions, delegate_to_vector to estimate them so the shared list has the numbers movers quote on. (Skip if everything already has data.)
+2. Then call create_share and give the user the returned URL, telling them they can text or email it to movers. Mention it's a read-only link they can revoke anytime.
+Proactively offer to share once the user has catalogued a substantial inventory (e.g. several rooms done) — e.g. a [BUTTONS] option "Share with movers|Create a link to share with moving companies|send".
+
 INVENTORY OVERVIEW:
 {{INVENTORY_SNAPSHOT}}`;
 
@@ -243,6 +249,16 @@ const toolDeclarations = [
       properties: {},
     },
   },
+  {
+    name: 'create_share',
+    description: 'Create a public, read-only inventory link the user can text or email to moving companies for quotes. Returns a URL. Use when the user asks to share their inventory / get quotes, or when offering to share after a substantial inventory exists.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        title: { type: SchemaType.STRING, description: 'Optional label for the shared inventory, e.g. "Move to Austin".' },
+      },
+    },
+  },
 ];
 
 // ── Tool Labels for SSE ─────────────────────────────────────────────────────────
@@ -256,6 +272,7 @@ const TOOL_LABELS = {
   set_location: 'Setting location…',
   update_location: 'Updating location…',
   mark_onboarding_complete: 'Completing setup…',
+  create_share: 'Creating share link…',
 };
 
 // ── Decision Engine ─────────────────────────────────────────────────────────────
