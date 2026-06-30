@@ -17,6 +17,11 @@ const knex = require('../infra/knex');
 const { getInventorySnapshot } = require('./inventorySummaryQueryService');
 const { assessWeightPlausibility } = require('./inventoryBenchmarkService');
 const { getResidenceBedrooms } = require('./inventoryMaturityService');
+const { listRoomVideos } = require('./roomVideoService');
+const gcsService = require('../infra/gcsService');
+
+// Signed-URL lifetime for shared media (GCS V4 signed URLs cap at 7 days).
+const SHARE_MEDIA_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 // An item needs special handling if a single unit is heavy or large.
 const OVERSIZED_WEIGHT_LBS = 150;
@@ -224,7 +229,25 @@ async function buildMoverReport(userId, moveId = null) {
     }),
   };
 
-  return { totals, specialItems, confidence, locations: allLocations, move };
+  // Room walkthrough videos the user recorded — shareable with movers. Sign the
+  // GCS URLs so they're viewable from the public report without auth.
+  let walkthroughs = [];
+  try {
+    const videos = await listRoomVideos(userId);
+    walkthroughs = await Promise.all(videos.map(async (v) => ({
+      room: v.room_name || 'Walkthrough',
+      url: v.gcs_path
+        ? await gcsService.signUrl(v.gcs_path, SHARE_MEDIA_EXPIRY_MS).catch(() => v.video_url)
+        : v.video_url,
+      thumbnailUrl: v.thumbnail_url
+        ? await gcsService.signPublicUrl(v.thumbnail_url, SHARE_MEDIA_EXPIRY_MS).catch(() => v.thumbnail_url)
+        : null,
+    })));
+  } catch (err) {
+    console.warn('[shareService] walkthroughs unavailable:', err.message);
+  }
+
+  return { totals, specialItems, confidence, walkthroughs, locations: allLocations, move };
 }
 
 /** Public: resolve a token → mover report, recording the view. */

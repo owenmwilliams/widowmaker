@@ -24,7 +24,9 @@ struct MediaPicker: UIViewControllerRepresentable {
         let wantsCamera = source == .camera && UIImagePickerController.isSourceTypeAvailable(.camera)
         picker.sourceType = wantsCamera ? .camera : .photoLibrary
         picker.mediaTypes = ["public.image", "public.movie"]
-        picker.videoExportPreset = AVAssetExportPresetMediumQuality
+        // Higher-quality capture/export → sharper frames for item detection.
+        picker.videoExportPreset = AVAssetExportPresetHighestQuality
+        picker.videoQuality = .typeHigh
         picker.delegate = context.coordinator
         return picker
     }

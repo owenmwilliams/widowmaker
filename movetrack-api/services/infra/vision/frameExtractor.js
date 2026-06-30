@@ -94,6 +94,58 @@ async function extractSharpestFrame(videoSource, seconds) {
 }
 
 /**
+ * Sample frames across an entire video for inventory detection. Pulls one frame
+ * per `fps` second (downscaled), then evenly subsamples to at most `maxFrames`,
+ * preserving order. Full-resolution still frames let the model read small items
+ * a low-res inline video would miss — and sidesteps the inline-video size limit.
+ *
+ * @param {string} videoSource - local file path or HTTPS URL
+ * @param {{maxFrames?:number, fps?:number, width?:number}} [opts]
+ * @returns {Promise<Array<{buffer: Buffer, tsSeconds: number}>>}
+ */
+async function extractFramesForScan(videoSource, { maxFrames = 14, fps = 1, width = 1280 } = {}) {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'mtscan-frames-'));
+  try {
+    await new Promise((resolve, reject) => {
+      ffmpeg(videoSource)
+        .outputOptions([
+          `-vf fps=${fps},scale=${width}:-2`,
+          '-q:v 3',
+        ])
+        .output(path.join(tmpDir, 'f%04d.jpg'))
+        .on('end', resolve)
+        .on('error', reject)
+        .run();
+    });
+
+    const files = (await fs.promises.readdir(tmpDir)).filter((f) => f.endsWith('.jpg')).sort();
+    if (files.length === 0) return [];
+
+    // Evenly subsample to maxFrames, keeping chronological order.
+    let chosen = files;
+    if (files.length > maxFrames) {
+      const step = files.length / maxFrames;
+      chosen = [];
+      for (let i = 0; i < maxFrames; i++) chosen.push(files[Math.floor(i * step)]);
+    }
+
+    const frames = [];
+    for (const f of chosen) {
+      const buffer = await fs.promises.readFile(path.join(tmpDir, f));
+      const frameNum = parseInt(f.replace(/\D/g, ''), 10) || 1; // 1-based extraction order
+      frames.push({ buffer, tsSeconds: Math.max(0, Math.round((frameNum - 1) / fps)) });
+    }
+    console.log(`[frameExtractor] extracted ${files.length} frames, using ${frames.length} for analysis`);
+    return frames;
+  } catch (err) {
+    console.warn('[frameExtractor] extractFramesForScan failed:', err.message);
+    return [];
+  } finally {
+    await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
  * Diagnostic check: verifies that ffmpeg-static and sharp are functional.
  * Returns a plain object (never throws); suitable for a health/debug endpoint.
  *
@@ -157,4 +209,4 @@ async function extractThumbnails(videoPath, items, userId, scanId, gcs) {
   return debug;
 }
 
-module.exports = { extractSharpestFrame, getInfraDiagnostics, extractThumbnails };
+module.exports = { extractSharpestFrame, extractFramesForScan, getInfraDiagnostics, extractThumbnails };

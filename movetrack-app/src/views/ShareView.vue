@@ -29,6 +29,7 @@ type Report = {
   title: string | null; generatedAt: string
   totals: { itemCount: number; totalWeightLbs: number; totalVolumeCuFt: number; fragileCount: number; missingWeight: number; missingDimensions: number }
   confidence?: Confidence
+  walkthroughs?: { room: string; url: string; thumbnailUrl: string | null }[]
   specialItems: { name: string; quantity: number; fragile: boolean; oversized: boolean }[]
   locations: Loc[]
   move: { name?: string; moveDate?: string; origin?: any; destination?: any } | null
@@ -111,6 +112,16 @@ const printPage = () => window.print()
         are missing a weight and {{ report.totals.missingDimensions }} are missing dimensions. Confirm on site.
       </p>
 
+      <section v-if="report.walkthroughs && report.walkthroughs.length" class="walkthroughs">
+        <h3>Room walkthrough videos</h3>
+        <div class="vid-grid">
+          <figure v-for="(w, i) in report.walkthroughs" :key="i" class="vid">
+            <video :src="w.url" :poster="w.thumbnailUrl || undefined" controls preload="none" playsinline></video>
+            <figcaption>{{ w.room }}</figcaption>
+          </figure>
+        </div>
+      </section>
+
       <section v-if="report.specialItems.length" class="special">
         <h3>Special handling</h3>
         <ul>
@@ -179,6 +190,12 @@ const printPage = () => window.print()
 .stat { display: flex; flex-direction: column; }
 .stat .num { font-size: 28px; font-weight: 700; }
 .stat .lbl { font-size: 12px; color: #777; text-transform: uppercase; }
+.walkthroughs { margin: 20px 0; }
+.walkthroughs h3 { margin: 0 0 10px; }
+.vid-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.vid { margin: 0; }
+.vid video { width: 100%; border-radius: 10px; background: #000; aspect-ratio: 16 / 9; object-fit: cover; }
+.vid figcaption { font-size: 13px; color: #555; margin-top: 4px; text-transform: capitalize; }
 .special { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
 .special h3 { margin: 0 0 8px; }
 .special ul { margin: 0; padding-left: 18px; }

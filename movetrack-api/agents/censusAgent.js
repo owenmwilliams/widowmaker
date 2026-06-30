@@ -65,7 +65,7 @@ INVENTORY CENSUS RULES:
    d. Use your judgment on mode: if the photo clearly shows one item up close, use single_item. If it shows a room or multiple items, use multi_item.
    e. If analyze_photo returns empty items or fails, retry ONCE. If it still fails, apologize and ask the user to try another photo or describe items manually.
    f. When analyze_photo succeeds, list the detected items and ASK FOR CONFIRMATION before calling add_item. For example: "I can see: 1) Queen Bed, 2) Nightstand, 3) Dresser. Want me to add all of these, or would you like to make changes?"
-   g. Only call add_item after the user confirms. Include the picture_url from analyze_photo results if available.
+   g. Once the user confirms, add the WHOLE detected list in a SINGLE add_items call — do not make many separate add_item calls (that risks dropping items). Include each item's picture_url and confidence from the analyze results.
    h. The same confirmation rules apply to analyze_video — list detected items and wait for user approval before adding.
 4. If the user sends a video, call analyze_video to detect items. The same retry and confirmation rules from rule 3 apply.
 5. Weight and dimension estimates are always PER SINGLE UNIT. Set quantity for multiples. Examples: queen mattress ~80 lbs qty 1, dining chair ~20 lbs qty 4, box of books ~35 lbs qty 3. Never multiply weight by quantity yourself — the system does that automatically.
@@ -112,7 +112,7 @@ AUTONOMOUS EXECUTION:
 - Only produce a final text response when you're truly done OR you need user input (confirmation, clarification, a choice).
 - You CAN include brief progress text alongside tool calls (e.g. "Kitchen done! Moving to the living room..." while simultaneously calling add_item for living room items). The system will stream this to the user as you keep working.
 - Example of WRONG behavior: "I've added the kitchen items. Next I'll do the living room and bedroom." (stops)
-- Example of RIGHT behavior: call add_item for kitchen items → call add_item for living room items → call add_item for bedroom items → "All done! I've added 15 items across 3 rooms. Anything I missed?"
+- Example of RIGHT behavior: call add_items with all kitchen items → add_items with all living room items → add_items with all bedroom items → "All done! I've added 15 items across 3 rooms. Anything I missed?"
 
 CONVERSATION FLOW (returning users):
 - If home context is unknown, ask about type, bedrooms, bathrooms.
@@ -186,6 +186,39 @@ const toolDeclarations = [
         picture_url:    { type: SchemaType.STRING, description: 'GCS URL of a cropped photo of this item, if available from analyze_photo results' },
       },
       required: ['name', 'room_name'],
+    },
+  },
+  {
+    name: 'add_items',
+    description: 'Add MANY items in one call. STRONGLY PREFERRED after analyze_photo/analyze_video once the user confirms — pass the ENTIRE detected list at once instead of many separate add_item calls, so no items get dropped.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        items: {
+          type: SchemaType.ARRAY,
+          description: 'Every confirmed item to add.',
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              name:              { type: SchemaType.STRING },
+              room_name:         { type: SchemaType.STRING, description: 'Room this item belongs to' },
+              quantity:          { type: SchemaType.INTEGER },
+              weight_lbs:        { type: SchemaType.NUMBER, description: 'Per-unit weight in lbs (never multiply by quantity)' },
+              length_in:         { type: SchemaType.NUMBER },
+              width_in:          { type: SchemaType.NUMBER },
+              height_in:         { type: SchemaType.NUMBER },
+              fragile:           { type: SchemaType.BOOLEAN },
+              material:          { type: SchemaType.STRING },
+              notes:             { type: SchemaType.STRING },
+              confidence_score:  { type: SchemaType.NUMBER },
+              confidence_source: { type: SchemaType.STRING, description: '"photo", "video", "explicit", or "inferred"' },
+              picture_url:       { type: SchemaType.STRING },
+            },
+            required: ['name', 'room_name'],
+          },
+        },
+      },
+      required: ['items'],
     },
   },
   {
@@ -367,6 +400,21 @@ const toolDeclarations = [
 
 const toolHandlers = {
   async add_item(args, userId) { return mutation.addItem(userId, args); },
+  async add_items(args, userId) {
+    const list = Array.isArray(args.items) ? args.items : [];
+    let added = 0;
+    const failures = [];
+    for (const it of list) {
+      try {
+        const r = await mutation.addItem(userId, it);
+        if (r && r.success === false) failures.push({ name: it.name, error: r.error || 'unknown' });
+        else added++;
+      } catch (e) {
+        failures.push({ name: it.name, error: e.message });
+      }
+    }
+    return { success: true, added, failed: failures.length, total: list.length, failures: failures.slice(0, 10) };
+  },
   async add_room(args, userId) { return mutation.addRoom(userId, args); },
   async update_item(args, userId) { return mutation.updateItem(userId, args); },
   async delete_item(args, userId) { return mutation.deleteItem(userId, args); },
@@ -411,6 +459,7 @@ const toolHandlers = {
 
 const TOOL_LABELS = {
   add_item: 'Adding item',
+  add_items: 'Adding items',
   update_item: 'Updating item',
   delete_item: 'Removing item',
   search_items: 'Searching inventory',
