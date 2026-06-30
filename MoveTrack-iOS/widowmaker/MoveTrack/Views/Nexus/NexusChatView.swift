@@ -17,7 +17,10 @@ struct NexusChatView: View {
     @State private var draft = ""
     @State private var showAttachDialog = false
     @State private var pickerSource: MediaPicker.Source?
-    @State private var showShareSheet = false
+    @State private var shareItem: ShareItem?
+    @State private var shareWarningText: String?
+    @State private var showAINotice = false
+    @AppStorage("aiCaptureNoticeShown") private var aiNoticeShown = false
     @FocusState private var inputFocused: Bool
 
     private let bottomID = "nexus-bottom-anchor"
@@ -52,11 +55,50 @@ struct NexusChatView: View {
                 )
                 .ignoresSafeArea()
             }
-            .sheet(isPresented: $showShareSheet) {
-                if let url = vm.shareURL {
-                    ShareSheet(items: [url])
+            .sheet(item: $shareItem) { item in
+                ShareSheet(items: [item.url])
+            }
+            .alert("Photos & videos use AI", isPresented: $showAINotice) {
+                Button("Continue") {
+                    aiNoticeShown = true
+                    showAttachDialog = true
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("To build your inventory, the photos and videos you add are sent to AI services to identify your items and estimate their size and weight.")
+            }
+            .alert("Before you share", isPresented: Binding(
+                get: { shareWarningText != nil },
+                set: { if !$0 { shareWarningText = nil } }
+            )) {
+                Button("Share anyway") {
+                    Task { if let url = await vm.forceShare() { shareItem = ShareItem(url: url) } }
+                }
+                Button("Review & fix", role: .cancel) { shareWarningText = nil }
+            } message: {
+                Text(shareWarningText ?? "")
+            }
+            .overlay {
+                if vm.isPreparingShare {
+                    sharePreparingOverlay
                 }
             }
+            .onChange(of: vm.sessionExpired) { _, expired in
+                if expired { Task { await authViewModel.logout() } }
+            }
+        }
+    }
+
+    private var sharePreparingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.25).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Preparing share link…").font(.subheadline)
+            }
+            .padding(24)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
@@ -203,7 +245,11 @@ struct NexusChatView: View {
         HStack(alignment: .bottom, spacing: 10) {
             Button {
                 inputFocused = false
-                showAttachDialog = true
+                if aiNoticeShown {
+                    showAttachDialog = true
+                } else {
+                    showAINotice = true
+                }
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 28))
@@ -242,6 +288,19 @@ struct NexusChatView: View {
         Task { await vm.send(text) }
     }
 
+    private func onShareTapped() async {
+        // One operation, one loading state. Warn first only if the inventory looks
+        // implausible (warn-but-allow); otherwise present the share sheet.
+        switch await vm.evaluateAndPrepareShare() {
+        case .warn(let message):
+            shareWarningText = message
+        case .ready(let url):
+            shareItem = ShareItem(url: url)
+        case .failed:
+            break // error (if any) is surfaced via vm.errorMessage
+        }
+    }
+
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
@@ -256,13 +315,12 @@ struct NexusChatView: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                if vm.shareURL != nil {
-                    Button {
-                        showShareSheet = true
-                    } label: {
-                        Label("Share inventory", systemImage: "square.and.arrow.up")
-                    }
+                Button {
+                    Task { await onShareTapped() }
+                } label: {
+                    Label("Share inventory", systemImage: "square.and.arrow.up")
                 }
+                .disabled(vm.isPreparingShare)
                 Button {
                     Task { await vm.startNewConversation() }
                 } label: {
@@ -331,4 +389,11 @@ private struct MessageBubble: View {
 // Lets `.sheet(item:)` present the camera/library picker.
 extension MediaPicker.Source: Identifiable {
     var id: Int { self == .camera ? 0 : 1 }
+}
+
+// Wrapper so the native share sheet is presented data-driven via `.sheet(item:)`
+// (avoids the overlay-then-sheet race that flashed the loading modal).
+private struct ShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
 }

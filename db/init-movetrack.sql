@@ -86,6 +86,11 @@ CREATE TABLE locations (
     -- Geocoded coordinates (read by the inventory snapshot query).
     lat NUMERIC(10, 7),
     lng NUMERIC(10, 7),
+    -- Home profile (migration 033): used to benchmark inventory reasonableness
+    -- against what's typical for a home of this size before sharing with movers.
+    bedrooms SMALLINT,
+    bathrooms NUMERIC(3, 1),
+    home_type VARCHAR(50),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     qr_code VARCHAR(255) UNIQUE,

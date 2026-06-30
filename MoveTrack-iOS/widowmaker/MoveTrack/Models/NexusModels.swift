@@ -88,6 +88,68 @@ struct UploadResponse: Decodable {
     let mimeType: String
 }
 
+// MARK: - Share links
+
+/// A share link as returned by POST/GET /shares (publicShare shape).
+struct ShareDTO: Decodable {
+    let token: String?
+    let url: String?
+    let revokedAt: String?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey { case token, url, revokedAt, expiresAt }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        token = try? c.decode(String.self, forKey: .token)
+        url = try? c.decode(String.self, forKey: .url)
+        revokedAt = try? c.decode(String.self, forKey: .revokedAt)
+        expiresAt = try? c.decode(String.self, forKey: .expiresAt)
+    }
+
+    /// We never set an expiry from the app, so "active" == not revoked.
+    var isActive: Bool { revokedAt == nil && url != nil }
+}
+
+// MARK: - Share readiness (reasonableness check)
+
+/// Returned by GET /shares/readiness. We only decode the reasonableness verdict
+/// the app needs to warn before sharing an implausible inventory.
+struct ShareReadinessDTO: Decodable {
+    struct Reasonableness: Decodable {
+        let hasBenchmark: Bool?
+        let status: String?    // too_low | low | ok | high | too_high | unknown
+        let severity: String?  // none | low | medium | high
+        let message: String?
+
+        enum CodingKeys: String, CodingKey { case hasBenchmark, status, severity, message }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            hasBenchmark = try? c.decode(Bool.self, forKey: .hasBenchmark)
+            status = try? c.decode(String.self, forKey: .status)
+            severity = try? c.decode(String.self, forKey: .severity)
+            message = try? c.decode(String.self, forKey: .message)
+        }
+    }
+
+    let overall: Int?
+    let reasonableness: Reasonableness?
+
+    enum CodingKeys: String, CodingKey { case overall, reasonableness }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        overall = try? c.decode(Int.self, forKey: .overall)
+        reasonableness = try? c.decode(Reasonableness.self, forKey: .reasonableness)
+    }
+
+    /// A message to warn the user with before sharing, or nil if it looks fine.
+    /// Warn-but-allow: we only surface high-severity issues.
+    var shareWarning: String? {
+        guard let r = reasonableness, r.hasBenchmark == true, r.severity == "high" else { return nil }
+        return r.message
+    }
+}
+
 // MARK: - SSE stream events
 
 /// The result of a tool the orchestrator ran (we only care about share URLs).

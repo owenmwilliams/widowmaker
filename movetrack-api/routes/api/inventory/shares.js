@@ -2,8 +2,21 @@ var express = require('express');
 var router = express.Router();
 const { authenticate } = require('../../../services/infra/authService');
 const { createShare, listShares, revokeShare } = require('../../../services/inventory/shareService');
+const { shareReasonableness } = require('../../../services/inventory/inventoryMaturityService');
 
 router.use(authenticate);
+
+/* GET /shares/readiness — share-readiness + reasonableness check for the user's
+ * inventory (used by the app to warn before sharing an implausible inventory). */
+router.get('/readiness', async function (req, res, next) {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    res.json(await shareReasonableness(userId, {}));
+  } catch (err) {
+    next(err);
+  }
+});
 
 /* POST /shares — create a public share link for the user's inventory. */
 router.post('/', async function (req, res, next) {

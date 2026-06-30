@@ -144,6 +144,25 @@ async function ensureHoldingLocation(trx, userId) {
  * Create a new location via the agent flow (onboarding / orchestrator).
  * Validates address via geocoding before saving.
  */
+/**
+ * Coerce home-profile fields (bedrooms/bathrooms/home_type) from agent or HTTP
+ * input into a safe partial payload. Skips invalid/empty values so we never
+ * write NaN. Used by the reasonableness benchmark before sharing.
+ */
+function homeProfileUpdates(args = {}) {
+  const out = {};
+  if (args.bedrooms != null) {
+    const b = Number(args.bedrooms);
+    if (Number.isFinite(b) && b >= 0) out.bedrooms = Math.round(b);
+  }
+  if (args.bathrooms != null) {
+    const ba = Number(args.bathrooms);
+    if (Number.isFinite(ba) && ba >= 0) out.bathrooms = ba;
+  }
+  if (args.home_type) out.home_type = String(args.home_type).slice(0, 50);
+  return out;
+}
+
 async function setLocation(userId, args = {}) {
   const params = {
     user_id: userId,
@@ -154,6 +173,7 @@ async function setLocation(userId, args = {}) {
   if (args.city) params.city = args.city;
   if (args.state) params.state = args.state;
   if (args.zip) params.zip = args.zip;
+  Object.assign(params, homeProfileUpdates(args));
 
   const validation = await validateAddressViaGeocode(args, `set-location-${userId}`);
   if (!validation.valid) {
@@ -209,6 +229,7 @@ async function createLocation(userId, params) {
     country, location_type: locationType,
     lat: parseCoordinateInput(latRaw),
     lng: parseCoordinateInput(lngRaw),
+    ...homeProfileUpdates(params),
   };
 
   if (basePayload.lat == null || basePayload.lng == null) {
@@ -281,6 +302,7 @@ async function updateLocation(userId, args) {
   if (args.city) updates.city = args.city;
   if (args.state) updates.state = args.state;
   if (args.zip) updates.zip = args.zip;
+  Object.assign(updates, homeProfileUpdates(args));
 
   // Apply Google's corrected address components if available
   if (validation?.corrected) {
@@ -322,6 +344,7 @@ async function updateLocationById(userId, locationId, params) {
     updated_at: knex.fn.now(),
     lat: parseCoordinateInput(latRaw),
     lng: parseCoordinateInput(lngRaw),
+    ...homeProfileUpdates(params),
   };
 
   if (updatePayload.lat == null || updatePayload.lng == null) {

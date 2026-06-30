@@ -213,22 +213,25 @@ const toolDeclarations = [
   },
   {
     name: 'set_location',
-    description: 'Create a new location (home address). Use during onboarding to set where the user is moving from.',
+    description: 'Create a new location (home address). Use during onboarding to set where the user is moving from. Capture bedrooms/bathrooms/home_type when the user mentions them — they power the reasonableness check before sharing.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        name:    { type: SchemaType.STRING, description: 'Location name, e.g. "My Apartment", "Home"' },
-        address: { type: SchemaType.STRING, description: 'Street address' },
-        city:    { type: SchemaType.STRING, description: 'City' },
-        state:   { type: SchemaType.STRING, description: 'State abbreviation' },
-        zip:     { type: SchemaType.STRING, description: 'ZIP code' },
+        name:      { type: SchemaType.STRING, description: 'Location name, e.g. "My Apartment", "Home"' },
+        address:   { type: SchemaType.STRING, description: 'Street address' },
+        city:      { type: SchemaType.STRING, description: 'City' },
+        state:     { type: SchemaType.STRING, description: 'State abbreviation' },
+        zip:       { type: SchemaType.STRING, description: 'ZIP code' },
+        home_type: { type: SchemaType.STRING, description: 'e.g. "apartment", "house", "studio", "condo"' },
+        bedrooms:  { type: SchemaType.INTEGER, description: 'Number of bedrooms (0 for a studio)' },
+        bathrooms: { type: SchemaType.NUMBER, description: 'Number of bathrooms (e.g. 2 or 2.5)' },
       },
       required: ['name'],
     },
   },
   {
     name: 'update_location',
-    description: 'Update an existing location. Use when the user wants to rename or change address details of a location.',
+    description: 'Update an existing location. Use when the user wants to rename or change address details, or to record the home size (bedrooms/bathrooms/home_type) for the reasonableness check.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
@@ -238,6 +241,9 @@ const toolDeclarations = [
         city:        { type: SchemaType.STRING, description: 'New city' },
         state:       { type: SchemaType.STRING, description: 'New state abbreviation' },
         zip:         { type: SchemaType.STRING, description: 'New ZIP code' },
+        home_type:   { type: SchemaType.STRING, description: 'e.g. "apartment", "house", "studio", "condo"' },
+        bedrooms:    { type: SchemaType.INTEGER, description: 'Number of bedrooms (0 for a studio)' },
+        bathrooms:   { type: SchemaType.NUMBER, description: 'Number of bathrooms (e.g. 2 or 2.5)' },
       },
     },
   },

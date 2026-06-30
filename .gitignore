@@ -69,3 +69,10 @@ tooling/model-labels/*.onnx
 tooling/model-labels/*.pt
 venv/
 __pycache__/
+
+# Xcode per-user state (not shared; noisy + conflict-prone)
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.xcscmblueprint
+*.xccheckout

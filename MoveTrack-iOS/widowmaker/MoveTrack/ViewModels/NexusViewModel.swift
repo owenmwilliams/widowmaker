@@ -11,6 +11,14 @@ import Foundation
 import SwiftUI
 import Combine
 
+/// Outcome of preparing to share: either we need to warn the user first, we have
+/// a ready link, or it failed (error surfaced on the view model).
+enum SharePrep {
+    case warn(String)
+    case ready(URL)
+    case failed
+}
+
 @MainActor
 final class NexusViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
@@ -20,7 +28,9 @@ final class NexusViewModel: ObservableObject {
     @Published var phaseText = ""           // "Thinking…", "Scanning your photo…"
     @Published var detailText = ""          // secondary specialist detail
     @Published var errorMessage: String?
-    @Published var shareURL: URL?           // set when the agent creates a share link
+    @Published var shareURL: URL?           // most recent share link (agent- or user-created)
+    @Published var isPreparingShare = false // a share link is being fetched/created
+    @Published var sessionExpired = false   // a 401 occurred — the view bounces to login
 
     private let service = NexusService.shared
     private var sessionId: String?
@@ -43,7 +53,7 @@ final class NexusViewModel: ObservableObject {
             messages = resp.messages.map { ChatMessage(from: $0) }
             quickStartChips = resp.quickStartChips
         } catch NexusError.unauthorized {
-            errorMessage = NexusError.unauthorized.userMessage
+            sessionExpired = true
         } catch {
             errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
         }
@@ -82,6 +92,9 @@ final class NexusViewModel: ObservableObject {
                 messages.append(ChatMessage(role: .model, text: reply))
             }
             captureShare(from: done)
+        } catch NexusError.unauthorized {
+            messages.removeAll { $0.id == optimistic.id }
+            sessionExpired = true
         } catch {
             // Drop the optimistic bubble and surface the error.
             messages.removeAll { $0.id == optimistic.id }
@@ -108,10 +121,79 @@ final class NexusViewModel: ObservableObject {
                 text: caption,
                 attachments: [OutgoingAttachment(url: uploaded.url, mimeType: uploaded.mimeType)]
             )
+        } catch NexusError.unauthorized {
+            isUploading = false
+            phaseText = ""
+            sessionExpired = true
         } catch {
             isUploading = false
             phaseText = ""
             errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
+        }
+    }
+
+    // MARK: - Share
+
+    /// Run the reasonableness check and, if it looks fine, prepare a link — all
+    /// under a SINGLE loading state so the overlay doesn't flash. Returns `.warn`
+    /// (show the warning first), `.ready` (present the share sheet), or `.failed`.
+    func evaluateAndPrepareShare() async -> SharePrep {
+        guard !isPreparingShare else { return .failed }
+        isPreparingShare = true
+        errorMessage = nil
+        defer { isPreparingShare = false }
+
+        // Reasonableness gate (warn-but-allow). Don't block sharing if the check
+        // itself fails — only surface a high-severity verdict.
+        do {
+            if let warning = try await service.shareReadiness().shareWarning {
+                return .warn(warning)
+            }
+        } catch NexusError.unauthorized {
+            sessionExpired = true
+            return .failed
+        } catch {
+            // ignore — proceed to share
+        }
+
+        if let url = await createOrFetchShareURL() {
+            return .ready(url)
+        }
+        return .failed
+    }
+
+    /// "Share anyway" path — skip the warning, just prepare the link.
+    func forceShare() async -> URL? {
+        guard !isPreparingShare else { return shareURL }
+        isPreparingShare = true
+        errorMessage = nil
+        defer { isPreparingShare = false }
+        return await createOrFetchShareURL()
+    }
+
+    /// Reuse an active share link or create one. Sets `shareURL`. No loading
+    /// toggle of its own — callers own the `isPreparingShare` state.
+    private func createOrFetchShareURL() async -> URL? {
+        do {
+            let existing = try await service.listShares().first(where: { $0.isActive })
+            let share: ShareDTO
+            if let existing {
+                share = existing
+            } else {
+                share = try await service.createShare()
+            }
+            if let urlString = share.url, let url = URL(string: urlString) {
+                shareURL = url
+                return url
+            }
+            errorMessage = "Couldn't prepare a share link. Please try again."
+            return nil
+        } catch NexusError.unauthorized {
+            sessionExpired = true
+            return nil
+        } catch {
+            errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
+            return nil
         }
     }
 
