@@ -202,6 +202,7 @@ async function inventoryReadinessAssessment(userId) {
       itemCount: total,
       weightLbs: Math.round(itemStats.total_weight),
       volumeCuFt: itemStats.total_volume_cuft,
+      itemsMissingWeight: Math.max(0, total - itemStats.has_weight),
     },
     categories: {
       roomCoverage: { score: roomScore, detail: `${emptyRooms.length} empty, ${sparseRooms.length} sparse of ${collections.length} rooms` },
@@ -239,12 +240,27 @@ async function shareReasonableness(userId, { bedrooms = null } = {}) {
   const reasonableness = assessWeightPlausibility({
     bedrooms: beds,
     actualWeightLbs: assessment.totals.weightLbs,
+    itemCount: assessment.totals.itemCount,
+    itemsMissingWeight: assessment.totals.itemsMissingWeight,
   });
   const weightOutliers = flagWeightOutliers(items).slice(0, 10);
   return { ...assessment, reasonableness, weightOutliers, bedrooms: beds ?? null };
 }
 
-/** Best-guess bedroom count for the user's current home, or null if unknown. */
+/**
+ * Count bedrooms from room names (e.g. "Bedroom 1", "Master Bedroom"). Used as a
+ * fallback when the home size wasn't explicitly recorded. Pure + testable.
+ */
+function inferBedroomsFromRoomNames(names = []) {
+  const count = names.filter((n) => /bedroom/i.test(String(n || ''))).length;
+  return count > 0 ? count : null;
+}
+
+/**
+ * Best-guess bedroom count for the user's current home, or null if unknown.
+ * Prefers the explicitly-recorded value; falls back to counting bedroom rooms so
+ * the reasonableness check still works for users who never stated their home size.
+ */
 async function getResidenceBedrooms(userId) {
   const row = await db.oneOrNone(
     `SELECT bedrooms FROM locations
@@ -253,7 +269,10 @@ async function getResidenceBedrooms(userId) {
       LIMIT 1`,
     [userId]
   );
-  return row ? row.bedrooms : null;
+  if (row && row.bedrooms != null) return row.bedrooms;
+
+  const rooms = await db.any(`SELECT name FROM collections WHERE user_id = $1`, [userId]);
+  return inferBedroomsFromRoomNames(rooms.map((r) => r.name));
 }
 
 module.exports = {
@@ -262,4 +281,5 @@ module.exports = {
   inventoryReadinessAssessment,
   shareReasonableness,
   getResidenceBedrooms,
+  inferBedroomsFromRoomNames,
 };

@@ -36,5 +36,9 @@
 	<string>Nexus Moves lets you add photos and videos from your library to build your moving inventory.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Nexus Moves records audio with room walkthrough videos used to build your moving inventory.</string>
+	<!-- The app uses only standard HTTPS/TLS (exempt encryption), so TestFlight/App
+	     Store builds don't need an export-compliance review each upload. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

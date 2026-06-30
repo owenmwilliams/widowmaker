@@ -109,3 +109,40 @@ describe('typicalUnitWeight', () => {
     expect(typicalUnitWeight('throw pillow')).toBeNull();
   });
 });
+
+describe('assessWeightPlausibility — weight-coverage awareness', () => {
+  test('low total driven by missing weights → blames weights, not missed rooms', () => {
+    const v = assessWeightPlausibility({
+      bedrooms: 3, actualWeightLbs: 92, itemCount: 30, itemsMissingWeight: 22,
+    });
+    expect(v.status).toBe('too_low');
+    expect(v.cause).toBe('missing_weights');
+    expect(v.message).toMatch(/weight/i);
+    expect(v.message).toMatch(/estimate/i);
+    expect(v.message).not.toMatch(/missed rooms/i);
+  });
+
+  test('low total with good weight coverage → blames an incomplete inventory', () => {
+    const v = assessWeightPlausibility({
+      bedrooms: 3, actualWeightLbs: 92, itemCount: 30, itemsMissingWeight: 1,
+    });
+    expect(v.status).toBe('too_low');
+    expect(v.cause).toBe('incomplete');
+    expect(v.message).toMatch(/missed rooms|second pass/i);
+  });
+
+  test('does not flip to missing_weights below the count threshold', () => {
+    const v = assessWeightPlausibility({
+      bedrooms: 3, actualWeightLbs: 92, itemCount: 4, itemsMissingWeight: 2,
+    });
+    expect(v.cause).toBe('incomplete');
+  });
+
+  test('plausible totals are ok regardless of missing weights', () => {
+    const v = assessWeightPlausibility({
+      bedrooms: 3, actualWeightLbs: 8000, itemCount: 30, itemsMissingWeight: 20,
+    });
+    expect(v.status).toBe('ok');
+    expect(v.cause).toBe('ok');
+  });
+});

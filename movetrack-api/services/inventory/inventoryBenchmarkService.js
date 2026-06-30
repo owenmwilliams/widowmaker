@@ -67,13 +67,19 @@ function round(n) { return Math.round(Number(n) || 0); }
  *   status: 'unknown' | 'too_low' | 'low' | 'ok' | 'high' | 'too_high'
  *   severity: 'none' | 'low' | 'medium' | 'high'
  */
-function assessWeightPlausibility({ bedrooms = null, actualWeightLbs = 0 } = {}) {
+function assessWeightPlausibility({
+  bedrooms = null,
+  actualWeightLbs = 0,
+  itemCount = 0,
+  itemsMissingWeight = 0,
+} = {}) {
   const band = weightBandForBedrooms(bedrooms);
   if (!band) {
     return {
       hasBenchmark: false,
       status: 'unknown',
       severity: 'none',
+      cause: null,
       message: 'Add your home size (number of bedrooms) to enable a reasonableness check.',
     };
   }
@@ -83,26 +89,47 @@ function assessWeightPlausibility({ bedrooms = null, actualWeightLbs = 0 } = {})
   const typicalStr = band.typical.toLocaleString('en-US');
   const ratio = band.typical > 0 ? actual / band.typical : 0;
 
-  let status, severity, message;
+  // A low total is often explained by items lacking a weight rather than by a
+  // genuinely incomplete inventory — distinguish so the guidance is correct.
+  const missing = Math.max(0, Number(itemsMissingWeight) || 0);
+  const count = Math.max(0, Number(itemCount) || 0);
+  const manyMissingWeights = count > 0 && missing >= 3 && missing / count >= 0.4;
+
+  let status, severity, cause, message;
   if (actual < band.low * TOO_LOW_FACTOR) {
     status = 'too_low';
     severity = 'high';
-    message = `Only ~${round(actual)} lbs logged for a ${bedroomLabel} home, which usually totals around ${typicalStr} lbs. You've likely missed rooms or items — worth a second pass before sharing.`;
+    if (manyMissingWeights) {
+      cause = 'missing_weights';
+      message = `Your logged weight (~${round(actual)} lbs) is far below the ~${typicalStr} lbs typical for a ${bedroomLabel} home — but mostly because ${missing} of ${count} items don't have a weight yet. Estimate the missing weights, then re-check before sharing.`;
+    } else {
+      cause = 'incomplete';
+      message = `Only ~${round(actual)} lbs logged for a ${bedroomLabel} home, which usually totals around ${typicalStr} lbs. You've likely missed rooms or items — worth a second pass before sharing.`;
+    }
   } else if (actual < band.low) {
     status = 'low';
     severity = 'medium';
-    message = `~${round(actual)} lbs is on the light side for a ${bedroomLabel} home (typically ~${typicalStr} lbs). Double-check for missed rooms or items.`;
+    if (manyMissingWeights) {
+      cause = 'missing_weights';
+      message = `~${round(actual)} lbs is on the light side for a ${bedroomLabel} home, partly because ${missing} of ${count} items don't have a weight yet. Estimating those will give movers a truer total.`;
+    } else {
+      cause = 'incomplete';
+      message = `~${round(actual)} lbs is on the light side for a ${bedroomLabel} home (typically ~${typicalStr} lbs). Double-check for missed rooms or items.`;
+    }
   } else if (actual > band.high * TOO_HIGH_FACTOR) {
     status = 'too_high';
     severity = 'high';
+    cause = 'overestimated';
     message = `~${round(actual)} lbs is far above the ~${typicalStr} lbs typical for a ${bedroomLabel} home — check for duplicate or over-estimated items.`;
   } else if (actual > band.high) {
     status = 'high';
     severity = 'medium';
+    cause = 'overestimated';
     message = `~${round(actual)} lbs is on the heavy side for a ${bedroomLabel} home (typically ~${typicalStr} lbs).`;
   } else {
     status = 'ok';
     severity = 'none';
+    cause = 'ok';
     message = `~${round(actual)} lbs is in the expected range for a ${bedroomLabel} home.`;
   }
 
@@ -110,6 +137,7 @@ function assessWeightPlausibility({ bedrooms = null, actualWeightLbs = 0 } = {})
     hasBenchmark: true,
     status,
     severity,
+    cause,
     message,
     expectedWeightLbs: { low: round(band.low), typical: round(band.typical), high: round(band.high) },
     expectedVolumeCuFt: {

@@ -216,7 +216,12 @@ async function buildMoverReport(userId, moveId = null) {
     measuredWeightPct,
     totalWeightLbs: totals.totalWeightLbs,
     bedrooms: bedrooms ?? null,
-    reasonableness: assessWeightPlausibility({ bedrooms, actualWeightLbs: totals.totalWeightLbs }),
+    reasonableness: assessWeightPlausibility({
+      bedrooms,
+      actualWeightLbs: totals.totalWeightLbs,
+      itemCount: totals.itemCount,
+      itemsMissingWeight: totals.missingWeight,
+    }),
   };
 
   return { totals, specialItems, confidence, locations: allLocations, move };
