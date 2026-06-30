@@ -165,6 +165,29 @@ final class NexusService {
         return try decoder.decode(UploadResponse.self, from: respData)
     }
 
+    // MARK: - Share links
+
+    /// Lists the user's existing share links.
+    func listShares() async throws -> [ShareDTO] {
+        var request = URLRequest(url: url(for: "/shares"))
+        addAuth(&request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+        return try decoder.decode([ShareDTO].self, from: data)
+    }
+
+    /// Creates a new public share link for the user's whole inventory.
+    func createShare() async throws -> ShareDTO {
+        var request = URLRequest(url: url(for: "/shares"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        addAuth(&request)
+        request.httpBody = Data("{}".utf8)
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+        return try decoder.decode(ShareDTO.self, from: data)
+    }
+
     // MARK: - Clear / archive session
 
     func clearSession(id: String) async throws {

@@ -20,7 +20,9 @@ final class NexusViewModel: ObservableObject {
     @Published var phaseText = ""           // "Thinking…", "Scanning your photo…"
     @Published var detailText = ""          // secondary specialist detail
     @Published var errorMessage: String?
-    @Published var shareURL: URL?           // set when the agent creates a share link
+    @Published var shareURL: URL?           // most recent share link (agent- or user-created)
+    @Published var isPreparingShare = false // a share link is being fetched/created
+    @Published var sessionExpired = false   // a 401 occurred — the view bounces to login
 
     private let service = NexusService.shared
     private var sessionId: String?
@@ -43,7 +45,7 @@ final class NexusViewModel: ObservableObject {
             messages = resp.messages.map { ChatMessage(from: $0) }
             quickStartChips = resp.quickStartChips
         } catch NexusError.unauthorized {
-            errorMessage = NexusError.unauthorized.userMessage
+            sessionExpired = true
         } catch {
             errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
         }
@@ -82,6 +84,9 @@ final class NexusViewModel: ObservableObject {
                 messages.append(ChatMessage(role: .model, text: reply))
             }
             captureShare(from: done)
+        } catch NexusError.unauthorized {
+            messages.removeAll { $0.id == optimistic.id }
+            sessionExpired = true
         } catch {
             // Drop the optimistic bubble and surface the error.
             messages.removeAll { $0.id == optimistic.id }
@@ -108,10 +113,47 @@ final class NexusViewModel: ObservableObject {
                 text: caption,
                 attachments: [OutgoingAttachment(url: uploaded.url, mimeType: uploaded.mimeType)]
             )
+        } catch NexusError.unauthorized {
+            isUploading = false
+            phaseText = ""
+            sessionExpired = true
         } catch {
             isUploading = false
             phaseText = ""
             errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
+        }
+    }
+
+    // MARK: - Share
+
+    /// Get-or-create a public share link for the whole inventory and return it.
+    /// Reuses an existing active link so we don't spawn a new token every tap.
+    @discardableResult
+    func shareInventory() async -> URL? {
+        guard !isPreparingShare else { return shareURL }
+        isPreparingShare = true
+        errorMessage = nil
+        defer { isPreparingShare = false }
+        do {
+            let existing = try await service.listShares().first(where: { $0.isActive })
+            let share: ShareDTO
+            if let existing {
+                share = existing
+            } else {
+                share = try await service.createShare()
+            }
+            if let urlString = share.url, let url = URL(string: urlString) {
+                shareURL = url
+                return url
+            }
+            errorMessage = "Couldn't prepare a share link. Please try again."
+            return nil
+        } catch NexusError.unauthorized {
+            sessionExpired = true
+            return nil
+        } catch {
+            errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
+            return nil
         }
     }
 

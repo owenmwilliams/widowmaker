@@ -88,6 +88,29 @@ struct UploadResponse: Decodable {
     let mimeType: String
 }
 
+// MARK: - Share links
+
+/// A share link as returned by POST/GET /shares (publicShare shape).
+struct ShareDTO: Decodable {
+    let token: String?
+    let url: String?
+    let revokedAt: String?
+    let expiresAt: String?
+
+    enum CodingKeys: String, CodingKey { case token, url, revokedAt, expiresAt }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        token = try? c.decode(String.self, forKey: .token)
+        url = try? c.decode(String.self, forKey: .url)
+        revokedAt = try? c.decode(String.self, forKey: .revokedAt)
+        expiresAt = try? c.decode(String.self, forKey: .expiresAt)
+    }
+
+    /// We never set an expiry from the app, so "active" == not revoked.
+    var isActive: Bool { revokedAt == nil && url != nil }
+}
+
 // MARK: - SSE stream events
 
 /// The result of a tool the orchestrator ran (we only care about share URLs).

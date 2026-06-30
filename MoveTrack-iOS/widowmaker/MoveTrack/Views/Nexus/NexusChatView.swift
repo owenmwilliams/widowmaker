@@ -18,6 +18,8 @@ struct NexusChatView: View {
     @State private var showAttachDialog = false
     @State private var pickerSource: MediaPicker.Source?
     @State private var showShareSheet = false
+    @State private var showAINotice = false
+    @AppStorage("aiCaptureNoticeShown") private var aiNoticeShown = false
     @FocusState private var inputFocused: Bool
 
     private let bottomID = "nexus-bottom-anchor"
@@ -57,6 +59,36 @@ struct NexusChatView: View {
                     ShareSheet(items: [url])
                 }
             }
+            .alert("Photos & videos use AI", isPresented: $showAINotice) {
+                Button("Continue") {
+                    aiNoticeShown = true
+                    showAttachDialog = true
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("To build your inventory, the photos and videos you add are sent to AI services to identify your items and estimate their size and weight.")
+            }
+            .overlay {
+                if vm.isPreparingShare {
+                    sharePreparingOverlay
+                }
+            }
+            .onChange(of: vm.sessionExpired) { _, expired in
+                if expired { Task { await authViewModel.logout() } }
+            }
+        }
+    }
+
+    private var sharePreparingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.25).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Preparing share link…").font(.subheadline)
+            }
+            .padding(24)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
     }
 
@@ -203,7 +235,11 @@ struct NexusChatView: View {
         HStack(alignment: .bottom, spacing: 10) {
             Button {
                 inputFocused = false
-                showAttachDialog = true
+                if aiNoticeShown {
+                    showAttachDialog = true
+                } else {
+                    showAINotice = true
+                }
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 28))
@@ -242,6 +278,11 @@ struct NexusChatView: View {
         Task { await vm.send(text) }
     }
 
+    private func prepareAndShare() async {
+        let url = await vm.shareInventory()
+        if url != nil { showShareSheet = true }
+    }
+
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
@@ -256,13 +297,12 @@ struct NexusChatView: View {
         }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                if vm.shareURL != nil {
-                    Button {
-                        showShareSheet = true
-                    } label: {
-                        Label("Share inventory", systemImage: "square.and.arrow.up")
-                    }
+                Button {
+                    Task { await prepareAndShare() }
+                } label: {
+                    Label("Share inventory", systemImage: "square.and.arrow.up")
                 }
+                .disabled(vm.isPreparingShare)
                 Button {
                     Task { await vm.startNewConversation() }
                 } label: {
