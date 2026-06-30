@@ -15,6 +15,15 @@ struct Constants {
     static let apiBaseURL = "https://movetrack-api-7hwn7ggbiq-uc.a.run.app"
     #endif
 
+    // MARK: - Web App (embedded agent flow)
+    // The native app embeds the ReloPrep web experience (onboarding, room-video
+    // capture, sharing) via WKWebView. See NexusWebView.
+    #if DEBUG
+    static let webAppBaseURL = "http://localhost:5173"
+    #else
+    static let webAppBaseURL = "https://reloprep.com"
+    #endif
+
     // MARK: - URL Scheme
     static let urlScheme = "movetrack"
 
