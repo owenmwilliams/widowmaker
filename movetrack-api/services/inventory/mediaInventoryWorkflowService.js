@@ -167,7 +167,7 @@ async function analyzeVideoForInventory(args, userId, plan) {
 
     console.log(`[census] Video downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB`);
     const videoVisionStart = Date.now();
-    const result = await analyzeVideo(videoBuffer, args.mime_type, plan);
+    const result = await analyzeVideo(videoBuffer, args.mime_type, plan, null, args.room_hint || null);
     const items = result.items || [];
 
     // Extract frames for each item with a timestamp and upload to GCS
