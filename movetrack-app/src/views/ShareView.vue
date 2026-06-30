@@ -20,9 +20,15 @@ type Loc = {
   access: { hasStairs?: boolean | null; numberOfFlights?: number | null; hasElevator?: boolean | null; parking?: string | null; entryType?: string | null; notes?: string | null }
   rooms: Room[]
 }
+type Confidence = {
+  itemCount: number; measuredWeightPct: number; totalWeightLbs: number
+  bedrooms: number | null
+  reasonableness: { hasBenchmark: boolean; status: string; severity: string; message: string }
+}
 type Report = {
   title: string | null; generatedAt: string
   totals: { itemCount: number; totalWeightLbs: number; totalVolumeCuFt: number; fragileCount: number; missingWeight: number; missingDimensions: number }
+  confidence?: Confidence
   specialItems: { name: string; quantity: number; fragile: boolean; oversized: boolean }[]
   locations: Loc[]
   move: { name?: string; moveDate?: string; origin?: any; destination?: any } | null
@@ -37,6 +43,15 @@ const placeLabel = (p: any) => (p ? [p.name, p.city, p.state].filter(Boolean).jo
 const generatedLabel = computed(() =>
   report.value ? new Date(report.value.generatedAt).toLocaleString() : ''
 )
+const confidenceCaution = computed(() => {
+  const r = report.value?.confidence?.reasonableness
+  if (!r || !r.hasBenchmark) return null
+  if (r.status === 'too_low' || r.status === 'low')
+    return 'This inventory may be incomplete for the home size — totals could be on the low side. Confirm scope on site.'
+  if (r.status === 'too_high' || r.status === 'high')
+    return 'Some items may be over-estimated for the home size. Confirm on site.'
+  return null
+})
 
 onMounted(async () => {
   try {
@@ -81,6 +96,14 @@ const printPage = () => window.print()
         <div class="stat"><span class="num">{{ report.totals.totalWeightLbs.toLocaleString() }}</span><span class="lbl">lbs (est.)</span></div>
         <div class="stat"><span class="num">{{ report.totals.totalVolumeCuFt.toLocaleString() }}</span><span class="lbl">cu ft (est.)</span></div>
         <div class="stat"><span class="num">{{ report.totals.fragileCount }}</span><span class="lbl">Fragile</span></div>
+      </section>
+
+      <section v-if="report.confidence" class="confidence">
+        <span class="conf-chip">AI-assisted self-report</span>
+        <span class="conf-meta">
+          {{ report.confidence.itemCount }} items · {{ report.confidence.measuredWeightPct }}% with measured weights
+        </span>
+        <p v-if="confidenceCaution" class="conf-caution">⚠︎ {{ confidenceCaution }}</p>
       </section>
 
       <p v-if="report.totals.missingWeight || report.totals.missingDimensions" class="muted disclaimer">
@@ -147,6 +170,10 @@ const printPage = () => window.print()
 .report-head h1 { margin: 4px 0; font-size: 26px; }
 .muted { color: #777; font-size: 13px; }
 .disclaimer { margin-top: 8px; }
+.confidence { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin: 8px 0 4px; }
+.conf-chip { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: #3730a3; background: #e0e7ff; border-radius: 999px; padding: 3px 10px; }
+.conf-meta { font-size: 13px; color: #555; }
+.conf-caution { flex-basis: 100%; margin: 4px 0 0; font-size: 13px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 12px; }
 .print-btn { background: #5b5bd6; color: #fff; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .totals { display: flex; gap: 24px; margin: 20px 0; flex-wrap: wrap; }
 .stat { display: flex; flex-direction: column; }

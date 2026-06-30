@@ -126,6 +126,22 @@ final class NexusViewModel: ObservableObject {
 
     // MARK: - Share
 
+    /// Returns a warning message if the inventory looks implausible to share
+    /// (e.g. 92 lbs for a 3-bed), else nil. Never blocks — warn-but-allow. If the
+    /// check itself fails, we return nil and let the share proceed.
+    func shareWarning() async -> String? {
+        isPreparingShare = true
+        defer { isPreparingShare = false }
+        do {
+            return try await service.shareReadiness().shareWarning
+        } catch NexusError.unauthorized {
+            sessionExpired = true
+            return nil
+        } catch {
+            return nil
+        }
+    }
+
     /// Get-or-create a public share link for the whole inventory and return it.
     /// Reuses an existing active link so we don't spawn a new token every tap.
     @discardableResult

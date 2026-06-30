@@ -225,15 +225,35 @@ async function inventoryReadinessAssessment(userId) {
  */
 async function shareReasonableness(userId, { bedrooms = null } = {}) {
   const assessment = await inventoryReadinessAssessment(userId);
+
+  // Fall back to the persisted home size (residence with bedrooms set) when the
+  // caller didn't pass one — so the share-time check works without the agent.
+  let beds = bedrooms;
+  if (beds === null || beds === undefined) {
+    beds = await getResidenceBedrooms(userId);
+  }
+
   const items = await db.any(
     `SELECT name, weight_lbs FROM items WHERE user_id = $1`, [userId]
   );
   const reasonableness = assessWeightPlausibility({
-    bedrooms,
+    bedrooms: beds,
     actualWeightLbs: assessment.totals.weightLbs,
   });
   const weightOutliers = flagWeightOutliers(items).slice(0, 10);
-  return { ...assessment, reasonableness, weightOutliers };
+  return { ...assessment, reasonableness, weightOutliers, bedrooms: beds ?? null };
+}
+
+/** Best-guess bedroom count for the user's current home, or null if unknown. */
+async function getResidenceBedrooms(userId) {
+  const row = await db.oneOrNone(
+    `SELECT bedrooms FROM locations
+      WHERE user_id = $1 AND bedrooms IS NOT NULL
+      ORDER BY (location_type = 'primary_residence') DESC, created_at ASC
+      LIMIT 1`,
+    [userId]
+  );
+  return row ? row.bedrooms : null;
 }
 
 module.exports = {
@@ -241,4 +261,5 @@ module.exports = {
   getTypicalItems,
   inventoryReadinessAssessment,
   shareReasonableness,
+  getResidenceBedrooms,
 };

@@ -188,6 +188,15 @@ final class NexusService {
         return try decoder.decode(ShareDTO.self, from: data)
     }
 
+    /// Share-readiness + reasonableness check (used to warn before sharing).
+    func shareReadiness() async throws -> ShareReadinessDTO {
+        var request = URLRequest(url: url(for: "/shares/readiness"))
+        addAuth(&request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+        return try decoder.decode(ShareReadinessDTO.self, from: data)
+    }
+
     // MARK: - Clear / archive session
 
     func clearSession(id: String) async throws {

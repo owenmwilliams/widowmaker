@@ -15,6 +15,8 @@
 const crypto = require('crypto');
 const knex = require('../infra/knex');
 const { getInventorySnapshot } = require('./inventorySummaryQueryService');
+const { assessWeightPlausibility } = require('./inventoryBenchmarkService');
+const { getResidenceBedrooms } = require('./inventoryMaturityService');
 
 // An item needs special handling if a single unit is heavy or large.
 const OVERSIZED_WEIGHT_LBS = 150;
@@ -203,7 +205,21 @@ async function buildMoverReport(userId, moveId = null) {
     }
   }
 
-  return { totals, specialItems, locations: allLocations, move };
+  // Confidence/coverage summary so movers can calibrate trust, and a
+  // reasonableness verdict vs. the home size (catches implausibly-low totals).
+  const bedrooms = await getResidenceBedrooms(userId);
+  const measuredWeightPct = totals.itemCount > 0
+    ? Math.round(((totals.itemCount - totals.missingWeight) / totals.itemCount) * 100)
+    : 0;
+  const confidence = {
+    itemCount: totals.itemCount,
+    measuredWeightPct,
+    totalWeightLbs: totals.totalWeightLbs,
+    bedrooms: bedrooms ?? null,
+    reasonableness: assessWeightPlausibility({ bedrooms, actualWeightLbs: totals.totalWeightLbs }),
+  };
+
+  return { totals, specialItems, confidence, locations: allLocations, move };
 }
 
 /** Public: resolve a token → mover report, recording the view. */

@@ -18,6 +18,7 @@ struct NexusChatView: View {
     @State private var showAttachDialog = false
     @State private var pickerSource: MediaPicker.Source?
     @State private var showShareSheet = false
+    @State private var shareWarningText: String?
     @State private var showAINotice = false
     @AppStorage("aiCaptureNoticeShown") private var aiNoticeShown = false
     @FocusState private var inputFocused: Bool
@@ -67,6 +68,15 @@ struct NexusChatView: View {
                 Button("Cancel", role: .cancel) {}
             } message: {
                 Text("To build your inventory, the photos and videos you add are sent to AI services to identify your items and estimate their size and weight.")
+            }
+            .alert("Before you share", isPresented: Binding(
+                get: { shareWarningText != nil },
+                set: { if !$0 { shareWarningText = nil } }
+            )) {
+                Button("Share anyway") { Task { await doShare() } }
+                Button("Review & fix", role: .cancel) { shareWarningText = nil }
+            } message: {
+                Text(shareWarningText ?? "")
             }
             .overlay {
                 if vm.isPreparingShare {
@@ -279,6 +289,16 @@ struct NexusChatView: View {
     }
 
     private func prepareAndShare() async {
+        // Reasonableness gate (warn-but-allow): if the inventory looks implausible
+        // for the home, warn first; otherwise go straight to sharing.
+        if let warning = await vm.shareWarning() {
+            shareWarningText = warning
+        } else {
+            await doShare()
+        }
+    }
+
+    private func doShare() async {
         let url = await vm.shareInventory()
         if url != nil { showShareSheet = true }
     }
