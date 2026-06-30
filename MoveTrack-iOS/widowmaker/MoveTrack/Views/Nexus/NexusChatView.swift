@@ -2,9 +2,9 @@
 //  NexusChatView.swift
 //  Nexus Moves
 //
-//  The entire app, basically. A native chat with the Nexus agent: type or speak
-//  to it, drop in a room photo/video, and it builds a moving inventory you can
-//  share with movers. No dashboards, no item tables — just the agent.
+//  The whole app: a clean, native chat with the Nexus agent. A brand header with
+//  a live "share readiness" banner makes it obvious how close the inventory is to
+//  shareable and where to share it; the agent's [BUTTONS] render as real buttons.
 //
 
 import SwiftUI
@@ -20,86 +20,121 @@ struct NexusChatView: View {
     @State private var shareItem: ShareItem?
     @State private var shareWarningText: String?
     @State private var showAINotice = false
+    @State private var showReadiness = false
+    @State private var captureCaption = ""
     @AppStorage("aiCaptureNoticeShown") private var aiNoticeShown = false
     @FocusState private var inputFocused: Bool
 
     private let bottomID = "nexus-bottom-anchor"
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                conversation
-                if let error = vm.errorMessage {
-                    errorBar(error)
-                }
-                inputBar
+        VStack(spacing: 0) {
+            header
+            conversation
+            if let error = vm.errorMessage {
+                errorBar(error)
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
-            .task { await vm.loadIfNeeded() }
-            .confirmationDialog("Add a room photo or video", isPresented: $showAttachDialog, titleVisibility: .visible) {
-                if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button("Take Photo or Video") { pickerSource = .camera }
-                }
-                Button("Choose from Library") { pickerSource = .library }
-                Button("Cancel", role: .cancel) {}
+            inputBar
+        }
+        .background(Theme.canvas, ignoresSafeAreaEdges: .all)
+        .task { await vm.loadIfNeeded() }
+        .confirmationDialog("Add a room photo or video", isPresented: $showAttachDialog, titleVisibility: .visible) {
+            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Button("Take Photo or Video") { pickerSource = .camera }
             }
-            .sheet(item: $pickerSource) { source in
-                MediaPicker(
-                    source: source,
-                    onPicked: { data, mime, name in
-                        pickerSource = nil
-                        Task { await vm.sendMedia(data: data, mimeType: mime, filename: name) }
-                    },
-                    onCancel: { pickerSource = nil }
-                )
-                .ignoresSafeArea()
+            Button("Choose from Library") { pickerSource = .library }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(item: $pickerSource) { source in
+            MediaPicker(
+                source: source,
+                onPicked: { data, mime, name in
+                    pickerSource = nil
+                    let caption = captureCaption
+                    captureCaption = ""
+                    Task { await vm.sendMedia(data: data, mimeType: mime, filename: name, caption: caption) }
+                },
+                onCancel: { pickerSource = nil }
+            )
+            .ignoresSafeArea()
+        }
+        .sheet(item: $shareItem) { item in
+            ShareSheet(items: [item.url])
+        }
+        .sheet(isPresented: $showReadiness) {
+            ReadinessSheet(
+                readiness: vm.readiness,
+                onShare: { Task { await onShareTapped() } },
+                onEstimateWeights: { Task { await vm.send("Estimate the missing weights for my items.") } },
+                onAddVideo: { beginCapture(caption: "") }
+            )
+        }
+        .alert("Photos & videos use AI", isPresented: $showAINotice) {
+            Button("Continue") {
+                aiNoticeShown = true
+                showAttachDialog = true
             }
-            .sheet(item: $shareItem) { item in
-                ShareSheet(items: [item.url])
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("To build your inventory, the photos and videos you add are sent to AI services to identify your items and estimate their size and weight.")
+        }
+        .alert("Before you share", isPresented: Binding(
+            get: { shareWarningText != nil },
+            set: { if !$0 { shareWarningText = nil } }
+        )) {
+            Button("Share anyway") {
+                Task { if let url = await vm.forceShare() { shareItem = ShareItem(url: url) } }
             }
-            .alert("Photos & videos use AI", isPresented: $showAINotice) {
-                Button("Continue") {
-                    aiNoticeShown = true
-                    showAttachDialog = true
-                }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("To build your inventory, the photos and videos you add are sent to AI services to identify your items and estimate their size and weight.")
-            }
-            .alert("Before you share", isPresented: Binding(
-                get: { shareWarningText != nil },
-                set: { if !$0 { shareWarningText = nil } }
-            )) {
-                Button("Share anyway") {
-                    Task { if let url = await vm.forceShare() { shareItem = ShareItem(url: url) } }
-                }
-                Button("Review & fix", role: .cancel) { shareWarningText = nil }
-            } message: {
-                Text(shareWarningText ?? "")
-            }
-            .overlay {
-                if vm.isPreparingShare {
-                    sharePreparingOverlay
-                }
-            }
-            .onChange(of: vm.sessionExpired) { _, expired in
-                if expired { Task { await authViewModel.logout() } }
-            }
+            Button("Review & fix", role: .cancel) { shareWarningText = nil }
+        } message: {
+            Text(shareWarningText ?? "")
+        }
+        .overlay {
+            if vm.isPreparingShare { sharePreparingOverlay }
+        }
+        .onChange(of: vm.sessionExpired) { _, expired in
+            if expired { Task { await authViewModel.logout() } }
         }
     }
 
-    private var sharePreparingOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.25).ignoresSafeArea()
-            VStack(spacing: 12) {
-                ProgressView()
-                Text("Preparing share link…").font(.subheadline)
+    // MARK: - Header
+
+    private var header: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Theme.brandGradient)
+                    .frame(width: 34, height: 34)
+                    .overlay(Image(systemName: "sparkles").font(.system(size: 15, weight: .bold)).foregroundStyle(.white))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Nexus Moves").font(.headline)
+                    Text("Your moving assistant").font(.caption2).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Menu {
+                    Button { Task { await vm.startNewConversation() } } label: {
+                        Label("New conversation", systemImage: "square.and.pencil")
+                    }
+                    Divider()
+                    Button(role: .destructive) { Task { await authViewModel.logout() } } label: {
+                        Label("Log out", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.title2).foregroundStyle(.secondary)
+                }
             }
-            .padding(24)
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            ReadinessBanner(
+                readiness: vm.readiness,
+                isPreparing: vm.isPreparingShare,
+                onTap: { showReadiness = true },
+                onShare: { Task { await onShareTapped() } }
+            )
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 6)
+        .padding(.bottom, 12)
+        .background { Theme.card.ignoresSafeArea(edges: .top) }
+        .overlay(alignment: .bottom) { Divider() }
     }
 
     // MARK: - Conversation
@@ -107,16 +142,16 @@ struct NexusChatView: View {
     private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                LazyVStack(alignment: .leading, spacing: 14) {
                     if vm.messages.isEmpty && !vm.isLoading {
-                        introCard
+                        welcomeCard
                     }
                     ForEach(vm.messages) { message in
-                        MessageBubble(message: message)
+                        MessageBubble(message: message, onButton: handleAgentButton)
                             .id(message.id)
                     }
                     if vm.isLoading {
-                        typingIndicator
+                        TypingIndicator(phase: vm.phaseText, detail: vm.detailText)
                     }
                     if !vm.quickStartChips.isEmpty && !vm.isLoading {
                         chips
@@ -124,7 +159,7 @@ struct NexusChatView: View {
                     Color.clear.frame(height: 1).id(bottomID)
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .padding(.vertical, 14)
             }
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: vm.messages.count) { _, _ in scrollToBottom(proxy) }
@@ -140,62 +175,36 @@ struct NexusChatView: View {
         }
     }
 
-    private var introCard: some View {
+    private var welcomeCard: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "sparkles")
-                    .font(.title2)
-                    .foregroundStyle(.blue)
-                Text("Hi, I'm Nexus 👋")
-                    .font(.title3.bold())
-            }
-            Text("I'll build a moving inventory you can share with movers — in three quick steps:")
+            Text("👋 Hi, I'm Nexus")
+                .font(.title2.bold())
+            Text("Tell me about your move and I'll build an inventory you can share with movers — in three quick steps:")
                 .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 8) {
-                stepRow(1, "Tell me about your current home")
-                stepRow(2, "Take a video of each room")
-                stepRow(3, "Tell me where you're moving to")
-            }
-            Text("Tap **+** anytime to add a room video or photo.")
+            stepRow(1, "house.fill", "Tell me about your current home")
+            stepRow(2, "video.fill", "Add a photo or video of each room")
+            stepRow(3, "square.and.arrow.up", "Share your inventory with movers")
+            Text("Tap **+** to add a room, or just say hello.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding(.top, 2)
         }
-        .padding(16)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.systemGray6))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .padding(.top, 8)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .padding(.top, 4)
     }
 
-    private func stepRow(_ n: Int, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text("\(n)")
-                .font(.subheadline.bold())
-                .foregroundStyle(.white)
-                .frame(width: 24, height: 24)
-                .background(Circle().fill(Color.blue))
-            Text(text)
-            Spacer(minLength: 0)
-        }
-    }
-
-    private var typingIndicator: some View {
-        HStack(spacing: 10) {
-            ProgressView()
-            VStack(alignment: .leading, spacing: 2) {
-                Text(vm.phaseText.isEmpty ? "Thinking…" : vm.phaseText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                if !vm.detailText.isEmpty {
-                    Text(vm.detailText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+    private func stepRow(_ n: Int, _ icon: String, _ text: String) -> some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(Theme.brandSoft).frame(width: 32, height: 32)
+                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.brand)
             }
+            Text(text).font(.subheadline)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var chips: some View {
@@ -206,11 +215,11 @@ struct NexusChatView: View {
                     Task { await vm.send(chip.message) }
                 } label: {
                     Text(chip.label)
-                        .font(.subheadline)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.blue.opacity(0.12))
-                        .foregroundStyle(Color.blue)
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 9)
+                        .background(Theme.brandSoft)
+                        .foregroundStyle(Theme.brand)
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -227,16 +236,12 @@ struct NexusChatView: View {
             Image(systemName: "exclamationmark.triangle.fill")
             Text(message).font(.footnote)
             Spacer(minLength: 0)
-            Button {
-                vm.errorMessage = nil
-            } label: {
-                Image(systemName: "xmark")
-            }
+            Button { vm.errorMessage = nil } label: { Image(systemName: "xmark") }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .foregroundStyle(.white)
-        .background(Color.red.opacity(0.9))
+        .background(Theme.danger.opacity(0.92))
     }
 
     // MARK: - Input
@@ -244,42 +249,62 @@ struct NexusChatView: View {
     private var inputBar: some View {
         HStack(alignment: .bottom, spacing: 10) {
             Button {
-                inputFocused = false
-                if aiNoticeShown {
-                    showAttachDialog = true
-                } else {
-                    showAINotice = true
-                }
+                beginCapture(caption: "")
             } label: {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(vm.isBusy ? Color.gray : Color.blue)
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(vm.isBusy ? AnyShapeStyle(Color.gray) : AnyShapeStyle(Theme.brandGradient))
+                    .clipShape(Circle())
             }
             .disabled(vm.isBusy)
 
             TextField("Message Nexus…", text: $draft, axis: .vertical)
                 .lineLimit(1...5)
                 .focused($inputFocused)
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 15)
                 .padding(.vertical, 9)
-                .background(Color(.systemGray6))
+                .background(Theme.canvas)
                 .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.primary.opacity(0.08)))
 
             Button(action: sendDraft) {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(canSend ? Color.blue : Color.gray)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(canSend ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(Color.gray.opacity(0.5)))
+                    .clipShape(Circle())
             }
             .disabled(!canSend)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(.thinMaterial)
+        .background { Theme.card.ignoresSafeArea(edges: .bottom) }
+        .overlay(alignment: .top) { Divider() }
     }
 
     private var canSend: Bool {
         !vm.isLoading && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    // MARK: - Overlay
+
+    private var sharePreparingOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.25).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView()
+                Text("Preparing share link…").font(.subheadline)
+            }
+            .padding(24)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    // MARK: - Actions
 
     private func sendDraft() {
         let text = draft
@@ -288,54 +313,87 @@ struct NexusChatView: View {
         Task { await vm.send(text) }
     }
 
-    private func onShareTapped() async {
-        // One operation, one loading state. Warn first only if the inventory looks
-        // implausible (warn-but-allow); otherwise present the share sheet.
-        switch await vm.evaluateAndPrepareShare() {
-        case .warn(let message):
-            shareWarningText = message
-        case .ready(let url):
-            shareItem = ShareItem(url: url)
-        case .failed:
-            break // error (if any) is surfaced via vm.errorMessage
+    private func handleAgentButton(_ button: AgentButton) {
+        switch button.primaryAction {
+        case .send:
+            inputFocused = false
+            Task { await vm.send(button.message) }
+        case .prefill:
+            draft = button.message
+            inputFocused = true
+        case .camera:
+            beginCapture(caption: button.message)
         }
     }
 
-    // MARK: - Toolbar
+    private func beginCapture(caption: String) {
+        captureCaption = caption
+        inputFocused = false
+        if aiNoticeShown {
+            showAttachDialog = true
+        } else {
+            showAINotice = true
+        }
+    }
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .principal) {
-            VStack(spacing: 1) {
-                Text("Nexus").font(.headline)
-                Text("Your moving assistant")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+    private func onShareTapped() async {
+        switch await vm.evaluateAndPrepareShare() {
+        case .warn(let message): shareWarningText = message
+        case .ready(let url): shareItem = ShareItem(url: url)
+        case .failed: break
         }
-        ToolbarItem(placement: .topBarTrailing) {
-            Menu {
-                Button {
-                    Task { await onShareTapped() }
-                } label: {
-                    Label("Share inventory", systemImage: "square.and.arrow.up")
+    }
+}
+
+// MARK: - Readiness banner
+
+private struct ReadinessBanner: View {
+    let readiness: ShareReadinessDTO?
+    let isPreparing: Bool
+    let onTap: () -> Void
+    let onShare: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: onTap) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(readiness?.statusLabel ?? "Building your inventory")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Text("\(readiness?.overall ?? 0)%")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    ProgressView(value: readiness?.progress ?? 0).tint(Theme.brand)
+                    HStack(spacing: 3) {
+                        Text("See what's left")
+                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Theme.brand)
                 }
-                .disabled(vm.isPreparingShare)
-                Button {
-                    Task { await vm.startNewConversation() }
-                } label: {
-                    Label("New conversation", systemImage: "square.and.pencil")
-                }
-                Divider()
-                Button(role: .destructive) {
-                    Task { await authViewModel.logout() }
-                } label: {
-                    Label("Log out", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
             }
+            .buttonStyle(.plain)
+
+            Button(action: onShare) {
+                VStack(spacing: 3) {
+                    Image(systemName: "square.and.arrow.up").font(.system(size: 16, weight: .semibold))
+                    Text("Share").font(.caption2.weight(.bold))
+                }
+                .frame(width: 60, height: 56)
+                .background(Theme.brandGradient)
+                .foregroundStyle(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .opacity(isPreparing ? 0.6 : 1)
+            }
+            .disabled(isPreparing)
         }
+        .padding(12)
+        .background(Theme.canvas)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).stroke(Color.primary.opacity(0.06)))
     }
 }
 
@@ -343,41 +401,52 @@ struct NexusChatView: View {
 
 private struct MessageBubble: View {
     let message: ChatMessage
+    let onButton: (AgentButton) -> Void
 
     private var isUser: Bool { message.role == .user }
 
     var body: some View {
-        HStack {
-            if isUser { Spacer(minLength: 40) }
+        let parsed: ParsedAgentMessage? = isUser ? nil : AgentMessageParser.parse(message.text)
+        let displayText = isUser ? message.text : (parsed?.prose ?? message.text)
 
-            VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
-                ForEach(Array(message.attachments.enumerated()), id: \.offset) { _, attachment in
-                    Text(attachment.displayLabel)
-                        .font(.footnote.weight(.medium))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.15))
-                        .clipShape(Capsule())
+        VStack(alignment: isUser ? .trailing : .leading, spacing: 8) {
+            HStack {
+                if isUser { Spacer(minLength: 44) }
+                VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
+                    ForEach(Array(message.attachments.enumerated()), id: \.offset) { _, attachment in
+                        Text(attachment.displayLabel)
+                            .font(.footnote.weight(.medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(isUser ? Color.white.opacity(0.25) : Theme.brandSoft)
+                            .foregroundStyle(isUser ? .white : Theme.brand)
+                            .clipShape(Capsule())
+                    }
+                    if !displayText.isEmpty {
+                        Text(styled(displayText))
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 15)
+                            .padding(.vertical, 11)
+                            .background(isUser ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(Theme.modelBubble))
+                            .foregroundStyle(isUser ? Color.white : Color.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+                    }
                 }
-
-                if !message.text.isEmpty {
-                    Text(styled(message.text))
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(isUser ? Color.blue : Color(.systemGray6))
-                        .foregroundStyle(isUser ? Color.white : Color.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                }
+                if !isUser { Spacer(minLength: 44) }
             }
 
-            if !isUser { Spacer(minLength: 40) }
+            if let buttons = parsed?.buttons, !buttons.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(buttons) { button in
+                        AgentButtonRow(button: button) { onButton(button) }
+                    }
+                }
+                .padding(.trailing, 44)
+            }
         }
         .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
     }
 
-    /// Render light markdown (links, bold) the agent commonly returns; fall back
-    /// to plain text on failure.
     private func styled(_ string: String) -> AttributedString {
         (try? AttributedString(
             markdown: string,
@@ -386,14 +455,81 @@ private struct MessageBubble: View {
     }
 }
 
-// Lets `.sheet(item:)` present the camera/library picker.
-extension MediaPicker.Source: Identifiable {
-    var id: Int { self == .camera ? 0 : 1 }
+// MARK: - Agent inline button
+
+private struct AgentButtonRow: View {
+    let button: AgentButton
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.subheadline)
+                Text(button.label).font(.subheadline.weight(.semibold)).multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.brandSoft)
+            .foregroundStyle(Theme.brand)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var icon: String {
+        switch button.primaryAction {
+        case .send: return "paperplane.fill"
+        case .prefill: return "square.and.pencil"
+        case .camera: return "camera.fill"
+        }
+    }
 }
 
-// Wrapper so the native share sheet is presented data-driven via `.sheet(item:)`
-// (avoids the overlay-then-sheet race that flashed the loading modal).
+// MARK: - Typing indicator
+
+private struct TypingIndicator: View {
+    let phase: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TimelineView(.animation) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                HStack(spacing: 4) {
+                    ForEach(0..<3) { i in
+                        Circle()
+                            .frame(width: 7, height: 7)
+                            .foregroundStyle(Theme.brand.opacity(0.7))
+                            .scaleEffect(0.7 + 0.3 * abs(CGFloat(sin(t * 4 + Double(i) * 0.7))))
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 13)
+                .background(Theme.modelBubble)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(phase.isEmpty ? "Thinking…" : phase).font(.subheadline).foregroundStyle(.secondary)
+                if !detail.isEmpty {
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+// MARK: - Small types
+
+// Wrapper so the native share sheet presents data-driven via `.sheet(item:)`.
 private struct ShareItem: Identifiable {
     let id = UUID()
     let url: URL
+}
+
+// Lets `.sheet(item:)` present the camera/library picker.
+extension MediaPicker.Source: Identifiable {
+    var id: Int { self == .camera ? 0 : 1 }
 }
