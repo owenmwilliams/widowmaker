@@ -77,6 +77,59 @@ router.get('/verify-magic-link', async function(req, res, next) {
 });
 
 /**
+ * POST /auth/request-code
+ * Email a 6-digit OTP login code (mobile-friendly; no deep link needed).
+ */
+router.post('/request-code', requireValidEmail, async function(req, res, next) {
+    try {
+        const { email } = req.body;
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('user-agent');
+
+        const result = await authService.createOtpCode(email, ipAddress, userAgent);
+        if (!result.success) {
+            return res.status(400).json({ success: false, error: result.error });
+        }
+
+        const emailResult = await authService.sendOtpEmail(email, result.code);
+        if (!emailResult.success) {
+            return res.status(500).json({ success: false, error: 'Failed to send code' });
+        }
+
+        res.json({ success: true, message: 'Login code sent to your email' });
+    } catch (error) {
+        console.error('Error in request-code:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
+/**
+ * POST /auth/verify-code
+ * Verify a 6-digit OTP code and create a session.
+ */
+router.post('/verify-code', requireValidEmail, async function(req, res, next) {
+    try {
+        const { email, code } = req.body;
+        if (!code) {
+            return res.status(400).json({ success: false, error: 'Code is required' });
+        }
+        const ipAddress = req.ip || req.connection.remoteAddress;
+        const userAgent = req.get('user-agent');
+
+        const result = await authService.verifyOtpCode(email, code, ipAddress, userAgent);
+        if (!result.success) {
+            return res.status(400).json({ success: false, error: result.error });
+        }
+
+        const sessionToken = result.session_token || result.sessionToken;
+        res.json({ success: true, session_token: sessionToken, sessionToken, user: result.user });
+    } catch (error) {
+        console.error('Error in verify-code:', error);
+        res.status(500).json({ success: false, error: 'Internal server error' });
+    }
+});
+
+/**
  * POST /auth/logout
  * Logout user by invalidating session token
  */
