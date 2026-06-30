@@ -1017,3 +1017,22 @@ CREATE INDEX IF NOT EXISTS idx_beta_logs_created ON beta_interaction_logs(create
 CREATE INDEX IF NOT EXISTS idx_beta_logs_session ON beta_interaction_logs(session_id);
 CREATE INDEX IF NOT EXISTS idx_item_feedback_item ON item_feedback(item_id);
 CREATE INDEX IF NOT EXISTS idx_item_feedback_user ON item_feedback(user_id);
+
+-- ============================================================================
+-- INVENTORY SHARE LINKS (migration 032) — tokenized public read-only inventory
+-- for sharing with moving companies.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS inventory_shares (
+  id             BIGSERIAL PRIMARY KEY,
+  token          TEXT NOT NULL UNIQUE,
+  user_id        UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  move_id        BIGINT REFERENCES saved_moves(id) ON DELETE SET NULL,
+  title          TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at     TIMESTAMPTZ,
+  revoked_at     TIMESTAMPTZ,
+  view_count     INTEGER NOT NULL DEFAULT 0,
+  last_viewed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_shares_token ON inventory_shares(token);
+CREATE INDEX IF NOT EXISTS idx_inventory_shares_user ON inventory_shares(user_id);

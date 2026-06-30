@@ -15,6 +15,7 @@
   import VideoInventoryScan from '../../capture/VideoInventoryScan.vue';
   import VisionProviderToggle from '../../capture/VisionProviderToggle.vue';
   import ReloPrepLogo from '../../brand/ReloPrepLogo.vue';
+  import ShareInventoryButton from '../ShareInventoryButton.vue';
   import { storeToRefs } from 'pinia';
   import axios from 'axios';
   import { useQuasar } from 'quasar';
@@ -301,6 +302,7 @@
             </div>
 
           <div class="toolbar-actions">
+            <ShareInventoryButton class="q-mr-sm" />
             <q-btn unelevated color="primary" icon="add" label="Add Item" class="q-mr-sm" @click="openAddOptions" />
             <q-btn flat round dense icon="menu" class="admin-btn">
               <q-menu style="z-index: 9999;">

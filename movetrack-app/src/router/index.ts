@@ -223,6 +223,12 @@ const router = createRouter({
       name: "pricing",
       component: Pricing
     },
+    {
+      // Public, unauthenticated mover-facing inventory view (token-scoped).
+      path: "/share/:token",
+      name: "share",
+      component: () => import('../views/ShareView.vue')
+    },
     // Fall back component for pages not found
     {
       path: "/:catchAll(.*)",
@@ -233,6 +239,11 @@ const router = createRouter({
 });
 
 router.beforeEach(async (to, from, next) => {
+  // Public mover-facing share view is always reachable, logged in or not.
+  if (to.path.startsWith('/share/')) {
+    return next();
+  }
+
   const sessionToken = localStorage.getItem('session_token');
   const isOnboardingRoute = to.path.startsWith('/onboarding');
   const isNexusRoute = to.path === '/mobile/nexus' || to.path === '/nexus';
