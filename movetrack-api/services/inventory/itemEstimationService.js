@@ -603,8 +603,77 @@ async function runItemEstimate(userId, itemId, overrideFields = {}, modelOption 
   }
 }
 
+const BATCH_ESTIMATE_SCHEMA = {
+  type: SchemaType.OBJECT,
+  properties: {
+    items: {
+      type: SchemaType.ARRAY,
+      items: {
+        type: SchemaType.OBJECT,
+        properties: {
+          index: { type: SchemaType.INTEGER },
+          weight_lbs: { type: SchemaType.NUMBER },
+          length_in: { type: SchemaType.NUMBER },
+          width_in: { type: SchemaType.NUMBER },
+          height_in: { type: SchemaType.NUMBER },
+        },
+        required: ['index', 'weight_lbs', 'length_in', 'width_in', 'height_in'],
+      },
+    },
+  },
+  required: ['items'],
+};
+
+/**
+ * Estimate per-unit weight + dimensions for MANY items in a SINGLE model call.
+ * `items` is [{ name, room?, material? }]; returns an array aligned by 1-based
+ * index: [{ index, weight_lbs, length_in, width_in, height_in }]. Far cheaper
+ * and faster than one call per item.
+ */
+async function generateBatchEstimates(items = [], options = {}) {
+  if (!geminiClient) throw new Error('GOOGLE_AI_API_KEY not configured');
+  if (!items.length) return [];
+
+  const list = items
+    .map((it, i) => {
+      const bits = [`${i + 1}. ${it.name || 'Unnamed item'}`];
+      if (it.room) bits.push(`(room: ${it.room})`);
+      if (it.material) bits.push(`[material: ${it.material}]`);
+      return bits.join(' ');
+    })
+    .join('\n');
+
+  const prompt =
+    'Estimate realistic per-unit shipping weight (pounds) and bounding-box ' +
+    'dimensions (inches, length×width×height) for EACH household item below. ' +
+    'Estimate ONE single unit each — never multiply by quantity. Put the longest ' +
+    'dimension in length_in. Use typical values for common household goods.\n\n' +
+    `Items:\n${list}\n\n` +
+    'Return JSON: { "items": [ { "index": <1-based item number>, "weight_lbs": <number>, ' +
+    '"length_in": <number>, "width_in": <number>, "height_in": <number> } ] }. ' +
+    'Include exactly one entry per item, matching its number.';
+
+  const model = geminiClient.getGenerativeModel({
+    model: options.model || 'gemini-2.5-flash',
+    systemInstruction:
+      'You are an expert household goods estimator helping movers record approximate ' +
+      'weights and dimensions. Respond with JSON only (no markdown fences).',
+    generationConfig: {
+      temperature: 0.2,
+      maxOutputTokens: 8192,
+      responseMimeType: 'application/json',
+      responseSchema: BATCH_ESTIMATE_SCHEMA,
+    },
+  });
+
+  const result = await model.generateContent(prompt);
+  const parsed = parseModelJson(result.response.text());
+  return Array.isArray(parsed?.items) ? parsed.items : [];
+}
+
 module.exports = {
   generateItemEstimate,
+  generateBatchEstimates,
   buildEstimationContext,
   runItemEstimate,
 };

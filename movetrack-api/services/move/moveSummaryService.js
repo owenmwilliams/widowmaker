@@ -8,7 +8,8 @@
 
 const knex = require('../infra/knex');
 const { getInventoryTotals } = require('../inventory/inventorySummaryQueryService');
-const { generateItemEstimate } = require('../inventory/itemEstimationService');
+const { generateItemEstimate, generateBatchEstimates } = require('../inventory/itemEstimationService');
+const { specForName, isLargeImpactItem } = require('../inventory/itemSpecsReference');
 
 /**
  * Get a comprehensive move summary.
@@ -61,20 +62,35 @@ async function getMoveSummary(userId) {
   };
 }
 
+function positiveNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0;
+}
+function round1(v) {
+  return Math.round(Number(v) * 10) / 10;
+}
+
 /**
- * Estimate missing weight/dimensions for items using AI.
+ * Fill missing weight/dimensions across the inventory using a cheap 3-tier
+ * strategy, so hundreds of items can be estimated in seconds:
+ *   1. Typical values from a deterministic table — free, instant (most items).
+ *   2. ONE batched model call for the remaining ordinary items.
+ *   3. A per-item, photo-grounded call for large, high-impact items that have a
+ *      photo (e.g. a sofa, where dimensions/weight vary a lot and matter most).
  *
  * @param {string} userId
- * @param {object} args - { max_items }
- * @returns {object} - { estimated, failed, remaining, results }
+ * @param {object} args - { max_items, max_photo_calls }
+ * @returns {object} - { estimated, failed, remaining, byTier, results }
  */
-async function estimateMissingItems(userId, args) {
-  const maxItems = Math.min(args.max_items || 20, 50);
+async function estimateMissingItems(userId, args = {}) {
+  const maxItems = Math.min(args.max_items || 500, 1000);
+  const maxPhotoCalls = Math.min(args.max_photo_calls || 15, 30);
+  const BATCH_SIZE = 50;
 
   const items = await knex('items')
     .select('items.id', 'items.name', 'items.description', 'items.quantity', 'items.weight_lbs',
             'items.length_in', 'items.width_in', 'items.height_in', 'items.material', 'items.primary_color',
-            'collections.name as collection_name')
+            'items.picture_url', 'collections.name as collection_name')
     .leftJoin('collections', 'items.collection_id', 'collections.id')
     .where('items.user_id', userId)
     .where(function() {
@@ -89,68 +105,109 @@ async function estimateMissingItems(userId, args) {
     return { success: true, message: 'All items already have weight and dimension data.', estimated: 0 };
   }
 
-  const results = [];
-  let estimated = 0;
+  // ── Route each item to the cheapest tier that fits ──────────────────────
+  const photoTier = [];          // large + has photo → per-item photo call
+  const tableTier = [];          // recognized common item → free typical values
+  const batchTier = [];          // everything else → one batched text call
+  for (const item of items) {
+    if (isLargeImpactItem(item.name) && item.picture_url && photoTier.length < maxPhotoCalls) {
+      photoTier.push(item);
+      continue;
+    }
+    const spec = specForName(item.name);
+    if (spec) tableTier.push({ item, spec });
+    else batchTier.push(item);
+  }
+
+  const pendingUpdates = [];
   let failed = 0;
 
-  for (const item of items) {
-    try {
-      const estimate = await generateItemEstimate({
+  const queueUpdate = (item, fields, source) => {
+    const updates = {};
+    if (item.weight_lbs == null && positiveNumber(fields.weight_lbs)) updates.weight_lbs = round1(fields.weight_lbs);
+    if (item.length_in == null && positiveNumber(fields.length_in)) updates.length_in = round1(fields.length_in);
+    if (item.width_in == null && positiveNumber(fields.width_in)) updates.width_in = round1(fields.width_in);
+    if (item.height_in == null && positiveNumber(fields.height_in)) updates.height_in = round1(fields.height_in);
+    if (Object.keys(updates).length === 0) return;
+    pendingUpdates.push({
+      id: item.id,
+      updates,
+      result: {
         name: item.name,
-        description: item.description,
-        quantity: item.quantity,
-        collection_name: item.collection_name,
-        material: item.material,
-        primary_color: item.primary_color,
-        weight_lbs: item.weight_lbs,
-        length_in: item.length_in,
-        width_in: item.width_in,
-        height_in: item.height_in,
+        weight: updates.weight_lbs ?? item.weight_lbs,
+        dimensions: (updates.length_in ?? item.length_in)
+          ? `${updates.length_in ?? item.length_in}" × ${updates.width_in ?? item.width_in}" × ${updates.height_in ?? item.height_in}"`
+          : null,
+        source,
+      },
+    });
+  };
+
+  // Tier 1 — deterministic table (free)
+  for (const { item, spec } of tableTier) {
+    queueUpdate(item, { weight_lbs: spec.w, length_in: spec.l, width_in: spec.wd, height_in: spec.h }, 'typical');
+  }
+
+  // Tier 2 — one batched model call per chunk
+  for (let i = 0; i < batchTier.length; i += BATCH_SIZE) {
+    const chunk = batchTier.slice(i, i + BATCH_SIZE);
+    try {
+      const estimates = await generateBatchEstimates(
+        chunk.map((it) => ({ name: it.name, room: it.collection_name, material: it.material }))
+      );
+      chunk.forEach((item, idx) => {
+        const e = estimates.find((x) => Number(x.index) === idx + 1) || estimates[idx];
+        if (!e) { failed++; return; }
+        queueUpdate(item, e, 'ai');
       });
-
-      const updates = {};
-      const est = estimate.estimate;
-
-      if (!item.weight_lbs && est.weight_lbs?.value) {
-        updates.weight_lbs = est.weight_lbs.value;
-      }
-      if (!item.length_in && est.dimensions?.length_in?.value) {
-        updates.length_in = est.dimensions.length_in.value;
-      }
-      if (!item.width_in && est.dimensions?.width_in?.value) {
-        updates.width_in = est.dimensions.width_in.value;
-      }
-      if (!item.height_in && est.dimensions?.height_in?.value) {
-        updates.height_in = est.dimensions.height_in.value;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        updates.updated_at = new Date();
-        await knex('items').where({ id: item.id, user_id: userId }).update(updates);
-        estimated++;
-        results.push({
-          name: item.name,
-          weight: updates.weight_lbs || item.weight_lbs,
-          dimensions: updates.length_in
-            ? `${updates.length_in || item.length_in}" × ${updates.width_in || item.width_in}" × ${updates.height_in || item.height_in}"`
-            : null,
-          confidence: est.confidence,
-        });
-      }
     } catch (err) {
-      console.error(`[vector] Estimation failed for item ${item.id}:`, err.message);
+      console.error('[estimate] batch estimate failed:', err.message);
+      failed += chunk.length;
+    }
+  }
+
+  // Tier 3 — per-item, photo-grounded call for large high-impact items
+  for (const item of photoTier) {
+    try {
+      const res = await generateItemEstimate(
+        {
+          name: item.name,
+          description: item.description,
+          collection_name: item.collection_name,
+          material: item.material,
+          primary_color: item.primary_color,
+        },
+        { pictureUrl: item.picture_url }
+      );
+      const est = res.estimate || {};
+      queueUpdate(item, {
+        weight_lbs: est.weight_lbs?.value,
+        length_in: est.dimensions?.length_in?.value,
+        width_in: est.dimensions?.width_in?.value,
+        height_in: est.dimensions?.height_in?.value,
+      }, 'photo');
+    } catch (err) {
+      console.error(`[estimate] photo estimate failed for item ${item.id}:`, err.message);
       failed++;
     }
   }
 
-  const totals = await getInventoryTotals(userId);
+  // ── Apply all updates ───────────────────────────────────────────────────
+  const results = [];
+  for (const { id, updates, result } of pendingUpdates) {
+    updates.updated_at = new Date();
+    await knex('items').where({ id, user_id: userId }).update(updates);
+    results.push(result);
+  }
 
+  const totals = await getInventoryTotals(userId);
   return {
     success: true,
-    estimated,
+    estimated: results.length,
     failed,
     remaining: totals.missingWeight + totals.missingDimensions,
-    results,
+    byTier: { typical: tableTier.length, ai: batchTier.length, photo: photoTier.length },
+    results: results.slice(0, 40),
     updatedTotals: {
       totalWeight: totals.totalWeight,
       totalVolumeCuFt: totals.totalVolumeCuFt,

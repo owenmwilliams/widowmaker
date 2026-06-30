@@ -352,11 +352,12 @@ const toolDeclarations = [
   },
   {
     name: 'estimate_missing_items',
-    description: 'Fill in estimated weights and dimensions for items that are missing them, using typical values for common household items. Use when many items lack measurements and the user wants a more complete inventory before sharing with movers.',
+    description: 'Fill in estimated weights and dimensions for items missing them. Fast and cheap: it uses typical values for common items (free), one batched AI call for the rest, and a photo-grounded estimate for large high-impact items (e.g. sofas) that have a photo. Can do hundreds at once — use this to get the whole inventory measurement-complete before sharing with movers.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        max_items: { type: SchemaType.INTEGER, description: 'Maximum number of items to estimate at once (default 20, max 50)' },
+        max_items: { type: SchemaType.INTEGER, description: 'Max items to estimate in one run (default 500). Leave unset to estimate everything.' },
+        max_photo_calls: { type: SchemaType.INTEGER, description: 'Max large items to estimate from their photo (default 15).' },
       },
     },
   },
