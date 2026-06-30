@@ -92,11 +92,34 @@ steps:
       - '-c'
       - |
         set -euo pipefail
+
+        # Cloud SQL serializes operations per instance, so if two builds overlap
+        # (e.g. two merges to main in quick succession) a concurrent backup/
+        # migration returns HTTP 409. Wait for any in-progress operation to finish,
+        # then retry the backup — so overlapping builds queue here instead of failing.
+        echo "Waiting for any in-progress Cloud SQL operation on $_CLOUD_SQL_INSTANCE ..."
+        for i in $$(seq 1 30); do
+          PENDING=$$(gcloud sql operations list --instance="$_CLOUD_SQL_INSTANCE" --project="$PROJECT_ID" \
+                     --filter="status!=DONE" --format="value(name)" 2>/dev/null | head -1 || true)
+          if [ -z "$$PENDING" ]; then break; fi
+          echo "  operation $$PENDING still running; waiting..."
+          gcloud sql operations wait "$$PENDING" --project="$PROJECT_ID" --timeout=300 >/dev/null 2>&1 || sleep 10
+        done
+
         echo "Creating pre-migration backup of $_CLOUD_SQL_INSTANCE ..."
-        gcloud sql backups create \
-          --instance="$_CLOUD_SQL_INSTANCE" \
-          --project="$PROJECT_ID" \
-          --description="pre-migrate ${SHORT_SHA:-manual}"
+        for attempt in 1 2 3 4 5; do
+          if gcloud sql backups create \
+               --instance="$_CLOUD_SQL_INSTANCE" \
+               --project="$PROJECT_ID" \
+               --description="pre-migrate ${SHORT_SHA:-manual}"; then
+            echo "Backup created."
+            exit 0
+          fi
+          echo "Backup attempt $$attempt failed (likely a concurrent Cloud SQL operation); retrying..."
+          sleep $$((attempt * 20))
+        done
+        echo "ERROR: backup failed after retries"
+        exit 1
     waitFor: ['-']
 
   # Run database migrations via the tracked runner (bin/migrate.js).
