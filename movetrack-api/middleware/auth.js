@@ -19,7 +19,8 @@ const { authenticate } = require('../services/infra/authService');
 //   /auth            – magic-link request / verify / logout
 //   /health          – liveness & readiness probes (no PII, no DB writes)
 //   /billing/webhook – Stripe webhook (verified by signature, not session) [future]
-const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook'];
+//   /public          – tokenized read-only inventory shares (resolved by token)
+const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook', '/public'];
 
 // Exact public paths (the Jade landing page + favicon).
 const PUBLIC_EXACT = new Set(['/', '/favicon.ico']);

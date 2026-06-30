@@ -43,6 +43,8 @@ var billingRouter = require('./routes/billing/billing');
 // ── api/vision/ ───────────────────────────────────────────────────────────────
 var visionRouter = require('./routes/api/vision');
 
+var publicShareRouter = require('./routes/public/share');
+
 // ── experimental/ (admin-only sandboxes — each route file gates via ensureAdmin) ──
 var visionLabRouter = require('./routes/experimental/visionLab');
 var visionLabVideoRouter = require('./routes/experimental/visionLabVideo');
@@ -165,6 +167,9 @@ app.use('/api/vision', rateLimits.visionLimiter, visionRouter);
 
 // ── API — Agents ─────────────────────────────────── /api/agents/nexus /api/agents/census /api/agents/vector
 app.use('/api/agents', agentsRouter);
+
+// ── Public (unauthenticated, token-scoped) ───────────── /public/inventory/:token
+app.use('/public', publicShareRouter);
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 app.use('/auth', rateLimits.authLimiter, authRouter);

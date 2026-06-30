@@ -73,3 +73,4 @@ replaying from empty.
 | `029_reconcile_location_access_columns` | Backfill `locations` access-info + lat/lng into every DB (fixed empty inventory snapshot) |
 | `030_reconcile_init_schema_drift` | Backfill all remaining init↔migration drift: 6 tables, columns, 24 indexes |
 | `031_backfill_location_permissions` | Data repair: grant owner `permissions` to locations orphaned by the HTTP create path (made them invisible to reads) |
+| `032_add_inventory_shares` | `inventory_shares` table — tokenized public read-only inventory links for sharing with moving companies |
