@@ -48,6 +48,8 @@ struct Constants {
     struct Endpoints {
         static let requestMagicLink = "/auth/request-magic-link"
         static let verifyMagicLink = "/auth/verify-magic-link"
+        static let requestCode = "/auth/request-code"
+        static let verifyCode = "/auth/verify-code"
         static let logout = "/auth/logout"
         static let me = "/auth/me"
 

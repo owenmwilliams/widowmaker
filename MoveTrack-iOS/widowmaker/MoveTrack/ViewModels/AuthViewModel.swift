@@ -84,6 +84,41 @@ class AuthViewModel: ObservableObject {
         print("🏁 [AuthViewModel] Magic link verification finished")
     }
 
+    // MARK: - Request OTP Code
+    func requestCode(email: String) async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            let response = try await AuthService.shared.requestCode(email: email)
+            if !response.success {
+                errorMessage = response.error ?? "Failed to send code"
+            }
+        } catch {
+            let apiError = error as? APIError
+            errorMessage = apiError?.localizedDescription ?? error.localizedDescription
+        }
+        isLoading = false
+    }
+
+    // MARK: - Verify OTP Code
+    func verifyCode(email: String, code: String) async {
+        isLoading = true
+        errorMessage = nil
+        do {
+            let response = try await AuthService.shared.verifyCode(email: email, code: code)
+            if response.success, let user = response.user {
+                currentUser = user
+                isAuthenticated = true
+            } else {
+                errorMessage = response.error ?? "Invalid or expired code"
+            }
+        } catch {
+            let apiError = error as? APIError
+            errorMessage = apiError?.localizedDescription ?? error.localizedDescription
+        }
+        isLoading = false
+    }
+
     // MARK: - Load Current User
     func loadCurrentUser() async {
         do {
