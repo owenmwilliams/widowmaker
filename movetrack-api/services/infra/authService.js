@@ -55,6 +55,7 @@ if (jwtSecretFromEnv === 'your-secret-key-change-in-production') {
 const JWT_SECRET = jwtSecretFromEnv || 'development-secret-key';
 const JWT_EXPIRY = '30d'; // 30 day sessions
 const MAGIC_LINK_EXPIRY_MINUTES = 15;
+const OTP_EXPIRY_MINUTES = 10;
 
 // Email configuration
 // For SendGrid SMTP: smtp.sendgrid.net, port 587, username 'apikey', password: your-api-key
@@ -84,6 +85,13 @@ function generateToken() {
 }
 
 /**
+ * Generate a 6-digit numeric login code (mobile OTP).
+ */
+function generateOtpCode() {
+    return crypto.randomInt(0, 1000000).toString().padStart(6, '0');
+}
+
+/**
  * Hash a token using SHA-256 before storing in database
  * This ensures that even if the database is compromised, the tokens cannot be used
  */
@@ -95,7 +103,10 @@ function hashToken(token) {
  * Generate JWT session token
  */
 function generateSessionToken(userId, email) {
-    return jwt.sign({ userId, email }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
+    // Include a random jti so two logins for the same user within the same second
+    // don't produce an identical JWT (which would collide on auth_tokens.token).
+    const jti = crypto.randomBytes(8).toString('hex');
+    return jwt.sign({ userId, email, jti }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
 }
 
 /**
@@ -239,6 +250,162 @@ async function verifyMagicLinkToken(token, ipAddress, userAgent) {
     } catch (error) {
         console.error('Error verifying magic link token:', error);
         return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Create a 6-digit OTP login code — a mobile-friendly alternative to the magic
+ * link (no deep linking required). Invalidates any prior unused codes for the
+ * user so only the newest code works, stores the hashed code, and returns the
+ * plaintext code to email.
+ */
+async function createOtpCode(email, ipAddress, userAgent) {
+    try {
+        const normalizedEmail = email.toLowerCase().trim();
+        let user = await db.oneOrNone('SELECT user_id, email FROM users WHERE LOWER(email) = $1', [normalizedEmail]);
+        if (!user) {
+            user = await db.one(
+                `INSERT INTO users (email, created_at, last_login_at)
+                 VALUES ($1, NOW(), NOW()) RETURNING user_id, email`,
+                [normalizedEmail]
+            );
+        }
+
+        // Only the newest code should be valid.
+        await db.none(
+            `UPDATE auth_tokens SET used_at = NOW()
+             WHERE user_id = $1 AND token_type = 'otp' AND used_at IS NULL`,
+            [user.user_id]
+        );
+
+        const code = generateOtpCode();
+        const hashedCode = hashToken(code);
+        const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000).toISOString();
+        await db.none(
+            `INSERT INTO auth_tokens (user_id, token, token_type, expires_at, ip_address, user_agent)
+             VALUES ($1, $2, 'otp', $3, $4, $5)`,
+            [user.user_id, hashedCode, expiresAt, ipAddress, userAgent]
+        );
+        return { success: true, code, userId: user.user_id };
+    } catch (error) {
+        console.error('Error creating OTP code:', error);
+        return { success: false, error: 'Unable to create login code. Please try again.' };
+    }
+}
+
+/**
+ * Verify a 6-digit OTP code for an email and create a session (same session
+ * shape as verifyMagicLinkToken). The code is matched against the user's email
+ * so short numeric codes can't collide across accounts.
+ */
+async function verifyOtpCode(email, code, ipAddress, userAgent) {
+    try {
+        const normalizedEmail = email.toLowerCase().trim();
+        const cleanCode = String(code || '').trim();
+        if (!/^\d{6}$/.test(cleanCode)) {
+            return { success: false, error: 'Enter the 6-digit code from your email.' };
+        }
+        const hashedCode = hashToken(cleanCode);
+
+        const hasOnboarding = await hasOnboardingColumn();
+        const onboardingSelect = hasOnboarding ? ', u.onboarding_completed' : ', NULL::boolean AS onboarding_completed';
+        const authToken = await db.oneOrNone(
+            `SELECT at.*, u.email, u.first_name, u.last_name${onboardingSelect}, u.email_verified_at
+             FROM auth_tokens at
+             JOIN users u ON at.user_id = u.user_id
+             WHERE at.token = $1
+             AND at.token_type = 'otp'
+             AND LOWER(u.email) = $2
+             AND at.expires_at > NOW()
+             AND at.used_at IS NULL`,
+            [hashedCode, normalizedEmail]
+        );
+
+        if (!authToken) {
+            await logLoginAttempt(null, 'otp', false, ipAddress, userAgent, 'Invalid or expired code');
+            return { success: false, error: 'Invalid or expired code' };
+        }
+
+        await db.none('UPDATE auth_tokens SET used_at = NOW() WHERE token = $1 AND token_type = $2', [hashedCode, 'otp']);
+        await db.none('UPDATE users SET last_login_at = NOW() WHERE user_id = $1', [authToken.user_id]);
+        await db.none(
+            'UPDATE users SET email_verified_at = NOW() WHERE user_id = $1 AND email_verified_at IS NULL',
+            [authToken.user_id]
+        );
+        await logLoginAttempt(authToken.user_id, 'otp', true, ipAddress, userAgent);
+
+        const sessionToken = generateSessionToken(authToken.user_id, authToken.email);
+        const hashedSessionToken = hashToken(sessionToken);
+        const sessionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+        await db.none(
+            `INSERT INTO auth_tokens (user_id, token, token_type, expires_at, ip_address, user_agent)
+             VALUES ($1, $2, 'session', $3, $4, $5)`,
+            [authToken.user_id, hashedSessionToken, sessionExpiresAt, ipAddress, userAgent]
+        );
+
+        const flags = await getPlanForEmail(authToken.email);
+        return {
+            success: true,
+            session_token: sessionToken,
+            user: {
+                user_id: authToken.user_id,
+                email: authToken.email,
+                first_name: authToken.first_name,
+                last_name: authToken.last_name,
+                onboarding_completed: !!authToken.onboarding_completed,
+                email_verified: !!authToken.email_verified_at,
+                plan: flags.plan,
+                is_admin: flags.is_admin
+            }
+        };
+    } catch (error) {
+        console.error('Error verifying OTP code:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
+ * Send the OTP login code via email (logged in non-production for easy dev login).
+ */
+async function sendOtpEmail(email, code) {
+    if (!isProduction) {
+        console.log('\n' + '='.repeat(80));
+        console.log('OTP LOGIN CODE (development only)');
+        console.log('='.repeat(80));
+        console.log(`Email: ${email}`);
+        console.log(`Code: ${code}`);
+        console.log(`Expires in: ${OTP_EXPIRY_MINUTES} minutes`);
+        console.log('='.repeat(80) + '\n');
+    } else {
+        const maskedEmail = email.replace(/^(.).*(@.*)$/, '$1***$2');
+        console.log(`[auth] OTP code generated for ${maskedEmail} (expires in ${OTP_EXPIRY_MINUTES}m)`);
+    }
+
+    if (!emailTransporter) {
+        console.log('No email transporter configured - OTP code logged above');
+        return { success: true };
+    }
+
+    const mailOptions = {
+        from: process.env.EMAIL_FROM || 'owen@we3kings.dev',
+        to: email,
+        subject: 'Your Nexus Moves login code',
+        html: `
+            <h2>Your login code</h2>
+            <p>Enter this code in the app to log in. It expires in ${OTP_EXPIRY_MINUTES} minutes.</p>
+            <p style="font-size: 32px; font-weight: bold; letter-spacing: 6px;">${code}</p>
+            <p>If you didn't request this, you can safely ignore this email.</p>
+        `,
+        text: `Your Nexus Moves login code is ${code}. It expires in ${OTP_EXPIRY_MINUTES} minutes.`
+    };
+
+    try {
+        await emailTransporter.sendMail(mailOptions);
+        console.log('OTP code email sent successfully via SendGrid');
+        return { success: true };
+    } catch (error) {
+        console.error('Error sending OTP email:', error);
+        return { success: false, error: 'Failed to send code' };
     }
 }
 
@@ -716,6 +883,9 @@ module.exports = {
     createMagicLinkToken,
     verifyMagicLinkToken,
     sendMagicLinkEmail,
+    createOtpCode,
+    verifyOtpCode,
+    sendOtpEmail,
     sendReloprepConfirmationEmail,
     logLoginAttempt,
     logout,
