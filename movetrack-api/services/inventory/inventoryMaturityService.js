@@ -202,6 +202,7 @@ async function inventoryReadinessAssessment(userId) {
       itemCount: total,
       weightLbs: Math.round(itemStats.total_weight),
       volumeCuFt: itemStats.total_volume_cuft,
+      itemsMissingWeight: Math.max(0, total - itemStats.has_weight),
     },
     categories: {
       roomCoverage: { score: roomScore, detail: `${emptyRooms.length} empty, ${sparseRooms.length} sparse of ${collections.length} rooms` },
@@ -239,6 +240,8 @@ async function shareReasonableness(userId, { bedrooms = null } = {}) {
   const reasonableness = assessWeightPlausibility({
     bedrooms: beds,
     actualWeightLbs: assessment.totals.weightLbs,
+    itemCount: assessment.totals.itemCount,
+    itemsMissingWeight: assessment.totals.itemsMissingWeight,
   });
   const weightOutliers = flagWeightOutliers(items).slice(0, 10);
   return { ...assessment, reasonableness, weightOutliers, bedrooms: beds ?? null };
