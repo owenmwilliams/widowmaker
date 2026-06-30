@@ -15,24 +15,16 @@ struct Constants {
     // NOTE: the iOS Simulator reaches your Mac at 127.0.0.1; a REAL device cannot —
     // use your Mac's LAN IP (e.g. http://192.168.1.20:3050) for device + local dev.
     // See MoveTrack-iOS/DEV-TESTING.md.
+    // The app is fully native (SwiftUI + the Nexus agent endpoints) — there is no
+    // embedded web view. To develop against a LOCAL backend, comment the prod line
+    // and uncomment the local one. NOTE: the iOS Simulator reaches your Mac at
+    // 127.0.0.1; a REAL device cannot — use your Mac's LAN IP (e.g.
+    // http://192.168.1.20:3050) for device + local dev. See MoveTrack-iOS/DEV-TESTING.md.
     #if DEBUG
     static let apiBaseURL = "https://movetrack-api-7hwn7ggbiq-uc.a.run.app"
     // static let apiBaseURL = "http://127.0.0.1:3050"        // local backend (movetrack-api: npm start)
     #else
     static let apiBaseURL = "https://movetrack-api-7hwn7ggbiq-uc.a.run.app"
-    #endif
-
-    // MARK: - Web App (embedded agent flow)
-    // The native app embeds the ReloPrep web experience (onboarding, room-video
-    // capture, sharing) via WKWebView. See NexusWebView.
-    // This is the deployed Cloud Run frontend. NOTE: reloprep.com is the branded
-    // domain but currently points at a Squarespace placeholder, not the app —
-    // switch these to https://reloprep.com once it's mapped to the Cloud Run app.
-    #if DEBUG
-    static let webAppBaseURL = "https://movetrack-app-7hwn7ggbiq-uc.a.run.app"
-    // static let webAppBaseURL = "http://localhost:5173"     // local web (movetrack-app: npm run dev)
-    #else
-    static let webAppBaseURL = "https://movetrack-app-7hwn7ggbiq-uc.a.run.app"
     #endif
 
     // MARK: - URL Scheme
