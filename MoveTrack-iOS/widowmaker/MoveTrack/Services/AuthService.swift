@@ -63,6 +63,30 @@ class AuthService {
         }
     }
 
+    // MARK: - Request OTP Code (mobile login)
+    func requestCode(email: String) async throws -> MagicLinkResponse {
+        struct RequestBody: Encodable { let email: String }
+        return try await APIClient.shared.post(
+            Constants.Endpoints.requestCode,
+            body: RequestBody(email: email),
+            requiresAuth: false
+        )
+    }
+
+    // MARK: - Verify OTP Code
+    func verifyCode(email: String, code: String) async throws -> AuthResponse {
+        struct RequestBody: Encodable { let email: String; let code: String }
+        let response: AuthResponse = try await APIClient.shared.post(
+            Constants.Endpoints.verifyCode,
+            body: RequestBody(email: email, code: code),
+            requiresAuth: false
+        )
+        if response.success, let sessionToken = response.sessionToken {
+            _ = KeychainService.shared.save(sessionToken, forKey: Constants.sessionTokenKey)
+        }
+        return response
+    }
+
     // MARK: - Get Current User
     func getCurrentUser() async throws -> User {
         struct MeResponse: Codable {

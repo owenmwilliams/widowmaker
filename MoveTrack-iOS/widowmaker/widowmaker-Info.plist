@@ -30,5 +30,11 @@
 			</dict>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Nexus Moves uses your camera to capture photos and room walkthrough videos so it can build your moving inventory.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Nexus Moves lets you add photos and videos from your library to build your moving inventory.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nexus Moves records audio with room walkthrough videos used to build your moving inventory.</string>
 </dict>
 </plist>

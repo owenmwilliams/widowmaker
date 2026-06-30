@@ -10,9 +10,8 @@ import SwiftUI
 struct LoginView: View {
     @StateObject private var viewModel: AuthViewModel
     @State private var email = ""
-    @State private var token = ""
-    @State private var showMagicLinkSent = false
-    @State private var showTokenInput = false
+    @State private var code = ""
+    @State private var codeSent = false
 
     init(viewModel: AuthViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -49,31 +48,74 @@ struct LoginView: View {
                         .textContentType(.emailAddress)
                         .autocapitalization(.none)
                         .keyboardType(.emailAddress)
+                        .disabled(codeSent)
                         .padding()
                         .background(Color(.systemGray6))
                         .cornerRadius(12)
                 }
                 .padding(.horizontal)
 
-                // Login Button
-                Button(action: sendMagicLink) {
-                    HStack {
-                        if viewModel.isLoading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        } else {
-                            Text("Send Magic Link")
-                                .fontWeight(.semibold)
+                if !codeSent {
+                    // Step 1: request a code
+                    Button(action: sendCode) {
+                        HStack {
+                            if viewModel.isLoading {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Text("Email me a code")
+                                    .fontWeight(.semibold)
+                            }
                         }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(email.isEmpty || viewModel.isLoading ? Color.gray : Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(email.isEmpty || viewModel.isLoading ? Color.gray : Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .disabled(email.isEmpty || viewModel.isLoading)
+                    .padding(.horizontal)
+                } else {
+                    // Step 2: enter the 6-digit code
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Enter the 6-digit code we emailed to \(email)")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+
+                        TextField("123456", text: $code)
+                            .textContentType(.oneTimeCode)
+                            .keyboardType(.numberPad)
+                            .padding()
+                            .background(Color(.systemGray6))
+                            .cornerRadius(12)
+                    }
+                    .padding(.horizontal)
+
+                    Button(action: verifyCode) {
+                        HStack {
+                            if viewModel.isLoading {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Text("Log In")
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(code.count < 6 || viewModel.isLoading ? Color.gray : Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                    }
+                    .disabled(code.count < 6 || viewModel.isLoading)
+                    .padding(.horizontal)
+
+                    Button("Use a different email / resend code") {
+                        resetToEmail()
+                    }
+                    .font(.caption)
+                    .padding(.top, 4)
                 }
-                .disabled(email.isEmpty || viewModel.isLoading)
-                .padding(.horizontal)
 
                 // Error Message
                 if let errorMessage = viewModel.errorMessage {
@@ -83,60 +125,10 @@ struct LoginView: View {
                         .padding(.horizontal)
                 }
 
-                // Divider
-                HStack {
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(height: 1)
-                    Text("OR")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.3))
-                        .frame(height: 1)
-                }
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-
-                // Token Input (Copy/Paste Code)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Have a code?")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-
-                    TextField("Paste your login code here", text: $token)
-                        .textContentType(.oneTimeCode)
-                        .autocapitalization(.none)
-                        .padding()
-                        .background(Color(.systemGray6))
-                        .cornerRadius(12)
-                }
-                .padding(.horizontal)
-
-                // Verify Token Button
-                Button(action: verifyToken) {
-                    HStack {
-                        if viewModel.isLoading {
-                            ProgressView()
-                                .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        } else {
-                            Text("Log In with Code")
-                                .fontWeight(.semibold)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(token.isEmpty || viewModel.isLoading ? Color.gray : Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(12)
-                }
-                .disabled(token.isEmpty || viewModel.isLoading)
-                .padding(.horizontal)
-
                 Spacer()
 
                 // Info Text
-                Text("We'll send you a magic link to log in.\nNo password needed!")
+                Text("We'll email you a 6-digit code to log in.\nNo password needed!")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -146,25 +138,31 @@ struct LoginView: View {
             .navigationTitle("")
             .navigationBarHidden(true)
         }
-        .sheet(isPresented: $showMagicLinkSent) {
-            MagicLinkSentView(email: email)
-        }
     }
 
     // MARK: - Actions
-    private func sendMagicLink() {
+    private func sendCode() {
         Task {
-            await viewModel.requestMagicLink(email: email)
+            await viewModel.requestCode(email: email.trimmingCharacters(in: .whitespacesAndNewlines))
             if viewModel.errorMessage == nil {
-                showMagicLinkSent = true
+                codeSent = true
             }
         }
     }
 
-    private func verifyToken() {
+    private func verifyCode() {
         Task {
-            await viewModel.verifyMagicLink(token: token.trimmingCharacters(in: .whitespacesAndNewlines))
+            await viewModel.verifyCode(
+                email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                code: code.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         }
+    }
+
+    private func resetToEmail() {
+        codeSent = false
+        code = ""
+        viewModel.errorMessage = nil
     }
 }
 

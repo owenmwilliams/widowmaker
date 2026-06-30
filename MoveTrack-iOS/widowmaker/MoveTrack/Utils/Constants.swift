@@ -9,10 +9,27 @@ import Foundation
 
 struct Constants {
     // MARK: - API Configuration
+    // DEBUG defaults to PRODUCTION so you can build from Xcode and test against the
+    // live backend (real magic-link emails) with no local server. To develop
+    // against a LOCAL backend, comment the prod line and uncomment the local one.
+    // NOTE: the iOS Simulator reaches your Mac at 127.0.0.1; a REAL device cannot —
+    // use your Mac's LAN IP (e.g. http://192.168.1.20:3050) for device + local dev.
+    // See MoveTrack-iOS/DEV-TESTING.md.
     #if DEBUG
-    static let apiBaseURL = "http://127.0.0.1:3050"
+    static let apiBaseURL = "https://movetrack-api-7hwn7ggbiq-uc.a.run.app"
+    // static let apiBaseURL = "http://127.0.0.1:3050"        // local backend (movetrack-api: npm start)
     #else
     static let apiBaseURL = "https://movetrack-api-7hwn7ggbiq-uc.a.run.app"
+    #endif
+
+    // MARK: - Web App (embedded agent flow)
+    // The native app embeds the ReloPrep web experience (onboarding, room-video
+    // capture, sharing) via WKWebView. See NexusWebView.
+    #if DEBUG
+    static let webAppBaseURL = "https://reloprep.com"
+    // static let webAppBaseURL = "http://localhost:5173"     // local web (movetrack-app: npm run dev)
+    #else
+    static let webAppBaseURL = "https://reloprep.com"
     #endif
 
     // MARK: - URL Scheme
@@ -31,6 +48,8 @@ struct Constants {
     struct Endpoints {
         static let requestMagicLink = "/auth/request-magic-link"
         static let verifyMagicLink = "/auth/verify-magic-link"
+        static let requestCode = "/auth/request-code"
+        static let verifyCode = "/auth/verify-code"
         static let logout = "/auth/logout"
         static let me = "/auth/me"
 
