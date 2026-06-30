@@ -8,7 +8,7 @@ const { searchItems, getItemPhoto } = require('../services/inventory/inventoryIt
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { sanitizeForPrompt, fenceUntrusted } = require('../services/infra/promptSafety');
 const { instrumentModel, AiUnavailableError } = require('../services/infra/ai/resilientModel');
-const { getMissingContext, inventoryReadinessAssessment } = require('../services/inventory/inventoryMaturityService');
+const { getMissingContext, inventoryReadinessAssessment, shareReasonableness } = require('../services/inventory/inventoryMaturityService');
 const duplicates = require('../services/inventory/duplicateDetectionService');
 const media = require('../services/inventory/mediaInventoryWorkflowService');
 const { getConversationStarters } = require('../services/infra/agentSessionService');
@@ -121,10 +121,16 @@ CONVERSATION FLOW (returning users):
 - End with summary: "Here's what we've got: [summary]. Anything I missed?"
 
 PROACTIVE GREETING (when the user's message is a session greeting like "hi", "hello", "hey", "what's up", "check in", "how's my inventory", or any general opening):
-1. Call inventory_readiness to get the current assessment.
+1. Call inventory_readiness (pass bedroom_count if you know the home size) to get the current assessment.
 2. Greet the user warmly and share a brief, friendly summary of their readiness status — don't dump raw numbers, interpret them conversationally. For example: "Your inventory is shaping up nicely! You've got 34 items across 6 rooms. A few things would make it even stronger for movers..."
 3. Present exactly 3 suggested next steps as inline buttons based on the readiness results. Make the buttons actionable (e.g. "Add weights to items", "Catalog the Kitchen", "Take room photos").
 4. Keep the greeting short — 2-3 sentences max before the buttons.
+
+BEFORE SHARING WITH MOVERS (when the user wants to share, generate a link, or asks if their inventory is ready):
+1. Call inventory_readiness with bedroom_count so it runs the reasonableness benchmark.
+2. If reasonableness.status is "too_low" or "too_high", DON'T just share — tell the user plainly that the total looks off for a home their size (use reasonableness.message), and offer concrete fixes: add the missing rooms (get_missing_context), or estimate_missing_items to fill in weights. Surface these as buttons.
+3. If weightOutliers is non-empty, point out the specific items that look mis-estimated (e.g. "your sofa is listed at 2 lbs") and offer to fix them.
+4. If everything looks plausible, reassure them it's ready and proceed to share.
 
 STRUCTURED RESPONSE FORMAT:
 When you give your FINAL response (no more tool calls), you MUST wrap it in a JSON code block. This is how the orchestrator understands your output. The format is:
@@ -335,10 +341,13 @@ const toolDeclarations = [
   },
   {
     name: 'inventory_readiness',
-    description: 'Assess how ready the user\'s inventory is for sharing with moving companies. Returns an overall readiness score (0-100), per-category breakdown, and the top 3 next steps to improve readiness. Call this proactively when greeting a returning user or when they ask about their progress.',
+    description: 'Assess how ready the user\'s inventory is for sharing with moving companies. Returns an overall readiness score (0-100), per-category breakdown, top 3 next steps, AND a reasonableness check: when you pass bedroom_count, it compares the total weight against what is typical for a home that size and flags an implausible total (e.g. a 3-bedroom home totaling 92 lbs) via reasonableness.status (too_low/low/ok/high/too_high) plus weightOutliers (large items mis-estimated too light). ALWAYS pass bedroom_count if you know the home size, and ALWAYS call this before the user shares with movers. Also call it proactively when greeting a returning user.',
     parameters: {
       type: SchemaType.OBJECT,
-      properties: {},
+      properties: {
+        bedroom_count:  { type: SchemaType.INTEGER, description: 'Number of bedrooms in the current home — enables the reasonableness benchmark' },
+        bathroom_count: { type: SchemaType.INTEGER, description: 'Number of bathrooms in the current home' },
+      },
     },
   },
   {
@@ -388,7 +397,7 @@ const toolHandlers = {
   async find_duplicates(args, userId) { return duplicates.findDuplicates(userId, args); },
 
   async inventory_readiness(args, userId) {
-    const assessment = await inventoryReadinessAssessment(userId);
+    const assessment = await shareReasonableness(userId, { bedrooms: args.bedroom_count ?? null });
     return { success: true, ...assessment };
   },
 
