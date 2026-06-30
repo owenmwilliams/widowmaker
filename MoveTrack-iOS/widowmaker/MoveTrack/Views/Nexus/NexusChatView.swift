@@ -17,7 +17,7 @@ struct NexusChatView: View {
     @State private var draft = ""
     @State private var showAttachDialog = false
     @State private var pickerSource: MediaPicker.Source?
-    @State private var showShareSheet = false
+    @State private var shareItem: ShareItem?
     @State private var shareWarningText: String?
     @State private var showAINotice = false
     @AppStorage("aiCaptureNoticeShown") private var aiNoticeShown = false
@@ -55,10 +55,8 @@ struct NexusChatView: View {
                 )
                 .ignoresSafeArea()
             }
-            .sheet(isPresented: $showShareSheet) {
-                if let url = vm.shareURL {
-                    ShareSheet(items: [url])
-                }
+            .sheet(item: $shareItem) { item in
+                ShareSheet(items: [item.url])
             }
             .alert("Photos & videos use AI", isPresented: $showAINotice) {
                 Button("Continue") {
@@ -73,7 +71,9 @@ struct NexusChatView: View {
                 get: { shareWarningText != nil },
                 set: { if !$0 { shareWarningText = nil } }
             )) {
-                Button("Share anyway") { Task { await doShare() } }
+                Button("Share anyway") {
+                    Task { if let url = await vm.forceShare() { shareItem = ShareItem(url: url) } }
+                }
                 Button("Review & fix", role: .cancel) { shareWarningText = nil }
             } message: {
                 Text(shareWarningText ?? "")
@@ -288,19 +288,17 @@ struct NexusChatView: View {
         Task { await vm.send(text) }
     }
 
-    private func prepareAndShare() async {
-        // Reasonableness gate (warn-but-allow): if the inventory looks implausible
-        // for the home, warn first; otherwise go straight to sharing.
-        if let warning = await vm.shareWarning() {
-            shareWarningText = warning
-        } else {
-            await doShare()
+    private func onShareTapped() async {
+        // One operation, one loading state. Warn first only if the inventory looks
+        // implausible (warn-but-allow); otherwise present the share sheet.
+        switch await vm.evaluateAndPrepareShare() {
+        case .warn(let message):
+            shareWarningText = message
+        case .ready(let url):
+            shareItem = ShareItem(url: url)
+        case .failed:
+            break // error (if any) is surfaced via vm.errorMessage
         }
-    }
-
-    private func doShare() async {
-        let url = await vm.shareInventory()
-        if url != nil { showShareSheet = true }
     }
 
     // MARK: - Toolbar
@@ -318,7 +316,7 @@ struct NexusChatView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button {
-                    Task { await prepareAndShare() }
+                    Task { await onShareTapped() }
                 } label: {
                     Label("Share inventory", systemImage: "square.and.arrow.up")
                 }
@@ -391,4 +389,11 @@ private struct MessageBubble: View {
 // Lets `.sheet(item:)` present the camera/library picker.
 extension MediaPicker.Source: Identifiable {
     var id: Int { self == .camera ? 0 : 1 }
+}
+
+// Wrapper so the native share sheet is presented data-driven via `.sheet(item:)`
+// (avoids the overlay-then-sheet race that flashed the loading modal).
+private struct ShareItem: Identifiable {
+    let id = UUID()
+    let url: URL
 }

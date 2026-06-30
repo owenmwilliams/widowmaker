@@ -11,6 +11,14 @@ import Foundation
 import SwiftUI
 import Combine
 
+/// Outcome of preparing to share: either we need to warn the user first, we have
+/// a ready link, or it failed (error surfaced on the view model).
+enum SharePrep {
+    case warn(String)
+    case ready(URL)
+    case failed
+}
+
 @MainActor
 final class NexusViewModel: ObservableObject {
     @Published var messages: [ChatMessage] = []
@@ -126,30 +134,46 @@ final class NexusViewModel: ObservableObject {
 
     // MARK: - Share
 
-    /// Returns a warning message if the inventory looks implausible to share
-    /// (e.g. 92 lbs for a 3-bed), else nil. Never blocks — warn-but-allow. If the
-    /// check itself fails, we return nil and let the share proceed.
-    func shareWarning() async -> String? {
+    /// Run the reasonableness check and, if it looks fine, prepare a link — all
+    /// under a SINGLE loading state so the overlay doesn't flash. Returns `.warn`
+    /// (show the warning first), `.ready` (present the share sheet), or `.failed`.
+    func evaluateAndPrepareShare() async -> SharePrep {
+        guard !isPreparingShare else { return .failed }
         isPreparingShare = true
+        errorMessage = nil
         defer { isPreparingShare = false }
+
+        // Reasonableness gate (warn-but-allow). Don't block sharing if the check
+        // itself fails — only surface a high-severity verdict.
         do {
-            return try await service.shareReadiness().shareWarning
+            if let warning = try await service.shareReadiness().shareWarning {
+                return .warn(warning)
+            }
         } catch NexusError.unauthorized {
             sessionExpired = true
-            return nil
+            return .failed
         } catch {
-            return nil
+            // ignore — proceed to share
         }
+
+        if let url = await createOrFetchShareURL() {
+            return .ready(url)
+        }
+        return .failed
     }
 
-    /// Get-or-create a public share link for the whole inventory and return it.
-    /// Reuses an existing active link so we don't spawn a new token every tap.
-    @discardableResult
-    func shareInventory() async -> URL? {
+    /// "Share anyway" path — skip the warning, just prepare the link.
+    func forceShare() async -> URL? {
         guard !isPreparingShare else { return shareURL }
         isPreparingShare = true
         errorMessage = nil
         defer { isPreparingShare = false }
+        return await createOrFetchShareURL()
+    }
+
+    /// Reuse an active share link or create one. Sets `shareURL`. No loading
+    /// toggle of its own — callers own the `isPreparingShare` state.
+    private func createOrFetchShareURL() async -> URL? {
         do {
             let existing = try await service.listShares().first(where: { $0.isActive })
             let share: ShareDTO
