@@ -31,6 +31,7 @@ final class NexusViewModel: ObservableObject {
     @Published var shareURL: URL?           // most recent share link (agent- or user-created)
     @Published var isPreparingShare = false // a share link is being fetched/created
     @Published var sessionExpired = false   // a 401 occurred — the view bounces to login
+    @Published var readiness: ShareReadinessDTO?  // drives the share-readiness banner/sheet
 
     private let service = NexusService.shared
     private var sessionId: String?
@@ -57,6 +58,12 @@ final class NexusViewModel: ObservableObject {
         } catch {
             errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
         }
+        await refreshReadiness()
+    }
+
+    /// Refresh the share-readiness snapshot (best-effort; never disrupts the UI).
+    func refreshReadiness() async {
+        if let r = try? await service.shareReadiness() { readiness = r }
     }
 
     // MARK: - Send
@@ -104,6 +111,7 @@ final class NexusViewModel: ObservableObject {
         isLoading = false
         phaseText = ""
         detailText = ""
+        await refreshReadiness()
     }
 
     // MARK: - Media

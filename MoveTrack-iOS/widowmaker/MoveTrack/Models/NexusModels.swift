@@ -133,12 +133,18 @@ struct ShareReadinessDTO: Decodable {
     }
 
     let overall: Int?
+    let status: String?          // ready | almost_ready | in_progress | early | not_started
+    let summary: String?
+    let nextSteps: [String]?
     let reasonableness: Reasonableness?
 
-    enum CodingKeys: String, CodingKey { case overall, reasonableness }
+    enum CodingKeys: String, CodingKey { case overall, status, summary, nextSteps, reasonableness }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         overall = try? c.decode(Int.self, forKey: .overall)
+        status = try? c.decode(String.self, forKey: .status)
+        summary = try? c.decode(String.self, forKey: .summary)
+        nextSteps = try? c.decode([String].self, forKey: .nextSteps)
         reasonableness = try? c.decode(Reasonableness.self, forKey: .reasonableness)
     }
 
@@ -147,6 +153,18 @@ struct ShareReadinessDTO: Decodable {
     var shareWarning: String? {
         guard let r = reasonableness, r.hasBenchmark == true, r.severity == "high" else { return nil }
         return r.message
+    }
+
+    var progress: Double { Double(max(0, min(100, overall ?? 0))) / 100.0 }
+
+    var statusLabel: String {
+        switch status {
+        case "ready": return "Ready to share"
+        case "almost_ready": return "Almost ready"
+        case "in_progress": return "In progress"
+        case "early": return "Just getting started"
+        default: return "Let's get started"
+        }
     }
 }
 
