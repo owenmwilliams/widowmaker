@@ -44,9 +44,49 @@ Return ONLY a valid JSON array with no markdown or explanation. Example:
   {"name":"Box of books","quantity":3,"room":"office","estimated_weight_lbs":35,"estimated_dimensions":{"length_in":16,"width_in":12,"height_in":12},"material":"cardboard","fragile":false,"notes":"boxable","timestamp_seconds":45,"bbox":null}
 ]`;
 
+const INVENTORY_PROMPT_FRAMES = `You are analyzing a set of still frames sampled in order from a short walkthrough video of ONE room, for a moving-company inventory. Together the frames cover the whole room.
+
+Identify EVERY household item a mover would need to pack or move — be thorough, not conservative:
+- List large/heavy items individually (furniture, appliances, electronics).
+- List fragile items individually (artwork, mirrors, glassware, instruments).
+- Group many small packable items into boxes (e.g. "Box of dishes" quantity 3, "Box of pantry goods" quantity 2) instead of skipping them — kitchens, closets, and garages have lots of these.
+- A typical room is 15–40 lines; a kitchen or garage may have more. Do NOT artificially shorten the list — capture what's actually there. Hard cap 60.
+- The same physical item can appear in several frames — list it ONCE.
+
+For each item include:
+- name: descriptive name for ONE unit (e.g. "3-seat sofa", "55\\" TV", "Box of dishes").
+- quantity: integer count.
+- room: the room/area (e.g. "kitchen", "living room", "garage", "unknown").
+- estimated_weight_lbs: per-unit weight in pounds (best estimate; never 0).
+- estimated_dimensions: per-unit {"length_in":L,"width_in":W,"height_in":H}.
+- material, fragile (boolean), notes ("fragile"/"requires disassembly"/"heavy"/"boxable"/"").
+- source_frame: 1-based index of the frame where this item is clearest.
+
+Weights and dimensions are PER SINGLE UNIT — never multiply by quantity. Always give numeric estimates.
+
+Return ONLY a valid JSON array, no markdown. Example:
+[{"name":"3-seat sofa","quantity":1,"room":"living room","estimated_weight_lbs":150,"estimated_dimensions":{"length_in":84,"width_in":36,"height_in":34},"material":"fabric","fragile":false,"notes":"heavy","source_frame":2}]`;
+
 function positiveNumber(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Parse a JSON array of items from a model response (tolerant of code fences). */
+function parseItemsArray(rawText) {
+  try {
+    const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(cleaned);
+    return { items: Array.isArray(parsed) ? parsed : [], parseError: null };
+  } catch (err) {
+    try {
+      const { jsonrepair } = require('jsonrepair');
+      const parsed = JSON.parse(jsonrepair(rawText));
+      return { items: Array.isArray(parsed) ? parsed : [], parseError: null };
+    } catch (repairErr) {
+      return { items: [], parseError: `Could not parse response as JSON: ${err.message}` };
+    }
+  }
 }
 
 /**
@@ -142,4 +182,52 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
   return { rawText, items, parseError };
 }
 
-module.exports = { analyzeVideo, normalizeVideoItem, INVENTORY_PROMPT, GEMINI_MODELS };
+/**
+ * Analyze still frames sampled from a walkthrough video. Full-resolution frames
+ * let Gemini read small/medium items that a low-res inline video misses (the
+ * "kitchen → only oven + fridge" failure). One model call for all frames.
+ *
+ * @param {Array<{buffer: Buffer}>} frames
+ * @param {string} [plan]
+ * @param {string} [roomHint]
+ * @returns {{ rawText: string, items: Array, parseError: string|null }}
+ */
+async function analyzeFrames(frames, plan = 'basic', roomHint = null) {
+  if (!geminiClient) throw new Error('GOOGLE_AI_API_KEY is not configured');
+  if (!frames || frames.length === 0) {
+    return { rawText: '', items: [], parseError: 'no frames' };
+  }
+
+  const modelId = GEMINI_MODELS[plan] || GEMINI_MODELS.basic;
+  let prompt = INVENTORY_PROMPT_FRAMES;
+  if (roomHint) {
+    prompt += `\n\nThese frames are the "${roomHint}". Set "room" to "${roomHint}" for every item unless an item is clearly in a different room.`;
+  }
+
+  console.log(`[videoService] Analyzing ${frames.length} sampled frames with model=${modelId}`);
+
+  const model = geminiClient.getGenerativeModel({
+    model: modelId,
+    generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 8192 },
+  });
+
+  const parts = frames.map((f) => ({
+    inlineData: { mimeType: 'image/jpeg', data: f.buffer.toString('base64') },
+  }));
+  parts.push({ text: prompt });
+
+  let result;
+  try {
+    result = await model.generateContent(parts);
+  } catch (err) {
+    console.error('[videoService] Gemini frame analysis failed:', err?.message || err);
+    throw new Error(`Gemini frame analysis failed: ${err?.message || err}`);
+  }
+
+  const rawText = result.response.text();
+  const { items: parsed, parseError } = parseItemsArray(rawText);
+  console.log(`[videoService] Frame analysis parsed ${parsed.length} items`);
+  return { rawText, items: parsed.map(normalizeVideoItem), parseError };
+}
+
+module.exports = { analyzeVideo, analyzeFrames, normalizeVideoItem, parseItemsArray, INVENTORY_PROMPT, INVENTORY_PROMPT_FRAMES, GEMINI_MODELS };

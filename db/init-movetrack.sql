@@ -753,6 +753,22 @@ CREATE INDEX IF NOT EXISTS idx_image_uploads_orphaned ON image_uploads(is_orphan
 CREATE INDEX IF NOT EXISTS idx_image_uploads_item_id ON image_uploads(linked_to_item_id);
 CREATE INDEX IF NOT EXISTS idx_image_uploads_url ON image_uploads(image_url);
 
+-- Room walkthrough videos (migration 034): shareable with movers alongside items.
+CREATE TABLE IF NOT EXISTS room_videos (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    location_id BIGINT REFERENCES locations(id) ON DELETE SET NULL,
+    room_name VARCHAR(255),
+    video_url TEXT,
+    gcs_bucket TEXT,
+    gcs_path TEXT,
+    thumbnail_url TEXT,
+    mime_type VARCHAR(100),
+    item_count INTEGER,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_room_videos_user ON room_videos(user_id);
+
 -- ============================================================================
 -- COMMENTS FOR DOCUMENTATION
 -- ============================================================================

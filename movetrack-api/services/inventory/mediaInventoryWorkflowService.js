@@ -15,8 +15,9 @@ const path = require('path');
 const gcs = require('../infra/gcsService');
 const { drawBoundingBox } = require('../infra/vision/imageUtils');
 const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../infra/vision/imageService');
-const { analyzeVideo } = require('../infra/vision/videoService');
-const { extractSharpestFrame } = require('../infra/vision/frameExtractor');
+const { analyzeVideo, analyzeFrames } = require('../infra/vision/videoService');
+const { extractSharpestFrame, extractFramesForScan } = require('../infra/vision/frameExtractor');
+const { recordRoomVideo } = require('./roomVideoService');
 
 /**
  * Download a URL into a Buffer.
@@ -160,54 +161,89 @@ async function analyzePhotoForInventory(args, userId, plan) {
  * @returns {object} - { success, items, itemCount, ... }
  */
 async function analyzeVideoForInventory(args, userId, plan) {
+  let tmpPath = null;
   try {
     const url = args.file_url;
     console.log(`[census] Downloading video for analysis: ${url}`);
     const videoBuffer = await downloadBuffer(url);
-
     console.log(`[census] Video downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB`);
-    const videoVisionStart = Date.now();
-    const result = await analyzeVideo(videoBuffer, args.mime_type, plan, null, args.room_hint || null);
-    const items = result.items || [];
 
-    // Extract frames for each item with a timestamp and upload to GCS
     const ext = (args.mime_type || 'video/mp4').split('/')[1] || 'mp4';
-    const tmpPath = path.join(os.tmpdir(), `nexus-video-${Date.now()}.${ext}`);
+    tmpPath = path.join(os.tmpdir(), `nexus-video-${Date.now()}.${ext}`);
     fs.writeFileSync(tmpPath, videoBuffer);
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const ts = item.timestamp_seconds || item.timestamp;
-      if (ts == null) continue;
-      try {
-        const frameBuffer = await extractSharpestFrame(tmpPath, ts);
-        if (frameBuffer && frameBuffer.length > 0) {
-          const framePath = `users/${userId}/nexus/video-frames/${Date.now()}-${i}.jpg`;
-          await gcs.uploadBuffer(frameBuffer, framePath, 'image/jpeg');
-          item.picture_url = `https://storage.googleapis.com/${gcs.BUCKET}/${framePath}`;
-          console.log(`[census] Extracted frame for item[${i}] "${item.name}" at ${ts}s`);
-        }
-      } catch (frameErr) {
-        console.warn(`[census] Frame extraction failed for item[${i}]:`, frameErr.message);
-      }
+    const videoVisionStart = Date.now();
+
+    // Sample full-resolution frames across the clip and analyze those. Reading
+    // crisp stills (vs a low-res inline video) is what lets small/medium items
+    // get detected — the "kitchen → only oven + fridge" fix.
+    let frames = [];
+    try {
+      frames = await extractFramesForScan(tmpPath, { maxFrames: 14, fps: 1 });
+    } catch (e) {
+      console.warn('[census] frame extraction failed:', e.message);
     }
 
-    // Clean up temp file
-    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    let items = [];
+    let parseError = null;
+    let firstFrameUrl = null;
 
-    const videoVisionElapsed = Date.now() - videoVisionStart;
-    const videoConfidences = items.map(i => i.confidence || 0).filter(c => c > 0);
+    if (frames.length > 0) {
+      // Upload the sampled frames so each detected item can carry a real photo.
+      const frameUrls = [];
+      for (let i = 0; i < frames.length; i++) {
+        try {
+          const framePath = `users/${userId}/nexus/video-frames/${Date.now()}-${i}.jpg`;
+          await gcs.uploadBuffer(frames[i].buffer, framePath, 'image/jpeg');
+          frameUrls[i] = `https://storage.googleapis.com/${gcs.BUCKET}/${framePath}`;
+        } catch (e) {
+          frameUrls[i] = null;
+        }
+      }
+      firstFrameUrl = frameUrls.find(Boolean) || null;
+
+      const result = await analyzeFrames(frames, plan, args.room_hint || null);
+      items = result.items || [];
+      parseError = result.parseError;
+
+      for (const item of items) {
+        const sf = Number(item.source_frame);
+        if (Number.isFinite(sf) && sf >= 1 && sf <= frameUrls.length && frameUrls[sf - 1]) {
+          item.picture_url = frameUrls[sf - 1];
+        }
+      }
+    } else {
+      // Fallback: legacy inline-video analysis if frame extraction is unavailable.
+      console.warn('[census] no frames extracted; falling back to inline video analysis');
+      const result = await analyzeVideo(videoBuffer, args.mime_type, plan, null, args.room_hint || null);
+      items = result.items || [];
+      parseError = result.parseError;
+    }
+
+    // Record the walkthrough so the user can share it with movers.
+    try {
+      await recordRoomVideo(userId, {
+        videoUrl: url,
+        mimeType: args.mime_type,
+        roomName: args.room_hint || null,
+        itemCount: items.length,
+        thumbnailUrl: firstFrameUrl,
+      });
+    } catch (e) {
+      console.warn('[census] recordRoomVideo failed:', e.message);
+    }
+
     return {
-      success: true, items, itemCount: items.length, parseError: result.parseError,
-      _visionMs: videoVisionElapsed,
+      success: true, items, itemCount: items.length, parseError,
+      _visionMs: Date.now() - videoVisionStart,
       _detectedItemCount: items.length,
-      _avgConfidence: videoConfidences.length > 0 ? videoConfidences.reduce((a, b) => a + b, 0) / videoConfidences.length : null,
-      _minConfidence: videoConfidences.length > 0 ? Math.min(...videoConfidences) : null,
       _visionProvider: 'gemini',
     };
   } catch (err) {
     console.error('[census] analyzeVideoForInventory failed:', err.message);
     return { success: false, error: err.message };
+  } finally {
+    if (tmpPath) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
   }
 }
 
