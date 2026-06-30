@@ -15,7 +15,7 @@ const GEMINI_MODELS = {
 };
 
 const INVENTORY_PROMPT = `You are analyzing a home walkthrough video for a moving company inventory system.
-Your job is to identify household items visible in this video and produce a structured inventory.
+Your job is to identify household items visible in this video and produce a structured inventory a moving company can quote from.
 
 Rules:
 - List large or heavy items individually: furniture, appliances, gym equipment, large electronics (TVs, monitors).
@@ -24,20 +24,50 @@ Rules:
 - Target 15–20 total lines. Hard cap at 25 lines total.
 - Do not list the same item twice.
 - For each item, include:
-  - name: descriptive name for ONE unit of the item (e.g. "3-seat sofa", "55\\" TV", "Box of books", "Dining chair"). Always describe a single unit.
-  - quantity: integer count of how many of this item exist. Use quantity > 1 for multiples (e.g. 4 dining chairs, 3 boxes of books).
-  - room: the room or area where it appears (e.g. "living room", "bedroom", "kitchen", "garage", "unknown")
-  - notes: one of "fragile", "requires disassembly", "heavy", "boxable", or "" if none
-  - timestamp_seconds: integer seconds into the video where this item is most clearly visible
-  - bbox: bounding box of the item in the frame at timestamp_seconds, as normalized 0.0–1.0 coordinates: {"x": left, "y": top, "w": width, "h": height}. If you cannot determine the bounding box, set bbox to null.
+  - name: descriptive name for ONE unit (e.g. "3-seat sofa", "55\\" TV", "Box of books", "Dining chair"). Always describe a single unit.
+  - quantity: integer count of how many of this item exist. Use quantity > 1 for multiples.
+  - room: the room or area where it appears (e.g. "living room", "bedroom", "kitchen", "garage", "unknown").
+  - estimated_weight_lbs: estimated weight in pounds of ONE unit (your best estimate; never 0).
+  - estimated_dimensions: estimated size of ONE unit in inches as {"length_in": L, "width_in": W, "height_in": H} (your best estimate).
+  - material: primary material (e.g. "wood", "metal", "fabric", "glass", "plastic", "cardboard").
+  - fragile: boolean — true if the item needs special handling.
+  - notes: one of "fragile", "requires disassembly", "heavy", "boxable", or "" if none.
+  - timestamp_seconds: integer seconds into the video where this item is most clearly visible.
+  - bbox: bounding box at timestamp_seconds as normalized 0.0–1.0 {"x","y","w","h"}, or null.
+
+Weights and dimensions are PER SINGLE UNIT — do not multiply by quantity. Movers quote on weight and cubic feet, so ALWAYS give your best numeric estimate; never leave weight or dimensions blank or zero.
 
 Return ONLY a valid JSON array with no markdown or explanation. Example:
 [
-  {"name":"3-seat sofa","quantity":1,"room":"living room","notes":"heavy","timestamp_seconds":12,"bbox":{"x":0.05,"y":0.3,"w":0.6,"h":0.5}},
-  {"name":"55\\" TV","quantity":1,"room":"living room","notes":"fragile","timestamp_seconds":18,"bbox":{"x":0.2,"y":0.1,"w":0.35,"h":0.4}},
-  {"name":"Box of books","quantity":3,"room":"office","notes":"boxable","timestamp_seconds":45,"bbox":null},
-  {"name":"Dining chair","quantity":4,"room":"dining room","notes":"","timestamp_seconds":30,"bbox":null}
+  {"name":"3-seat sofa","quantity":1,"room":"living room","estimated_weight_lbs":150,"estimated_dimensions":{"length_in":84,"width_in":36,"height_in":34},"material":"fabric","fragile":false,"notes":"heavy","timestamp_seconds":12,"bbox":{"x":0.05,"y":0.3,"w":0.6,"h":0.5}},
+  {"name":"55\\" TV","quantity":1,"room":"living room","estimated_weight_lbs":40,"estimated_dimensions":{"length_in":49,"width_in":3,"height_in":29},"material":"glass","fragile":true,"notes":"fragile","timestamp_seconds":18,"bbox":{"x":0.2,"y":0.1,"w":0.35,"h":0.4}},
+  {"name":"Box of books","quantity":3,"room":"office","estimated_weight_lbs":35,"estimated_dimensions":{"length_in":16,"width_in":12,"height_in":12},"material":"cardboard","fragile":false,"notes":"boxable","timestamp_seconds":45,"bbox":null}
 ]`;
+
+function positiveNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Map a raw model item onto the flat fields the inventory uses (weight_lbs,
+ * length_in/width_in/height_in, material, fragile) while preserving the original
+ * fields. Lets downstream persist mover-grade numbers without a second AI call.
+ */
+function normalizeVideoItem(it) {
+  if (!it || typeof it !== 'object') return it;
+  const dims = it.estimated_dimensions || it.estimatedDimensions || {};
+  const fragile = typeof it.fragile === 'boolean' ? it.fragile : /fragile/i.test(it.notes || '');
+  return {
+    ...it,
+    weight_lbs: positiveNumber(it.weight_lbs ?? it.estimated_weight_lbs ?? it.estimatedWeight),
+    length_in: positiveNumber(it.length_in ?? dims.length_in ?? dims.length),
+    width_in: positiveNumber(it.width_in ?? dims.width_in ?? dims.width),
+    height_in: positiveNumber(it.height_in ?? dims.height_in ?? dims.height),
+    material: it.material || null,
+    fragile,
+  };
+}
 
 /**
  * Analyze a video via Gemini using inline base64 data.
@@ -45,16 +75,20 @@ Return ONLY a valid JSON array with no markdown or explanation. Example:
  * @param {Buffer} videoBuffer  - Video file buffer
  * @param {string} mimeType     - e.g. "video/mp4"
  * @param {string} [plan]       - "basic" or "pro" for model tier
- * @param {string} [customPrompt]
+ * @param {string} [customPrompt] - overrides the inventory prompt entirely (admin lab)
+ * @param {string} [roomHint]   - when set, items default to this room
  * @returns {{ rawText: string, items: Array, parseError: string|null }}
  */
-async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt = null) {
+async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt = null, roomHint = null) {
   if (!geminiClient) {
     throw new Error('GOOGLE_AI_API_KEY is not configured');
   }
 
   const modelId = GEMINI_MODELS[plan] || GEMINI_MODELS.basic;
-  const prompt = customPrompt || INVENTORY_PROMPT;
+  let prompt = customPrompt || INVENTORY_PROMPT;
+  if (!customPrompt && roomHint) {
+    prompt += `\n\nThis video is a walkthrough of the "${roomHint}". Set "room" to "${roomHint}" for every item unless an item is clearly in a different room.`;
+  }
   const base64Video = videoBuffer.toString('base64');
 
   console.log(`[videoService] Analyzing video (${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB) with model=${modelId}`);
@@ -103,7 +137,9 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
     }
   }
 
+  items = items.map(normalizeVideoItem);
+
   return { rawText, items, parseError };
 }
 
-module.exports = { analyzeVideo, INVENTORY_PROMPT, GEMINI_MODELS };
+module.exports = { analyzeVideo, normalizeVideoItem, INVENTORY_PROMPT, GEMINI_MODELS };
