@@ -18,6 +18,7 @@ const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = requ
 const { analyzeVideo, analyzeFrames } = require('../infra/vision/videoService');
 const { extractSharpestFrame, extractFramesForScan } = require('../infra/vision/frameExtractor');
 const { recordRoomVideo } = require('./roomVideoService');
+const { specForName } = require('./itemSpecsReference');
 
 /**
  * Download a URL into a Buffer.
@@ -179,7 +180,7 @@ async function analyzeVideoForInventory(args, userId, plan) {
     // get detected — the "kitchen → only oven + fridge" fix.
     let frames = [];
     try {
-      frames = await extractFramesForScan(tmpPath, { maxFrames: 14, fps: 1 });
+      frames = await extractFramesForScan(tmpPath, { maxFrames: 20, fps: 1 });
     } catch (e) {
       console.warn('[census] frame extraction failed:', e.message);
     }
@@ -218,6 +219,18 @@ async function analyzeVideoForInventory(args, userId, plan) {
       const result = await analyzeVideo(videoBuffer, args.mime_type, plan, null, args.room_hint || null);
       items = result.items || [];
       parseError = result.parseError;
+    }
+
+    // Guarantee weight AND dimensions so every item yields a cubic-foot estimate
+    // that matches its weight — the model sometimes returns a weight but omits
+    // dimensions. Fill any gaps from the typical-specs table (free, no LLM).
+    for (const item of items) {
+      const spec = specForName(item.name);
+      if (!spec) continue;
+      if (item.weight_lbs == null) item.weight_lbs = spec.w;
+      if (item.length_in == null) item.length_in = spec.l;
+      if (item.width_in == null) item.width_in = spec.wd;
+      if (item.height_in == null) item.height_in = spec.h;
     }
 
     // Record the walkthrough so the user can share it with movers.

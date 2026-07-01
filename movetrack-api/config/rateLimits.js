@@ -24,7 +24,11 @@ const ipKeyGenerator =
  */
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  // Keyed by IP and applied before auth, so it must comfortably fit a normal
+  // authenticated chat session: each agent message is a /message stream plus a
+  // readiness refresh, and room scans add uploads. 100 was far too low and
+  // caused silent 429s ("messages went unanswered"). Abuse is still bounded.
+  max: 1000, // requests per 15 minutes per IP
   message: {
     error: 'Too many requests from this IP address. Please try again later.',
     retryAfter: '15 minutes'
