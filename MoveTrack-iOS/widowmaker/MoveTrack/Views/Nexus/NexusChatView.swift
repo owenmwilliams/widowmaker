@@ -104,7 +104,7 @@ struct NexusChatView: View {
             Button("Share anyway") {
                 Task { if let url = await vm.forceShare() { shareItem = ShareItem(url: url) } }
             }
-            Button("Review & fix", role: .cancel) { shareWarningText = nil }
+            Button("Go back & fix", role: .cancel) { shareWarningText = nil }
         } message: {
             Text(shareWarningText ?? "")
         }
