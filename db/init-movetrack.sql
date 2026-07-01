@@ -765,6 +765,7 @@ CREATE TABLE IF NOT EXISTS room_videos (
     thumbnail_url TEXT,
     mime_type VARCHAR(100),
     item_count INTEGER,
+    notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_room_videos_user ON room_videos(user_id);

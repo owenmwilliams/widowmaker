@@ -3560,7 +3560,7 @@ const downloadPdfEstimate = async () => {
       doc.setFontSize(8);
       doc.setTextColor(150, 150, 150);
       doc.text(`Page ${i} of ${pageCount}`, 105, 285, { align: 'center' });
-      doc.text('Nexus Moves • For questions or to book: contact@reloprep.com', 105, 290, { align: 'center' });
+      doc.text('Nexus Moves • For questions or to book: support@nexus-moves.com', 105, 290, { align: 'center' });
     }
 
     // Save PDF
