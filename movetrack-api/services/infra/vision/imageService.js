@@ -196,7 +196,7 @@ Important:
   * Musical instruments (pianos, guitars, drums)
 - Smaller items that CAN be boxed (small electronics, monitors under 27", decorative items, kitchenware, books, etc.) should NOT have the "loose" tag
 - Confidence should reflect how certain you are about the analysis (0.0 = very uncertain, 1.0 = very certain)
-- For fragile, consider if the item is breakable or requires careful handling
+- fragile: set true for anything breakable or needing protective packing — glass/glass-topped items, mirrors, framed art & photos, TVs and monitors, lamps, ceramics/china/dishware/stemware, vases, small electronics, musical instruments. When in doubt, mark it fragile.
 
 Return ONLY the JSON object, nothing else.`;
 
@@ -216,6 +216,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no additional tex
       "id": 1,
       "name": "brief name for ONE unit of the item",
       "quantity": 1,
+      "fragile": false,
       "boundingBox": {
         "x": 0.0,
         "y": 0.0,
@@ -233,6 +234,7 @@ Important:
 - MAXIMUM 20 items in the items array
 - itemCount should match the number of items in the array (max 20)
 - "name" must describe ONE unit. "quantity" holds the count. Example: name "Dining chair", quantity 4 — NOT "4 dining chairs".
+- fragile: set true for anything breakable or needing protective packing — glass/glass-topped items, mirrors, framed art & photos, TVs and monitors, lamps, ceramics/china/dishware/stemware, vases, small electronics, musical instruments. When in doubt, mark it fragile.
 - boundingBox coordinates are normalized (0.0 to 1.0 range) where:
   - x, y represent the top-left corner (as fraction of image width/height)
   - width, height represent the box size (as fraction of image width/height)
@@ -260,6 +262,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no additional tex
       "name": "brief name for ONE unit of the item",
       "quantity": 1,
       "sourceImage": 1,
+      "fragile": false,
       "boundingBox": {
         "x": 0.0,
         "y": 0.0,
@@ -275,6 +278,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no additional tex
 
 Important:
 - MAXIMUM 20 items in the items array
+- fragile: set true for anything breakable or needing protective packing — glass/glass-topped items, mirrors, framed art & photos, TVs and monitors, lamps, ceramics/china/dishware/stemware, vases, small electronics, musical instruments. When in doubt, mark it fragile.
 - "sourceImage" is the 1-based index of the image where this item is MOST clearly visible (used for cropping the best photo of it)
 - boundingBox coordinates are normalized (0.0 to 1.0) relative to the sourceImage
 - "name" must describe ONE unit. "quantity" holds the count.

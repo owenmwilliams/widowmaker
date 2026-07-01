@@ -30,7 +30,7 @@ Rules:
   - estimated_weight_lbs: estimated weight in pounds of ONE unit (your best estimate; never 0).
   - estimated_dimensions: estimated size of ONE unit in inches as {"length_in": L, "width_in": W, "height_in": H} (your best estimate).
   - material: primary material (e.g. "wood", "metal", "fabric", "glass", "plastic", "cardboard").
-  - fragile: boolean — true if the item needs special handling.
+  - fragile: boolean — decide for EVERY item. Set true for anything breakable or needing protective packing: glass/glass-topped items, mirrors, framed art & photos, TVs and monitors, lamps, ceramics/china/dishware/stemware, vases, small electronics, musical instruments. When in doubt, mark it fragile.
   - notes: one of "fragile", "requires disassembly", "heavy", "boxable", or "" if none.
   - timestamp_seconds: integer seconds into the video where this item is most clearly visible.
   - bbox: bounding box at timestamp_seconds as normalized 0.0–1.0 {"x","y","w","h"}, or null.
@@ -59,8 +59,10 @@ For each item include:
 - room: the room/area (e.g. "kitchen", "living room", "garage", "unknown").
 - estimated_weight_lbs: per-unit weight in pounds (best estimate; never 0).
 - estimated_dimensions: per-unit {"length_in":L,"width_in":W,"height_in":H}.
-- material, fragile (boolean), notes ("fragile"/"requires disassembly"/"heavy"/"boxable"/"").
+- material, fragile (boolean — see FRAGILE below), notes ("fragile"/"requires disassembly"/"heavy"/"boxable"/"").
 - source_frame: 1-based index of the frame where this item is clearest.
+
+FRAGILE: For EVERY item, decide fragile true or false — do not leave it out. Set fragile=true for anything breakable or that needs protective/careful packing: glass or glass-topped items, mirrors, framed art & photos, TVs and monitors, lamps, ceramics/china/dishware/stemware, vases, small electronics, and musical instruments. When in doubt, mark it fragile.
 
 Weights and dimensions are PER SINGLE UNIT — never multiply by quantity. Every item MUST have BOTH estimated_weight_lbs AND all three estimated_dimensions (length_in, width_in, height_in) — never leave dimensions blank or zero; movers quote on cubic feet.
 
