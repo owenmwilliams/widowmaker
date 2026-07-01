@@ -23,10 +23,13 @@ struct LoginView: View {
                 Spacer()
 
                 // Logo/Title
-                VStack(spacing: 8) {
-                    Image(systemName: "shippingbox.fill")
-                        .font(.system(size: 80))
-                        .foregroundColor(.blue)
+                VStack(spacing: 10) {
+                    Image("AppLogo")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 88, height: 88)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
 
                     Text("Nexus Moves")
                         .font(.largeTitle)
@@ -77,17 +80,12 @@ struct LoginView: View {
                     .padding(.horizontal)
                 } else {
                     // Step 2: enter the 6-digit code
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 12) {
                         Text("Enter the 6-digit code we emailed to \(email)")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
 
-                        TextField("123456", text: $code)
-                            .textContentType(.oneTimeCode)
-                            .keyboardType(.numberPad)
-                            .padding()
-                            .background(Color(.systemGray6))
-                            .cornerRadius(12)
+                        CodeBoxesField(code: $code, onComplete: { verifyCode() })
                     }
                     .padding(.horizontal)
 
@@ -163,6 +161,63 @@ struct LoginView: View {
         codeSent = false
         code = ""
         viewModel.errorMessage = nil
+    }
+}
+
+// MARK: - Six-digit code entry
+
+/// Six single-digit boxes backed by one hidden field (so iOS one-time-code
+/// autofill, paste, and the number pad all work). Tapping anywhere focuses it.
+struct CodeBoxesField: View {
+    @Binding var code: String
+    var count: Int = 6
+    var onComplete: () -> Void = {}
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        ZStack {
+            // Hidden input drives everything; the boxes are display-only.
+            TextField("", text: Binding(
+                get: { code },
+                set: { newValue in
+                    let filtered = String(newValue.filter(\.isNumber).prefix(count))
+                    code = filtered
+                    if filtered.count == count { onComplete() }
+                }
+            ))
+            .keyboardType(.numberPad)
+            .textContentType(.oneTimeCode)
+            .focused($focused)
+            .foregroundColor(.clear)
+            .tint(.clear)
+            .frame(height: 1)
+            .opacity(0.02)
+
+            HStack(spacing: 10) {
+                ForEach(0..<count, id: \.self) { index in
+                    box(at: index)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { focused = true }
+        }
+        .onAppear { focused = true }
+    }
+
+    private func box(at index: Int) -> some View {
+        let chars = Array(code)
+        let hasChar = index < chars.count
+        let isCurrent = focused && index == chars.count
+        return Text(hasChar ? String(chars[index]) : "")
+            .font(.system(size: 26, weight: .semibold, design: .rounded))
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.systemGray6)))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(isCurrent ? Color.accentColor : Color(.systemGray4), lineWidth: isCurrent ? 2 : 1)
+            )
     }
 }
 
