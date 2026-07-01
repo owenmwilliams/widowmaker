@@ -180,7 +180,7 @@ async function analyzeVideoForInventory(args, userId, plan) {
     // get detected — the "kitchen → only oven + fridge" fix.
     let frames = [];
     try {
-      frames = await extractFramesForScan(tmpPath, { maxFrames: 20, fps: 1 });
+      frames = await extractFramesForScan(tmpPath, { maxFrames: 28, fps: 1 });
     } catch (e) {
       console.warn('[census] frame extraction failed:', e.message);
     }
