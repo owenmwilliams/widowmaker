@@ -131,7 +131,7 @@ final class NexusViewModel: ObservableObject {
         } catch {
             // Drop the optimistic bubble and surface the error.
             messages.removeAll { $0.id == optimistic.id }
-            errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
+            errorMessage = friendlyError(error)
         }
 
         isLoading = false
@@ -180,7 +180,7 @@ final class NexusViewModel: ObservableObject {
         } catch {
             isUploading = false
             phaseText = ""
-            errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
+            errorMessage = friendlyError(error)
             return false
         }
     }
@@ -324,6 +324,17 @@ final class NexusViewModel: ObservableObject {
     }
 
     // MARK: - SSE handling (mirrors the web app's phase logic, simplified)
+
+    /// Map errors to a user-facing message, softening the transient ones that
+    /// happen when the app is backgrounded / loses connectivity mid-request (a
+    /// cancelled or dropped connection) so they don't read as a scary failure.
+    private func friendlyError(_ error: Error) -> String {
+        if let urlErr = error as? URLError,
+           [.cancelled, .networkConnectionLost, .notConnectedToInternet, .timedOut].contains(urlErr.code) {
+            return "Connection interrupted — please try again."
+        }
+        return (error as? NexusError)?.userMessage ?? error.localizedDescription
+    }
 
     private func handle(_ event: SSEEvent) {
         switch event.type {

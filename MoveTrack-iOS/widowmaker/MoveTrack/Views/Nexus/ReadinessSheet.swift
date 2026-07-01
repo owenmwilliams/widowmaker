@@ -30,6 +30,9 @@ struct ReadinessSheet: View {
                         warningCard(warning)
                     }
                     stepsCard
+                    if let gaps = readiness?.mediaGaps {
+                        mediaCard(gaps)
+                    }
                 }
                 .padding(20)
             }
@@ -80,10 +83,14 @@ struct ReadinessSheet: View {
 
     // MARK: - Warning
 
+    // warnSoft is a fixed light cream, so the text needs a fixed DARK color — the
+    // default (.primary) is white in dark mode → the "white on white" bug.
+    private let warnText = Color(red: 0.42, green: 0.27, blue: 0.02)
+
     private func warningCard(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
-            Text(text).font(.subheadline)
+            Text(text).font(.subheadline).foregroundStyle(warnText)
             Spacer(minLength: 0)
         }
         .padding(14)
@@ -122,6 +129,54 @@ struct ReadinessSheet: View {
         .padding(16)
         .background(Theme.card)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+    }
+
+    // MARK: - Media gaps (which rooms have a walkthrough, which big items have a photo)
+
+    private func mediaCard(_ gaps: ShareReadinessDTO.MediaGaps) -> some View {
+        let rooms = gaps.roomsMissingVideo ?? []
+        let items = gaps.largeItemsMissingPhoto ?? []
+        return VStack(alignment: .leading, spacing: 14) {
+            Text("Videos & photos").font(.headline)
+            if rooms.isEmpty && items.isEmpty {
+                Label("Every room has a walkthrough and the big items are photographed.", systemImage: "checkmark.seal.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.good)
+            } else {
+                if !rooms.isEmpty {
+                    mediaRow(
+                        icon: "video.fill",
+                        title: "Rooms still needing a walkthrough",
+                        detail: rooms.compactMap { $0.room }.joined(separator: ", ")
+                    )
+                }
+                if !items.isEmpty {
+                    let names = items.flatMap { gap in
+                        (gap.items ?? []).map { name in name + (gap.room.map { " (\($0))" } ?? "") }
+                    }
+                    mediaRow(
+                        icon: "camera.fill",
+                        title: "Big items still needing a photo",
+                        detail: names.prefix(8).joined(separator: ", ")
+                    )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+    }
+
+    private func mediaRow(icon: String, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon).font(.body).foregroundStyle(Theme.brand)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail).font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     // MARK: - CTAs

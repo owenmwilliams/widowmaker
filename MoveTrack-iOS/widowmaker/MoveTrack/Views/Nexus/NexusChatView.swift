@@ -46,7 +46,7 @@ struct NexusChatView: View {
             Button("Choose from Library") { pickerSource = .library }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("For the best inventory: hold your phone sideways, pan slowly across the whole room, turn on the lights, and open closets & cupboards. For big items, add a straight-on close-up.")
+            Text("Recording a room? For the best results:\n1) Talk through your items out loud — Nexus listens.\n2) Open closets, cabinets & drawers.\n3) Pan slowly across the whole room (phone sideways, lights on).\nFor big items, add a straight-on close-up photo.")
         }
         .sheet(item: $pickerSource) { source in
             MediaPicker(

@@ -132,13 +132,47 @@ struct ShareReadinessDTO: Decodable {
         }
     }
 
+    /// Which rooms still lack a walkthrough video and which large items lack a
+    /// photo — powers the "see what's left" media checklist.
+    struct MediaGaps: Decodable {
+        struct RoomGap: Decodable {
+            let room: String?
+            let itemCount: Int?
+            enum CodingKeys: String, CodingKey { case room, itemCount }
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                room = try? c.decode(String.self, forKey: .room)
+                itemCount = try? c.decode(Int.self, forKey: .itemCount)
+            }
+        }
+        struct ItemGap: Decodable {
+            let room: String?
+            let items: [String]?
+            enum CodingKeys: String, CodingKey { case room, items }
+            init(from decoder: Decoder) throws {
+                let c = try decoder.container(keyedBy: CodingKeys.self)
+                room = try? c.decode(String.self, forKey: .room)
+                items = try? c.decode([String].self, forKey: .items)
+            }
+        }
+        let roomsMissingVideo: [RoomGap]?
+        let largeItemsMissingPhoto: [ItemGap]?
+        enum CodingKeys: String, CodingKey { case roomsMissingVideo, largeItemsMissingPhoto }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            roomsMissingVideo = try? c.decode([RoomGap].self, forKey: .roomsMissingVideo)
+            largeItemsMissingPhoto = try? c.decode([ItemGap].self, forKey: .largeItemsMissingPhoto)
+        }
+    }
+
     let overall: Int?
     let status: String?          // ready | almost_ready | in_progress | early | not_started
     let summary: String?
     let nextSteps: [String]?
     let reasonableness: Reasonableness?
+    let mediaGaps: MediaGaps?
 
-    enum CodingKeys: String, CodingKey { case overall, status, summary, nextSteps, reasonableness }
+    enum CodingKeys: String, CodingKey { case overall, status, summary, nextSteps, reasonableness, mediaGaps }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         overall = try? c.decode(Int.self, forKey: .overall)
@@ -146,6 +180,7 @@ struct ShareReadinessDTO: Decodable {
         summary = try? c.decode(String.self, forKey: .summary)
         nextSteps = try? c.decode([String].self, forKey: .nextSteps)
         reasonableness = try? c.decode(Reasonableness.self, forKey: .reasonableness)
+        mediaGaps = try? c.decode(MediaGaps.self, forKey: .mediaGaps)
     }
 
     /// A message to warn the user with before sharing, or nil if it looks fine.
