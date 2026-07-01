@@ -22,6 +22,7 @@ struct NexusChatView: View {
     @State private var showAINotice = false
     @State private var showReadiness = false
     @State private var captureCaption = ""
+    @State private var pendingMedia: PendingMedia?
     @AppStorage("aiCaptureNoticeShown") private var aiNoticeShown = false
     @FocusState private var inputFocused: Bool
 
@@ -44,15 +45,19 @@ struct NexusChatView: View {
             }
             Button("Choose from Library") { pickerSource = .library }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("For the best inventory: hold your phone sideways, pan slowly across the whole room, turn on the lights, and open closets & cupboards. For big items, add a straight-on close-up.")
         }
         .sheet(item: $pickerSource) { source in
             MediaPicker(
                 source: source,
                 onPicked: { data, mime, name in
                     pickerSource = nil
-                    let caption = captureCaption
+                    // Attach to the composer instead of sending immediately — the
+                    // user can add a note (e.g. the room) and then tap send.
+                    if draft.isEmpty && !captureCaption.isEmpty { draft = captureCaption }
                     captureCaption = ""
-                    Task { await vm.sendMedia(data: data, mimeType: mime, filename: name, caption: caption) }
+                    pendingMedia = PendingMedia(data: data, mimeType: mime, filename: name)
                 },
                 onCancel: { pickerSource = nil }
             )
@@ -247,37 +252,42 @@ struct NexusChatView: View {
     // MARK: - Input
 
     private var inputBar: some View {
-        HStack(alignment: .bottom, spacing: 10) {
-            Button {
-                beginCapture(caption: "")
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(vm.isBusy ? AnyShapeStyle(Color.gray) : AnyShapeStyle(Theme.brandGradient))
-                    .clipShape(Circle())
+        VStack(spacing: 8) {
+            if let media = pendingMedia {
+                pendingMediaChip(media)
             }
-            .disabled(vm.isBusy)
+            HStack(alignment: .bottom, spacing: 10) {
+                Button {
+                    beginCapture(caption: "")
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(vm.isBusy ? AnyShapeStyle(Color.gray) : AnyShapeStyle(Theme.brandGradient))
+                        .clipShape(Circle())
+                }
+                .disabled(vm.isBusy)
 
-            TextField("Message Nexus…", text: $draft, axis: .vertical)
-                .lineLimit(1...5)
-                .focused($inputFocused)
-                .padding(.horizontal, 15)
-                .padding(.vertical, 9)
-                .background(Theme.canvas)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.primary.opacity(0.08)))
+                TextField(pendingMedia == nil ? "Message Nexus…" : "Add a note (optional)…", text: $draft, axis: .vertical)
+                    .lineLimit(1...5)
+                    .focused($inputFocused)
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 9)
+                    .background(Theme.canvas)
+                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.primary.opacity(0.08)))
 
-            Button(action: sendDraft) {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(canSend ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(Color.gray.opacity(0.5)))
-                    .clipShape(Circle())
+                Button(action: sendDraft) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(canSend ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(Color.gray.opacity(0.5)))
+                        .clipShape(Circle())
+                }
+                .disabled(!canSend)
             }
-            .disabled(!canSend)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -285,8 +295,25 @@ struct NexusChatView: View {
         .overlay(alignment: .top) { Divider() }
     }
 
+    private func pendingMediaChip(_ media: PendingMedia) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: media.isVideo ? "video.fill" : "photo.fill")
+                .foregroundStyle(Theme.brand)
+            Text(media.isVideo ? "Video attached" : "Photo attached")
+                .font(.subheadline.weight(.medium))
+            Spacer()
+            Button { pendingMedia = nil } label: {
+                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Theme.brandSoft)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
     private var canSend: Bool {
-        !vm.isLoading && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !vm.isBusy && (pendingMedia != nil || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     // MARK: - Overlay
@@ -310,7 +337,12 @@ struct NexusChatView: View {
         let text = draft
         draft = ""
         inputFocused = false
-        Task { await vm.send(text) }
+        if let media = pendingMedia {
+            pendingMedia = nil
+            Task { await vm.sendMedia(data: media.data, mimeType: media.mimeType, filename: media.filename, caption: text) }
+        } else {
+            Task { await vm.send(text) }
+        }
     }
 
     private func handleAgentButton(_ button: AgentButton) {
@@ -527,6 +559,14 @@ private struct TypingIndicator: View {
 private struct ShareItem: Identifiable {
     let id = UUID()
     let url: URL
+}
+
+// A captured photo/video attached to the composer, sent on the next Send tap.
+private struct PendingMedia {
+    let data: Data
+    let mimeType: String
+    let filename: String
+    var isVideo: Bool { mimeType.hasPrefix("video") }
 }
 
 // Lets `.sheet(item:)` present the camera/library picker.
