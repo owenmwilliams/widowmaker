@@ -182,10 +182,11 @@ async function buildMoverReport(userId, moveId = null) {
   totals.totalWeightLbs = Math.round(totals.totalWeightLbs);
   totals.totalVolumeCuFt = Math.round(totals.totalVolumeCuFt * 100) / 100;
 
-  // Materialize the Maps into arrays, dropping empty locations.
+  // Materialize the Maps into arrays. Keep locations that have rooms, plus the
+  // destination (which has no inventory but movers still need its access details).
   const allLocations = [...locations, unassigned]
     .map((l) => ({ ...l, rooms: [...l.rooms.values()] }))
-    .filter((l) => l.rooms.length > 0);
+    .filter((l) => l.rooms.length > 0 || l.type === 'destination');
 
   // Optional move context (origin/destination).
   let move = null;
@@ -206,6 +207,27 @@ async function buildMoverReport(userId, moveId = null) {
         moveDate: m.move_date,
         origin: m.origin_name ? { name: m.origin_name, city: m.origin_city, state: m.origin_state } : null,
         destination: m.destination_name ? { name: m.destination_name, city: m.destination_city, state: m.destination_state } : null,
+      };
+    }
+  }
+
+  // No explicit saved move? Derive the From → To banner from the user's own
+  // locations by type, so a share always shows start and end when we know them.
+  // Use a city/state summary (the full address still shows in the section below).
+  if (!move) {
+    const placeSummary = (loc) => {
+      const cs = [loc.city, loc.state].filter(Boolean).join(', ');
+      return { name: cs || loc.name || null };
+    };
+    const origin = snapshot.locations.find((l) => l.location_type === 'primary_residence')
+      || snapshot.locations.find((l) => l.location_type !== 'destination' && l.location_type !== 'holding_area');
+    const destination = snapshot.locations.find((l) => l.location_type === 'destination');
+    if (origin || destination) {
+      move = {
+        name: null,
+        moveDate: null,
+        origin: origin ? placeSummary(origin) : null,
+        destination: destination ? placeSummary(destination) : null,
       };
     }
   }
