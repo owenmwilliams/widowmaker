@@ -17,7 +17,7 @@ function gcsPathFromUrl(url) {
   return m ? { bucket: m[1], path: m[2] } : null;
 }
 
-async function recordRoomVideo(userId, { videoUrl, mimeType = null, roomName = null, locationId = null, itemCount = null, thumbnailUrl = null } = {}) {
+async function recordRoomVideo(userId, { videoUrl, mimeType = null, roomName = null, locationId = null, itemCount = null, thumbnailUrl = null, notes = null } = {}) {
   if (!userId || !videoUrl) return null;
   const parsed = gcsPathFromUrl(videoUrl);
   const [row] = await knex('room_videos')
@@ -31,6 +31,7 @@ async function recordRoomVideo(userId, { videoUrl, mimeType = null, roomName = n
       thumbnail_url: thumbnailUrl,
       mime_type: mimeType,
       item_count: itemCount,
+      notes: notes || null,
     })
     .returning('*');
   return row;

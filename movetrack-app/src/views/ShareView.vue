@@ -29,7 +29,7 @@ type Report = {
   title: string | null; generatedAt: string
   totals: { itemCount: number; totalWeightLbs: number; totalVolumeCuFt: number; fragileCount: number; missingWeight: number; missingDimensions: number }
   confidence?: Confidence
-  walkthroughs?: { room: string; url: string; thumbnailUrl: string | null }[]
+  walkthroughs?: { room: string; url: string; thumbnailUrl: string | null; notes: string | null }[]
   specialItems: { name: string; quantity: number; fragile: boolean; oversized: boolean }[]
   locations: Loc[]
   move: { name?: string; moveDate?: string; origin?: any; destination?: any } | null
@@ -153,6 +153,7 @@ const printPage = () => window.print()
           <figure v-for="(w, i) in report.walkthroughs" :key="i" class="vid">
             <video :src="w.url" :poster="w.thumbnailUrl || undefined" controls preload="none" playsinline></video>
             <figcaption>{{ w.room }}</figcaption>
+            <p v-if="w.notes" class="vid-notes">🎙 {{ w.notes }}</p>
           </figure>
         </div>
       </section>
@@ -246,6 +247,7 @@ section h2 { font-size: 15px; font-weight: 700; margin: 0 0 10px; }
 /* Respect the video's real orientation — portrait clips stay portrait. */
 .vid video { width: 100%; height: auto; max-height: 70vh; border-radius: 10px; background: #000; display: block; }
 .vid figcaption { font-size: 12px; color: #666; margin-top: 5px; text-transform: capitalize; }
+.vid-notes { font-size: 12px; color: #45455e; margin: 4px 0 0; background: #f6f6fb; border: 1px solid #ececf2; border-radius: 8px; padding: 6px 8px; }
 
 .special { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 12px 16px; }
 .special ul { margin: 0; padding-left: 18px; }

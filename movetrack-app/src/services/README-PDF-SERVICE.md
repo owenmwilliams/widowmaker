@@ -21,7 +21,7 @@ For customers to download and share with movers themselves.
 
 ### 2. Mover Bidding PDF
 For Nexus Moves to send to moving companies when shopping for quotes.
-- Hides customer contact (uses quotes@reloprep.com)
+- Hides customer contact (uses support@nexus-moves.com)
 - Shows RFQ number and quote deadline
 - Full inventory specs
 - Response instructions for movers

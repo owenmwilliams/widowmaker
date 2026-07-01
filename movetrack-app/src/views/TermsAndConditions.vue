@@ -189,7 +189,7 @@ onMounted(() => {
     </p>
 
     <h5>16. Contact</h5>
-    <p>If you have questions, contact us at: support@reloprep.com (or your preferred email)</p>
+    <p>If you have questions, contact us at: support@nexus-moves.com (or your preferred email)</p>
   </div>
 </template>
 

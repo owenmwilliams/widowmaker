@@ -264,6 +264,7 @@ async function buildMoverReport(userId, moveId = null) {
       thumbnailUrl: v.thumbnail_url
         ? await gcsService.signPublicUrl(v.thumbnail_url, SHARE_MEDIA_EXPIRY_MS).catch(() => v.thumbnail_url)
         : null,
+      notes: v.notes || null,
     })));
   } catch (err) {
     console.warn('[shareService] walkthroughs unavailable:', err.message);

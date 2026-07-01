@@ -74,19 +74,33 @@ function positiveNumber(v) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Parse a JSON array of items from a model response (tolerant of code fences). */
+/**
+ * Coerce a parsed model response into { items, narrationNotes }. Accepts either a
+ * bare array of items (no-audio path) or an object { items, narration_notes }
+ * (audio path).
+ */
+function coerceParsed(parsed) {
+  if (Array.isArray(parsed)) return { items: parsed, narrationNotes: null };
+  if (parsed && Array.isArray(parsed.items)) {
+    const notes = typeof parsed.narration_notes === 'string' ? parsed.narration_notes.trim() : '';
+    return { items: parsed.items, narrationNotes: notes || null };
+  }
+  return { items: [], narrationNotes: null };
+}
+
+/** Parse items (and optional narration notes) from a model response (tolerant of code fences). */
 function parseItemsArray(rawText) {
   try {
     const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
-    const parsed = JSON.parse(cleaned);
-    return { items: Array.isArray(parsed) ? parsed : [], parseError: null };
+    const { items, narrationNotes } = coerceParsed(JSON.parse(cleaned));
+    return { items, narrationNotes, parseError: null };
   } catch (err) {
     try {
       const { jsonrepair } = require('jsonrepair');
-      const parsed = JSON.parse(jsonrepair(rawText));
-      return { items: Array.isArray(parsed) ? parsed : [], parseError: null };
+      const { items, narrationNotes } = coerceParsed(JSON.parse(jsonrepair(rawText)));
+      return { items, narrationNotes, parseError: null };
     } catch (repairErr) {
-      return { items: [], parseError: `Could not parse response as JSON: ${err.message}` };
+      return { items: [], narrationNotes: null, parseError: `Could not parse response as JSON: ${err.message}` };
     }
   }
 }
@@ -194,10 +208,10 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
  * @param {string} [roomHint]
  * @returns {{ rawText: string, items: Array, parseError: string|null }}
  */
-async function analyzeFrames(frames, plan = 'basic', roomHint = null) {
+async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = null) {
   if (!geminiClient) throw new Error('GOOGLE_AI_API_KEY is not configured');
   if (!frames || frames.length === 0) {
-    return { rawText: '', items: [], parseError: 'no frames' };
+    return { rawText: '', items: [], narrationNotes: null, parseError: 'no frames' };
   }
 
   const modelId = GEMINI_MODELS[plan] || GEMINI_MODELS.basic;
@@ -205,8 +219,11 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null) {
   if (roomHint) {
     prompt += `\n\nThese frames are the "${roomHint}". Set "room" to "${roomHint}" for every item unless an item is clearly in a different room.`;
   }
+  if (audio) {
+    prompt += `\n\nAUDIO: The room's audio is included — the owner is narrating the walkthrough. Use what they say to correct item names, materials, weights, and fragility, and to catch items the frames missed. Return a JSON OBJECT (not a bare array): {"narration_notes": "<= 3 short sentences capturing anything the owner said that a mover should know (special handling, what an item is, access); empty string if nothing useful", "items": [ ...the item objects exactly as specified above... ]}.`;
+  }
 
-  console.log(`[videoService] Analyzing ${frames.length} sampled frames with model=${modelId}`);
+  console.log(`[videoService] Analyzing ${frames.length} sampled frames${audio ? ' + audio' : ''} with model=${modelId}`);
 
   const model = geminiClient.getGenerativeModel({
     model: modelId,
@@ -216,6 +233,9 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null) {
   const parts = frames.map((f) => ({
     inlineData: { mimeType: 'image/jpeg', data: f.buffer.toString('base64') },
   }));
+  if (audio) {
+    parts.push({ inlineData: { mimeType: audio.mimeType, data: audio.buffer.toString('base64') } });
+  }
   parts.push({ text: prompt });
 
   let result;
@@ -227,9 +247,9 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null) {
   }
 
   const rawText = result.response.text();
-  const { items: parsed, parseError } = parseItemsArray(rawText);
-  console.log(`[videoService] Frame analysis parsed ${parsed.length} items`);
-  return { rawText, items: parsed.map(normalizeVideoItem), parseError };
+  const { items: parsed, narrationNotes, parseError } = parseItemsArray(rawText);
+  console.log(`[videoService] Frame analysis parsed ${parsed.length} items${narrationNotes ? ' + narration notes' : ''}`);
+  return { rawText, items: parsed.map(normalizeVideoItem), narrationNotes, parseError };
 }
 
 module.exports = { analyzeVideo, analyzeFrames, normalizeVideoItem, parseItemsArray, INVENTORY_PROMPT, INVENTORY_PROMPT_FRAMES, GEMINI_MODELS };

@@ -38,7 +38,7 @@ onMounted(() => {
       <li><strong>Service:</strong> The Nexus Moves website, mobile app, software, and tools.</li>
       <li><strong>Service Provider:</strong> Third parties that process data on our behalf.</li>
       <li><strong>Usage Data:</strong> Data collected automatically through your use of the Service.</li>
-      <li><strong>Website:</strong> www.reloprep.com (or any subdomains operated by Nexus Moves).</li>
+      <li><strong>Website:</strong> www.nexus-moves.com (or any subdomains operated by Nexus Moves).</li>
       <li><strong>You:</strong> The individual or entity accessing or using the Service.</li>
     </ul>
 
@@ -144,7 +144,7 @@ onMounted(() => {
 
     <h5>7. Your Rights</h5>
     <p>Depending on your jurisdiction, you may have the right to: access your data; correct inaccurate data; delete your data; request restrictions on processing; opt out of certain uses (e.g., marketing); request a copy of your data.</p>
-    <p>You can exercise rights via: account settings or emailing us at support@reloprep.com. We may retain certain data when legally allowed or required.</p>
+    <p>You can exercise rights via: account settings or emailing us at support@nexus-moves.com. We may retain certain data when legally allowed or required.</p>
 
     <h5>8. Delete Your Personal Data</h5>
     <p>You can request deletion of: your Account; your Personal Data; inventory images and metadata.</p>
@@ -164,8 +164,8 @@ onMounted(() => {
 
     <h5>13. Contact Us</h5>
     <p>If you have questions, requests, or concerns about this Privacy Policy, you may contact us:</p>
-    <p>Email: support@reloprep.com</p>
-    <p>Website: https://www.reloprep.com</p>
+    <p>Email: support@nexus-moves.com</p>
+    <p>Website: https://www.nexus-moves.com</p>
   </div>
 </template>
 

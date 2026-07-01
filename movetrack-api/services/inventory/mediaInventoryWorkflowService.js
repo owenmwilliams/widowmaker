@@ -16,7 +16,7 @@ const gcs = require('../infra/gcsService');
 const { drawBoundingBox } = require('../infra/vision/imageUtils');
 const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../infra/vision/imageService');
 const { analyzeVideo, analyzeFrames } = require('../infra/vision/videoService');
-const { extractSharpestFrame, extractFramesForScan } = require('../infra/vision/frameExtractor');
+const { extractSharpestFrame, extractFramesForScan, extractAudio } = require('../infra/vision/frameExtractor');
 const { recordRoomVideo } = require('./roomVideoService');
 const { specForName } = require('./itemSpecsReference');
 
@@ -185,9 +185,19 @@ async function analyzeVideoForInventory(args, userId, plan) {
       console.warn('[census] frame extraction failed:', e.message);
     }
 
+    // Pull the narration track too (best-effort) so the model can use what the
+    // user said while filming to sharpen names/materials/weights.
+    let audio = null;
+    try {
+      audio = await extractAudio(tmpPath);
+    } catch (e) {
+      console.warn('[census] audio extraction failed:', e.message);
+    }
+
     let items = [];
     let parseError = null;
     let firstFrameUrl = null;
+    let narrationNotes = null;
 
     if (frames.length > 0) {
       // Upload the sampled frames so each detected item can carry a real photo.
@@ -203,9 +213,10 @@ async function analyzeVideoForInventory(args, userId, plan) {
       }
       firstFrameUrl = frameUrls.find(Boolean) || null;
 
-      const result = await analyzeFrames(frames, plan, args.room_hint || null);
+      const result = await analyzeFrames(frames, plan, args.room_hint || null, audio);
       items = result.items || [];
       parseError = result.parseError;
+      narrationNotes = result.narrationNotes || null;
 
       for (const item of items) {
         const sf = Number(item.source_frame);
@@ -241,6 +252,7 @@ async function analyzeVideoForInventory(args, userId, plan) {
         roomName: args.room_hint || null,
         itemCount: items.length,
         thumbnailUrl: firstFrameUrl,
+        notes: narrationNotes,
       });
     } catch (e) {
       console.warn('[census] recordRoomVideo failed:', e.message);

@@ -146,6 +146,48 @@ async function extractFramesForScan(videoSource, { maxFrames = 14, fps = 1, widt
 }
 
 /**
+ * Extract the audio track from a walkthrough video as a small mono AAC clip, so
+ * the vision model can hear the owner's narration ("this dresser is solid oak,
+ * super heavy") alongside the sampled frames. Returns null when there's no audio
+ * track or ffmpeg can't encode it — audio is always best-effort, never fatal.
+ *
+ * @param {string} videoSource - local file path or HTTPS URL
+ * @param {{maxSeconds?:number}} [opts]
+ * @returns {Promise<{buffer: Buffer, mimeType: string}|null>}
+ */
+async function extractAudio(videoSource, { maxSeconds = 180 } = {}) {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'mtscan-audio-'));
+  const outPath = path.join(tmpDir, 'audio.aac');
+  try {
+    await new Promise((resolve, reject) => {
+      ffmpeg(videoSource)
+        .outputOptions([
+          '-vn',            // drop video
+          '-ac', '1',       // mono
+          '-ar', '16000',   // 16 kHz is plenty for speech
+          '-c:a', 'aac',    // native encoder — always available in ffmpeg-static
+          '-b:a', '40k',
+          '-t', String(maxSeconds), // cap length to bound payload size
+          '-f', 'adts',     // raw AAC stream → mimeType audio/aac
+        ])
+        .output(outPath)
+        .on('end', resolve)
+        .on('error', reject)
+        .run();
+    });
+    const buffer = await fs.promises.readFile(outPath);
+    if (!buffer || buffer.length < 512) return null; // silent / no real track
+    console.log(`[frameExtractor] extracted ${(buffer.length / 1024).toFixed(0)}KB of audio`);
+    return { buffer, mimeType: 'audio/aac' };
+  } catch (err) {
+    console.warn('[frameExtractor] extractAudio failed (no audio track?):', err.message);
+    return null;
+  } finally {
+    await fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/**
  * Diagnostic check: verifies that ffmpeg-static and sharp are functional.
  * Returns a plain object (never throws); suitable for a health/debug endpoint.
  *
@@ -209,4 +251,4 @@ async function extractThumbnails(videoPath, items, userId, scanId, gcs) {
   return debug;
 }
 
-module.exports = { extractSharpestFrame, extractFramesForScan, getInfraDiagnostics, extractThumbnails };
+module.exports = { extractSharpestFrame, extractFramesForScan, extractAudio, getInfraDiagnostics, extractThumbnails };
