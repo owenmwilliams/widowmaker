@@ -172,9 +172,6 @@ struct NexusChatView: View {
                     if vm.isLoading {
                         TypingIndicator(phase: vm.phaseText, detail: vm.detailText)
                     }
-                    if !vm.quickStartChips.isEmpty && !vm.isLoading {
-                        chips
-                    }
                     Color.clear.frame(height: 1).id(bottomID)
                 }
                 .padding(.horizontal, 16)
@@ -203,10 +200,10 @@ struct NexusChatView: View {
             stepRow(1, "house.fill", "Tell me about your current home")
             stepRow(2, "video.fill", "Add a photo or video of each room")
             stepRow(3, "square.and.arrow.up", "Share your inventory with movers")
-            Text("Tap **+** to add a room, or just say hello.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .padding(.top, 2)
+            Text("First — **what's your name?** Type it below to get started.")
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .padding(.top, 4)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)

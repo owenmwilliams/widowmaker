@@ -177,7 +177,16 @@ struct CodeBoxesField: View {
 
     var body: some View {
         ZStack {
-            // Hidden input drives everything; the boxes are display-only.
+            HStack(spacing: 10) {
+                ForEach(0..<count, id: \.self) { index in
+                    box(at: index)
+                }
+            }
+            .allowsHitTesting(false)
+
+            // An invisible full-size field sits ON TOP of the boxes so it captures
+            // taps, the number pad, one-time-code autofill, AND the long-press
+            // "Paste" menu (a 1pt hidden field made paste impossible).
             TextField("", text: Binding(
                 get: { code },
                 set: { newValue in
@@ -191,17 +200,12 @@ struct CodeBoxesField: View {
             .focused($focused)
             .foregroundColor(.clear)
             .tint(.clear)
-            .frame(height: 1)
-            .opacity(0.02)
-
-            HStack(spacing: 10) {
-                ForEach(0..<count, id: \.self) { index in
-                    box(at: index)
-                }
-            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
             .contentShape(Rectangle())
-            .onTapGesture { focused = true }
+            .opacity(0.02)
         }
+        .frame(height: 56)
         .onAppear { focused = true }
     }
 
