@@ -11,6 +11,8 @@ const conn = require('../infra/db');
 const db = conn.db;
 const { REFERENCE_ROOMS, TYPICAL_ITEMS } = require('./inventoryReferenceData');
 const { assessWeightPlausibility, flagWeightOutliers } = require('./inventoryBenchmarkService');
+const { isLargeImpactItem } = require('./itemSpecsReference');
+const { listRoomVideos } = require('./roomVideoService');
 
 // ── Gap Analysis ──────────────────────────────────────────────────────────────
 
@@ -194,9 +196,22 @@ async function inventoryReadinessAssessment(userId) {
     nextSteps.push(`Add photos — only ${itemStats.has_photo} of ${total} items have one`);
   }
 
+  // Media completeness nudges (soft): photos for the big-ticket items and a
+  // walkthrough per room. These are what make a mover's quote trustworthy.
+  const mediaGaps = await getMediaGaps(userId);
+  if (mediaGaps.largeItemsMissingPhoto.length > 0) {
+    const first = mediaGaps.largeItemsMissingPhoto[0];
+    nextSteps.unshift(`Photograph the big items in ${first.room}: ${first.items.slice(0, 4).join(', ')}`);
+  }
+  if (mediaGaps.roomsMissingVideo.length > 0) {
+    const names = mediaGaps.roomsMissingVideo.slice(0, 3).map((r) => r.room).join(', ');
+    nextSteps.push(`Record a quick walkthrough video of: ${names}`);
+  }
+
   return {
     overall,
     status,
+    mediaGaps,
     summary: `${total} items across ${collections.length} rooms. ${Math.round(itemStats.total_weight)} lbs, ~${itemStats.total_volume_cuft} cu ft.`,
     totals: {
       itemCount: total,
@@ -275,11 +290,64 @@ async function getResidenceBedrooms(userId) {
   return inferBedroomsFromRoomNames(rooms.map((r) => r.name));
 }
 
+/**
+ * Media-completeness gaps that make a mover quote trustworthy: rooms that have
+ * items but no walkthrough video, and large/high-variance items (sofa, fridge,
+ * TV, bed…) with no photo to ground the estimate. Soft — surfaced as nudges in
+ * the readiness flow, never a hard block.
+ *
+ * @returns {Promise<{roomsMissingVideo: Array<{room,itemCount}>,
+ *   largeItemsMissingPhoto: Array<{room, items: string[]}>,
+ *   counts: {roomsMissingVideo:number, largeItemsMissingPhoto:number}}>}
+ */
+async function getMediaGaps(userId) {
+  const collections = await db.any(
+    `SELECT c.name, COUNT(i.id)::int AS item_count
+     FROM collections c LEFT JOIN items i ON i.collection_id = c.id
+     WHERE c.user_id = $1 GROUP BY c.id, c.name`, [userId]
+  );
+
+  let videos = [];
+  try { videos = await listRoomVideos(userId); } catch (_) { videos = []; }
+  const videoRooms = new Set(
+    (videos || []).map((v) => (v.room_name || '').toLowerCase().trim()).filter(Boolean)
+  );
+
+  const roomsMissingVideo = collections
+    .filter((c) => c.item_count > 0 && !videoRooms.has((c.name || '').toLowerCase().trim()))
+    .map((c) => ({ room: c.name, itemCount: c.item_count }));
+
+  const items = await db.any(
+    `SELECT i.name, i.picture_url, c.name AS room_name
+     FROM items i LEFT JOIN collections c ON i.collection_id = c.id
+     WHERE i.user_id = $1`, [userId]
+  );
+  const byRoom = new Map();
+  for (const it of items) {
+    const hasPhoto = it.picture_url && String(it.picture_url).trim() !== '';
+    if (hasPhoto || !isLargeImpactItem(it.name)) continue;
+    const room = it.room_name || 'Unsorted';
+    if (!byRoom.has(room)) byRoom.set(room, []);
+    byRoom.get(room).push(it.name);
+  }
+  const largeItemsMissingPhoto = [...byRoom.entries()].map(([room, names]) => ({ room, items: names }));
+
+  return {
+    roomsMissingVideo,
+    largeItemsMissingPhoto,
+    counts: {
+      roomsMissingVideo: roomsMissingVideo.length,
+      largeItemsMissingPhoto: largeItemsMissingPhoto.reduce((n, r) => n + r.items.length, 0),
+    },
+  };
+}
+
 module.exports = {
   getMissingContext,
   getTypicalItems,
   inventoryReadinessAssessment,
   shareReasonableness,
+  getMediaGaps,
   getResidenceBedrooms,
   inferBedroomsFromRoomNames,
 };
