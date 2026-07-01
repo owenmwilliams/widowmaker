@@ -5,10 +5,12 @@ const { ORCHESTRATOR_RECOMMENDATIONS } = require('./specialistResponse');
 const ALL_DECISIONS = [...ORCHESTRATOR_RECOMMENDATIONS];
 
 const AGENT_LIMITS = Object.freeze({
-  orchestratorMaxToolRounds: 4,
+  orchestratorMaxToolRounds: 5,
   specialistMaxToolRounds: 8,
   specialistMaxRetries: 1,
-  maxDelegationsPerTurn: 4,
+  // Onboarding can create several rooms and fill a room or two in one turn; give
+  // it a little headroom so it doesn't hit the round-limit fallback.
+  maxDelegationsPerTurn: 6,
   maxCrossAgentBouncesPerTurn: 2,
   maxParallelDelegations: 3,
 });

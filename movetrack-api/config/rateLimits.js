@@ -45,12 +45,17 @@ const globalLimiter = rateLimit({
  * Authentication Rate Limiter
  * Applies to magic link requests and authentication endpoints
  *
- * Limits: 5 requests per hour per email address
+ * Limits: 30 requests per hour per email address
  * Purpose: Prevent magic link spam and brute force attacks
+ *
+ * NOTE: this wraps the ENTIRE /auth router (app.js), so it counts both
+ * request-code AND verify-code. 5/hr was far too tight — a normal login (request
+ * a code, mistype it once, re-request) could exhaust it and lock the user out
+ * for an hour. 30/hr keyed by email still bounds spam comfortably.
  */
 const authLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // 5 requests per email per hour
+  max: 30, // requests per email per hour (covers request-code + verify-code)
   message: {
     error: 'Too many authentication requests. Please try again in an hour.',
     retryAfter: '1 hour'

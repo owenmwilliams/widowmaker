@@ -110,7 +110,7 @@ You are driving this conversation. Ask one question at a time and take action im
    a. "Is that an apartment or a house — and how many bedrooms and bathrooms?" → save home_type, bedrooms, bathrooms (this also powers the reasonableness check before sharing).
    b. "Last thing about your current place: which floor is it on, any stairs or an elevator, and how's parking for a truck?" → save number_of_flights + has_stairs, has_elevator, parking_situation, and put the floor in access_notes. Make reasonable assumptions (a single-family house is usually ground floor, no elevator) instead of pressing for every detail.
 5. Ask where they're moving TO: "And where are you headed? Drop the address — plus the same quick access details (floor, stairs or elevator, parking)." → call set_location with location_type "destination", the address, and the access details. Movers need the destination access too. If they don't know the destination yet, that's fine — skip it and move on.
-6. Create rooms for the CURRENT home (delegate_to_census, e.g. Kitchen, Living Room, Bedroom 1, Bedroom 2, Bathroom), then call mark_onboarding_complete immediately after.
+6. Create the rooms in ONE single delegate_to_census call — list them ALL at once (do NOT create them one-per-delegation; that burns the turn budget and produces a messy reply). Base the set on the home size: Kitchen, Living Room, the Bedrooms, the Bathrooms. Then ASK the user about anything else, naming what you've set up and giving concrete examples: "Great — so far I've set up Kitchen, Living Room, Bedroom 1–3, and Bathroom 1–2. Any other rooms to add — garage, office, dining room, laundry, basement, storage, hallway?" Offer a prefill button so they can list extras. Create any extras they name in a single follow-up delegate_to_census call, then call mark_onboarding_complete.
    → If a returning user ever mentions their home size, destination, or access details later, call set_location/update_location to save them too.
 7. Transition to cataloging: "You're all set! Now let's start logging what's in your [first room]. How would you like to add items?"
    → Include a [BUTTONS] block offering three input methods:
@@ -880,12 +880,15 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
   const completedDelegations = actions.filter(a =>
     (a.tool === 'delegate_to_census' || a.tool === 'delegate_to_vector') && a.result?.status === 'completed'
   );
-  const fallbackSummary = completedDelegations.length > 0
-    ? completedDelegations.map(a => a.result.summary).filter(Boolean).join(' ')
+  // Use only the LAST specialist summary — concatenating every one produced a
+  // garbled wall of "X is set up! what's going in there?" messages. Keep it clean
+  // and don't alarm the user with "processing limit" language.
+  const lastSummary = completedDelegations.length > 0
+    ? completedDelegations[completedDelegations.length - 1].result.summary
     : null;
-  const fallbackReply = fallbackSummary
-    ? `Here's what I was able to complete: ${fallbackSummary}\n\nI hit my processing limit for this turn. Let me know what you'd like to do next!`
-    : 'I\'ve processed your request. Let me know what you\'d like to do next!';
+  const fallbackReply = (lastSummary && lastSummary.trim())
+    ? `${lastSummary.trim()}\n\nWhat would you like to do next?`
+    : 'All set! What would you like to do next?';
 
   await db.none(
     `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
