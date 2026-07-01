@@ -98,6 +98,10 @@ const LARGE_KEYWORDS = [
   'dining table', 'desk', 'bookshelf', 'bookcase', 'china cabinet', 'buffet',
   'sideboard', 'piano', 'treadmill', 'elliptical', 'entertainment center',
   'vanity', 'chest', 'recliner',
+  // Fragile / awkward / high-variance items where a straight-on photo matters:
+  'tv', 'television', 'mirror', 'artwork', 'painting', 'framed', 'chandelier',
+  'armchair', 'accent chair', 'lounge chair', 'pool table', 'crib', 'hutch',
+  'aquarium', 'fish tank', 'grandfather clock',
 ];
 
 const LARGE_WEIGHT_THRESHOLD = 70;
