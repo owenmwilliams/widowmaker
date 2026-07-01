@@ -32,10 +32,17 @@ final class NexusViewModel: ObservableObject {
     @Published var isPreparingShare = false // a share link is being fetched/created
     @Published var sessionExpired = false   // a 401 occurred — the view bounces to login
     @Published var readiness: ShareReadinessDTO?  // drives the share-readiness banner/sheet
+    @Published var pendingReview: DetectedItemsReview?   // drives the detected-items review sheet
+    @Published var pendingDuplicates: DuplicateReview?   // drives the duplicate-review sheet
 
     private let service = NexusService.shared
     private var sessionId: String?
     private var didLoad = false
+
+    // Staged during a streaming turn; promoted to the @Published sheets after the
+    // turn's reply lands so the card appears once, below the agent's message.
+    private var stagedReview: DetectedItemsReview?
+    private var stagedDuplicates: [DuplicatePair]?
 
     var isBusy: Bool { isLoading || isUploading }
 
@@ -88,17 +95,36 @@ final class NexusViewModel: ObservableObject {
         isLoading = true
         phaseText = "Thinking…"
         detailText = ""
+        stagedReview = nil
+        stagedDuplicates = nil
 
         do {
             let done = try await service.sendMessage(text: text, attachments: attachments) { [weak self] event in
                 self?.handle(event)
             }
             sessionId = done.sessionId ?? sessionId
-            let reply = (done.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let rawReply = (done.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            // When a review/duplicate card is about to appear, drop the agent's
+            // [BUTTONS] (e.g. "Add them all") from its bubble so the card is the
+            // single commit path — this prevents a double-add.
+            let hasCard = stagedReview != nil || stagedDuplicates != nil
+            let reply: String
+            if hasCard {
+                let prose = AgentMessageParser.parse(rawReply).prose
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                reply = prose.isEmpty ? rawReply : prose
+            } else {
+                reply = rawReply
+            }
             if !reply.isEmpty {
                 messages.append(ChatMessage(role: .model, text: reply))
             }
             captureShare(from: done)
+            // Promote staged review/duplicates now that the reply is on screen.
+            if let review = stagedReview { pendingReview = review }
+            if let dups = stagedDuplicates { pendingDuplicates = DuplicateReview(pairs: dups) }
+            stagedReview = nil
+            stagedDuplicates = nil
         } catch NexusError.unauthorized {
             messages.removeAll { $0.id == optimistic.id }
             sessionExpired = true
@@ -205,6 +231,60 @@ final class NexusViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Review commit (native cards)
+
+    /// Commit the items the user kept/edited in the detected-items review sheet.
+    /// The client owns this commit (exact, no LLM re-interpretation), so the agent
+    /// is told in its prompt not to re-add items the user added themselves.
+    func commitReview(_ items: [DetectedItem], room: String?) async {
+        pendingReview = nil
+        let kept = items.filter {
+            $0.keep && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !kept.isEmpty else { return }
+        isLoading = true
+        phaseText = "Adding your items…"
+        errorMessage = nil
+        defer { isLoading = false; phaseText = "" }
+        do {
+            let payload = kept.map { ReviewedItemPayload(from: $0, fallbackRoom: room) }
+            let added = try await service.commitReviewedItems(payload, room: room)
+            let dest = room.map { " to the \($0)" } ?? ""
+            messages.append(ChatMessage(
+                role: .model,
+                text: "✅ Added \(added) item\(added == 1 ? "" : "s")\(dest) to your inventory."
+            ))
+        } catch NexusError.unauthorized {
+            sessionExpired = true
+        } catch {
+            errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
+        }
+        await refreshReadiness()
+    }
+
+    /// Remove the item ids the user chose in the duplicate-review sheet.
+    func resolveDuplicates(removing rawIds: [Int]) async {
+        pendingDuplicates = nil
+        let ids = rawIds.filter { $0 > 0 }
+        guard !ids.isEmpty else { return }
+        isLoading = true
+        phaseText = "Removing duplicates…"
+        errorMessage = nil
+        defer { isLoading = false; phaseText = "" }
+        do {
+            let removed = try await service.resolveDuplicates(removeItemIds: ids)
+            messages.append(ChatMessage(
+                role: .model,
+                text: "🧹 Removed \(removed) duplicate\(removed == 1 ? "" : "s")."
+            ))
+        } catch NexusError.unauthorized {
+            sessionExpired = true
+        } catch {
+            errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
+        }
+        await refreshReadiness()
+    }
+
     // MARK: - New conversation
 
     func startNewConversation() async {
@@ -217,6 +297,10 @@ final class NexusViewModel: ObservableObject {
         quickStartChips = []
         shareURL = nil
         errorMessage = nil
+        pendingReview = nil
+        pendingDuplicates = nil
+        stagedReview = nil
+        stagedDuplicates = nil
         await reload()
     }
 
@@ -247,6 +331,20 @@ final class NexusViewModel: ObservableObject {
                 }
             } else if let label = event.label {
                 detailText = event.detail.map { "\(label): \($0)" } ?? label
+            }
+
+        case "detected_items":
+            if let items = event.detectedItems, !items.isEmpty {
+                stagedReview = DetectedItemsReview(
+                    mediaKind: event.mediaKind ?? "photo",
+                    room: event.room,
+                    items: items
+                )
+            }
+
+        case "duplicate_pairs":
+            if let pairs = event.duplicatePairs, !pairs.isEmpty {
+                stagedDuplicates = pairs
             }
 
         default:

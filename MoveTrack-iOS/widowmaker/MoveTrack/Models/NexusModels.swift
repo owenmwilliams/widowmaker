@@ -213,10 +213,15 @@ struct SSEEvent: Decodable {
     let sessionId: String?  // done
     let error: String?      // error
     let actions: [NexusActionDTO]?
+    let detectedItems: [DetectedItem]?    // detected_items ("items")
+    let mediaKind: String?                // detected_items ("video"|"photo")
+    let room: String?                     // detected_items
+    let duplicatePairs: [DuplicatePair]?  // duplicate_pairs ("pairs")
 
     enum CodingKeys: String, CodingKey {
         case type, phase, source, delegationTarget, hasAttachments
         case label, detail, tool, success, text, reply, sessionId, error, actions
+        case detectedItems = "items", mediaKind, room, duplicatePairs = "pairs"
     }
 
     init(from decoder: Decoder) throws {
@@ -237,7 +242,136 @@ struct SSEEvent: Decodable {
         sessionId = str(.sessionId)
         error = str(.error)
         actions = try? c.decode([NexusActionDTO].self, forKey: .actions)
+        detectedItems = try? c.decode([DetectedItem].self, forKey: .detectedItems)
+        mediaKind = str(.mediaKind)
+        room = str(.room)
+        duplicatePairs = try? c.decode([DuplicatePair].self, forKey: .duplicatePairs)
     }
+}
+
+// MARK: - Review cards (detected items + duplicates)
+
+/// One item detected by a photo/video scan, surfaced for interactive review.
+/// Fields are mutable so the review sheet can edit name/quantity/keep in place.
+struct DetectedItem: Decodable, Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var quantity: Int
+    var room: String?
+    var pictureUrl: String?
+    var weightLbs: Double?
+    var lengthIn: Double?
+    var widthIn: Double?
+    var heightIn: Double?
+    var material: String?
+    var fragile: Bool
+    var confidence: Double?
+    var keep: Bool = true    // review state — not from the wire
+
+    enum CodingKeys: String, CodingKey {
+        case name, quantity, room, pictureUrl, weightLbs, lengthIn, widthIn, heightIn, material, fragile, confidence
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decode(String.self, forKey: .name)) ?? "Item"
+        quantity = (try? c.decode(Int.self, forKey: .quantity)) ?? 1
+        room = try? c.decode(String.self, forKey: .room)
+        pictureUrl = try? c.decode(String.self, forKey: .pictureUrl)
+        weightLbs = try? c.decode(Double.self, forKey: .weightLbs)
+        lengthIn = try? c.decode(Double.self, forKey: .lengthIn)
+        widthIn = try? c.decode(Double.self, forKey: .widthIn)
+        heightIn = try? c.decode(Double.self, forKey: .heightIn)
+        material = try? c.decode(String.self, forKey: .material)
+        fragile = (try? c.decode(Bool.self, forKey: .fragile)) ?? false
+        confidence = try? c.decode(Double.self, forKey: .confidence)
+    }
+
+    /// A short "84×36×34 in · 150 lb" style spec line, or nil if we know nothing.
+    var specLine: String? {
+        var parts: [String] = []
+        if let l = lengthIn, let w = widthIn, let h = heightIn {
+            parts.append("\(Int(l))×\(Int(w))×\(Int(h)) in")
+        }
+        if let wt = weightLbs { parts.append("\(Int(wt)) lb") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// The shape POST /api/agents/nexus/inventory/commit expects for a reviewed item.
+struct ReviewedItemPayload: Encodable {
+    let name: String
+    let quantity: Int
+    let room: String?
+    let pictureUrl: String?
+    let weightLbs: Double?
+    let lengthIn: Double?
+    let widthIn: Double?
+    let heightIn: Double?
+    let material: String?
+    let fragile: Bool
+    let confidence: Double?
+
+    init(from item: DetectedItem, fallbackRoom: String?) {
+        name = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        quantity = max(1, item.quantity)
+        let itemRoom = item.room?.trimmingCharacters(in: .whitespacesAndNewlines)
+        room = (itemRoom?.isEmpty == false) ? itemRoom : fallbackRoom
+        pictureUrl = item.pictureUrl
+        weightLbs = item.weightLbs
+        lengthIn = item.lengthIn
+        widthIn = item.widthIn
+        heightIn = item.heightIn
+        material = item.material
+        fragile = item.fragile
+        confidence = item.confidence
+    }
+}
+
+/// A potential duplicate pair from find_duplicates, for interactive review.
+struct DuplicatePair: Decodable, Identifiable, Equatable {
+    var id = UUID()
+    let itemA: DupItem
+    let itemB: DupItem
+    let similarity: Double?
+
+    struct DupItem: Decodable, Equatable {
+        let id: Int
+        let name: String?
+        let room: String?
+        let quantity: Int?
+
+        enum CodingKeys: String, CodingKey { case id, name, room, quantity }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = (try? c.decode(Int.self, forKey: .id)) ?? -1
+            name = try? c.decode(String.self, forKey: .name)
+            room = try? c.decode(String.self, forKey: .room)
+            quantity = try? c.decode(Int.self, forKey: .quantity)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey { case itemA, itemB, similarity }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        itemA = try c.decode(DupItem.self, forKey: .itemA)
+        itemB = try c.decode(DupItem.self, forKey: .itemB)
+        similarity = try? c.decode(Double.self, forKey: .similarity)
+    }
+}
+
+/// Drives the native review sheet after a scan (Identifiable for `.sheet(item:)`).
+struct DetectedItemsReview: Identifiable {
+    let id = UUID()
+    let mediaKind: String   // "video" | "photo"
+    let room: String?
+    var items: [DetectedItem]
+}
+
+/// Drives the native duplicate-review sheet (Identifiable for `.sheet(item:)`).
+struct DuplicateReview: Identifiable {
+    let id = UUID()
+    var pairs: [DuplicatePair]
 }
 
 // MARK: - Errors
