@@ -142,8 +142,11 @@ final class NexusViewModel: ObservableObject {
 
     // MARK: - Media
 
-    func sendMedia(data: Data, mimeType: String, filename: String, caption: String = "") async {
-        guard !isBusy else { return }
+    /// Returns true if the media uploaded and the message was sent; false on any
+    /// failure so the caller can keep the attachment in the composer for a retry.
+    @discardableResult
+    func sendMedia(data: Data, mimeType: String, filename: String, caption: String = "") async -> Bool {
+        guard !isBusy else { return false }
         errorMessage = nil
 
         let isVideo = mimeType.hasPrefix("video")
@@ -153,7 +156,7 @@ final class NexusViewModel: ObservableObject {
         // storage via a signed URL and aren't bound by the request cap.
         if !isVideo && data.count > 30 * 1024 * 1024 {
             errorMessage = "That photo is too large to upload (\(data.count / 1024 / 1024) MB)."
-            return
+            return false
         }
 
         isUploading = true
@@ -168,14 +171,17 @@ final class NexusViewModel: ObservableObject {
                 text: caption,
                 attachments: [OutgoingAttachment(url: uploaded.url, mimeType: uploaded.mimeType)]
             )
+            return true
         } catch NexusError.unauthorized {
             isUploading = false
             phaseText = ""
             sessionExpired = true
+            return false
         } catch {
             isUploading = false
             phaseText = ""
             errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
+            return false
         }
     }
 

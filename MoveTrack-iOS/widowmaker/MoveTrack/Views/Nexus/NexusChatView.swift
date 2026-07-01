@@ -346,12 +346,22 @@ struct NexusChatView: View {
 
     private func sendDraft() {
         let text = draft
-        draft = ""
         inputFocused = false
         if let media = pendingMedia {
+            draft = ""
             pendingMedia = nil
-            Task { await vm.sendMedia(data: media.data, mimeType: media.mimeType, filename: media.filename, caption: text) }
+            Task {
+                let ok = await vm.sendMedia(data: media.data, mimeType: media.mimeType, filename: media.filename, caption: text)
+                if !ok {
+                    // Don't lose the video on a failed send — put it back so the user can retry.
+                    await MainActor.run {
+                        pendingMedia = media
+                        if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = text }
+                    }
+                }
+            }
         } else {
+            draft = ""
             Task { await vm.send(text) }
         }
     }

@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct LoginView: View {
     @StateObject private var viewModel: AuthViewModel
@@ -135,7 +136,21 @@ struct LoginView: View {
             }
             .navigationTitle("")
             .navigationBarHidden(true)
+            // The code field uses a number pad (no return key), so give the
+            // keyboard an explicit "Done" to dismiss it.
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { hideKeyboard() }
+                }
+            }
         }
+    }
+
+    private func hideKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+        )
     }
 
     // MARK: - Actions
