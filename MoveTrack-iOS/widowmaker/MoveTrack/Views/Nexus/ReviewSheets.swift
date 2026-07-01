@@ -84,44 +84,51 @@ private struct ReviewRow: View {
     @Binding var item: DetectedItem
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             Button { item.keep.toggle() } label: {
                 Image(systemName: item.keep ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
                     .foregroundStyle(item.keep ? Theme.brand : Color.secondary)
             }
             .buttonStyle(.plain)
+            .padding(.top, 2)
 
             thumbnail
 
-            VStack(alignment: .leading, spacing: 3) {
+            // Name gets the full remaining width (no more "Box of Boo…" truncation);
+            // the spec sits on one line and the stepper on its own line below.
+            VStack(alignment: .leading, spacing: 6) {
                 TextField("Item name", text: $item.name)
                     .font(.body)
+                    .lineLimit(1)
                     .textInputAutocapitalization(.words)
-                    .disableAutocorrection(false)
+
                 HStack(spacing: 6) {
                     if let spec = item.specLine {
-                        Text(spec)
+                        Text(spec).lineLimit(1)
                     }
                     if item.fragile {
-                        Label("Fragile", systemImage: "exclamationmark.triangle.fill")
-                            .labelStyle(.titleAndIcon)
+                        Text("Fragile")
+                            .font(.caption2.weight(.semibold))
                             .foregroundStyle(Theme.warn)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Theme.warn.opacity(0.15))
+                            .clipShape(Capsule())
                     }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            }
 
-            Spacer(minLength: 4)
-
-            HStack(spacing: 4) {
-                Text("×\(item.quantity)")
-                    .font(.subheadline.weight(.semibold))
-                    .monospacedDigit()
-                    .frame(minWidth: 26, alignment: .trailing)
-                Stepper("", value: $item.quantity, in: 1...99)
-                    .labelsHidden()
+                HStack(spacing: 8) {
+                    Text("Qty").font(.caption).foregroundStyle(.secondary)
+                    Text("×\(item.quantity)")
+                        .font(.subheadline.weight(.semibold))
+                        .monospacedDigit()
+                    Stepper("", value: $item.quantity, in: 1...99)
+                        .labelsHidden()
+                    Spacer(minLength: 0)
+                }
             }
         }
         .opacity(item.keep ? 1 : 0.4)
