@@ -145,6 +145,17 @@ final class NexusViewModel: ObservableObject {
     func sendMedia(data: Data, mimeType: String, filename: String, caption: String = "") async {
         guard !isBusy else { return }
         errorMessage = nil
+
+        // The upload endpoint (Cloud Run) rejects requests larger than ~32MB, so
+        // surface a helpful message instead of a raw 413.
+        let maxUploadBytes = 30 * 1024 * 1024
+        if data.count > maxUploadBytes {
+            let mb = data.count / 1024 / 1024
+            let kind = mimeType.hasPrefix("video") ? "video" : "photo"
+            errorMessage = "That \(kind) is too large to upload (\(mb) MB). Try a shorter walkthrough — about 30–45 seconds per room works great."
+            return
+        }
+
         isUploading = true
         phaseText = mimeType.hasPrefix("video") ? "Uploading video…" : "Uploading photo…"
         do {

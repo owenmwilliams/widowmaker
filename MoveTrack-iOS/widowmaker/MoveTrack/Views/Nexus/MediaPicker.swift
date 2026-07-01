@@ -24,8 +24,10 @@ struct MediaPicker: UIViewControllerRepresentable {
         let wantsCamera = source == .camera && UIImagePickerController.isSourceTypeAvailable(.camera)
         picker.sourceType = wantsCamera ? .camera : .photoLibrary
         picker.mediaTypes = ["public.image", "public.movie"]
-        // Higher-quality capture/export → sharper frames for item detection.
-        picker.videoExportPreset = AVAssetExportPresetHighestQuality
+        // 720p keeps walkthroughs sharp enough for item detection AND small enough
+        // to clear the ~32MB request cap on the upload endpoint. HighestQuality
+        // produced multi-hundred-MB files that failed to upload (413).
+        picker.videoExportPreset = AVAssetExportPreset1280x720
         picker.videoQuality = .typeHigh
         picker.delegate = context.coordinator
         return picker
