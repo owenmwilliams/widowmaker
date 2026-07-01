@@ -107,14 +107,14 @@ You are driving this conversation. Ask one question at a time and take action im
    → Do NOT call any tools yet. Wait for the name.
 2. After getting their name, ask for their address: "Nice to meet you, [name]! Where are you moving from? Just a street address is fine."
    → Call set_user_profile with their name and goal (from step 1)
-3. After getting their address, call set_location immediately, then ask about the home: "Got it! Is that an apartment or a house? How many bedrooms?"
-   → Call set_location with the address
-4. Ask about the home: "Is that an apartment or house? How many bedrooms?"
-   → As soon as they answer, call update_location with home_type, bedrooms, and bathrooms to SAVE the home size. Do not skip this — it powers the reasonableness check that warns before sharing an implausible inventory.
-   → Then, based on their answer, delegate_to_census to create rooms (e.g. Kitchen, Living Room, Bedroom 1, Bedroom 2, Bathroom)
-   → Call mark_onboarding_complete immediately after rooms are created
-   → If a returning user ever mentions their home size or type later, call update_location to save it too.
-5. Transition to cataloging: "You're all set! Now let's start logging what's in your [first room]. How would you like to add items?"
+3. After getting their "moving from" address, call set_location immediately (location_type "primary_residence") with the address.
+4. Learn about the CURRENT home so movers can quote it. Ask two quick questions, then save with update_location:
+   a. "Is that an apartment or a house — and how many bedrooms and bathrooms?" → save home_type, bedrooms, bathrooms (this also powers the reasonableness check before sharing).
+   b. "Last thing about your current place: which floor is it on, any stairs or an elevator, and how's parking for a truck?" → save number_of_flights + has_stairs, has_elevator, parking_situation, and put the floor in access_notes. Make reasonable assumptions (a single-family house is usually ground floor, no elevator) instead of pressing for every detail.
+5. Ask where they're moving TO: "And where are you headed? Drop the address — plus the same quick access details (floor, stairs or elevator, parking)." → call set_location with location_type "destination", the address, and the access details. Movers need the destination access too. If they don't know the destination yet, that's fine — skip it and move on.
+6. Create rooms for the CURRENT home (delegate_to_census, e.g. Kitchen, Living Room, Bedroom 1, Bedroom 2, Bathroom), then call mark_onboarding_complete immediately after.
+   → If a returning user ever mentions their home size, destination, or access details later, call set_location/update_location to save them too.
+7. Transition to cataloging: "You're all set! Now let's start logging what's in your [first room]. How would you like to add items?"
    → Include a [BUTTONS] block offering three input methods:
    [BUTTONS]
    📸 Take a photo or video|Scanning my [first room]|camera
@@ -215,11 +215,12 @@ const toolDeclarations = [
   },
   {
     name: 'set_location',
-    description: 'Create a new location (home address). Use during onboarding to set where the user is moving from. Capture bedrooms/bathrooms/home_type when the user mentions them — they power the reasonableness check before sharing.',
+    description: 'Create a new location. Use during onboarding for BOTH where the user is moving from (location_type "primary_residence") and where they are moving to (location_type "destination"). Capture bedrooms/bathrooms/home_type for the reasonableness check, and the move-access details (floor, stairs, elevator, parking) — movers need them to quote. Pass all known details in ONE call.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        name:      { type: SchemaType.STRING, description: 'Location name, e.g. "My Apartment", "Home"' },
+        name:      { type: SchemaType.STRING, description: 'Location name, e.g. "My Apartment", "New House"' },
+        location_type: { type: SchemaType.STRING, description: 'One of "primary_residence" (moving FROM) or "destination" (moving TO). Defaults to primary_residence.' },
         address:   { type: SchemaType.STRING, description: 'Street address' },
         city:      { type: SchemaType.STRING, description: 'City' },
         state:     { type: SchemaType.STRING, description: 'State abbreviation' },
@@ -227,18 +228,25 @@ const toolDeclarations = [
         home_type: { type: SchemaType.STRING, description: 'e.g. "apartment", "house", "studio", "condo"' },
         bedrooms:  { type: SchemaType.INTEGER, description: 'Number of bedrooms (0 for a studio)' },
         bathrooms: { type: SchemaType.NUMBER, description: 'Number of bathrooms (e.g. 2 or 2.5)' },
+        has_stairs: { type: SchemaType.BOOLEAN, description: 'Whether reaching the unit involves stairs' },
+        number_of_flights: { type: SchemaType.INTEGER, description: 'How many flights/sets of stairs the movers must carry up/down' },
+        has_elevator: { type: SchemaType.BOOLEAN, description: 'Whether there is an elevator' },
+        parking_situation: { type: SchemaType.STRING, description: 'Parking/loading access, e.g. "driveway", "street only", "loading dock", "no close parking"' },
+        entry_type: { type: SchemaType.STRING, description: 'Entry style, e.g. "ground floor", "walk-up", "high-rise lobby"' },
+        access_notes: { type: SchemaType.STRING, description: 'Anything else movers should know, incl. which floor the unit is on (e.g. "3rd floor", "long walk from parking", "narrow doorway")' },
       },
       required: ['name'],
     },
   },
   {
     name: 'update_location',
-    description: 'Update an existing location. Use when the user wants to rename or change address details, or to record the home size (bedrooms/bathrooms/home_type) for the reasonableness check.',
+    description: 'Update an existing location. Use to rename/change address, record the home size (bedrooms/bathrooms/home_type), or add move-access details (floor, stairs, elevator, parking). Pass location_id to target a specific location (e.g. the destination); omit it to update the primary residence.',
     parameters: {
       type: SchemaType.OBJECT,
       properties: {
-        location_id: { type: SchemaType.STRING, description: 'The ID of the location to update' },
+        location_id: { type: SchemaType.STRING, description: 'The ID of the location to update (omit to update the primary residence)' },
         name:        { type: SchemaType.STRING, description: 'New name for the location' },
+        location_type: { type: SchemaType.STRING, description: 'One of "primary_residence" or "destination"' },
         address:     { type: SchemaType.STRING, description: 'New street address' },
         city:        { type: SchemaType.STRING, description: 'New city' },
         state:       { type: SchemaType.STRING, description: 'New state abbreviation' },
@@ -246,6 +254,12 @@ const toolDeclarations = [
         home_type:   { type: SchemaType.STRING, description: 'e.g. "apartment", "house", "studio", "condo"' },
         bedrooms:    { type: SchemaType.INTEGER, description: 'Number of bedrooms (0 for a studio)' },
         bathrooms:   { type: SchemaType.NUMBER, description: 'Number of bathrooms (e.g. 2 or 2.5)' },
+        has_stairs: { type: SchemaType.BOOLEAN, description: 'Whether reaching the unit involves stairs' },
+        number_of_flights: { type: SchemaType.INTEGER, description: 'How many flights/sets of stairs' },
+        has_elevator: { type: SchemaType.BOOLEAN, description: 'Whether there is an elevator' },
+        parking_situation: { type: SchemaType.STRING, description: 'Parking/loading access' },
+        entry_type: { type: SchemaType.STRING, description: 'Entry style, e.g. "ground floor", "walk-up", "high-rise lobby"' },
+        access_notes: { type: SchemaType.STRING, description: 'Anything else movers should know, incl. which floor the unit is on' },
       },
     },
   },

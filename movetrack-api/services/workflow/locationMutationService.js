@@ -163,17 +163,47 @@ function homeProfileUpdates(args = {}) {
   return out;
 }
 
+const asBool = (v) => v === true || v === 'true' || v === 'yes';
+
+/**
+ * Coerce move-access fields (stairs/flights/elevator/parking/entry/notes) from
+ * agent input into a safe partial payload. These columns feed the mover report so
+ * a moving company knows what they're walking into (flights of stairs, elevator,
+ * parking) before quoting. Only present fields are written.
+ */
+function accessUpdates(args = {}) {
+  const out = {};
+  if (args.has_stairs != null) out.has_stairs = asBool(args.has_stairs);
+  if (args.number_of_flights != null) {
+    const n = Number(args.number_of_flights);
+    if (Number.isFinite(n) && n >= 0) out.number_of_flights = Math.round(n);
+  }
+  if (args.has_elevator != null) out.has_elevator = asBool(args.has_elevator);
+  if (args.parking_situation) out.parking_situation = String(args.parking_situation).slice(0, 200);
+  if (args.entry_type) out.entry_type = String(args.entry_type).slice(0, 100);
+  if (args.access_notes) out.access_notes = String(args.access_notes).slice(0, 1000);
+  return out;
+}
+
+const VALID_LOCATION_TYPES = new Set([
+  'primary_residence', 'residence', 'destination', 'storage_unit', 'office', 'other',
+]);
+
 async function setLocation(userId, args = {}) {
+  const locationType = VALID_LOCATION_TYPES.has(args.location_type)
+    ? args.location_type
+    : 'primary_residence';
   const params = {
     user_id: userId,
-    name: args.name || 'Home',
-    location_type: 'primary_residence',
+    name: args.name || (locationType === 'destination' ? 'Destination' : 'Home'),
+    location_type: locationType,
   };
   if (args.address) params.address = args.address;
   if (args.city) params.city = args.city;
   if (args.state) params.state = args.state;
   if (args.zip) params.zip = args.zip;
   Object.assign(params, homeProfileUpdates(args));
+  Object.assign(params, accessUpdates(args));
 
   const validation = await validateAddressViaGeocode(args, `set-location-${userId}`);
   if (!validation.valid) {
@@ -302,7 +332,9 @@ async function updateLocation(userId, args) {
   if (args.city) updates.city = args.city;
   if (args.state) updates.state = args.state;
   if (args.zip) updates.zip = args.zip;
+  if (VALID_LOCATION_TYPES.has(args.location_type)) updates.location_type = args.location_type;
   Object.assign(updates, homeProfileUpdates(args));
+  Object.assign(updates, accessUpdates(args));
 
   // Apply Google's corrected address components if available
   if (validation?.corrected) {
