@@ -62,7 +62,7 @@ For each item include:
 - material, fragile (boolean), notes ("fragile"/"requires disassembly"/"heavy"/"boxable"/"").
 - source_frame: 1-based index of the frame where this item is clearest.
 
-Weights and dimensions are PER SINGLE UNIT — never multiply by quantity. Always give numeric estimates.
+Weights and dimensions are PER SINGLE UNIT — never multiply by quantity. Every item MUST have BOTH estimated_weight_lbs AND all three estimated_dimensions (length_in, width_in, height_in) — never leave dimensions blank or zero; movers quote on cubic feet.
 
 Return ONLY a valid JSON array, no markdown. Example:
 [{"name":"3-seat sofa","quantity":1,"room":"living room","estimated_weight_lbs":150,"estimated_dimensions":{"length_in":84,"width_in":36,"height_in":34},"material":"fabric","fragile":false,"notes":"heavy","source_frame":2}]`;
