@@ -146,20 +146,22 @@ final class NexusViewModel: ObservableObject {
         guard !isBusy else { return }
         errorMessage = nil
 
-        // The upload endpoint (Cloud Run) rejects requests larger than ~32MB, so
-        // surface a helpful message instead of a raw 413.
-        let maxUploadBytes = 30 * 1024 * 1024
-        if data.count > maxUploadBytes {
-            let mb = data.count / 1024 / 1024
-            let kind = mimeType.hasPrefix("video") ? "video" : "photo"
-            errorMessage = "That \(kind) is too large to upload (\(mb) MB). Try a shorter walkthrough — about 30–45 seconds per room works great."
+        let isVideo = mimeType.hasPrefix("video")
+
+        // Images go through the multipart endpoint (small, well under the cap).
+        // Photos over ~30MB would 413, so guard those; videos upload directly to
+        // storage via a signed URL and aren't bound by the request cap.
+        if !isVideo && data.count > 30 * 1024 * 1024 {
+            errorMessage = "That photo is too large to upload (\(data.count / 1024 / 1024) MB)."
             return
         }
 
         isUploading = true
-        phaseText = mimeType.hasPrefix("video") ? "Uploading video…" : "Uploading photo…"
+        phaseText = isVideo ? "Uploading video…" : "Uploading photo…"
         do {
-            let uploaded = try await service.uploadMedia(data: data, mimeType: mimeType, filename: filename)
+            let uploaded = isVideo
+                ? try await service.uploadMediaDirect(data: data, mimeType: mimeType, filename: filename)
+                : try await service.uploadMedia(data: data, mimeType: mimeType, filename: filename)
             isUploading = false
             phaseText = ""
             await send(

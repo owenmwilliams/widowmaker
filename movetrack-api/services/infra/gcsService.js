@@ -49,6 +49,30 @@ async function signUrl(gcsPath, expiresMs = DEFAULT_EXPIRY_MS) {
 }
 
 /**
+ * Generate a short-lived v4 signed WRITE url so a client can upload a file
+ * DIRECTLY to GCS (bypassing the API's ~32MB request cap for large videos). The
+ * client must PUT the bytes with a Content-Type header exactly matching
+ * `contentType`. The resulting object lives at the standard public URL.
+ *
+ * @param {string} gcsPath   – Object path inside BUCKET
+ * @param {string} contentType
+ * @param {number} [expiresMs] – Lifetime in ms (default 15 min)
+ * @returns {Promise<string>} Signed HTTPS URL to PUT to
+ */
+async function getSignedUploadUrl(gcsPath, contentType, expiresMs = 15 * 60 * 1000) {
+  const [url] = await storage
+    .bucket(BUCKET)
+    .file(gcsPath)
+    .getSignedUrl({
+      version: 'v4',
+      action: 'write',
+      expires: Date.now() + expiresMs,
+      contentType,
+    });
+  return url;
+}
+
+/**
  * Convert a public GCS URL to the object path.
  * e.g. "https://storage.googleapis.com/movetrack-item-photos/users/x/pic.jpg"
  *   → "users/x/pic.jpg"
@@ -206,6 +230,7 @@ module.exports = {
   BUCKET,
   isLocalEnvironment,
   signUrl,
+  getSignedUploadUrl,
   publicUrlToPath,
   toPublicUrl,
   signPublicUrl,

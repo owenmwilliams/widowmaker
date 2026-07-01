@@ -165,6 +165,41 @@ final class NexusService {
         return try decoder.decode(UploadResponse.self, from: respData)
     }
 
+    /// Upload media DIRECTLY to storage via a signed URL, bypassing the API's
+    /// ~32MB request cap (used for videos). Returns the public URL to attach to a
+    /// message. 1) ask the API for a signed upload URL, 2) PUT the bytes to GCS.
+    func uploadMediaDirect(data: Data, mimeType: String, filename: String) async throws -> UploadResponse {
+        // 1. Request a signed upload URL.
+        var urlReq = URLRequest(url: url(for: "/api/agents/nexus/upload-url"))
+        urlReq.httpMethod = "POST"
+        urlReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        addAuth(&urlReq)
+        struct Body: Encodable { let mimeType: String; let filename: String }
+        urlReq.httpBody = try encoder.encode(Body(mimeType: mimeType, filename: filename))
+        let (metaData, metaResp) = try await session.data(for: urlReq)
+        try validate(metaResp, data: metaData)
+
+        struct SignedUpload: Decodable { let uploadUrl: String; let url: String }
+        let info = try decoder.decode(SignedUpload.self, from: metaData)
+        guard let putURL = URL(string: info.uploadUrl) else {
+            throw NexusError.network("Invalid upload URL from server")
+        }
+
+        // 2. PUT the bytes straight to GCS. No auth header; Content-Type MUST match
+        //    what the signed URL was minted for.
+        var put = URLRequest(url: putURL)
+        put.httpMethod = "PUT"
+        put.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+        let (putData, putResp) = try await session.upload(for: put, from: data)
+        guard let http = putResp as? HTTPURLResponse else {
+            throw NexusError.network("No response from storage")
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw NexusError.server(errorMessage(from: putData) ?? "Upload failed (\(http.statusCode))")
+        }
+        return UploadResponse(url: info.url, mimeType: mimeType)
+    }
+
     // MARK: - Share links
 
     /// Lists the user's existing share links.
