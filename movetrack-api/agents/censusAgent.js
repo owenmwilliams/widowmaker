@@ -617,7 +617,10 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     model: modelId,
     systemInstruction,
     tools: [{ functionDeclarations: toolDeclarations }],
-    generationConfig: { maxOutputTokens: 4096 },
+    // gemini-2.5-flash spends "thinking" tokens from this budget; keep enough
+    // headroom that a long room scan's JSON isn't truncated to an empty/partial
+    // reply.
+    generationConfig: { maxOutputTokens: 8192 },
   }), { userId, modelName: modelId });
 
   const actions = [];
