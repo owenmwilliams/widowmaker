@@ -31,6 +31,12 @@ const GEMINI_MODELS = {
   pro: 'gemini-2.5-pro',
 };
 
+/** Coerce to a positive finite number, else null (for optional weight/dims/confidence). */
+function numOrNull(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 // ── System Prompt ───────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are Nexus, the Nexus Moves AI assistant. You help people manage their moves and catalog their belongings through natural conversation.
@@ -64,9 +70,9 @@ INVENTORY CENSUS RULES:
    c. When the user sends a CLOSE-UP photo of a single item (e.g., "here's my vintage lamp"), call analyze_photo with mode "single_item" for detailed analysis.
    d. Use your judgment on mode: if the photo clearly shows one item up close, use single_item. If it shows a room or multiple items, use multi_item.
    e. If analyze_photo returns empty items or fails, retry ONCE. If it still fails, apologize and ask the user to try another photo or describe items manually.
-   f. When analyze_photo succeeds, list the detected items and ASK FOR CONFIRMATION before calling add_item. For example: "I can see: 1) Queen Bed, 2) Nightstand, 3) Dresser. Want me to add all of these, or would you like to make changes?"
-   g. Once the user confirms, add the WHOLE detected list in a SINGLE add_items call — do not make many separate add_item calls (that risks dropping items). For each item pass EVERYTHING from the analyze results: picture_url, confidence, weight_lbs, AND length_in/width_in/height_in. Never drop the dimensions — they give the cubic-foot estimate movers need.
-   h. The same confirmation rules apply to analyze_video — list detected items and wait for user approval before adding.
+   f. When analyze_photo succeeds, briefly summarize what you found (the count and a few highlights — NOT a long numbered list of every item) and ask the user to review and confirm. The app shows the user an interactive checklist of the detected items where they can edit names/quantities and check or uncheck each one, so you do NOT need to enumerate them all. Do NOT call add_item/add_items until the user confirms. As a fallback for text-only clients, offer a short [BUTTONS] block ("Add them all" / "Let me review").
+   g. Once the user confirms (and only then), add the WHOLE detected list in a SINGLE add_items call — do not make many separate add_item calls (that risks dropping items). For each item pass EVERYTHING from the analyze results: picture_url, confidence, weight_lbs, AND length_in/width_in/height_in. Never drop the dimensions — they give the cubic-foot estimate movers need. If the user says they already reviewed and added the items themselves, do NOT add them again — just acknowledge and suggest the next step.
+   h. The same applies to analyze_video — summarize briefly, let the user review the checklist, and wait for confirmation before adding.
 4. VIDEO ANALYSIS:
    a. When the user sends a video, call analyze_video to detect items (same retry + confirmation rules as rule 3). analyze_video returns items with weight AND dimensions — pass both through when adding.
    b. Aim for ONE walkthrough video per room. When guiding someone to record, tell them: hold the phone steady and wide (landscape), pan SLOWLY across the whole room, get good lighting, and open closets/cupboards/cabinets so their contents are visible.
@@ -83,7 +89,7 @@ INVENTORY CENSUS RULES:
 10. NEVER invent or hallucinate items. Only add items the user explicitly mentioned or that were returned by analyze_photo or analyze_video. If a tool returns no data, tell the user — do not fill in the gap yourself.
 11. If the user corrects you, call update_item immediately. If they want to rename a room, use update_room — do NOT create a new room. If the user wants to change location details (address, name), let them know to ask the main Nexus assistant — you handle inventory, not location management.
 12. If the user asks to remove or delete an item, ALWAYS confirm before calling delete_item. Say which item you're about to delete and wait for their "yes".
-13. After adding 3+ items at once (e.g. from a photo or video scan), call find_duplicates to check for accidental duplicates. If duplicates are found, list them and ask the user which to keep or remove.
+13. After adding 3+ items at once (e.g. from a photo or video scan), call find_duplicates to check for accidental duplicates. If duplicates are found, briefly say how many — the app shows the user an interactive duplicate-review card to resolve them. As a fallback for text-only clients, list the pairs and offer keep/remove buttons.
 14. If the user asks to see a photo of an item, call get_item_photo. If the tool returns a picture_url, include it in your response using the exact format: [IMG:url] — the app will render it as an image. Example: "Here's your sofa: [IMG:https://storage.googleapis.com/bucket/path.jpg]"
 
 INLINE BUTTONS:
@@ -780,6 +786,37 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
         resultSummary.itemCount = toolResult.items.length;
       }
       emit('tool_result', { tool: name, success: !!toolResult.success, resultSummary });
+
+      // Surface structured detected items / duplicate pairs so a client can render
+      // an interactive review card (edit name/qty, ✓/✗) instead of a wall of chat
+      // text. Additive + camelCase: clients that don't understand these events
+      // ignore them and fall back to the agent's text + [BUTTONS]. (NOTE: the key
+      // is "mediaKind", not "source" — the delegation wrapper overwrites "source"
+      // with the agent name.)
+      if ((name === 'analyze_photo' || name === 'analyze_video')
+          && toolResult.success && Array.isArray(toolResult.items) && toolResult.items.length > 0) {
+        emit('detected_items', {
+          mediaKind: name === 'analyze_video' ? 'video' : 'photo',
+          room: args.room_hint || null,
+          items: toolResult.items.map((it) => ({
+            name: it.name || 'Item',
+            quantity: Number.isFinite(it.quantity) && it.quantity > 0 ? Math.floor(it.quantity) : 1,
+            room: it.room || args.room_hint || null,
+            pictureUrl: it.picture_url || null,
+            weightLbs: numOrNull(it.weight_lbs),
+            lengthIn: numOrNull(it.length_in),
+            widthIn: numOrNull(it.width_in),
+            heightIn: numOrNull(it.height_in),
+            material: it.material || null,
+            fragile: !!it.fragile,
+            confidence: numOrNull(it.confidence),
+          })),
+        });
+      }
+      if (name === 'find_duplicates' && toolResult.success
+          && Array.isArray(toolResult.pairs) && toolResult.pairs.length > 0) {
+        emit('duplicate_pairs', { pairs: toolResult.pairs });
+      }
 
       // Persist tool call and result
       await db.none(

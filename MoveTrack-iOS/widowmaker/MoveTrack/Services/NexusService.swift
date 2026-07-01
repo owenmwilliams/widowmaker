@@ -197,6 +197,36 @@ final class NexusService {
         return try decoder.decode(ShareReadinessDTO.self, from: data)
     }
 
+    // MARK: - Inventory review (native review cards)
+
+    /// Commit the items the user kept/edited in the review sheet. Returns how many were added.
+    func commitReviewedItems(_ items: [ReviewedItemPayload], room: String?) async throws -> Int {
+        var request = URLRequest(url: url(for: "/api/agents/nexus/inventory/commit"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        addAuth(&request)
+        struct Body: Encodable { let items: [ReviewedItemPayload]; let room: String? }
+        request.httpBody = try encoder.encode(Body(items: items, room: room))
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+        struct Resp: Decodable { let addedCount: Int? }
+        return (try? decoder.decode(Resp.self, from: data))?.addedCount ?? items.count
+    }
+
+    /// Remove the item ids the user chose in the duplicate-review sheet. Returns how many were removed.
+    func resolveDuplicates(removeItemIds ids: [Int]) async throws -> Int {
+        var request = URLRequest(url: url(for: "/api/agents/nexus/inventory/resolve-duplicates"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        addAuth(&request)
+        struct Body: Encodable { let removeItemIds: [Int] }
+        request.httpBody = try encoder.encode(Body(removeItemIds: ids))
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+        struct Resp: Decodable { let removedCount: Int? }
+        return (try? decoder.decode(Resp.self, from: data))?.removedCount ?? ids.count
+    }
+
     // MARK: - Clear / archive session
 
     func clearSession(id: String) async throws {

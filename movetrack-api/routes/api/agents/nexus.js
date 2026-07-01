@@ -3,6 +3,7 @@ const multer = require('multer');
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
 const nexusOrchestrator = require('../../../agents/nexusOrchestratorAgent');
 const mediaAssetService = require('../../../services/infra/mediaAssetService');
+const inventoryMutation = require('../../../services/inventory/inventoryMutationService');
 const sessions = require('../../../services/infra/agentSessionService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
 
@@ -206,6 +207,81 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     console.error('[nexus] upload failed:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── POST /inventory/commit ───────────────────────────────────────────────────
+// Commit items the user reviewed in the native "detected items" card. The client
+// edits/keeps items itself and posts the final list here, so the commit is exact
+// (no LLM re-interpretation of 40 items) and bypasses the agent's add path.
+router.post('/inventory/commit', express.json(), async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  if (items.length === 0) return res.status(400).json({ error: 'No items to add' });
+  if (items.length > 200) return res.status(400).json({ error: 'Too many items in one request (max 200)' });
+
+  const defaultRoom = typeof req.body?.room === 'string' ? req.body.room.trim() : '';
+  const num = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
+
+  let addedCount = 0;
+  const errors = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') continue;
+    const name = String(raw.name || '').trim().slice(0, 200);
+    if (!name) continue;
+    const room = (String(raw.room || '').trim() || defaultRoom || 'Unsorted').slice(0, 120);
+    const qty = Number(raw.quantity);
+    try {
+      const result = await inventoryMutation.addItem(userId, {
+        name,
+        room_name: room,
+        quantity: Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 1,
+        weight_lbs: num(raw.weightLbs),
+        length_in: num(raw.lengthIn),
+        width_in: num(raw.widthIn),
+        height_in: num(raw.heightIn),
+        material: raw.material ? String(raw.material).slice(0, 60) : undefined,
+        fragile: raw.fragile === true,
+        picture_url: typeof raw.pictureUrl === 'string' ? raw.pictureUrl : undefined,
+        confidence_score: num(raw.confidence),
+        confidence_source: 'scan_review',
+      });
+      if (result?.success) addedCount++;
+    } catch (err) {
+      errors.push(err.message);
+    }
+  }
+
+  if (addedCount === 0) {
+    return res.status(errors.length ? 500 : 400).json({
+      error: errors[0] || 'No items could be added. Set up a home location first.',
+    });
+  }
+  res.json({ success: true, addedCount });
+});
+
+// ─── POST /inventory/resolve-duplicates ────────────────────────────────────────
+// Delete the item ids the user chose to remove in the native duplicate-review card.
+router.post('/inventory/resolve-duplicates', express.json(), async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const ids = Array.isArray(req.body?.removeItemIds) ? req.body.removeItemIds : [];
+  if (ids.length === 0) return res.json({ success: true, removedCount: 0 });
+  if (ids.length > 200) return res.status(400).json({ error: 'Too many items in one request (max 200)' });
+
+  let removedCount = 0;
+  for (const id of ids) {
+    try {
+      const result = await inventoryMutation.deleteItem(userId, { item_id: id });
+      if (result?.success) removedCount++;
+    } catch (_) { /* ownership-checked in deleteItem; skip failures */ }
+  }
+  res.json({ success: true, removedCount });
 });
 
 module.exports = router;

@@ -66,6 +66,20 @@ struct NexusChatView: View {
         .sheet(item: $shareItem) { item in
             ShareSheet(items: [item.url])
         }
+        .sheet(item: $vm.pendingReview) { review in
+            ReviewItemsSheet(
+                review: review,
+                onCommit: { items in Task { await vm.commitReview(items, room: review.room) } },
+                onCancel: { vm.pendingReview = nil }
+            )
+        }
+        .sheet(item: $vm.pendingDuplicates) { dup in
+            DuplicateReviewSheet(
+                review: dup,
+                onApply: { ids in Task { await vm.resolveDuplicates(removing: ids) } },
+                onCancel: { vm.pendingDuplicates = nil }
+            )
+        }
         .sheet(isPresented: $showReadiness) {
             ReadinessSheet(
                 readiness: vm.readiness,
