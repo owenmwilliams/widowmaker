@@ -151,7 +151,7 @@ async function inventoryReadinessAssessment(userId) {
   else if (total < 50) itemCountScore = 80;
   else itemCountScore = 100;
 
-  const overall = Math.round(
+  let overall = Math.round(
     roomScore * 0.15 +
     weightScore * 0.20 +
     dimensionScore * 0.15 +
@@ -159,6 +159,21 @@ async function inventoryReadinessAssessment(userId) {
     qualityScore * 0.10 +
     itemCountScore * 0.30
   );
+
+  // Cap the headline % by the home-size benchmark: a total far below what a home
+  // this size should weigh can't read as "almost ready" just because the few
+  // logged items are well-described. (Fixes "79% for one scanned room".)
+  const benchmarkBedrooms = await getResidenceBedrooms(userId);
+  const plausibility = assessWeightPlausibility({
+    bedrooms: benchmarkBedrooms,
+    actualWeightLbs: itemStats.total_weight,
+    itemCount: total,
+    itemsMissingWeight: Math.max(0, total - itemStats.has_weight),
+  });
+  if (plausibility.hasBenchmark) {
+    if (plausibility.status === 'too_low') overall = Math.min(overall, 40);
+    else if (plausibility.status === 'low') overall = Math.min(overall, 65);
+  }
 
   let status;
   if (overall >= 85) status = 'ready';
