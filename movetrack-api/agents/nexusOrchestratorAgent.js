@@ -529,7 +529,11 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
     model: modelId,
     systemInstruction,
     tools: [{ functionDeclarations: toolDeclarations }],
-    generationConfig: { maxOutputTokens: 2048 },
+    // gemini-2.5-flash counts "thinking" tokens against maxOutputTokens; 2048 was
+    // too tight — a heavier turn could spend the whole budget thinking and return
+    // an EMPTY text candidate, which surfaced as "thinking… then nothing". Give it
+    // real headroom.
+    generationConfig: { maxOutputTokens: 8192 },
   }), { userId, modelName: modelId });
 
   const toolHandlers = buildToolHandlers(userId, attachments, plan, onEvent);
@@ -559,7 +563,17 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
     if (functionCalls.length === 0) {
       // Final text response
       console.log(`[orchestrator] Final response after ${orchestratorRound} round(s), ${delegationCount} delegation(s), ${crossAgentBounces} bounce(s)`);
-      const reply = textParts.map(p => p.text).join('\n');
+      let reply = textParts.map(p => p.text).join('\n').trim();
+
+      // Never let an empty candidate (e.g. output budget spent on thinking, or a
+      // blocked/empty response) surface as a vanished "thinking…" with no message.
+      if (!reply) {
+        const finishReason = candidate.finishReason || 'unknown';
+        console.warn(`[orchestrator] Empty model reply (finishReason=${finishReason}) — using fallback`);
+        reply = (user && user.onboarding_completed)
+          ? "Sorry — I didn't quite catch that. Could you say it another way, or tell me what you'd like to do next?"
+          : "Hi! I'm Nexus, your moving assistant. What's your name?";
+      }
 
       await db.none(
         `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
