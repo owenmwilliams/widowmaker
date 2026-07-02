@@ -10,6 +10,7 @@
 const knex = require('../infra/knex');
 const conn = require('../infra/db');
 const db = conn.db;
+const mediaAssetService = require('../infra/mediaAssetService');
 
 // Location functions have moved to workflow/locationQueryService + workflow/locationMutationService.
 // Re-exported below for backwards compatibility.
@@ -100,6 +101,16 @@ async function addItem(userId, args) {
   });
 
   console.log(`[census] Added item: "${args.name}" to "${args.room_name}" (id: ${item.id})`);
+
+  // Committing an item is the confirm step for whatever crop/frame/thumbnail
+  // the scan pipeline generated for it — link it so the 48h orphan cleanup
+  // (mediaAssetService.cleanupUnlinkedAssets) never deletes a photo a
+  // committed item still points at. No-op (and never throws) if picture_url
+  // isn't a tracked asset, e.g. a user-supplied URL from elsewhere.
+  if (params.picture_url) {
+    await mediaAssetService.markAssetLinkedByUrl(params.picture_url, item.id);
+  }
+
   return { success: true, itemId: item.id, name: args.name, room: args.room_name };
 }
 
