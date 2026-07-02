@@ -95,7 +95,15 @@ function buildGeminiContents(historyRows) {
   }
 
   // Step 3: Trim invalid edges
-  // First entry must be a user turn
+  // First entry must be a user turn. A leading plain-text model turn is real
+  // context (the seeded greeting, a mirrored confirmation) — losing it made
+  // the model re-ask for the name the user had just given. Keep it by
+  // bootstrapping a synthetic user turn in front; only shift off leading
+  // model turns that are pure functionCalls (those NEED their pairing).
+  if (contents.length > 0 && contents[0].role === 'model' &&
+      contents[0].parts.some(p => p.text)) {
+    contents.unshift({ role: 'user', parts: [{ text: '[The user opened the app.]' }] });
+  }
   while (contents.length > 0 && contents[0].role !== 'user') {
     contents.shift();
   }
