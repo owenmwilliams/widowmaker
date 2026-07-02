@@ -1,6 +1,7 @@
 'use strict';
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { instrumentVisionModel } = require('../ai/resilientModel');
 
 let geminiClient = null;
 
@@ -135,7 +136,7 @@ function normalizeVideoItem(it) {
  * @param {string} [roomHint]   - when set, items default to this room
  * @returns {{ rawText: string, items: Array, parseError: string|null }}
  */
-async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt = null, roomHint = null) {
+async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt = null, roomHint = null, userId = null) {
   if (!geminiClient) {
     throw new Error('GOOGLE_AI_API_KEY is not configured');
   }
@@ -149,13 +150,15 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
 
   console.log(`[videoService] Analyzing video (${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB) with model=${modelId}`);
 
-  const model = geminiClient.getGenerativeModel({
+  // Resilience + token metering: timeout, transient-error retry (429/503/network),
+  // and usage recording into user_costs. Uses the generous vision timeout.
+  const model = instrumentVisionModel(geminiClient.getGenerativeModel({
     model: modelId,
     generationConfig: {
       responseMimeType: 'application/json',
       maxOutputTokens: 8192,
     },
-  });
+  }), { userId, modelName: modelId });
 
   let result;
   try {
@@ -208,7 +211,7 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
  * @param {string} [roomHint]
  * @returns {{ rawText: string, items: Array, parseError: string|null }}
  */
-async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = null) {
+async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = null, userId = null) {
   if (!geminiClient) throw new Error('GOOGLE_AI_API_KEY is not configured');
   if (!frames || frames.length === 0) {
     return { rawText: '', items: [], narrationNotes: null, parseError: 'no frames' };
@@ -225,10 +228,12 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = nu
 
   console.log(`[videoService] Analyzing ${frames.length} sampled frames${audio ? ' + audio' : ''} with model=${modelId}`);
 
-  const model = geminiClient.getGenerativeModel({
+  // Resilience + token metering (timeout / transient-error retry / usage into
+  // user_costs) on the heaviest call in the scan pipeline.
+  const model = instrumentVisionModel(geminiClient.getGenerativeModel({
     model: modelId,
     generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 8192 },
-  });
+  }), { userId, modelName: modelId });
 
   const parts = frames.map((f) => ({
     inlineData: { mimeType: 'image/jpeg', data: f.buffer.toString('base64') },
