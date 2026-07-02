@@ -10,6 +10,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import CryptoKit
 
 /// Outcome of preparing to share: either we need to warn the user first, we have
 /// a ready link, or it failed (error surfaced on the view model).
@@ -49,6 +50,12 @@ final class NexusViewModel: ObservableObject {
     private struct LastScan { let url: String; let mimeType: String; var room: String? }
     private var lastScan: LastScan?
 
+    // Review cards awaiting the user, one presented at a time. A card's scan
+    // job is consumed only when the user closes the card (commit or dismiss),
+    // so killing the app with a card on screen re-surfaces it on next launch.
+    private var reviewQueue: [DetectedItemsReview] = []
+    private var presentedReviewJobId: String?
+
     var isBusy: Bool { isLoading || isUploading }
 
     // MARK: - Load
@@ -70,6 +77,7 @@ final class NexusViewModel: ObservableObject {
         } catch {
             errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
         }
+        await materializeUnconsumedScans()
         await refreshReadiness()
     }
 
@@ -133,7 +141,7 @@ final class NexusViewModel: ObservableObject {
             }
             captureShare(from: done)
             // Promote staged review/duplicates now that the reply is on screen.
-            if let review = stagedReview { pendingReview = review }
+            if let review = stagedReview { presentReview(review) }
             if let dups = stagedDuplicates { pendingDuplicates = DuplicateReview(pairs: dups) }
             stagedReview = nil
             stagedDuplicates = nil
@@ -147,7 +155,7 @@ final class NexusViewModel: ObservableObject {
             // detected items shouldn't die with the connection.
             messages.removeAll { $0.id == optimistic.id }
             errorMessage = friendlyError(error)
-            if let review = stagedReview { pendingReview = review }
+            if let review = stagedReview { presentReview(review) }
             if let dups = stagedDuplicates { pendingDuplicates = DuplicateReview(pairs: dups) }
             stagedReview = nil
             stagedDuplicates = nil
@@ -173,12 +181,19 @@ final class NexusViewModel: ObservableObject {
 
     // MARK: - Media
 
-    /// Returns true if the media uploaded and the message was sent; false on any
+    /// Returns true if the media uploaded and the scan finished; false on any
     /// failure so the caller can keep the attachment in the composer for a retry.
     @discardableResult
-    func sendMedia(data: Data, mimeType: String, filename: String, caption: String = "") async -> Bool {
+    func sendMedia(data: Data, mimeType: String, filename: String, caption: String = "", roomHint: String? = nil) async -> Bool {
         guard !isBusy else { return false }
         errorMessage = nil
+
+        // Content-derived idempotency key: identical bytes → identical key, so
+        // a retry after a timeout, crash, or relaunch (even via a fresh upload)
+        // reuses the in-flight/unseen job instead of scanning twice. A rescan
+        // AFTER the previous result was acknowledged gets a fresh job — the
+        // server scopes uniqueness to unconsumed jobs.
+        let idempotencyKey = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 
         let isVideo = mimeType.hasPrefix("video")
 
@@ -194,24 +209,18 @@ final class NexusViewModel: ObservableObject {
         phaseText = isVideo ? "Uploading video…" : "Uploading photo…"
         let mediaMetadata = ["mediaKind": isVideo ? "video" : "photo", "bytes": String(data.count)]
         ClientEventLogger.shared.log(.uploadStarted, sessionId: sessionId, metadata: mediaMetadata)
+        let uploaded: UploadResponse
         do {
-            let uploaded = isVideo
+            uploaded = isVideo
                 ? try await service.uploadMediaDirect(data: data, mimeType: mimeType, filename: filename)
                 : try await service.uploadMedia(data: data, mimeType: mimeType, filename: filename)
             isUploading = false
             phaseText = ""
             ClientEventLogger.shared.log(.uploadSucceeded, sessionId: sessionId, metadata: mediaMetadata)
-            // Remember this media so the user can deterministically rescan it.
-            // The room is filled in from the scan's detected_items event (below).
+            // Remember this media so the user can deterministically rescan it
+            // (issue #43). The room is backfilled when the review card
+            // materializes from the finished scan job.
             lastScan = LastScan(url: uploaded.url, mimeType: uploaded.mimeType, room: nil)
-            // Propagate the send outcome: a failed scan turn must return false
-            // so the composer keeps the media for a retry (the upload alone
-            // succeeding isn't enough — the old `return true` here silently
-            // discarded the user's video whenever the turn errored).
-            return await send(
-                text: caption,
-                attachments: [OutgoingAttachment(url: uploaded.url, mimeType: uploaded.mimeType, byteLength: data.count)]
-            )
         } catch NexusError.unauthorized {
             isUploading = false
             phaseText = ""
@@ -225,6 +234,183 @@ final class NexusViewModel: ObservableObject {
             ClientEventLogger.shared.log(.uploadFailed, sessionId: sessionId,
                                           metadata: mediaMetadata.merging(["error": String(describing: error).prefix(200).description]) { a, _ in a })
             return false
+        }
+        isUploading = false
+        phaseText = ""
+
+        // The scan itself is a durable server-side job, not a chat turn: the
+        // job — not this connection — owns the scan, so a drop, backgrounding,
+        // or even an app relaunch can't lose it (reload() re-materializes any
+        // finished-but-unseen job).
+        return await runScanJob(
+            mediaUrl: uploaded.url,
+            mimeType: uploaded.mimeType,
+            caption: caption,
+            roomHint: roomHint,
+            idempotencyKey: idempotencyKey,
+            isVideo: isVideo
+        )
+    }
+
+    /// Register the uploaded media as a scan job, poll it to a terminal state,
+    /// and materialize the review card from the job record.
+    private func runScanJob(mediaUrl: String, mimeType: String, caption: String, roomHint: String?, idempotencyKey: String, isVideo: Bool) async -> Bool {
+        let optimistic = ChatMessage(
+            role: .user,
+            text: caption,
+            attachments: [NexusAttachment(url: mediaUrl, mimeType: mimeType)]
+        )
+        messages.append(optimistic)
+        quickStartChips = []
+        isLoading = true
+        phaseText = isVideo ? "Scanning your video…" : "Scanning your photo…"
+        defer {
+            isLoading = false
+            phaseText = ""
+            detailText = ""
+        }
+
+        do {
+            let created = try await service.createScanJob(
+                mediaUrl: mediaUrl,
+                mimeType: mimeType,
+                caption: caption.isEmpty ? nil : caption,
+                idempotencyKey: idempotencyKey,
+                sessionId: sessionId,
+                roomHint: roomHint
+            )
+            let job = try await pollScanJob(id: created.id)
+            if job.status == "completed" {
+                // NOT consumed here: the job is acknowledged when the user
+                // closes the review card (commit or dismiss), so killing the
+                // app with the card on screen re-surfaces it on relaunch.
+                materializeReview(from: job)
+                await refreshReadiness()
+                return true
+            }
+            messages.removeAll { $0.id == optimistic.id }
+            errorMessage = job.error ?? "The scan failed. Please try again."
+            // A failure has no card to acknowledge; surfacing the error is the
+            // acknowledgment (the composer keeps the media for the retry).
+            try? await service.consumeScanJob(id: job.id)
+            return false
+        } catch NexusError.unauthorized {
+            messages.removeAll { $0.id == optimistic.id }
+            sessionExpired = true
+            return false
+        } catch {
+            messages.removeAll { $0.id == optimistic.id }
+            errorMessage = friendlyError(error)
+            return false
+        }
+    }
+
+    /// Poll a scan job until it reaches a terminal state. Transient poll
+    /// failures are tolerated — the job keeps running server-side, so a network
+    /// blip mid-poll must not abort the scan the way it aborted the old SSE
+    /// request. On timeout the job is left unconsumed so reload() surfaces it.
+    private func pollScanJob(id: String) async throws -> ScanJobDTO {
+        let deadline = Date().addingTimeInterval(15 * 60)
+        var consecutiveErrors = 0
+        while Date() < deadline {
+            do {
+                let job = try await service.scanJob(id: id)
+                consecutiveErrors = 0
+                if job.isTerminal { return job }
+            } catch NexusError.unauthorized {
+                throw NexusError.unauthorized
+            } catch {
+                consecutiveErrors += 1
+                if consecutiveErrors >= 10 { throw error }
+            }
+            try await Task.sleep(nanoseconds: 3_000_000_000)
+        }
+        throw NexusError.network(
+            "The scan is taking longer than expected. It keeps running in the background — pull to refresh in a bit to see the result."
+        )
+    }
+
+    /// Turn a completed scan job into a review card plus a summary bubble.
+    /// Zero-item scans have no card to acknowledge, so they surface a message
+    /// and consume immediately.
+    private func materializeReview(from job: ScanJobDTO) {
+        let items = job.result?.items ?? []
+        let kindWord = (job.result?.mediaKind ?? job.mediaKind ?? "photo") == "video" ? "video" : "photo"
+        guard !items.isEmpty else {
+            messages.append(ChatMessage(
+                role: .model,
+                text: "I couldn't detect any items in that \(kindWord). Try again with more light, or pan a little slower."
+            ))
+            let jobId = job.id
+            Task { try? await service.consumeScanJob(id: jobId) }
+            return
+        }
+        messages.append(ChatMessage(
+            role: .model,
+            text: "I spotted \(items.count) item\(items.count == 1 ? "" : "s") in your \(kindWord) — review them below."
+        ))
+        // Backfill the room onto the remembered media so a later Rescan
+        // (issue #43) targets the same room this scan resolved to.
+        if let room = job.result?.room ?? job.roomHint, lastScan != nil { lastScan?.room = room }
+        presentReview(DetectedItemsReview(
+            mediaKind: job.result?.mediaKind ?? job.mediaKind ?? "photo",
+            room: job.result?.room ?? job.roomHint,
+            items: items,
+            jobId: job.id
+        ))
+    }
+
+    /// Surface scans that finished while the app was away (connection drop,
+    /// backgrounding, relaunch). Every completed scan becomes a review card,
+    /// queued oldest-first and presented one at a time; completed jobs are NOT
+    /// consumed here — only when the user closes their card. Failures surface
+    /// as messages and are consumed (the remedy is rescanning).
+    private func materializeUnconsumedScans() async {
+        guard let jobs = try? await service.unconsumedScanJobs(), !jobs.isEmpty else { return }
+        for job in jobs where job.status == "completed" {
+            materializeReview(from: job)
+        }
+        let failures = jobs.filter { $0.status == "failed" }
+        for job in failures {
+            messages.append(ChatMessage(
+                role: .model,
+                text: "⚠️ A scan didn't finish: \(job.error ?? "unknown error"). Please try scanning again."
+            ))
+            try? await service.consumeScanJob(id: job.id)
+        }
+        if let last = failures.last {
+            errorMessage = "A scan from earlier didn't finish: \(last.error ?? "unknown error"). Please try again."
+        }
+    }
+
+    // MARK: - Review-card queue
+
+    /// Queue a review card and present it if nothing is on screen. Cards from
+    /// multiple scans (e.g. three rooms scanned while backgrounded) present
+    /// sequentially — none are dropped.
+    private func presentReview(_ review: DetectedItemsReview) {
+        reviewQueue.append(review)
+        presentNextReview()
+    }
+
+    private func presentNextReview() {
+        guard pendingReview == nil, let next = reviewQueue.first else { return }
+        reviewQueue.removeFirst()
+        presentedReviewJobId = next.jobId
+        pendingReview = next
+    }
+
+    /// Called from the review sheet's onDismiss — commit, skip, and swipe-down
+    /// all funnel here. Closing the card is the acknowledgment: consume its
+    /// job (idempotent server-side) and present the next queued card.
+    func reviewSheetClosed() {
+        let jobId = presentedReviewJobId
+        presentedReviewJobId = nil
+        Task {
+            if let jobId {
+                try? await service.consumeScanJob(id: jobId)
+            }
+            presentNextReview()
         }
     }
 
@@ -403,6 +589,8 @@ final class NexusViewModel: ObservableObject {
         pendingDuplicates = nil
         stagedReview = nil
         stagedDuplicates = nil
+        reviewQueue = []
+        presentedReviewJobId = nil
         await reload()
     }
 

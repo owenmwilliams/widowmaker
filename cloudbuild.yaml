@@ -163,6 +163,32 @@ steps:
     id: 'run-migrations'
     waitFor: ['build-api', 'backup-db']
 
+  # Ensure the Cloud Tasks queue for async scan processing exists (idempotent).
+  # Scans are processed by Cloud Tasks pushing job ids to the OIDC-verified
+  # /internal/scan-jobs/process endpoint (#42 Phase 2). One-time IAM setup
+  # (invoker service account + enqueue permissions) lives in
+  # infra/gcp/setup-scan-jobs.sh — run it once per project before first deploy.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'ensure-scan-queue'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -euo pipefail
+        if gcloud tasks queues describe scan-jobs --location=us-central1 --project=$PROJECT_ID >/dev/null 2>&1; then
+          echo "Cloud Tasks queue scan-jobs already exists."
+        else
+          echo "Creating Cloud Tasks queue scan-jobs..."
+          gcloud tasks queues create scan-jobs \
+            --location=us-central1 --project=$PROJECT_ID \
+            --max-attempts=4 \
+            --min-backoff=30s \
+            --max-backoff=300s \
+            --max-dispatches-per-second=5 \
+            --max-concurrent-dispatches=10
+        fi
+    waitFor: ['-']
+
   # Deploy API to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
@@ -191,11 +217,11 @@ steps:
       - '--concurrency'
       - '10'
       - '--set-env-vars'
-      - 'NODE_ENV=production,APP_BASE_URL=https://movetrack-app-7hwn7ggbiq-uc.a.run.app,MT_DATALAYER_HOSTNAME=/cloudsql/$_CLOUD_SQL_CONNECTION,MT_DATALAYER_PORT=5432,MT_DATALAYER_DATABASE=$_DB_NAME,MT_DATALAYER_USERNAME=$_DB_USER,EMAIL_FROM=owen@we3kings.dev,SMTP_HOST=smtp.sendgrid.net,SMTP_PORT=587,SMTP_USER=apikey,VISION_PROVIDER=gemini'
+      - 'NODE_ENV=production,APP_BASE_URL=https://movetrack-app-7hwn7ggbiq-uc.a.run.app,MT_DATALAYER_HOSTNAME=/cloudsql/$_CLOUD_SQL_CONNECTION,MT_DATALAYER_PORT=5432,MT_DATALAYER_DATABASE=$_DB_NAME,MT_DATALAYER_USERNAME=$_DB_USER,EMAIL_FROM=owen@we3kings.dev,SMTP_HOST=smtp.sendgrid.net,SMTP_PORT=587,SMTP_USER=apikey,VISION_PROVIDER=gemini,SCAN_TASKS_QUEUE=projects/$PROJECT_ID/locations/us-central1/queues/scan-jobs,SCAN_TASKS_TARGET_BASE_URL=https://movetrack-api-7hwn7ggbiq-uc.a.run.app,SCAN_TASKS_SERVICE_ACCOUNT=scan-tasks-invoker@$PROJECT_ID.iam.gserviceaccount.com'
       - '--set-secrets'
       - 'MT_DATALAYER_PASSWORD=movetrack-db-password:latest,JWT_SECRET=movetrack-jwt-secret:latest,SMTP_PASS=sendgrid-api-key:latest,ANTHROPIC_API_KEY=anthropic-key:latest,OPENAI_API_KEY=openai-api-key:latest,GOOGLE_AI_API_KEY=google-ai-key:latest,GOOGLE_MAPS_API_KEY=google-api-key:latest,GOOGLE_API_KEY=google-api-key:latest,GOOGLE_BOOKS_API_KEY=google-api-key:latest,TOGETHER_API_KEY=TOGETHER_API_KEY:latest,HUGGINGFACE_TOKEN=HUGGINGFACE_API_TOKEN:latest,TWELVE_LABS_API_KEY=TWELVE_LABS_API_KEY:latest'
     id: 'deploy-api'
-    waitFor: ['push-api', 'run-migrations']
+    waitFor: ['push-api', 'run-migrations', 'ensure-scan-queue']
 
   # Deploy Frontend to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'

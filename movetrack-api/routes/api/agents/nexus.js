@@ -8,6 +8,7 @@ const mediaAssetService = require('../../../services/infra/mediaAssetService');
 const gcs = require('../../../services/infra/gcsService');
 const inventoryMutation = require('../../../services/inventory/inventoryMutationService');
 const rateLimits = require('../../../config/rateLimits');
+const scanJobs = require('../../../services/inventory/scanJobService');
 const sessions = require('../../../services/infra/agentSessionService');
 const metrics = require('../../../services/infra/metricsService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
@@ -438,6 +439,99 @@ router.post('/rescan', rateLimits.rescanLimiter, express.json(), async (req, res
   } catch (err) {
     console.error('[nexus] rescan failed:', err.message);
     res.status(500).json({ error: 'Rescan failed. Please try again.' });
+  }
+});
+
+// ─── Scan jobs ─────────────────────────────────────────────────────────────────
+// Durable async scans (#42 Phase 2). The client uploads media (multipart or
+// direct-to-GCS), registers it here as a job, then polls the job until the
+// review card is ready — the scan no longer lives or dies inside one SSE
+// request. Re-POSTing with the same idempotencyKey returns the existing job.
+
+/** Reject malformed job ids up front instead of 500ing in the UUID cast. */
+function validJobId(req, res) {
+  const id = String(req.params.id || '');
+  if (!scanJobs.UUID_RE.test(id)) {
+    res.status(400).json({ error: 'Invalid scan job id' });
+    return null;
+  }
+  return id;
+}
+
+router.post('/scan-jobs', express.json(), async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const mediaUrl = String(req.body?.mediaUrl || '').trim();
+  if (!scanJobs.isAllowedMediaUrl(mediaUrl, userId)) {
+    return res.status(400).json({ error: 'mediaUrl must point at your uploaded media' });
+  }
+
+  // Opportunistic safety net (runs in request context): rescue jobs whose
+  // attempt died and re-enqueue any whose task got lost.
+  scanJobs.recoverStaleJobs().catch(() => {});
+
+  try {
+    const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
+    const { job, created } = await scanJobs.createJob(userId, {
+      mediaUrl,
+      mimeType: req.body?.mimeType ? String(req.body.mimeType) : null,
+      sessionId: req.body?.sessionId ? String(req.body.sessionId) : null,
+      roomHint: req.body?.roomHint ? String(req.body.roomHint).slice(0, 255) : null,
+      caption: req.body?.caption ? String(req.body.caption).slice(0, 2000) : null,
+      idempotencyKey: req.body?.idempotencyKey ? String(req.body.idempotencyKey).slice(0, 80) : null,
+      plan,
+    });
+    res.status(created ? 201 : 200).json(scanJobs.toDTO(job));
+  } catch (err) {
+    console.error('[nexus] create scan job failed:', err);
+    res.status(500).json({ error: 'Could not create the scan job' });
+  }
+});
+
+// List finished jobs the client hasn't acknowledged yet (reconnect path).
+router.get('/scan-jobs', async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  scanJobs.recoverStaleJobs().catch(() => {});
+  try {
+    const jobs = await scanJobs.listUnconsumed(userId);
+    res.json({ jobs: jobs.map(scanJobs.toDTO) });
+  } catch (err) {
+    console.error('[nexus] list scan jobs failed:', err);
+    res.status(500).json({ error: 'Could not list scan jobs' });
+  }
+});
+
+router.get('/scan-jobs/:id', async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  const id = validJobId(req, res);
+  if (!id) return;
+  try {
+    const job = await scanJobs.getJob(userId, id);
+    if (!job) return res.status(404).json({ error: 'Scan job not found' });
+    res.json(scanJobs.toDTO(job));
+  } catch (err) {
+    console.error('[nexus] get scan job failed:', err);
+    res.status(500).json({ error: 'Could not fetch the scan job' });
+  }
+});
+
+// The user acknowledged this job's outcome (committed or dismissed the review
+// card) — stop resurfacing it. Never called merely for displaying the card.
+router.post('/scan-jobs/:id/consume', async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  const id = validJobId(req, res);
+  if (!id) return;
+  try {
+    const ok = await scanJobs.markConsumed(userId, id);
+    if (!ok) return res.status(404).json({ error: 'Scan job not found or already consumed' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[nexus] consume scan job failed:', err);
+    res.status(500).json({ error: 'Could not consume the scan job' });
   }
 });
 

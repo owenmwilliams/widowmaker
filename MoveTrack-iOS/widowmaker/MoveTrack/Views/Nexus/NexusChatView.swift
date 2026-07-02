@@ -66,7 +66,7 @@ struct NexusChatView: View {
         .sheet(item: $shareItem) { item in
             ShareSheet(items: [item.url])
         }
-        .sheet(item: $vm.pendingReview) { review in
+        .sheet(item: $vm.pendingReview, onDismiss: { vm.reviewSheetClosed() }) { review in
             ReviewItemsSheet(
                 review: review,
                 onCommit: { items in Task { await vm.commitReview(items, room: review.room, scanId: review.scanId) } },
