@@ -1,10 +1,8 @@
 const express = require('express');
 const multer = require('multer');
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
-const crypto = require('crypto');
 const nexusOrchestrator = require('../../../agents/nexusOrchestratorAgent');
 const mediaAssetService = require('../../../services/infra/mediaAssetService');
-const gcs = require('../../../services/infra/gcsService');
 const inventoryMutation = require('../../../services/inventory/inventoryMutationService');
 const sessions = require('../../../services/infra/agentSessionService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
@@ -298,25 +296,34 @@ router.post('/inventory/resolve-duplicates', express.json(), async (req, res) =>
 // DIRECTLY to GCS, bypassing this API's ~32MB request cap. The client PUTs the
 // bytes to `uploadUrl` (Content-Type must match), then sends `url` as the
 // attachment on /message — the same public URL shape a normal upload produces.
+// Registers the reservation in `image_uploads` immediately (mediaAssetService)
+// so orphan cleanup and GDPR deletion see it even if the client abandons the
+// upload — this direct-PUT path previously wrote no row at all.
 router.post('/upload-url', express.json(), async (req, res) => {
   const userId = req.user?.user_id;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   const mimeType = String(req.body?.mimeType || '');
   const filename = String(req.body?.filename || 'upload');
+  const declaredSize = Number(req.body?.byteLength);
   if (!/^(image|video)\//.test(mimeType)) {
     return res.status(400).json({ error: 'Unsupported media type' });
   }
 
-  const extFromName = filename.includes('.') ? filename.split('.').pop() : '';
-  const ext = (extFromName || mimeType.split('/')[1] || 'bin')
-    .toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5) || 'bin';
-  const objectPath = `users/${userId}/chat/nexus/${crypto.randomUUID()}.${ext}`;
-
   try {
-    const uploadUrl = await gcs.getSignedUploadUrl(objectPath, mimeType);
-    const url = `https://storage.googleapis.com/${gcs.BUCKET}/${objectPath}`;
-    res.json({ uploadUrl, url, gcsPath: objectPath, mimeType });
+    const asset = await mediaAssetService.reserveUpload({
+      userId,
+      mimeType,
+      originalName: filename,
+      source: 'nexus_chat',
+      declaredSize: Number.isFinite(declaredSize) ? declaredSize : null,
+    });
+    res.json({
+      uploadUrl: asset.uploadUrl,
+      url: asset.url,
+      gcsPath: asset.gcsPath,
+      mimeType: asset.mimeType,
+    });
   } catch (err) {
     console.error('[nexus] upload-url failed:', err.message);
     res.status(500).json({ error: 'Could not create an upload URL' });

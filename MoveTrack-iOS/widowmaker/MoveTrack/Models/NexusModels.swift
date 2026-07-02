@@ -31,9 +31,16 @@ struct NexusAttachment: Codable, Hashable {
 }
 
 /// An attachment we send up with a message (both fields required).
+///
+/// `byteLength` is the size the client measured locally before upload — the
+/// server compares it against what it actually downloads back out of GCS so a
+/// truncated upload (client crash mid-PUT, dropped connection) fails loudly
+/// instead of silently analyzing a partial file. See movetrack-api's
+/// mediaDownloadService.downloadBuffer(`expectedBytes`).
 struct OutgoingAttachment: Codable {
     let url: String
     let mimeType: String
+    let byteLength: Int
 }
 
 // MARK: - Quick-start chips

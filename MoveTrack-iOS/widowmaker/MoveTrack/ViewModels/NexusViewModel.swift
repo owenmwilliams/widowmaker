@@ -188,7 +188,7 @@ final class NexusViewModel: ObservableObject {
             // discarded the user's video whenever the turn errored).
             return await send(
                 text: caption,
-                attachments: [OutgoingAttachment(url: uploaded.url, mimeType: uploaded.mimeType)]
+                attachments: [OutgoingAttachment(url: uploaded.url, mimeType: uploaded.mimeType, byteLength: data.count)]
             )
         } catch NexusError.unauthorized {
             isUploading = false

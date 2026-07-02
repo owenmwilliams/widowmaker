@@ -16,7 +16,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const knex = require('./knex');
-const { storage, isLocalEnvironment, signUrl } = require('./gcsService');
+const { storage, isLocalEnvironment, signUrl, getSignedUploadUrl } = require('./gcsService');
 
 const BUCKET = 'movetrack-item-photos';
 const LOCAL_STORAGE_ROOT = path.join(__dirname, '../../.local-storage');
@@ -226,6 +226,80 @@ async function ingestUpload(options) {
 }
 
 /**
+ * Reserve a registry row + signed write URL for a client-side DIRECT-TO-GCS
+ * upload (e.g. large videos that bypass the API's request-size cap). Unlike
+ * `ingestUpload`, the server never sees the bytes here — the client PUTs them
+ * straight to the signed URL — so this cannot verify or store the real size.
+ * `declaredSize`, if provided, is the byte count the client captured locally
+ * before upload; it lets the row carry a size immediately instead of forever
+ * showing NULL, and is independently re-verified against the downloaded bytes
+ * at analysis time (see mediaDownloadService.downloadBuffer's `expectedBytes`).
+ *
+ * @param {object} options
+ * @param {string} options.userId
+ * @param {string} options.mimeType
+ * @param {string} [options.originalName]
+ * @param {string} options.source
+ * @param {string} [options.uploadSessionId]
+ * @param {number} [options.declaredSize] - byte count reported by the client
+ * @param {object} [options.metadata]
+ * @param {string} [options.bucket]
+ *
+ * @returns {Promise<{ assetId: string, uploadUrl: string, url: string, gcsPath: string, mimeType: string, bucket: string, assetType: 'image'|'video' }>}
+ */
+async function reserveUpload(options) {
+  const {
+    userId,
+    mimeType,
+    originalName,
+    source,
+    uploadSessionId,
+    declaredSize,
+    metadata = {},
+    bucket = BUCKET,
+  } = options || {};
+
+  if (!userId) throw new Error('mediaAssetService.reserveUpload: userId is required');
+  if (!mimeType) throw new Error('mediaAssetService.reserveUpload: mimeType is required');
+  if (!source) throw new Error('mediaAssetService.reserveUpload: source is required');
+  if (!VALID_SOURCES.has(source)) {
+    console.warn(`[mediaAssetService] Unknown source '${source}' — accepting but this should be added to VALID_SOURCES.`);
+  }
+
+  const assetUuid = uuidv4();
+  const ext = extensionFor(originalName, mimeType);
+  const gcsPath = resolvePath({ source, userId, assetUuid, ext, uploadSessionId });
+  const assetType = mimeType.startsWith('video/') ? 'video' : 'image';
+  const url = `https://storage.googleapis.com/${bucket}/${gcsPath}`;
+  const uploadUrl = await getSignedUploadUrl(gcsPath, mimeType);
+
+  const size = Number.isFinite(declaredSize) && declaredSize > 0 ? Math.round(declaredSize) : null;
+
+  await knex('image_uploads').insert({
+    asset_uuid: assetUuid,
+    user_id: userId,
+    image_url: url,
+    gcs_bucket: bucket,
+    gcs_path: gcsPath,
+    file_size: size,
+    mime_type: mimeType,
+    source,
+    asset_type: assetType,
+    status: 'uploaded',
+    upload_session_id: uploadSessionId || null,
+    metadata: JSON.stringify({
+      ...metadata,
+      original_name: originalName || null,
+      pending_direct_upload: true,
+    }),
+    uploaded_at: new Date(),
+    is_orphaned: true,
+  });
+
+  return { assetId: assetUuid, uploadUrl, url, gcsPath, mimeType, bucket, assetType };
+}
+
+/**
  * Link an asset to an owning entity. Asserts that the asset belongs to the
  * caller before updating.
  *
@@ -401,6 +475,7 @@ async function markAssetLinkedByUrl(imageUrl, itemId) {
 
 module.exports = {
   ingestUpload,
+  reserveUpload,
   linkAsset,
   deleteAsset,
   purgeAssetsForUser,
