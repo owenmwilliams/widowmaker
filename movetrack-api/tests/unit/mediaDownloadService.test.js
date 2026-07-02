@@ -7,7 +7,8 @@
  */
 
 const http = require('http');
-const { downloadBuffer, MediaDownloadError } = require('../../services/infra/mediaDownloadService');
+const { downloadBuffer, MediaDownloadError, parseGcsUrl, assertAllowedGcsPath } = require('../../services/infra/mediaDownloadService');
+const gcs = require('../../services/infra/gcsService');
 
 const noSleep = () => Promise.resolve();
 
@@ -164,5 +165,79 @@ describe('MediaDownloadError', () => {
     expect(err.name).toBe('MediaDownloadError');
     expect(err.status).toBe(502);
     expect(err.code).toBe('ETRUNCATED');
+  });
+});
+
+describe('downloadBuffer timeout is inactivity-based, not a flat cap (arbiter major #3)', () => {
+  test('a slow-but-steady transfer succeeds even past the timeout duration in total', async () => {
+    const parts = ['aaa', 'bbb', 'ccc', 'ddd'];
+    const { url, close } = await startServer((req, res) => {
+      res.writeHead(200);
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i >= parts.length) { clearInterval(interval); res.end(); return; }
+        res.write(parts[i++]);
+      }, 25); // each gap well under timeoutMs below, but total (~100ms) exceeds it
+    });
+    try {
+      const result = await downloadBuffer(url, { retries: 0, timeoutMs: 60, sleepFn: noSleep });
+      expect(result.toString()).toBe(parts.join(''));
+    } finally {
+      await close();
+    }
+  });
+
+  test('a stall mid-transfer (after some bytes already arrived) still times out', async () => {
+    const { url, close } = await startServer((req, res) => {
+      res.writeHead(200);
+      res.write('first chunk only, then silence');
+      // never res.end() — simulates the pipeline going quiet mid-download
+    });
+    try {
+      await expect(downloadBuffer(url, { retries: 0, timeoutMs: 50, sleepFn: noSleep }))
+        .rejects.toThrow(/timed out/);
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe('GCS path restriction to the app bucket + calling user prefix (arbiter major #4)', () => {
+  test('parseGcsUrl handles path-style, gs://, and virtual-hosted URLs identically', () => {
+    expect(parseGcsUrl('https://storage.googleapis.com/my-bucket/users/u1/x.jpg'))
+      .toEqual({ bucket: 'my-bucket', path: 'users/u1/x.jpg' });
+    expect(parseGcsUrl('gs://my-bucket/users/u1/x.jpg'))
+      .toEqual({ bucket: 'my-bucket', path: 'users/u1/x.jpg' });
+    expect(parseGcsUrl('https://my-bucket.storage.googleapis.com/users/u1/x.jpg'))
+      .toEqual({ bucket: 'my-bucket', path: 'users/u1/x.jpg' });
+  });
+
+  test('percent-decodes the path so an encoded segment cannot hide from the prefix check', () => {
+    const { path } = parseGcsUrl('https://storage.googleapis.com/my-bucket/users/u1/na%20me.jpg');
+    expect(path).toBe('users/u1/na me.jpg');
+  });
+
+  test('rejects a bucket other than the app bucket', () => {
+    expect(() => assertAllowedGcsPath('some-other-bucket', 'users/u1/x.jpg', 'u1'))
+      .toThrow(/untrusted bucket/);
+  });
+
+  test('rejects a path outside the calling user\'s own prefix', () => {
+    expect(() => assertAllowedGcsPath(gcs.BUCKET, 'users/someone-else/x.jpg', 'u1'))
+      .toThrow(/outside the calling user/);
+  });
+
+  test('allows the calling user\'s own prefix in the app bucket', () => {
+    expect(() => assertAllowedGcsPath(gcs.BUCKET, 'users/u1/x.jpg', 'u1')).not.toThrow();
+  });
+
+  test('downloadBuffer refuses a gs:// URL for a different user before touching the network', async () => {
+    await expect(downloadBuffer('gs://movetrack-item-photos/users/attacker-target/secret.jpg', { userId: 'u1', retries: 0 }))
+      .rejects.toThrow(/outside the calling user/);
+  });
+
+  test('downloadBuffer refuses a URL pointed at a foreign bucket even with a valid-looking prefix', async () => {
+    await expect(downloadBuffer('gs://some-other-bucket/users/u1/x.jpg', { userId: 'u1', retries: 0 }))
+      .rejects.toThrow(/untrusted bucket/);
   });
 });

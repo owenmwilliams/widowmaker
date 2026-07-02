@@ -68,7 +68,7 @@ async function analyzePhotoForInventory(args, userId, plan, ctx = {}) {
     for (const file of files) {
       try {
         const expectedBytes = expectedBytesFor(file.file_url, attachments);
-        const buffer = await downloadBuffer(file.file_url, { expectedBytes });
+        const buffer = await downloadBuffer(file.file_url, { userId, expectedBytes });
         imageBuffers.push({ buffer, mimeType: file.mime_type, url: file.file_url });
       } catch (dlErr) {
         console.warn(`[census] Failed to download ${file.file_url}:`, dlErr.message);
@@ -184,7 +184,7 @@ async function analyzeVideoForInventory(args, userId, plan, ctx = {}) {
     const url = args.file_url;
     console.log(`[census] Downloading video for analysis: ${url}`);
     const expectedBytes = expectedBytesFor(url, attachments);
-    const videoBuffer = await downloadBuffer(url, { expectedBytes });
+    const videoBuffer = await downloadBuffer(url, { userId, expectedBytes });
     console.log(`[census] Video downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB`);
 
     const ext = (args.mime_type || 'video/mp4').split('/')[1] || 'mp4';
