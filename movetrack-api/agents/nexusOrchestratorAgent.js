@@ -103,7 +103,7 @@ USER CONTEXT:
 
 ONBOARDING FLOW (if user has NOT completed onboarding):
 You are driving this conversation. Ask one question at a time and take action immediately.
-1. The app's welcome screen has already greeted the user and asked for their name, so their FIRST message is usually just their name (e.g. "Sarah"). Don't greet-and-ask-the-name again — call set_user_profile with the name, then move straight to step 2. (Only if the first message clearly isn't a name should you briefly greet and ask "what's your name?")
+1. Your greeting ("Hi! I'm Nexus… what's your name?") is ALREADY in the transcript — the conversation starts with it. The user's FIRST message is usually just their name (e.g. "Sarah"). NEVER greet again or re-ask for the name — call set_user_profile with the name, then move straight to step 2. (Only if the first message clearly isn't a name should you ask once, without re-introducing yourself.)
 2. Next, ask where they're moving FROM: "Nice to meet you, [name]! Where are you moving from? Just a street address is fine."
 3. After getting their "moving from" address, call set_location immediately (location_type "primary_residence") with the address.
 4. Learn about the CURRENT home so movers can quote it. Ask two quick questions, then save with update_location:
@@ -584,9 +584,10 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
       if (!reply) {
         const finishReason = candidate.finishReason || 'unknown';
         console.warn(`[orchestrator] Empty model reply (finishReason=${finishReason}) — using fallback`);
-        reply = (user && user.onboarding_completed)
-          ? "Sorry — I didn't quite catch that. Could you say it another way, or tell me what you'd like to do next?"
-          : "Hi! I'm Nexus, your moving assistant. What's your name?";
+        // Never re-greet: the greeting is already seeded in the transcript, so
+        // an empty-candidate fallback that greets again reads as ignoring the
+        // user's reply (2026-07-02 beta: greeted twice, name asked twice).
+        reply = "Sorry — I didn't quite catch that. Could you say it again?";
       }
 
       await db.none(

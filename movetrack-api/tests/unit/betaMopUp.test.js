@@ -208,3 +208,27 @@ describe('room resolution — phrases never become rooms', () => {
     expect(roomFromCaption('Can you believe how much stuff is in here? Anyway, this is the garage!')).toBeNull();
   });
 });
+
+describe('gemini history — seeded greeting survives the leading-edge rule', () => {
+  const { buildGeminiContents } = jest.requireActual('../../services/infra/geminiHistoryBuilder');
+
+  test('a leading model greeting is kept via a synthetic bootstrap user turn', () => {
+    const contents = buildGeminiContents([
+      { role: 'model', content: "Hi! I'm Nexus. What's your name?" },
+      { role: 'user', content: 'Owen Williams' },
+    ]);
+    expect(contents[0].role).toBe('user');            // Gemini's hard requirement
+    expect(contents[1].role).toBe('model');
+    expect(contents[1].parts[0].text).toMatch(/What's your name/);
+    expect(contents[2].parts[0].text).toBe('Owen Williams');
+  });
+
+  test('a leading orphaned functionCall is still trimmed, not bootstrapped', () => {
+    const contents = buildGeminiContents([
+      { role: 'tool_call', tool_name: 'add_room', tool_args: { name: 'Den' }, content: '' },
+      { role: 'user', content: 'hello' },
+    ]);
+    expect(contents[0].role).toBe('user');
+    expect(contents[0].parts[0].text).toBe('hello');
+  });
+});
