@@ -328,8 +328,12 @@ async function getMediaGaps(userId) {
     (videos || []).map((v) => (v.room_name || '').toLowerCase().trim()).filter(Boolean)
   );
 
+  // Every room needs a walkthrough — including empty ones (an empty room with
+  // no video is exactly the room that hasn't been scanned yet; exempting them
+  // made the readiness panel show a green media check while whole rooms were
+  // uncataloged).
   const roomsMissingVideo = collections
-    .filter((c) => c.item_count > 0 && !videoRooms.has((c.name || '').toLowerCase().trim()))
+    .filter((c) => !videoRooms.has((c.name || '').toLowerCase().trim()))
     .map((c) => ({ room: c.name, itemCount: c.item_count }));
 
   const items = await db.any(

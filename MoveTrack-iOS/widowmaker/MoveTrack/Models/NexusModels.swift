@@ -333,12 +333,14 @@ struct DetectedItem: Decodable, Identifiable, Equatable {
 
     /// A short "84×36×34 in · 150 lb" style spec line, or nil if we know nothing.
     var specLine: String? {
+        // Treat 0 as unknown: a "0\u{00D7}0\u{00D7}0 in \u{00B7} 0 lb" row reads as data, and
+        // wrong-but-confident costs more trust than absent.
         var parts: [String] = []
-        if let l = lengthIn, let w = widthIn, let h = heightIn {
-            parts.append("\(Int(l))×\(Int(w))×\(Int(h)) in")
+        if let l = lengthIn, let w = widthIn, let h = heightIn, l > 0, w > 0, h > 0 {
+            parts.append("\(Int(l))\u{00D7}\(Int(w))\u{00D7}\(Int(h)) in")
         }
-        if let wt = weightLbs { parts.append("\(Int(wt)) lb") }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        if let wt = weightLbs, wt > 0 { parts.append("\(Int(wt)) lb") }
+        return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 }
 
