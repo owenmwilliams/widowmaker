@@ -112,6 +112,8 @@ function downloadViaHttp(url) {
  * @param {object} [opts]
  * @param {number} [opts.timeoutMs]
  * @param {number} [opts.retries]
+ * @param {number} [opts.baseDelayMs] - retry backoff base (tests only; production uses the default)
+ * @param {function} [opts.sleepFn] - retry sleep implementation (tests only, for instant retries)
  * @param {number|null} [opts.expectedBytes] - byte count the client reported
  *   when it uploaded this file, if known. A mismatch means the upload itself
  *   was incomplete (not a transport blip) so it is NOT retried.
@@ -121,12 +123,14 @@ async function downloadBuffer(url, opts = {}) {
   const {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     retries = DEFAULT_RETRIES,
+    baseDelayMs,
+    sleepFn,
     expectedBytes = null,
   } = opts;
 
   const buffer = await callWithResilience(
     () => (isGcsUrl(url) ? downloadFromGcs(url) : downloadViaHttp(url)),
-    { timeoutMs, retries, label: `media download (${url})` }
+    { timeoutMs, retries, baseDelayMs, sleepFn, label: `media download (${url})` }
   );
 
   if (expectedBytes != null && buffer.length !== expectedBytes) {
