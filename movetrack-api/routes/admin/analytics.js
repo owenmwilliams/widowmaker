@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../../services/infra/authService');
 const { getUnlinkedAssetStats } = require('../../services/infra/mediaAssetService');
-const { getBetaMetricsSummary, getBetaMetricsRaw } = require('../../services/analytics/reportingService');
+const { getBetaMetricsSummary, getBetaMetricsRaw, getRecentScanFailures } = require('../../services/analytics/reportingService');
 
 router.use(authenticate);
 router.use((req, res, next) => {
@@ -59,6 +59,25 @@ router.get('/agent-metrics/raw', async (req, res) => {
     res.json(data);
   } catch (err) {
     console.error('[analytics] agent-metrics/raw failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /admin/analytics/scan-failures
+ * Scan failures (scan_events status='error' or a non-null parse_error) and
+ * hard-thrown turns (beta_interaction_logs had_error=true) in the trailing
+ * window — the "is anything broken right now" view.
+ * ?hours=24 (default, clamped to [1, 720]) ?limit=200 (default, clamped to [1, 500])
+ */
+router.get('/scan-failures', async (req, res) => {
+  try {
+    // getRecentScanFailures clamps/defaults invalid input (NaN, out-of-range)
+    // itself — Number() on a non-numeric query param yields NaN, not a throw.
+    const data = await getRecentScanFailures(Number(req.query.hours), Number(req.query.limit));
+    res.json(data);
+  } catch (err) {
+    console.error('[analytics] scan-failures failed:', err);
     res.status(500).json({ error: err.message });
   }
 });

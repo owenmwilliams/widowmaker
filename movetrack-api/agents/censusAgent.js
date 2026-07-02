@@ -1,13 +1,16 @@
 'use strict';
 
+const crypto = require('crypto');
 const { GoogleGenerativeAI, SchemaType } = require('@google/generative-ai');
 const conn = require('../services/infra/db');
 const db = conn.db;
+const { createLogger } = require('../services/infra/logger');
 const mutation = require('../services/inventory/inventoryMutationService');
 const { searchItems, getItemPhoto } = require('../services/inventory/inventoryItemQueryService');
 const { getInventoryTextSummary } = require('../services/inventory/inventorySummaryQueryService');
 const { sanitizeForPrompt, fenceUntrusted } = require('../services/infra/promptSafety');
 const { instrumentModel, AiUnavailableError } = require('../services/infra/ai/resilientModel');
+const { createScanRecorder } = require('../services/infra/scanEventsService');
 const { getMissingContext, inventoryReadinessAssessment, shareReasonableness } = require('../services/inventory/inventoryMaturityService');
 const duplicates = require('../services/inventory/duplicateDetectionService');
 const media = require('../services/inventory/mediaInventoryWorkflowService');
@@ -20,10 +23,12 @@ const { parseJsonBlock, deriveFieldsFromActions, buildSpecialistResponse, buildF
 
 // ── Gemini Client ───────────────────────────────────────────────────────────────
 
+const rootLog = createLogger({ component: 'census' });
+
 let geminiClient = null;
 if (process.env.GOOGLE_AI_API_KEY) {
   geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-  console.log('[censusAgentService] Gemini configured');
+  rootLog.info('Gemini configured');
 }
 
 const GEMINI_MODELS = {
@@ -35,6 +40,42 @@ const GEMINI_MODELS = {
 function numOrNull(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Count items actually inserted this turn across every add path the agent can
+ * take. `items_added_this_turn` used to only count the legacy single `add_item`
+ * tool — a turn that used the (prompt-preferred) batched `add_items` call always
+ * recorded 0 even when it inserted dozens of items (confirmed in beta data, see
+ * beta-scan-reliability-investigation.md Section 0.4). `add_items` always
+ * returns `success: true` at the top level (it's a batch), so its real count is
+ * `result.added`, not presence of `.success`.
+ */
+function countItemsAdded(actions) {
+  let count = 0;
+  for (const a of actions) {
+    if (a.tool === 'add_item' && a.result?.success) count += 1;
+    else if (a.tool === 'add_items' && Number.isFinite(a.result?.added)) count += a.result.added;
+  }
+  return count;
+}
+
+/**
+ * Did any tool call fail, or did a vision tool return a parseError, this turn?
+ * Both `had_error` call sites hardcoded `false` — a genuinely failed photo
+ * analysis (parseError set, items silently dropped) or a thrown tool call
+ * showed up identically to a clean turn in beta_interaction_logs.
+ */
+function deriveTurnError(actions) {
+  for (const a of actions) {
+    if (a.result && a.result.success === false) {
+      return { hadError: true, message: a.result.error || `${a.tool} failed` };
+    }
+    if ((a.tool === 'analyze_photo' || a.tool === 'analyze_video') && a.result?.parseError) {
+      return { hadError: true, message: `${a.tool}: ${a.result.parseError}` };
+    }
+  }
+  return { hadError: false, message: null };
 }
 
 // ── System Prompt ───────────────────────────────────────────────────────────────
@@ -481,10 +522,32 @@ const toolHandlers = {
  * Extracted from the tool-execution loop so this wiring is directly testable
  * without a full Gemini + DB turn.
  */
-async function executeTool(name, args, userId, plan, attachments) {
+async function executeTool(name, args, userId, plan, ctxOrAttachments = {}) {
+  // Back-compat: callers/tests may pass the attachments array directly.
+  const ctx = Array.isArray(ctxOrAttachments)
+    ? { attachments: ctxOrAttachments }
+    : (ctxOrAttachments || {});
   const handler = toolHandlers[name];
   if (!handler) return { success: false, error: `Unknown tool: ${name}` };
-  return handler(args, userId, plan, { attachments });
+
+  // Scan calls get a scan_events recorder wired to the workflow's onStage hook
+  // (Pathway B's scanStatus contract) so every analyze call leaves a durable,
+  // per-stage forensic row regardless of outcome (issue #45).
+  if (name === 'analyze_photo' || name === 'analyze_video') {
+    const recorder = createScanRecorder({
+      userId,
+      sessionId: ctx.sessionId || null,
+      requestId: ctx.requestId || null,
+      mediaKind: name === 'analyze_video' ? 'video' : 'photo',
+      mediaUrl: args.file_url
+        || (Array.isArray(args.files) && args.files[0] && args.files[0].file_url)
+        || null,
+    });
+    const toolResult = await handler(args, userId, plan, { ...ctx, onStage: recorder.onStage });
+    recorder.finish(toolResult);
+    return toolResult;
+  }
+  return handler(args, userId, plan, ctx);
 }
 
 // ── Conversation Loop ───────────────────────────────────────────────────────────
@@ -522,18 +585,32 @@ const TOOL_LABELS = {
  */
 async function processMessage(userId, message, attachments = [], plan = 'basic', onEvent = null) {
   const interactionStart = Date.now();
+  const requestId = crypto.randomUUID();
   let ttfeMs = null;
   let geminiTotalMs = 0;
   let visionTotalMs = 0;
   let geminiRounds = 0;
   let visionMetadata = {};
+  // Hoisted so the catch block below can log a row even if we fail before
+  // these are otherwise assigned (session lookup, first Gemini call, etc.) —
+  // a hard failure must still produce a diagnosable beta_interaction_logs row
+  // instead of writing nothing (see investigation Section 5.1 #2).
+  let sessionId = null;
+  let actions = [];
+  let modelId = null;
+  let log = rootLog.child({ userId, requestId });
 
   const emit = (type, data = {}) => {
     if (ttfeMs === null) ttfeMs = Date.now() - interactionStart;
     if (onEvent) onEvent({ type, ...data });
   };
+
+  try {
+  // Inside the try, not before it: this guard used to throw ahead of the
+  // logging path, so an AI-unavailable turn wrote no beta_interaction_logs
+  // row at all — the one failure mode flagged as actually hit in the beta.
   if (!geminiClient) {
-    console.error('[census] GOOGLE_AI_API_KEY is not configured — AI unavailable');
+    log.error('GOOGLE_AI_API_KEY is not configured — AI unavailable');
     throw new AiUnavailableError();
   }
 
@@ -544,13 +621,16 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
      ORDER BY updated_at DESC LIMIT 1`,
     [userId]
   );
+  let isNewSession = false;
   if (!session) {
     session = await db.one(
       `INSERT INTO nexus_sessions (user_id) VALUES ($1) RETURNING *`, [userId]
     );
-    console.log(`[census] New session for user: ${session.id}`);
+    isNewSession = true;
   }
-  const sessionId = session.id;
+  sessionId = session.id;
+  log = log.child({ sessionId });
+  if (isNewSession) log.info('New session for user');
 
   // ── 2. Load conversation history with context consolidation ───────────────
   const contextSummaryText = session.context_summary || null;
@@ -637,7 +717,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   // ── 6. Call Gemini ────────────────────────────────────────────────────────
   // Always use flash for the agent loop — fast + reliable tool-calling.
   // Vision functions handle their own model selection based on plan.
-  const modelId = 'gemini-2.5-flash';
+  modelId = 'gemini-2.5-flash';
   const model = instrumentModel(geminiClient.getGenerativeModel({
     model: modelId,
     systemInstruction,
@@ -648,11 +728,10 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     generationConfig: { maxOutputTokens: 8192 },
   }), { userId, modelName: modelId });
 
-  const actions = [];
   let maxToolRounds = AGENT_LIMITS.specialistMaxToolRounds;
   let censusRound = 0;
 
-  console.log(`[census] Starting loop — ${maxToolRounds} rounds max`);
+  log.info('Starting agent loop', { maxToolRounds });
 
   emit('thinking');
   let geminiCallStart = Date.now();
@@ -662,7 +741,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
   while (maxToolRounds > 0) {
     censusRound++;
-    console.log(`[census] ── Round ${censusRound}/${AGENT_LIMITS.specialistMaxToolRounds} ──`);
+    log.info('Round start', { round: censusRound, maxRounds: AGENT_LIMITS.specialistMaxToolRounds });
     const response = result.response;
     const candidate = response.candidates?.[0];
     if (!candidate) break;
@@ -684,7 +763,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
     if (functionCalls.length === 0) {
       // No more tool calls — this is the final text response
-      console.log(`[census] Final response after ${censusRound} round(s), ${actions.length} tool call(s)`);
+      log.info('Final response', { round: censusRound, toolCallCount: actions.length });
       const rawText = textParts.map(p => p.text).join('\n');
 
       // Build structured SpecialistResponse
@@ -708,7 +787,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       );
 
       // Update session
-      const itemsAdded = actions.filter(a => a.tool === 'add_item' && a.result?.success).length;
+      const itemsAdded = countItemsAdded(actions);
       const roomsAdded = actions.filter(a => a.tool === 'add_room' && a.result?.success).length;
       const titleUpdate = session.title ? '' : `, title = $3`;
       const titleParam = session.title ? [] : [message.substring(0, 100)];
@@ -725,13 +804,13 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
       // Fire-and-forget context summary generation
       generateContextSummary(sessionId).catch(err =>
-        console.error('[census] Summary generation failed:', err.message)
+        log.error('Summary generation failed', { error: err.message })
       );
 
       // Fire-and-forget metrics logging
       const totalMs = Date.now() - interactionStart;
       const toolCallNames = actions.map(a => a.tool);
-      const itemsAddedCount = actions.filter(a => a.tool === 'add_item' && a.result?.success).length;
+      const turnError = deriveTurnError(actions);
       metrics.logInteraction({
         userId, sessionId,
         timing: { totalMs, ttfeMs, geminiMs: geminiTotalMs, visionMs: visionTotalMs || null },
@@ -740,12 +819,12 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
           attachmentCount: attachments.length,
           attachmentTypes: attachments.map(a => a.mimeType),
           toolCalls: toolCallNames,
-          itemsAdded: itemsAddedCount,
+          itemsAdded,
           geminiModel: modelId,
           geminiRounds,
         },
         vision: visionMetadata,
-        error: { hadError: false },
+        error: turnError,
       }).catch(() => {});
 
       emit('done', { reply: structuredResponse.summary, actions, sessionId });
@@ -756,7 +835,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     const toolResponses = [];
     for (const part of functionCalls) {
       const { name, args } = part.functionCall;
-      console.log(`[census] Tool call: ${name}(${JSON.stringify(args).substring(0, 200)})`);
+      log.info('Tool call', { tool: name, args: JSON.stringify(args).substring(0, 200) });
 
       const toolLabel = TOOL_LABELS[name] || name.replace(/_/g, ' ');
       let detail = '';
@@ -779,20 +858,24 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
       let toolResult;
       try {
-        toolResult = await executeTool(name, args, userId, plan, attachments);
+        toolResult = await executeTool(name, args, userId, plan, { attachments, sessionId, requestId, log });
       } catch (err) {
-        console.error(`[census] Tool ${name} failed:`, err.message);
+        log.error('Tool call failed', { tool: name, error: err.message });
         toolResult = { success: false, error: err.message };
       }
 
-      // Collect vision timing/confidence metrics
+      // Collect vision timing/confidence metrics. Keyed off _detectedItemCount
+      // (always present on a successful analyze_* result) rather than
+      // _avgConfidence — the video path never sets avgConfidence, so this
+      // previously dropped detected_item_count/vision_provider on every video
+      // scan (confirmed empty on every beta row, see investigation Section 0.4).
       if ((name === 'analyze_photo' || name === 'analyze_video') && toolResult._visionMs) {
         visionTotalMs += toolResult._visionMs;
-        if (toolResult._avgConfidence != null) {
+        if (toolResult._detectedItemCount != null) {
           visionMetadata = {
             detectedItemCount: toolResult._detectedItemCount,
-            avgConfidence: toolResult._avgConfidence,
-            minConfidence: toolResult._minConfidence,
+            avgConfidence: toolResult._avgConfidence ?? null,
+            minConfidence: toolResult._minConfidence ?? null,
             provider: toolResult._visionProvider || 'gemini',
           };
         }
@@ -866,11 +949,11 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     geminiTotalMs += Date.now() - geminiCallStart;
     geminiRounds++;
     maxToolRounds--;
-    console.log(`[census] Round ${censusRound} complete — ${maxToolRounds} round(s) remaining, ${actions.length} tool call(s) so far`);
+    log.info('Round complete', { round: censusRound, remaining: maxToolRounds, toolCallCount: actions.length });
   }
 
   // Fallback if we hit max rounds
-  console.warn(`[census] Round limit exhausted after ${censusRound} rounds, ${actions.length} tool call(s) — returning fallback`);
+  log.warn('Round limit exhausted — returning fallback', { rounds: censusRound, toolCallCount: actions.length });
   const fallbackReply = 'I\'ve processed your request. Let me know what you\'d like to do next!';
   const fallbackResponse = buildFallbackResponse(fallbackReply, 'census', actions, true);
 
@@ -882,7 +965,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
   // Fire-and-forget metrics logging
   const fallbackTotalMs = Date.now() - interactionStart;
   const fallbackToolNames = actions.map(a => a.tool);
-  const fallbackItemsAdded = actions.filter(a => a.tool === 'add_item' && a.result?.success).length;
+  const fallbackItemsAdded = countItemsAdded(actions);
   metrics.logInteraction({
     userId, sessionId,
     timing: { totalMs: fallbackTotalMs, ttfeMs, geminiMs: geminiTotalMs, visionMs: visionTotalMs || null },
@@ -896,11 +979,35 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       geminiRounds,
     },
     vision: visionMetadata,
-    error: { hadError: false },
+    error: deriveTurnError(actions),
   }).catch(() => {});
 
   emit('done', { reply: fallbackReply, actions, sessionId });
   return { ...fallbackResponse, actions, sessionId };
+  } catch (err) {
+    // A hard failure previously wrote NOTHING to beta_interaction_logs — gaps in
+    // the timeline had to be inferred as "probably a failure" (investigation
+    // Section 2.2). Log a row with had_error=true before rethrowing so the
+    // route's existing error handling/response is unchanged.
+    const totalMs = Date.now() - interactionStart;
+    metrics.logInteraction({
+      userId, sessionId,
+      timing: { totalMs, ttfeMs, geminiMs: geminiTotalMs, visionMs: visionTotalMs || null },
+      context: {
+        hadAttachments: attachments.length > 0,
+        attachmentCount: attachments.length,
+        attachmentTypes: attachments.map(a => a.mimeType),
+        toolCalls: actions.map(a => a.tool),
+        itemsAdded: countItemsAdded(actions),
+        geminiModel: modelId,
+        geminiRounds,
+      },
+      vision: visionMetadata,
+      error: { hadError: true, message: err.message },
+    }).catch(() => {});
+    log.error('processMessage threw', { error: err.message, stack: err.stack });
+    throw err;
+  }
 }
 
 // ── Context Summary Generation ──────────────────────────────────────────────────
@@ -975,7 +1082,7 @@ Write in third person: "The user..." not "You..."`,
     [summary, newSummaryThroughId, sessionId]
   );
 
-  console.log(`[census] Summary updated for session ${sessionId} (through msg ${newSummaryThroughId}, ${newMessages.length} new messages summarized)`);
+  rootLog.info('Summary updated', { sessionId, throughMessageId: newSummaryThroughId, newMessageCount: newMessages.length });
 }
 
-module.exports = { processMessage, generateContextSummary, SYSTEM_PROMPT, executeTool };
+module.exports = { processMessage, generateContextSummary, SYSTEM_PROMPT, executeTool, countItemsAdded, deriveTurnError };

@@ -74,3 +74,5 @@ replaying from empty.
 | `030_reconcile_init_schema_drift` | Backfill all remaining init↔migration drift: 6 tables, columns, 24 indexes |
 | `031_backfill_location_permissions` | Data repair: grant owner `permissions` to locations orphaned by the HTTP create path (made them invisible to reads) |
 | `032_add_inventory_shares` | `inventory_shares` table — tokenized public read-only inventory links for sharing with moving companies |
+| `036_add_scan_events` | `scan_events` table — one row per analyze_photo/analyze_video with per-stage status, error_stage, latency, token usage (Pathway F observability) |
+| `037_add_client_events` | `client_events` table — batched iOS client event log (upload/SSE/turn/review-card lifecycle) (Pathway F observability) |

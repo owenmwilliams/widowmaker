@@ -28,6 +28,7 @@ var inventoryRouter = require('./routes/api/inventory');
 var userRouter = require('./routes/api/user');
 var moveRouter = require('./routes/api/move');
 var agentsRouter = require('./routes/api/agents');
+var clientEventsRouter = require('./routes/api/clientEvents');
 
 // ── auth/ ─────────────────────────────────────────────────────────────────────
 var authRouter = require('./routes/auth/auth');
@@ -167,6 +168,10 @@ app.use('/api/vision', rateLimits.visionLimiter, visionRouter);
 
 // ── API — Agents ─────────────────────────────────── /api/agents/nexus /api/agents/census /api/agents/vector
 app.use('/api/agents', agentsRouter);
+
+// ── API — Client events ──────────────────────────── /api/client-events (not an AI call — outside the agents
+// router so it isn't gated by enforceAiBudget; a budget-capped user must still be able to report a failed turn)
+app.use('/api/client-events', clientEventsRouter);
 
 // ── Public (unauthenticated, token-scoped) ───────────── /public/inventory/:token
 app.use('/public', publicShareRouter);

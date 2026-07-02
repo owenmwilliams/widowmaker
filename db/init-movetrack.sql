@@ -1058,3 +1058,64 @@ CREATE TABLE IF NOT EXISTS inventory_shares (
 );
 CREATE INDEX IF NOT EXISTS idx_inventory_shares_token ON inventory_shares(token);
 CREATE INDEX IF NOT EXISTS idx_inventory_shares_user ON inventory_shares(user_id);
+
+-- ============================================================================
+-- SCAN EVENTS (migration 036) — one row per analyze_photo/analyze_video call,
+-- with per-stage status, error attribution, latency, and token usage.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS scan_events (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  session_id TEXT,
+  request_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  media_kind TEXT NOT NULL CHECK (media_kind IN ('photo', 'video')),
+  media_url TEXT,
+  media_bytes BIGINT,
+  frame_count INT,
+
+  provider TEXT,
+  model TEXT,
+
+  status TEXT NOT NULL CHECK (status IN ('success', 'error')),
+  error_stage TEXT,
+  error_message TEXT,
+  stage_status JSONB,
+  parse_error TEXT,
+
+  latency_ms INT,
+  token_usage JSONB,
+
+  item_count INT
+);
+CREATE INDEX IF NOT EXISTS idx_scan_events_user ON scan_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_scan_events_session ON scan_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_scan_events_created ON scan_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scan_events_status_error ON scan_events(status) WHERE status = 'error';
+
+-- ============================================================================
+-- CLIENT EVENTS (migration 037) — batched iOS client event log (upload/SSE/
+-- turn/review-card lifecycle). Not a crash reporter — see
+-- MoveTrack-iOS/widowmaker/MoveTrack/Services/ClientEventLogger.swift.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS client_events (
+  id BIGSERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+  session_id TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  event_type TEXT NOT NULL CHECK (event_type IN (
+    'upload_started', 'upload_succeeded', 'upload_failed',
+    'sse_timeout', 'turn_failed',
+    'review_card_shown', 'review_card_committed'
+  )),
+  client_at TIMESTAMPTZ,
+  metadata JSONB,
+  app_version TEXT,
+  os_version TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_client_events_user ON client_events(user_id);
+CREATE INDEX IF NOT EXISTS idx_client_events_session ON client_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_client_events_created ON client_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_client_events_type ON client_events(event_type);

@@ -146,6 +146,17 @@ final class NexusViewModel: ObservableObject {
             if let dups = stagedDuplicates { pendingDuplicates = DuplicateReview(pairs: dups) }
             stagedReview = nil
             stagedDuplicates = nil
+            // `NexusError.server("The assistant stopped responding...")` is the SSE
+            // stream ending without a `done` event (streamSSE, NexusService.swift) —
+            // a soft timeout the raw URLError check alone would miss.
+            if let urlErr = error as? URLError, urlErr.code == .timedOut {
+                ClientEventLogger.shared.log(.sseTimeout, sessionId: sessionId)
+            } else if case .server(let message) = error as? NexusError, message.contains("stopped responding") {
+                ClientEventLogger.shared.log(.sseTimeout, sessionId: sessionId, metadata: ["reason": "no_done_event"])
+            } else {
+                ClientEventLogger.shared.log(.turnFailed, sessionId: sessionId,
+                                              metadata: ["error": String(describing: error).prefix(200).description])
+            }
         }
 
         isLoading = false
@@ -176,12 +187,15 @@ final class NexusViewModel: ObservableObject {
 
         isUploading = true
         phaseText = isVideo ? "Uploading video…" : "Uploading photo…"
+        let mediaMetadata = ["mediaKind": isVideo ? "video" : "photo", "bytes": String(data.count)]
+        ClientEventLogger.shared.log(.uploadStarted, sessionId: sessionId, metadata: mediaMetadata)
         do {
             let uploaded = isVideo
                 ? try await service.uploadMediaDirect(data: data, mimeType: mimeType, filename: filename)
                 : try await service.uploadMedia(data: data, mimeType: mimeType, filename: filename)
             isUploading = false
             phaseText = ""
+            ClientEventLogger.shared.log(.uploadSucceeded, sessionId: sessionId, metadata: mediaMetadata)
             // Propagate the send outcome: a failed scan turn must return false
             // so the composer keeps the media for a retry (the upload alone
             // succeeding isn't enough — the old `return true` here silently
@@ -194,11 +208,14 @@ final class NexusViewModel: ObservableObject {
             isUploading = false
             phaseText = ""
             sessionExpired = true
+            ClientEventLogger.shared.log(.uploadFailed, sessionId: sessionId, metadata: mediaMetadata)
             return false
         } catch {
             isUploading = false
             phaseText = ""
             errorMessage = friendlyError(error)
+            ClientEventLogger.shared.log(.uploadFailed, sessionId: sessionId,
+                                          metadata: mediaMetadata.merging(["error": String(describing: error).prefix(200).description]) { a, _ in a })
             return false
         }
     }
@@ -291,6 +308,8 @@ final class NexusViewModel: ObservableObject {
                 role: .model,
                 text: "✅ Added \(added) item\(added == 1 ? "" : "s")\(dest) to your inventory."
             ))
+            ClientEventLogger.shared.log(.reviewCardCommitted, sessionId: sessionId,
+                                          metadata: ["itemCount": String(added)])
         } catch NexusError.unauthorized {
             sessionExpired = true
         } catch {
@@ -388,6 +407,8 @@ final class NexusViewModel: ObservableObject {
                     room: event.room,
                     items: items
                 )
+                ClientEventLogger.shared.log(.reviewCardShown, sessionId: sessionId,
+                                              metadata: ["mediaKind": event.mediaKind ?? "photo", "itemCount": String(items.count)])
             }
 
         case "duplicate_pairs":

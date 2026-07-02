@@ -49,6 +49,40 @@ async function logInteraction(payload) {
 }
 
 /**
+ * Record items added outside a chat turn (the native review-card commit path,
+ * POST /inventory/commit). Without this, items_added_this_turn undercounts —
+ * the commit route writes items straight to `items` and never touches
+ * beta_interaction_logs or nexus_sessions.items_added, so a session's "items
+ * added" total silently excludes everything committed via the native card.
+ * Same hook shape as the chat-turn logInteraction call so both paths roll up
+ * identically in reportingService.
+ */
+async function recordCommitInteraction({ userId, sessionId, itemsAdded, errors = [] }) {
+  try {
+    if (sessionId) {
+      await db.none(
+        `UPDATE nexus_sessions SET items_added = items_added + $1, updated_at = NOW() WHERE id = $2`,
+        [itemsAdded, sessionId]
+      );
+    }
+  } catch (err) {
+    console.error('[metrics] recordCommitInteraction session update failed (non-fatal):', err.message);
+  }
+
+  return logInteraction({
+    userId, sessionId,
+    context: {
+      toolCalls: ['inventory_commit'],
+      itemsAdded,
+    },
+    error: {
+      hadError: itemsAdded === 0 && errors.length > 0,
+      message: errors[0] || null,
+    },
+  });
+}
+
+/**
  * Log item-level feedback (correct / wrong / hallucinated).
  */
 async function logItemFeedback(itemId, userId, feedback, interactionLogId = null) {
@@ -63,4 +97,4 @@ async function logItemFeedback(itemId, userId, feedback, interactionLogId = null
   }
 }
 
-module.exports = { logInteraction, logItemFeedback };
+module.exports = { logInteraction, logItemFeedback, recordCommitInteraction };
