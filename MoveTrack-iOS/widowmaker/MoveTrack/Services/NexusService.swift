@@ -209,6 +209,11 @@ final class NexusService {
     private func withOneRetry<T>(_ operation: () async throws -> T) async throws -> T {
         do {
             return try await operation()
+        } catch is CancellationError {
+            // The task (or its owning screen) was cancelled — e.g. the user
+            // backgrounded the app or navigated away mid-upload. Retrying
+            // would just race a second attempt against a caller that's gone.
+            throw CancellationError()
         } catch {
             return try await operation()
         }
