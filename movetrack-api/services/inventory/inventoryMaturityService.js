@@ -184,43 +184,33 @@ async function inventoryReadinessAssessment(userId) {
 
   // ── Next steps ────────────────────────────────────────────────────────────
 
+  // Next steps are an explicit checklist, not a summary: ONE bullet per empty
+  // room, ONE per large item without a photo, ONE per lived-in room without a
+  // walkthrough. Collapsed strings ("empty rooms: A, B, C") read as one vague
+  // chore; per-item bullets read as n small ones the user can knock out, and
+  // they lead straight to the Share action (2026-07-02 request).
   const nextSteps = [];
+  const mediaGaps = await getMediaGaps(userId);
 
-  if (emptyRooms.length > 0) {
-    const names = emptyRooms.slice(0, 3).map(r => r.name).join(', ');
-    nextSteps.push(`Catalog items in empty rooms: ${names}`);
+  for (const r of emptyRooms) {
+    nextSteps.push(`Catalog items in ${r.name}`);
   }
-  if (total > 0 && total < 20) {
-    nextSteps.push(`Keep adding items — ${total} logged so far, most moves have 50+`);
+  for (const gap of mediaGaps.largeItemsMissingPhoto) {
+    for (const item of gap.items) {
+      nextSteps.push(`Take a picture of ${item}`);
+    }
   }
-  if (sparseRooms.length > 0) {
-    const names = sparseRooms.slice(0, 3).map(r => `${r.name} (${r.item_count})`).join(', ');
-    nextSteps.push(`Add more items to sparse rooms: ${names}`);
-  }
-  if (total > 5 && itemStats.has_weight < total * 0.5) {
-    nextSteps.push(`Add weight estimates — only ${itemStats.has_weight} of ${total} items have weights`);
-  }
-  if (total > 5 && itemStats.has_dimensions < total * 0.5) {
-    nextSteps.push(`Add dimensions — only ${itemStats.has_dimensions} of ${total} items have measurements`);
+  // An empty room's "Catalog" bullet already covers it — walkthrough bullets
+  // are for lived-in rooms that still have no video.
+  const emptyNames = new Set(emptyRooms.map((r) => (r.name || '').toLowerCase()));
+  for (const r of mediaGaps.roomsMissingVideo) {
+    if (!emptyNames.has((r.room || '').toLowerCase())) {
+      nextSteps.push(`Record a walkthrough of ${r.room}`);
+    }
   }
   if (duplicates.length > 0) {
     const examples = duplicates.slice(0, 3).map(d => `"${d.item_name}" in ${d.room_name}`).join(', ');
     nextSteps.push(`Review potential duplicates: ${examples}`);
-  }
-  if (total > 10 && itemStats.has_photo < total * 0.3) {
-    nextSteps.push(`Add photos — only ${itemStats.has_photo} of ${total} items have one`);
-  }
-
-  // Media completeness nudges (soft): photos for the big-ticket items and a
-  // walkthrough per room. These are what make a mover's quote trustworthy.
-  const mediaGaps = await getMediaGaps(userId);
-  if (mediaGaps.largeItemsMissingPhoto.length > 0) {
-    const first = mediaGaps.largeItemsMissingPhoto[0];
-    nextSteps.unshift(`Photograph the big items in ${first.room}: ${first.items.slice(0, 4).join(', ')}`);
-  }
-  if (mediaGaps.roomsMissingVideo.length > 0) {
-    const names = mediaGaps.roomsMissingVideo.slice(0, 3).map((r) => r.room).join(', ');
-    nextSteps.push(`Record a quick walkthrough video of: ${names}`);
   }
 
   return {
@@ -242,7 +232,7 @@ async function inventoryReadinessAssessment(userId) {
       photos: { score: photoScore, detail: `${itemStats.has_photo}/${total} have photos` },
       dataQuality: { score: qualityScore, detail: `${duplicates.length} potential duplicates` },
     },
-    nextSteps: nextSteps.slice(0, 3),
+    nextSteps,
   };
 }
 
