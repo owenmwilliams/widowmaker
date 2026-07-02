@@ -151,3 +151,60 @@ describe('media gaps include empty rooms', () => {
     expect(gaps.roomsMissingVideo.map(r => r.room)).not.toContain('Bathroom 1');
   });
 });
+
+describe('room resolution — phrases never become rooms', () => {
+  const ROOMS = [
+    { id: 1, name: 'Bathroom 1' },
+    { id: 2, name: 'Bathroom 2' },
+    { id: 3, name: 'Living Room' },
+    { id: 4, name: 'Dining Room' },
+  ];
+
+  function freshMutation() {
+    jest.resetModules();
+    jest.doMock('../../services/infra/db', () => ({
+      db: {
+        any: jest.fn(async (sql) => (/FROM collections/.test(sql) ? ROOMS : [])),
+        oneOrNone: jest.fn().mockResolvedValue(null),
+        one: jest.fn(),
+        none: jest.fn(),
+      },
+    }));
+    jest.doMock('../../services/infra/knex', () => jest.fn());
+    // The route describe above doMocks this module; take the real one here.
+    return jest.requireActual('../../services/inventory/inventoryMutationService');
+  }
+
+  test('cleanRoomPhrase strips narration filler', () => {
+    const { cleanRoomPhrase } = freshMutation();
+    expect(cleanRoomPhrase('I am scanning my living room')).toBe('living room');
+    expect(cleanRoomPhrase('Scanning my Bathroom 1')).toBe('bathroom 1');
+    expect(cleanRoomPhrase('the dining room')).toBe('dining room');
+    expect(cleanRoomPhrase('Den')).toBe('den');
+  });
+
+  test('chatty phrases resolve to the existing room', async () => {
+    const { matchExistingRoom } = freshMutation();
+    expect((await matchExistingRoom('u1', 'Scanning my Bathroom 1')).name).toBe('Bathroom 1');
+    expect((await matchExistingRoom('u1', 'I am scanning my living room')).name).toBe('Living Room');
+    expect((await matchExistingRoom('u1', 'dining room')).name).toBe('Dining Room');
+  });
+
+  test('an ambiguous fragment does not guess between rooms', async () => {
+    const { matchExistingRoom } = freshMutation();
+    expect(await matchExistingRoom('u1', 'bathroom')).toBeNull(); // 1 or 2 — don't guess
+    expect(await matchExistingRoom('u1', 'garage')).toBeNull();   // genuinely new
+  });
+
+  test('roomFromCaption cleans the hint the review card shows', () => {
+    jest.resetModules();
+    // scanJobService's inner require must see the REAL cleanRoomPhrase (the
+    // route describe above doMocks inventoryMutationService without it).
+    jest.doMock('../../services/inventory/inventoryMutationService', () =>
+      jest.requireActual('../../services/inventory/inventoryMutationService'));
+    const { roomFromCaption } = jest.requireActual('../../services/inventory/scanJobService');
+    expect(roomFromCaption('I am scanning my living room')).toBe('Living Room');
+    expect(roomFromCaption('Scanning my Bathroom 1')).toBe('Bathroom 1');
+    expect(roomFromCaption('Can you believe how much stuff is in here? Anyway, this is the garage!')).toBeNull();
+  });
+});
