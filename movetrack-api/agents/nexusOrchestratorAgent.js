@@ -110,7 +110,7 @@ You are driving this conversation. Ask one question at a time and take action im
    a. "Is that an apartment or a house — and how many bedrooms and bathrooms?" → save home_type, bedrooms, bathrooms (this also powers the reasonableness check before sharing).
    b. "Last thing about your current place: which floor is it on, any stairs or an elevator, and how's parking for a truck?" → save number_of_flights + has_stairs, has_elevator, parking_situation, and put the floor in access_notes. Make reasonable assumptions (a single-family house is usually ground floor, no elevator) instead of pressing for every detail.
 5. Ask where they're moving TO: "And where are you headed? Drop the address — plus the same quick access details (floor, stairs or elevator, parking)." → call set_location with location_type "destination", the address, and the access details. Movers need the destination access too. If they don't know the destination yet, that's fine — skip it and move on.
-6. Create the rooms in ONE single delegate_to_census call — list them ALL at once (do NOT create them one-per-delegation; that burns the turn budget and produces a messy reply). Base the set on the home size: Kitchen, Living Room, the Bedrooms, the Bathrooms. Then ASK the user about anything else, naming what you've set up and giving concrete examples: "Great — so far I've set up Kitchen, Living Room, Bedroom 1–3, and Bathroom 1–2. Any other rooms to add — garage, office, dining room, laundry, basement, storage, hallway?" Offer a prefill button so they can list extras. Create any extras they name in a single follow-up delegate_to_census call, then call mark_onboarding_complete.
+6. Create the rooms with ONE single create_rooms call — pass them ALL in the rooms[] array at once (create_rooms is deterministic and does NOT use the delegation budget, so room setup can never be dropped by a processing limit; do NOT use delegate_to_census for rooms). Base the set on the home size: Kitchen, Living Room, the Bedrooms, the Bathrooms. Then ASK the user about anything else, naming what you've set up and giving concrete examples: "Great — so far I've set up Kitchen, Living Room, Bedroom 1–3, and Bathroom 1–2. Any other rooms to add — garage, office, dining room, laundry, basement, storage, hallway?" Offer a prefill button so they can list extras. Create any extras they name with a single follow-up create_rooms call, then call mark_onboarding_complete.
    → If a returning user ever mentions their home size, destination, or access details later, call set_location/update_location to save them too.
 7. Transition to cataloging: "You're all set! Now let's start logging what's in your [first room]. How would you like to add items?"
    → Include a [BUTTONS] block offering three input methods:
@@ -279,6 +279,21 @@ const toolDeclarations = [
       },
     },
   },
+  {
+    name: 'create_rooms',
+    description: 'Create one or more rooms/collections directly. This is a fast, deterministic DB action that does NOT consume a delegation — use it (not delegate_to_census) to set up the home\'s rooms during onboarding, passing EVERY room name in a single call so nothing is dropped. Also use it any time you need to add rooms before cataloging.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        rooms: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: 'All room names to create, e.g. ["Kitchen","Living Room","Bedroom 1","Bathroom 1"].',
+        },
+      },
+      required: ['rooms'],
+    },
+  },
 ];
 
 // ── Tool Labels for SSE ─────────────────────────────────────────────────────────
@@ -293,6 +308,7 @@ const TOOL_LABELS = {
   update_location: 'Updating location…',
   mark_onboarding_complete: 'Completing setup…',
   create_share: 'Creating share link…',
+  create_rooms: 'Setting up rooms…',
 };
 
 // ── Decision Engine ─────────────────────────────────────────────────────────────

@@ -2,8 +2,12 @@ const express = require('express');
 const multer = require('multer');
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
 const nexusOrchestrator = require('../../../agents/nexusOrchestratorAgent');
+const censusAgent = require('../../../agents/censusAgent');
+const media = require('../../../services/inventory/mediaInventoryWorkflowService');
 const mediaAssetService = require('../../../services/infra/mediaAssetService');
+const gcs = require('../../../services/infra/gcsService');
 const inventoryMutation = require('../../../services/inventory/inventoryMutationService');
+const rateLimits = require('../../../config/rateLimits');
 const sessions = require('../../../services/infra/agentSessionService');
 const metrics = require('../../../services/infra/metricsService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
@@ -233,37 +237,63 @@ router.post('/inventory/commit', express.json(), async (req, res) => {
   if (items.length > 200) return res.status(400).json({ error: 'Too many items in one request (max 200)' });
 
   const defaultRoom = typeof req.body?.room === 'string' ? req.body.room.trim() : '';
+  const scanId = (typeof req.body?.scanId === 'string' && req.body.scanId.trim())
+    ? req.body.scanId.trim().slice(0, 64)
+    : null;
   const num = (v) => {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? n : undefined;
   };
 
+  // Idempotency, keyed on scan identity — NOT on (name, room). The review card
+  // is the user's curated list, so we add every reviewed item; the only thing we
+  // skip is re-submitting the exact SAME card (double-tap, retry). A rescan is a
+  // new card with a new scanId, so its corrected items always land. Clients that
+  // don't send a scanId simply always add (the composer disables during commit).
+  if (scanId) {
+    let alreadyCommitted = false;
+    try {
+      alreadyCommitted = await censusAgent.scanAlreadyCommitted(userId, scanId);
+    } catch (_) { /* fail open — never block a legitimate commit */ }
+    if (alreadyCommitted) {
+      return res.json({
+        success: true, addedCount: 0, skippedCount: items.length, failedCount: 0,
+        failures: [], alreadyCommitted: true,
+      });
+    }
+  }
+
+  const normalized = items
+    .filter(r => r && typeof r === 'object' && String(r.name || '').trim())
+    .map(r => ({
+      name: String(r.name).trim().slice(0, 200),
+      room: (String(r.room || '').trim() || defaultRoom || 'Unsorted').slice(0, 120),
+      quantity: Number.isFinite(Number(r.quantity)) && Number(r.quantity) > 0 ? Math.floor(Number(r.quantity)) : 1,
+      raw: r,
+    }));
+
   let addedCount = 0;
-  const errors = [];
-  for (const raw of items) {
-    if (!raw || typeof raw !== 'object') continue;
-    const name = String(raw.name || '').trim().slice(0, 200);
-    if (!name) continue;
-    const room = (String(raw.room || '').trim() || defaultRoom || 'Unsorted').slice(0, 120);
-    const qty = Number(raw.quantity);
+  const failures = [];
+  for (const it of normalized) {
     try {
       const result = await inventoryMutation.addItem(userId, {
-        name,
-        room_name: room,
-        quantity: Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 1,
-        weight_lbs: num(raw.weightLbs),
-        length_in: num(raw.lengthIn),
-        width_in: num(raw.widthIn),
-        height_in: num(raw.heightIn),
-        material: raw.material ? String(raw.material).slice(0, 60) : undefined,
-        fragile: raw.fragile === true,
-        picture_url: typeof raw.pictureUrl === 'string' ? raw.pictureUrl : undefined,
-        confidence_score: num(raw.confidence),
+        name: it.name,
+        room_name: it.room,
+        quantity: it.quantity,
+        weight_lbs: num(it.raw.weightLbs),
+        length_in: num(it.raw.lengthIn),
+        width_in: num(it.raw.widthIn),
+        height_in: num(it.raw.heightIn),
+        material: it.raw.material ? String(it.raw.material).slice(0, 60) : undefined,
+        fragile: it.raw.fragile === true,
+        picture_url: typeof it.raw.pictureUrl === 'string' ? it.raw.pictureUrl : undefined,
+        confidence_score: num(it.raw.confidence),
         confidence_source: 'scan_review',
       });
       if (result?.success) addedCount++;
+      else failures.push({ name: it.name, error: result?.error || 'Could not add item' });
     } catch (err) {
-      errors.push(err.message);
+      failures.push({ name: it.name, error: err.message });
     }
   }
 
@@ -286,11 +316,38 @@ router.post('/inventory/commit', express.json(), async (req, res) => {
   }
 
   if (addedCount === 0) {
-    return res.status(errors.length ? 500 : 400).json({
-      error: errors[0] || 'No items could be added. Set up a home location first.',
+    return res.status(failures.length ? 500 : 400).json({
+      error: failures[0]?.error || 'No items could be added. Set up a home location first.',
+      failures: failures.slice(0, 20),
     });
   }
-  res.json({ success: true, addedCount });
+
+  // Record the commit into the census transcript (with the scanId + item names)
+  // so the agent knows these items are already in the inventory — and so the
+  // chat "add them all" path can skip exactly this scan's items. Best-effort:
+  // never fail the user's commit over a bookkeeping write.
+  try {
+    await censusAgent.recordCensusToolCall(
+      userId,
+      'add_items',
+      {
+        items: normalized.map(it => ({ name: it.name, room_name: it.room, quantity: it.quantity })),
+        _via: 'review_card',
+        _scanId: scanId || undefined,
+      },
+      { success: true, added: addedCount, failed: failures.length, _via: 'review_card', _scanId: scanId || undefined }
+    );
+  } catch (err) {
+    console.error('[nexus] inventory/commit visibility record failed (non-fatal):', err.message);
+  }
+
+  res.json({
+    success: true,
+    addedCount,
+    skippedCount: 0,
+    failedCount: failures.length,
+    failures: failures.slice(0, 20),
+  });
 });
 
 // ─── POST /inventory/resolve-duplicates ────────────────────────────────────────
@@ -311,6 +368,77 @@ router.post('/inventory/resolve-duplicates', express.json(), async (req, res) =>
     } catch (_) { /* ownership-checked in deleteItem; skip failures */ }
   }
   res.json({ success: true, removedCount });
+});
+
+// ─── POST /rescan ───────────────────────────────────────────────────────────────
+// Deterministically re-run vision analysis on an already-uploaded photo/video.
+// Unlike the chat path, this ALWAYS invokes the vision tool — an explicit user
+// retry (the "Rescan" button) can't be talked out of by the LLM, which in the
+// beta apologized ("it's consistently failing") instead of re-running the scan.
+// Returns detected items in the same shape as the SSE 'detected_items' event so
+// the client shows the identical native review card.
+router.post('/rescan', rateLimits.rescanLimiter, express.json(), async (req, res) => {
+  const userId = req.user?.user_id;
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+  const url = String(req.body?.url || '');
+  const mimeType = String(req.body?.mimeType || '');
+  const room = (typeof req.body?.room === 'string' && req.body.room.trim())
+    ? req.body.room.trim().slice(0, 120)
+    : null;
+
+  // SSRF + cross-user guard: the server raw-fetches this URL, so it must be a
+  // GCS object in our bucket UNDER THE CALLER'S OWN prefix. Without this a user
+  // could hit internal endpoints or rescan another user's media and read their
+  // detected inventory back. Rejects anything that isn't exactly that shape.
+  const allowedPrefix = `https://storage.googleapis.com/${gcs.BUCKET}/users/${userId}/`;
+  if (!url.startsWith(allowedPrefix) || url.includes('..')) {
+    return res.status(403).json({ error: 'That media URL is not accessible.' });
+  }
+  const isVideo = mimeType.startsWith('video/');
+  const isImage = mimeType.startsWith('image/');
+  if (!isVideo && !isImage) return res.status(400).json({ error: 'Unsupported media type' });
+
+  const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
+  const scanId = crypto.randomUUID();
+
+  try {
+    const result = isVideo
+      ? await media.analyzeVideoForInventory({ file_url: url, mime_type: mimeType, room_hint: room }, userId, plan)
+      : await media.analyzePhotoForInventory({ file_url: url, mime_type: mimeType, mode: 'multi_item', room_hint: room }, userId, plan);
+
+    if (!result || result.success === false) {
+      // Honest failure — don't return a fake success with an empty list.
+      return res.status(502).json({ error: (result && result.error) || 'Scan failed. Please try again.' });
+    }
+
+    const items = censusAgent.mapDetectedItemsForClient(result.items || [], room);
+
+    // Record the rescan into the census transcript so the agent has visibility
+    // of WHAT was found (names, not just a count) — a follow-up "add them all"
+    // otherwise sees "found 12" with no idea which. Best-effort.
+    try {
+      await censusAgent.recordCensusToolCall(
+        userId,
+        isVideo ? 'analyze_video' : 'analyze_photo',
+        { file_url: url, mime_type: mimeType, room_hint: room, _via: 'rescan', _scanId: scanId },
+        {
+          success: true,
+          itemCount: items.length,
+          items: items.map(i => ({ name: i.name, room: i.room })),
+          _via: 'rescan',
+          _scanId: scanId,
+        }
+      );
+    } catch (err) {
+      console.error('[nexus] rescan visibility record failed (non-fatal):', err.message);
+    }
+
+    res.json({ success: true, scanId, mediaKind: isVideo ? 'video' : 'photo', room, items, itemCount: items.length });
+  } catch (err) {
+    console.error('[nexus] rescan failed:', err.message);
+    res.status(500).json({ error: 'Rescan failed. Please try again.' });
+  }
 });
 
 // ─── POST /upload-url ──────────────────────────────────────────────────────────
