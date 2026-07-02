@@ -3,6 +3,11 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { instrumentVisionModel } = require('../ai/resilientModel');
 const { createLogger } = require('../logger');
+const {
+  videoItemsArraySchema,
+  framesResponseSchema,
+  wasTruncated,
+} = require('./visionSchemas');
 
 const log = createLogger({ component: 'videoService' });
 
@@ -25,7 +30,7 @@ Rules:
 - List large or heavy items individually: furniture, appliances, gym equipment, large electronics (TVs, monitors).
 - List fragile items individually: artwork, mirrors, musical instruments, glass items.
 - Consolidate small packable items by category. Use a SINGULAR unit name and set quantity to the count (e.g., name "Box of books" with quantity 3, NOT "~3 boxes of books" with quantity 1).
-- Target 15–20 total lines. Hard cap at 25 lines total.
+- List EVERY distinct item a mover would need to handle — do not stop early or artificially shorten the list. A cluttered room can be many lines.
 - Do not list the same item twice.
 - For each item, include:
   - name: descriptive name for ONE unit (e.g. "3-seat sofa", "55\\" TV", "Box of books", "Dining chair"). Always describe a single unit.
@@ -54,7 +59,7 @@ Identify EVERY household item a mover would need to pack or move — be thorough
 - List large/heavy items individually (furniture, appliances, electronics).
 - List fragile items individually (artwork, mirrors, glassware, instruments).
 - Group many small packable items into boxes (e.g. "Box of dishes" quantity 3, "Box of pantry goods" quantity 2) instead of skipping them — kitchens, closets, and garages have lots of these.
-- A typical room is 15–40 lines; a kitchen or garage may have more. Do NOT artificially shorten the list — capture what's actually there. Hard cap 60.
+- A typical room is 15–40 lines; a kitchen or garage may have more. Do NOT artificially shorten the list — capture everything that's actually there.
 - The same physical item can appear in several frames — list it ONCE.
 
 For each item include:
@@ -170,6 +175,7 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
     model: modelId,
     generationConfig: {
       responseMimeType: 'application/json',
+      responseSchema: videoItemsArraySchema,
       maxOutputTokens: 8192,
     },
   }), { userId, modelName: modelId });
@@ -187,6 +193,13 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
 
   const rawText = result.response.text();
   log.info('Response received', { chars: rawText.length });
+
+  // With structured output, truncation is the only way JSON comes back
+  // incomplete — surface it instead of silently returning a short list.
+  const truncated = wasTruncated(result);
+  if (truncated) {
+    console.warn('[videoService] Response hit maxOutputTokens — item list is truncated');
+  }
 
   let items = [];
   let parseError = null;
@@ -211,7 +224,7 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
 
   items = items.map(normalizeVideoItem);
 
-  return { rawText, items, parseError, usageMetadata: extractUsageMetadata(result), model: modelId };
+  return { rawText, items, parseError, truncated, usageMetadata: extractUsageMetadata(result), model: modelId };
 }
 
 /**
@@ -245,7 +258,11 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = nu
   // user_costs) on the heaviest call in the scan pipeline.
   const model = instrumentVisionModel(geminiClient.getGenerativeModel({
     model: modelId,
-    generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 8192 },
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: framesResponseSchema(!!audio),
+      maxOutputTokens: 8192,
+    },
   }), { userId, modelName: modelId });
 
   const parts = frames.map((f) => ({
@@ -265,10 +282,14 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = nu
   }
 
   const rawText = result.response.text();
+  const truncated = wasTruncated(result);
+  if (truncated) {
+    console.warn('[videoService] Frame analysis hit maxOutputTokens — item list is truncated');
+  }
   const { items: parsed, narrationNotes, parseError } = parseItemsArray(rawText);
   log.info('Frame analysis parsed items', { itemCount: parsed.length, hasNarrationNotes: !!narrationNotes });
   return {
-    rawText, items: parsed.map(normalizeVideoItem), narrationNotes, parseError,
+    rawText, items: parsed.map(normalizeVideoItem), narrationNotes, parseError, truncated,
     usageMetadata: extractUsageMetadata(result), model: modelId,
   };
 }

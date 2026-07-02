@@ -230,6 +230,9 @@ async function analyzePhotoForInventory(args, userId, plan, opts = {}) {
 
     let items = result.data?.items || result.items || [];
     let itemCount = result.data?.itemCount || result.itemCount || items.length;
+    // A MAX_TOKENS cut means the item list is incomplete — surface it as a
+    // degraded outcome, never a clean-looking success (Pathway E).
+    const truncated = !!(result.data?.truncated || result.truncated);
 
     // Plausibility floor: 0 items returned implausibly fast means something failed
     // at/before the provider and was swallowed — surface it as an error.
@@ -279,6 +282,10 @@ async function analyzePhotoForInventory(args, userId, plan, opts = {}) {
       _minConfidence: confidences.length > 0 ? Math.min(...confidences) : null,
       _visionProvider: 'gemini',
       ...(downloadDegraded ? { degraded: true, degradedStage: SCAN_STAGES.DOWNLOAD } : {}),
+      ...(truncated ? {
+        truncated: true,
+        warnings: ['Photo analysis hit the output limit — the item list may be incomplete. Send fewer items per photo or a closer shot to catch the rest.'],
+      } : {}),
     };
   } catch (err) {
     console.error('[census] analyzePhotoForInventory failed:', err.message);
@@ -321,6 +328,10 @@ async function inlineVideoFallback({ args, userId, plan, url, videoBuffer, emitS
   return {
     success: true, degraded: true, degradedPath: 'inline_video',
     items, itemCount: items.length, parseError: null,
+    ...(result.truncated ? {
+      truncated: true,
+      warnings: ['Scan hit the output limit — the item list may be incomplete. Re-scan a smaller section (one wall at a time) to catch the rest.'],
+    } : {}),
     _visionMs: analyzeMs, _detectedItemCount: items.length, _visionProvider: 'gemini',
     usageMetadata: result.usageMetadata || null,
     model: result.model || null,
@@ -427,6 +438,7 @@ async function analyzeVideoForInventory(args, userId, plan, opts = {}) {
     const result = await analyzeFrames(frames, plan, args.room_hint || null, audio, userId);
     const items = result.items || [];
     const parseError = result.parseError;
+    const truncated = !!result.truncated;
     const narrationNotes = result.narrationNotes || null;
     const analyzeMs = Date.now() - analyzeStart;
 
@@ -475,6 +487,10 @@ async function analyzeVideoForInventory(args, userId, plan, opts = {}) {
 
     return {
       success: true, items, itemCount: items.length, parseError: null,
+      ...(truncated ? {
+        truncated: true,
+        warnings: ['Scan hit the output limit — the item list may be incomplete. Re-scan a smaller section (one wall at a time) to catch the rest.'],
+      } : {}),
       _visionMs: analyzeMs,
       _detectedItemCount: items.length,
       _visionProvider: 'gemini',

@@ -43,6 +43,23 @@ function numOrNull(v) {
 }
 
 /**
+ * Map submit_response tool args onto the contextual fields buildSpecialistResponse
+ * expects (same shape as the old ```json block). Drops undefined keys so the
+ * builder's defaults apply, and ignores anything not in the contract.
+ */
+function normalizeSubmitArgs(args) {
+  const a = args && typeof args === 'object' ? args : {};
+  const out = {};
+  for (const key of [
+    'summary', 'workflow', 'step', 'confidence',
+    'recommended_orchestrator_action', 'next_suggested_step', 'user_action_required',
+  ]) {
+    if (a[key] !== undefined && a[key] !== null) out[key] = a[key];
+  }
+  return out;
+}
+
+/**
  * Count items actually inserted this turn across every add path the agent can
  * take. `items_added_this_turn` used to only count the legacy single `add_item`
  * tool — a turn that used the (prompt-preferred) batched `add_items` call always
@@ -389,30 +406,18 @@ BEFORE SHARING WITH MOVERS (when the user wants to share, generate a link, or as
 5. If everything looks plausible, reassure them it's ready and proceed to share.
 
 STRUCTURED RESPONSE FORMAT:
-When you give your FINAL response (no more tool calls), you MUST wrap it in a JSON code block. This is how the orchestrator understands your output. The format is:
+When you have no more inventory tools to run, deliver your FINAL response by calling the submit_response tool EXACTLY ONCE. This is how the orchestrator understands your output. Do NOT write your final answer as plain chat text, and do NOT call submit_response in the same turn as other tools — finish your tool work first, then submit.
 
-\`\`\`json
-{
-  "summary": "Your user-facing message goes here. This is what the user sees. Use all normal formatting (buttons, [IMG:] tags, markdown, etc.) inside this string.",
-  "workflow": "inventory_cataloging",
-  "step": "add_items",
-  "confidence": 0.9,
-  "recommended_orchestrator_action": "continue",
-  "next_suggested_step": "check_missing_context",
-  "state_delta": { "items_added": 3 }
-}
-\`\`\`
-
-Field guide:
-- summary: REQUIRED. The full user-facing message, exactly as you'd normally write it.
+submit_response fields:
+- summary: REQUIRED. The full user-facing message, exactly as you'd normally write it. Use all normal formatting (buttons, [IMG:] tags, markdown, etc.) inside this string.
 - workflow: REQUIRED. One of: "inventory_cataloging", "photo_analysis", "video_analysis", "inventory_review", "room_management", "duplicate_check", "readiness_check", "item_estimation", "greeting".
 - step: REQUIRED. The specific step just completed, e.g. "add_items", "analyze_photo", "confirm_items", "summarize_room", "check_gaps", "greet_user".
 - confidence: Optional 0.0-1.0. How confident you are in the overall result.
 - recommended_orchestrator_action: REQUIRED. One of: "continue" (normal flow), "ask_user" (you need user input to proceed), "stop_and_summarize" (task is done), "switch_agent" (user needs Vector), "retry_step" (something failed, worth retrying), "abort" (unrecoverable error).
-- next_suggested_step: Optional. What should happen next, e.g. "catalog_next_room", "review_duplicates", null if done.
-- state_delta: Optional. Key changes made, e.g. { "items_added": 3, "room_created": "Kitchen" }.
+- next_suggested_step: Optional. What should happen next, e.g. "catalog_next_room", "review_duplicates".
+- user_action_required: Optional boolean. True if you need the user to do something before progress can continue.
 
-IMPORTANT: Always use this format for your final response. Never return plain text without the JSON block.`;
+IMPORTANT: Always end by calling submit_response. Never return your final answer as plain text.`;
 
 // ── Tool Declarations ───────────────────────────────────────────────────────────
 
@@ -648,6 +653,38 @@ const toolDeclarations = [
         max_items: { type: SchemaType.INTEGER, description: 'Max items to estimate in one run (default 500). Leave unset to estimate everything.' },
         max_photo_calls: { type: SchemaType.INTEGER, description: 'Max large items to estimate from their photo (default 15).' },
       },
+    },
+  },
+  {
+    // Schema-constrained final response. Replaces the old "wrap your reply in a
+    // ```json block" contract, which failed to parse on the majority of real
+    // delegations (Pathway E — "structured JSON fallback used" warnings). The
+    // model calls this exactly once as its terminal turn; we build the validated
+    // SpecialistResponse directly from these args — no text parsing.
+    name: 'submit_response',
+    description: 'Deliver your FINAL structured response to the orchestrator. Call this EXACTLY ONCE when you have no more inventory tools to run, and never in the same turn as other tools.',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        summary: { type: SchemaType.STRING, description: 'The full user-facing message, exactly as you would write it (markdown, [IMG:] tags, buttons all allowed).' },
+        workflow: {
+          type: SchemaType.STRING,
+          format: 'enum',
+          enum: ['inventory_cataloging', 'photo_analysis', 'video_analysis', 'inventory_review', 'room_management', 'duplicate_check', 'readiness_check', 'item_estimation', 'greeting'],
+          description: 'The workflow this turn belongs to.',
+        },
+        step: { type: SchemaType.STRING, description: 'The specific step just completed, e.g. "add_items", "analyze_photo", "greet_user".' },
+        confidence: { type: SchemaType.NUMBER, description: 'Optional 0.0-1.0 overall confidence.' },
+        recommended_orchestrator_action: {
+          type: SchemaType.STRING,
+          format: 'enum',
+          enum: ['continue', 'ask_user', 'stop_and_summarize', 'switch_agent', 'retry_step', 'abort'],
+          description: 'What the orchestrator should do next.',
+        },
+        next_suggested_step: { type: SchemaType.STRING, description: 'Optional hint for the next step, e.g. "catalog_next_room".' },
+        user_action_required: { type: SchemaType.BOOLEAN, description: 'True if the user must act before progress can continue.' },
+      },
+      required: ['summary', 'workflow', 'step', 'recommended_orchestrator_action'],
     },
   },
 ];
@@ -933,8 +970,15 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     const functionCalls = parts.filter(p => p.functionCall);
     const textParts = parts.filter(p => p.text);
 
-    // Stream intermediate text if model produced text alongside tool calls
-    if (textParts.length > 0 && functionCalls.length > 0) {
+    // The final response is delivered by the submit_response tool. Split it out
+    // from the real inventory tools: if the model calls submit_response on its
+    // own, that's the terminal turn; if it (wrongly) mixes it with real tools,
+    // we run the real tools and let it re-submit after seeing their results.
+    const submitCall = functionCalls.find(p => p.functionCall.name === 'submit_response') || null;
+    const realCalls = functionCalls.filter(p => p.functionCall.name !== 'submit_response');
+
+    // Stream intermediate text if the model produced text alongside real tool calls
+    if (textParts.length > 0 && realCalls.length > 0) {
       const intermediateText = textParts.map(p => p.text).join('\n');
       emit('partial_reply', { text: intermediateText });
       // Persist intermediate text as a model message
@@ -944,23 +988,47 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       );
     }
 
-    if (functionCalls.length === 0) {
-      // No more tool calls — this is the final text response
-      log.info('Final response', { round: censusRound, toolCallCount: actions.length });
+    if (realCalls.length === 0) {
+      // Terminal turn — either submit_response was called (preferred) or the
+      // model returned plain text (legacy ```json contract, still supported).
+      log.info('Final response', { round: censusRound, toolCallCount: actions.length, viaSubmit: !!submitCall });
       const rawText = textParts.map(p => p.text).join('\n');
 
       // Build structured SpecialistResponse
       const derived = deriveFieldsFromActions(actions, 'census', false);
-      const geminiFields = parseJsonBlock(rawText);
       let structuredResponse;
 
-      if (geminiFields && geminiFields.summary) {
+      // Only take the submit_response path when it carries a non-empty summary.
+      // Gemini's `required` isn't a hard guarantee (an empty string satisfies it),
+      // and buildSpecialistResponse → validateSpecialistResponse throws on a
+      // missing summary — which would fail the whole delegated tool call. On a
+      // bad/empty submit, fall through to the legacy text/fallback path instead.
+      const submitArgs = submitCall ? normalizeSubmitArgs(submitCall.functionCall.args) : null;
+      const hasValidSubmit = !!(submitArgs && typeof submitArgs.summary === 'string' && submitArgs.summary.trim());
+
+      if (hasValidSubmit) {
+        // Schema-constrained args come straight from the tool call — no parsing,
+        // no fallback warning.
         structuredResponse = buildSpecialistResponse(
           { agent: 'census', ...derived },
-          geminiFields
+          submitArgs
         );
       } else {
-        structuredResponse = buildFallbackResponse(rawText, 'census', actions, false);
+        if (submitCall) {
+          log.warn('submit_response had no usable summary — falling back to legacy/text path');
+        }
+        const geminiFields = parseJsonBlock(rawText);
+        if (geminiFields && geminiFields.summary) {
+          structuredResponse = buildSpecialistResponse(
+            { agent: 'census', ...derived },
+            geminiFields
+          );
+        } else {
+          // buildFallbackResponse uses the text as the summary; guarantee it's
+          // non-empty so validation can't throw out of processMessage.
+          const safeReply = rawText.trim() || "I've processed your request. Let me know what you'd like to do next!";
+          structuredResponse = buildFallbackResponse(safeReply, 'census', actions, false);
+        }
       }
 
       // Persist model reply (store summary as the message content)
@@ -1014,9 +1082,15 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       return { ...structuredResponse, actions, sessionId };
     }
 
-    // Execute function calls
+    // A premature submit_response (mixed with real tools) is dropped for this
+    // round; the model re-submits once it sees the tool results.
+    if (submitCall && realCalls.length > 0) {
+      log.warn('submit_response called alongside real tools — deferring it until after tool results');
+    }
+
+    // Execute function calls (real inventory tools only; submit_response is terminal)
     const toolResponses = [];
-    for (const part of functionCalls) {
+    for (const part of realCalls) {
       const { name, args } = part.functionCall;
       log.info('Tool call', { tool: name, args: JSON.stringify(args).substring(0, 200) });
 
@@ -1115,7 +1189,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     }
 
     // Send tool results back to Gemini
-    contents.push({ role: 'model', parts: functionCalls.map(p => ({ functionCall: p.functionCall })) });
+    contents.push({ role: 'model', parts: realCalls.map(p => ({ functionCall: p.functionCall })) });
     contents.push({ role: 'user', parts: toolResponses });
 
     emit('thinking');
