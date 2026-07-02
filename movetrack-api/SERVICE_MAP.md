@@ -26,7 +26,8 @@ Tracks every file that moved, was created, or was deleted during the `refactor/a
 | `services/inventory/inventoryMutationService.js` | censusAgent tool handlers | addItem, updateItem, deleteItem, addRoom, updateRoom, updateLocation, findOrCreateRoom, getPrimaryLocationId |
 | `services/inventory/inventoryQueryService.js` | censusAgent + vectorAgent | searchItems, getItemPhoto, getInventoryTotals |
 | `services/inventory/duplicateDetectionService.js` | censusAgent tool handlers | findDuplicates, levenshtein |
-| `services/inventory/mediaInventoryWorkflowService.js` | censusAgent tool handlers | analyzePhotoForInventory, analyzeVideoForInventory, downloadBuffer |
+| `services/inventory/mediaInventoryWorkflowService.js` | censusAgent tool handlers | analyzePhotoForInventory, analyzeVideoForInventory |
+| `services/infra/mediaDownloadService.js` | `mediaInventoryWorkflowService.js`'s inline `downloadBuffer` (Pathway A, issue #40) | downloadBuffer, MediaDownloadError |
 | `services/move/truckSizingService.js` | vectorAgent inline logic | TRUCK_SIZES, recommendTruckSize |
 | `services/move/moveCostService.js` | vectorAgent inline logic | COST_PARAMS, estimateMoveCost |
 | `services/move/laborEstimationService.js` | vectorAgent inline logic | estimateLabor |
