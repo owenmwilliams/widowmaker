@@ -173,6 +173,9 @@ struct NexusChatView: View {
                         MessageBubble(message: message, onButton: handleAgentButton)
                             .id(message.id)
                     }
+                    if vm.isUploading {
+                        UploadProgressRow(progress: vm.uploadProgress, label: vm.phaseText)
+                    }
                     if vm.isLoading {
                         TypingIndicator(phase: vm.phaseText, detail: vm.detailText)
                     }
@@ -184,6 +187,7 @@ struct NexusChatView: View {
             .scrollDismissesKeyboard(.interactively)
             .onChange(of: vm.messages.count) { _, _ in scrollToBottom(proxy) }
             .onChange(of: vm.isLoading) { _, _ in scrollToBottom(proxy) }
+            .onChange(of: vm.isUploading) { _, _ in scrollToBottom(proxy) }
             .onChange(of: vm.phaseText) { _, _ in scrollToBottom(proxy) }
             .onChange(of: vm.detailText) { _, _ in scrollToBottom(proxy) }
         }
@@ -601,4 +605,33 @@ private struct PendingMedia {
 // Lets `.sheet(item:)` present the camera/library picker.
 extension MediaPicker.Source: Identifiable {
     var id: Int { self == .camera ? 0 : 1 }
+}
+
+
+/// Upload feedback under the just-sent bubble: a determinate bar once the
+/// direct-GCS PUT reports bytes (videos), an indeterminate spinner otherwise.
+private struct UploadProgressRow: View {
+    let progress: Double
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if progress > 0 {
+                ProgressView(value: min(progress, 1))
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: 180)
+                Text("\(Int(min(progress, 1) * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            Text(label.isEmpty ? "Uploading…" : label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+    }
 }
