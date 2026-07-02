@@ -2,12 +2,15 @@
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { instrumentVisionModel } = require('../ai/resilientModel');
+const { createLogger } = require('../logger');
+
+const log = createLogger({ component: 'videoService' });
 
 let geminiClient = null;
 
 if (process.env.GOOGLE_AI_API_KEY) {
   geminiClient = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY);
-  console.log('[videoService] Gemini configured');
+  log.info('Gemini configured');
 }
 
 const GEMINI_MODELS = {
@@ -73,6 +76,17 @@ Return ONLY a valid JSON array, no markdown. Example:
 function positiveNumber(v) {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Pull token counts off a Gemini response, in the shape scan_events.token_usage expects. */
+function extractUsageMetadata(result) {
+  const um = result && result.response && result.response.usageMetadata;
+  if (!um) return null;
+  return {
+    promptTokens: um.promptTokenCount || 0,
+    candidatesTokens: (um.candidatesTokenCount || 0) + (um.thoughtsTokenCount || 0),
+    totalTokens: um.totalTokenCount || 0,
+  };
 }
 
 /**
@@ -148,7 +162,7 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
   }
   const base64Video = videoBuffer.toString('base64');
 
-  console.log(`[videoService] Analyzing video (${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB) with model=${modelId}`);
+  log.info('Analyzing video', { megabytes: (videoBuffer.length / 1024 / 1024).toFixed(1), model: modelId });
 
   // Resilience + token metering: timeout, transient-error retry (429/503/network),
   // and usage recording into user_costs. Uses the generous vision timeout.
@@ -167,13 +181,12 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
       { text: prompt },
     ]);
   } catch (err) {
-    console.error('[videoService] Gemini generateContent failed:', err?.message || err);
+    log.error('Gemini generateContent failed', { error: err?.message || String(err) });
     throw new Error(`Gemini video analysis failed: ${err?.message || err}`);
   }
 
   const rawText = result.response.text();
-  console.log(`[videoService] Response length: ${rawText.length} chars`);
-  console.log('[videoService] Raw response preview:', rawText.substring(0, 500));
+  log.info('Response received', { chars: rawText.length });
 
   let items = [];
   let parseError = null;
@@ -182,23 +195,23 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
     const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed = JSON.parse(cleaned);
     items = Array.isArray(parsed) ? parsed : [];
-    console.log(`[videoService] Parsed ${items.length} items`);
+    log.info('Parsed items', { itemCount: items.length });
   } catch (err) {
     try {
       const { jsonrepair } = require('jsonrepair');
       const repaired = jsonrepair(rawText);
       const parsed = JSON.parse(repaired);
       items = Array.isArray(parsed) ? parsed : [];
-      console.log(`[videoService] jsonrepair recovered ${items.length} items`);
+      log.info('jsonrepair recovered items', { itemCount: items.length });
     } catch (repairErr) {
       parseError = `Could not parse response as JSON: ${err.message}`;
-      console.warn('[videoService] JSON parse failed:', err.message);
+      log.warn('JSON parse failed', { error: err.message });
     }
   }
 
   items = items.map(normalizeVideoItem);
 
-  return { rawText, items, parseError };
+  return { rawText, items, parseError, usageMetadata: extractUsageMetadata(result), model: modelId };
 }
 
 /**
@@ -226,7 +239,7 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = nu
     prompt += `\n\nAUDIO: The room's audio is included — the owner is narrating the walkthrough. Use what they say to correct item names, materials, weights, and fragility, and to catch items the frames missed. Return a JSON OBJECT (not a bare array): {"narration_notes": "<= 3 short sentences capturing anything the owner said that a mover should know (special handling, what an item is, access); empty string if nothing useful", "items": [ ...the item objects exactly as specified above... ]}.`;
   }
 
-  console.log(`[videoService] Analyzing ${frames.length} sampled frames${audio ? ' + audio' : ''} with model=${modelId}`);
+  log.info('Analyzing sampled frames', { frameCount: frames.length, hasAudio: !!audio, model: modelId });
 
   // Resilience + token metering (timeout / transient-error retry / usage into
   // user_costs) on the heaviest call in the scan pipeline.
@@ -247,14 +260,17 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = nu
   try {
     result = await model.generateContent(parts);
   } catch (err) {
-    console.error('[videoService] Gemini frame analysis failed:', err?.message || err);
+    log.error('Gemini frame analysis failed', { error: err?.message || String(err) });
     throw new Error(`Gemini frame analysis failed: ${err?.message || err}`);
   }
 
   const rawText = result.response.text();
   const { items: parsed, narrationNotes, parseError } = parseItemsArray(rawText);
-  console.log(`[videoService] Frame analysis parsed ${parsed.length} items${narrationNotes ? ' + narration notes' : ''}`);
-  return { rawText, items: parsed.map(normalizeVideoItem), narrationNotes, parseError };
+  log.info('Frame analysis parsed items', { itemCount: parsed.length, hasNarrationNotes: !!narrationNotes });
+  return {
+    rawText, items: parsed.map(normalizeVideoItem), narrationNotes, parseError,
+    usageMetadata: extractUsageMetadata(result), model: modelId,
+  };
 }
 
 module.exports = { analyzeVideo, analyzeFrames, normalizeVideoItem, parseItemsArray, INVENTORY_PROMPT, INVENTORY_PROMPT_FRAMES, GEMINI_MODELS };

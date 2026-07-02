@@ -5,11 +5,15 @@ const nexusOrchestrator = require('../../../agents/nexusOrchestratorAgent');
 const mediaAssetService = require('../../../services/infra/mediaAssetService');
 const inventoryMutation = require('../../../services/inventory/inventoryMutationService');
 const sessions = require('../../../services/infra/agentSessionService');
+const metrics = require('../../../services/infra/metricsService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
 const { startSSEHeartbeat } = require('../../../services/infra/sseHeartbeat');
 
 const { isConversationStale } = require('../../../agents/schemas/orchestratorModes');
 const { buildWorkflowGuidanceContext } = require('../../../agents/schemas/workflowGuidance');
+const { createLogger } = require('../../../services/infra/logger');
+
+const log = createLogger({ component: 'nexus-route' });
 
 const router = express.Router();
 
@@ -41,7 +45,7 @@ router.post('/message', express.json(), async (req, res) => {
       );
       return res.json(result);
     } catch (err) {
-      console.error('[nexus] processMessage failed:', err);
+      log.error('processMessage failed', { userId, error: err.message, stack: err.stack });
       return res.status(err.status || 500).json({ error: err.message || 'Nexus processing failed' });
     }
   }
@@ -66,7 +70,7 @@ router.post('/message', express.json(), async (req, res) => {
     );
     sendSSE({ type: 'done', reply: result.reply, actions: result.actions, sessionId: result.sessionId });
   } catch (err) {
-    console.error('[nexus] processMessage (stream) failed:', err);
+    log.error('processMessage (stream) failed', { userId, error: err.message, stack: err.stack });
     sendSSE({ type: 'error', error: err.message || 'Nexus processing failed' });
   } finally {
     heartbeat.stop();
@@ -112,7 +116,7 @@ router.get('/active-session', async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('[nexus] active-session failed:', err);
+    log.error('active-session failed', { userId, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -138,7 +142,7 @@ router.post('/guidance', express.json(), async (req, res) => {
       const quickStartChips = await getQuickStartChips(userId);
       return res.json({ ...result, quickStartChips });
     } catch (err) {
-      console.error('[nexus] guidance failed:', err);
+      log.error('guidance failed', { userId, error: err.message });
       return res.status(err.status || 500).json({ error: err.message || 'Guidance request failed' });
     }
   }
@@ -164,7 +168,7 @@ router.post('/guidance', express.json(), async (req, res) => {
     const quickStartChips = await getQuickStartChips(userId);
     sendSSE({ type: 'done', reply: result.reply, actions: result.actions, sessionId: result.sessionId, quickStartChips });
   } catch (err) {
-    console.error('[nexus] guidance (stream) failed:', err);
+    log.error('guidance (stream) failed', { userId, error: err.message });
     sendSSE({ type: 'error', error: err.message || 'Guidance request failed' });
   } finally {
     heartbeat.stop();
@@ -182,7 +186,7 @@ router.delete('/sessions/:id', async (req, res) => {
     if (result.rowCount === 0) return res.status(404).json({ error: 'Session not found' });
     res.json({ success: true });
   } catch (err) {
-    console.error('[nexus] archive session failed:', err);
+    log.error('archive session failed', { userId, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -211,7 +215,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       gcsPath: asset.gcsPath,
     });
   } catch (err) {
-    console.error('[nexus] upload failed:', err);
+    log.error('upload failed', { userId, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -261,6 +265,24 @@ router.post('/inventory/commit', express.json(), async (req, res) => {
     } catch (err) {
       errors.push(err.message);
     }
+  }
+
+  // This commit bypasses the chat turn entirely (that's the point — an exact
+  // commit of what the user reviewed, no LLM re-interpretation), so it never
+  // touches beta_interaction_logs or nexus_sessions.items_added on its own.
+  // Attribute it to whichever agent session is currently active so "items
+  // added this session" stays truthful across the add_item / add_items /
+  // commit paths (see beta-scan-reliability-investigation.md Section 0.4).
+  try {
+    const activeSession = await sessions.getActiveSession(userId, ['census', 'onboarding', 'general', 'nexus']);
+    await metrics.recordCommitInteraction({
+      userId,
+      sessionId: activeSession?.id || null,
+      itemsAdded: addedCount,
+      errors,
+    });
+  } catch (err) {
+    log.error('inventory/commit metrics failed (non-fatal)', { userId, error: err.message });
   }
 
   if (addedCount === 0) {
@@ -325,7 +347,7 @@ router.post('/upload-url', express.json(), async (req, res) => {
       mimeType: asset.mimeType,
     });
   } catch (err) {
-    console.error('[nexus] upload-url failed:', err.message);
+    log.error('upload-url failed', { userId, error: err.message });
     res.status(500).json({ error: 'Could not create an upload URL' });
   }
 });

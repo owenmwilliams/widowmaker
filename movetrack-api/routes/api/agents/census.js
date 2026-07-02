@@ -6,6 +6,9 @@ const mediaAssetService = require('../../../services/infra/mediaAssetService');
 const sessions = require('../../../services/infra/agentSessionService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
 const { startSSEHeartbeat } = require('../../../services/infra/sseHeartbeat');
+const { createLogger } = require('../../../services/infra/logger');
+
+const log = createLogger({ component: 'census-route' });
 
 const router = express.Router();
 
@@ -38,7 +41,7 @@ router.post('/message', express.json(), async (req, res) => {
       );
       return res.json(result);
     } catch (err) {
-      console.error('[census] processMessage failed:', err);
+      log.error('processMessage failed', { userId, error: err.message, stack: err.stack });
       return res.status(500).json({ error: err.message || 'Census processing failed' });
     }
   }
@@ -64,7 +67,7 @@ router.post('/message', express.json(), async (req, res) => {
     // Final done event with the full result (in case client missed it from the service)
     sendSSE({ type: 'done', reply: result.reply, actions: result.actions, sessionId: result.sessionId });
   } catch (err) {
-    console.error('[census] processMessage (stream) failed:', err);
+    log.error('processMessage (stream) failed', { userId, error: err.message, stack: err.stack });
     sendSSE({ type: 'error', error: err.message || 'Census processing failed' });
   } finally {
     heartbeat.stop();
@@ -100,7 +103,7 @@ router.get('/active-session', async (req, res) => {
 
     res.json({ session, messages: enrichMessagesWithActions(messages), quickStartChips, shouldAutoGreet });
   } catch (err) {
-    console.error('[census] active-session failed:', err);
+    log.error('active-session failed', { userId, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -115,7 +118,7 @@ router.get('/sessions', async (req, res) => {
     const sessionList = await sessions.listSessions(userId);
     res.json({ sessions: sessionList });
   } catch (err) {
-    console.error('[census] list sessions failed:', err);
+    log.error('list sessions failed', { userId, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -133,7 +136,7 @@ router.get('/sessions/:id', async (req, res) => {
     const messages = await sessions.getSessionMessages(session.id);
     res.json({ session, messages: enrichMessagesWithActions(messages) });
   } catch (err) {
-    console.error('[census] get session failed:', err);
+    log.error('get session failed', { userId, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -149,7 +152,7 @@ router.delete('/sessions/:id', async (req, res) => {
     if (result.rowCount === 0) return res.status(404).json({ error: 'Session not found' });
     res.json({ success: true });
   } catch (err) {
-    console.error('[census] archive session failed:', err);
+    log.error('archive session failed', { userId, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -178,7 +181,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
       gcsPath: asset.gcsPath,
     });
   } catch (err) {
-    console.error('[census] upload failed:', err);
+    log.error('upload failed', { userId, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -200,7 +203,7 @@ router.post('/feedback', express.json(), async (req, res) => {
     await metricsService.logItemFeedback(itemId, userId, feedback, interactionLogId || null);
     res.json({ success: true });
   } catch (err) {
-    console.error('[census] feedback failed:', err);
+    log.error('feedback failed', { userId, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });

@@ -10,6 +10,7 @@ import SwiftUI
 @main
 struct MoveTrackApp: App {
     @StateObject private var authViewModel = AuthViewModel()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -18,6 +19,15 @@ struct MoveTrackApp: App {
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
+        }
+        // Flush queued client events before the app is suspended — otherwise a
+        // batch sitting in the 10s timer window is lost every time the user
+        // backgrounds mid-scan (a common moment for exactly the failures this
+        // log exists to catch).
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background {
+                Task { await ClientEventLogger.shared.flush() }
+            }
         }
     }
 

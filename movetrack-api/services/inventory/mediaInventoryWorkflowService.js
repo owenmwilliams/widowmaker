@@ -322,6 +322,8 @@ async function inlineVideoFallback({ args, userId, plan, url, videoBuffer, emitS
     success: true, degraded: true, degradedPath: 'inline_video',
     items, itemCount: items.length, parseError: null,
     _visionMs: analyzeMs, _detectedItemCount: items.length, _visionProvider: 'gemini',
+    usageMetadata: result.usageMetadata || null,
+    model: result.model || null,
   };
 }
 
@@ -476,6 +478,8 @@ async function analyzeVideoForInventory(args, userId, plan, opts = {}) {
       _visionMs: analyzeMs,
       _detectedItemCount: items.length,
       _visionProvider: 'gemini',
+      usageMetadata: result.usageMetadata || null,
+      model: result.model || null,
     };
   } catch (err) {
     console.error('[census] analyzeVideoForInventory failed:', err.message);

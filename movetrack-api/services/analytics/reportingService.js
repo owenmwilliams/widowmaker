@@ -124,4 +124,81 @@ async function getBetaMetricsRaw(since, limit = 200) {
   return { rows, count: rows.length };
 }
 
-module.exports = { getBetaMetricsSummary, getBetaMetricsRaw };
+/**
+ * Scan failures in the trailing window — the admin-facing answer to "is
+ * anything currently broken." Pulls from scan_events (per-media-call failures
+ * with stage attribution) and beta_interaction_logs (hard-thrown turns), the
+ * two rows types that previously didn't exist / didn't record failures at all
+ * (see beta-scan-reliability-investigation.md Section 5). Kept as two
+ * separately-queried, separately-labeled lists rather than a UNION — the two
+ * tables don't share a natural row shape, and forcing one loses the
+ * scan-specific fields (stage, media) that make a scan_events row diagnosable.
+ *
+ * A scan_events row with status='success' but a non-null parse_error is a
+ * silent-zero scan — the model call succeeded but its JSON didn't parse, so
+ * items were dropped while nothing failed loudly. That's exactly the failure
+ * mode the investigation was about, so it counts here too, not just
+ * status='error'.
+ *
+ * @param {number} hours - lookback window, clamped to [1, 720] (30 days)
+ * @param {number} limit - max rows per list, clamped to [1, 500]
+ */
+async function getRecentScanFailures(hours = 24, limit = 200) {
+  const clampedHours = Math.min(720, Math.max(1, Number.isFinite(hours) ? hours : 24));
+  const clampedLimit = Math.min(500, Math.max(1, Number.isFinite(limit) ? limit : 200));
+  const since = new Date(Date.now() - clampedHours * 60 * 60 * 1000);
+
+  const scanFailures = await knex('scan_events')
+    .where('scan_events.created_at', '>=', since)
+    .where((qb) => {
+      qb.where('scan_events.status', 'error').orWhereNotNull('scan_events.parse_error');
+    })
+    .leftJoin('users', 'scan_events.user_id', 'users.user_id')
+    .select(
+      'scan_events.id',
+      'scan_events.created_at',
+      'users.first_name',
+      'scan_events.session_id',
+      'scan_events.request_id',
+      'scan_events.media_kind',
+      'scan_events.media_url',
+      'scan_events.media_bytes',
+      'scan_events.frame_count',
+      'scan_events.status',
+      'scan_events.error_stage',
+      'scan_events.error_message',
+      'scan_events.stage_status',
+      'scan_events.parse_error',
+      'scan_events.latency_ms',
+      'scan_events.item_count'
+    )
+    .orderBy('scan_events.created_at', 'desc')
+    .limit(clampedLimit);
+
+  const turnFailures = await knex('beta_interaction_logs')
+    .where('beta_interaction_logs.had_error', true)
+    .where('beta_interaction_logs.created_at', '>=', since)
+    .leftJoin('users', 'beta_interaction_logs.user_id', 'users.user_id')
+    .select(
+      'beta_interaction_logs.id',
+      'beta_interaction_logs.created_at',
+      'users.first_name',
+      'beta_interaction_logs.session_id',
+      'beta_interaction_logs.error_message',
+      'beta_interaction_logs.tool_calls',
+      'beta_interaction_logs.total_latency_ms'
+    )
+    .orderBy('beta_interaction_logs.created_at', 'desc')
+    .limit(clampedLimit);
+
+  return {
+    since: since.toISOString(),
+    hours: clampedHours,
+    limit: clampedLimit,
+    scanFailures,
+    turnFailures,
+    counts: { scanFailures: scanFailures.length, turnFailures: turnFailures.length },
+  };
+}
+
+module.exports = { getBetaMetricsSummary, getBetaMetricsRaw, getRecentScanFailures };
