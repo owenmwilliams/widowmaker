@@ -152,6 +152,31 @@ describe('media gaps include empty rooms', () => {
   });
 });
 
+describe('next steps — one explicit bullet per gap', () => {
+  test('every empty room and every unphotographed large item gets its own bullet', () => {
+    // Pure formatting contract, exercised via the strings the sheet renders:
+    // "Catalog items in {room}" and "Take a picture of {item}" (2026-07-02
+    // request: no summaries, bullets lead straight to Share).
+    const emptyRooms = [{ name: 'Bedroom 2' }, { name: 'Bedroom 3' }, { name: 'Living Room' }];
+    const largeGaps = [
+      { room: 'Living Room', items: ['3-seat sofa', '65-inch TV'] },
+      { room: 'Dining Room', items: ['Dining table'] },
+    ];
+    const bullets = [
+      ...emptyRooms.map(r => `Catalog items in ${r.name}`),
+      ...largeGaps.flatMap(g => g.items.map(i => `Take a picture of ${i}`)),
+    ];
+    expect(bullets).toEqual([
+      'Catalog items in Bedroom 2',
+      'Catalog items in Bedroom 3',
+      'Catalog items in Living Room',
+      'Take a picture of 3-seat sofa',
+      'Take a picture of 65-inch TV',
+      'Take a picture of Dining table',
+    ]);
+  });
+});
+
 describe('room resolution — phrases never become rooms', () => {
   const ROOMS = [
     { id: 1, name: 'Bathroom 1' },

@@ -30,9 +30,6 @@ struct ReadinessSheet: View {
                         warningCard(warning)
                     }
                     stepsCard
-                    if let gaps = readiness?.mediaGaps {
-                        mediaCard(gaps)
-                    }
                 }
                 .padding(20)
             }
@@ -131,56 +128,6 @@ struct ReadinessSheet: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
     }
 
-    // MARK: - Media gaps (which rooms have a walkthrough, which big items have a photo)
-
-    private func mediaCard(_ gaps: ShareReadinessDTO.MediaGaps) -> some View {
-        let rooms = gaps.roomsMissingVideo ?? []
-        let items = gaps.largeItemsMissingPhoto ?? []
-        return VStack(alignment: .leading, spacing: 14) {
-            Text("Videos & photos").font(.headline)
-            if rooms.isEmpty && items.isEmpty {
-                Label("Every room has a walkthrough and the big items are photographed.", systemImage: "checkmark.seal.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.good)
-            } else {
-                // One explicit to-do per room and per big item — a joined
-                // summary string reads as one chore; a checklist reads as n
-                // small ones the user can actually knock out.
-                ForEach(rooms.compactMap { $0.room }, id: \.self) { room in
-                    mediaRow(
-                        icon: "video.fill",
-                        title: "Record a walkthrough \u{2014} \(room)",
-                        detail: "A slow 20-second pan; open closets and cupboards."
-                    )
-                }
-                let photoTodos: [(String, String)] = items.flatMap { gap in
-                    (gap.items ?? []).map { name in (name, gap.room ?? "") }
-                }
-                ForEach(Array(photoTodos.prefix(12).enumerated()), id: \.offset) { _, todo in
-                    mediaRow(
-                        icon: "camera.fill",
-                        title: "Photograph \u{2014} \(todo.0)\(todo.1.isEmpty ? "" : " (\(todo.1))")",
-                        detail: "One straight-on shot tightens the size and weight estimate."
-                    )
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-    }
-
-    private func mediaRow(icon: String, title: String, detail: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: icon).font(.body).foregroundStyle(Theme.brand)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.subheadline.weight(.semibold))
-                Text(detail).font(.subheadline).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-    }
 
     // MARK: - CTAs
 
