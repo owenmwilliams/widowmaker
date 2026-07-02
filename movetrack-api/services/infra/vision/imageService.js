@@ -9,6 +9,12 @@ const path = require('path');
 const { jsonrepair } = require('jsonrepair');
 const { buildProviderOrder, runWithFailover } = require('./visionFailover');
 const { instrumentVisionModel } = require('../ai/resilientModel');
+const {
+  photoMultiItemSchema,
+  photoMultiImageSchema,
+  singleItemSchema,
+  wasTruncated,
+} = require('./visionSchemas');
 
 // Initialize GCS client for fetching images from URLs
 const isLocalEnvironment = process.env.NODE_ENV !== 'production';
@@ -204,7 +210,7 @@ Return ONLY the JSON object, nothing else.`;
 /**
  * Prompt for multi-item detection
  */
-const MULTI_ITEM_VISION_PROMPT = `Analyze this photo for moving inventory. Identify the TOP 20 MOST PROMINENT household items visible in the image.
+const MULTI_ITEM_VISION_PROMPT = `Analyze this photo for moving inventory. Identify EVERY household item a mover would need to pack or move — be thorough, prioritizing larger/more prominent items but not stopping early.
 
 If there are multiple items of the same type (e.g., books, plates, cups), GROUP THEM TOGETHER as a single entry. Use a SINGULAR unit name and put the count in the "quantity" field (e.g., name "Book" with quantity 50, NOT "Books (approximately 50 items)").
 
@@ -232,8 +238,8 @@ Return ONLY valid JSON with this exact structure (no markdown, no additional tex
 }
 
 Important:
-- MAXIMUM 20 items in the items array
-- itemCount should match the number of items in the array (max 20)
+- Include every prominent item — do NOT cap the list; a cluttered room legitimately has many entries.
+- itemCount should match the number of items in the array.
 - "name" must describe ONE unit. "quantity" holds the count. Example: name "Dining chair", quantity 4 — NOT "4 dining chairs".
 - fragile: set true for anything breakable or needing protective packing — glass/glass-topped items, mirrors, framed art & photos, TVs and monitors, lamps, ceramics/china/dishware/stemware, vases, small electronics, musical instruments. When in doubt, mark it fragile.
 - boundingBox coordinates are normalized (0.0 to 1.0 range) where:
@@ -249,7 +255,7 @@ const MULTI_IMAGE_VISION_PROMPT = `You are analyzing MULTIPLE photos of the SAME
 
 CRITICAL: Deduplicate across images. If the same item appears in multiple photos, count it ONLY ONCE. Use visual cues (position, color, size, surroundings) to determine when two photos show the same item from different angles.
 
-Identify the TOP 20 MOST PROMINENT household items visible across ALL images combined.
+Identify EVERY household item a mover would need to pack or move across ALL images combined — be thorough, prioritizing larger/more prominent items but not stopping early.
 
 If there are multiple items of the same type (e.g., books, plates, cups), GROUP THEM TOGETHER as a single entry. Use a SINGULAR unit name and put the count in the "quantity" field.
 
@@ -278,7 +284,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no additional tex
 }
 
 Important:
-- MAXIMUM 20 items in the items array
+- Include every prominent item — do NOT cap the list; a cluttered room legitimately has many entries.
 - fragile: set true for anything breakable or needing protective packing — glass/glass-topped items, mirrors, framed art & photos, TVs and monitors, lamps, ceramics/china/dishware/stemware, vases, small electronics, musical instruments. When in doubt, mark it fragile.
 - "sourceImage" is the 1-based index of the image where this item is MOST clearly visible (used for cropping the best photo of it)
 - boundingBox coordinates are normalized (0.0 to 1.0) relative to the sourceImage
@@ -443,14 +449,20 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT, 
             if (match) actualMimeType = match[1];
         }
 
+        // Only constrain to the single-item schema for the standard prompt (and
+        // the item-hint variant, which embeds it). The vision-lab route passes
+        // arbitrary experimental prompts through here — forcing our schema would
+        // corrupt their output, so those get plain JSON mode.
+        const useSchema = typeof prompt === 'string' && prompt.includes(VISION_PROMPT);
+        const singleItemConfig = useSchema
+            ? { responseMimeType: "application/json", responseSchema: singleItemSchema }
+            : { responseMimeType: "application/json" };
         // Resilience + token metering (timeout / usage). retries:0 — this function
         // has its own manual retry + flash-fallback layer below; letting the
         // wrapper also retry would stack (2×2×fallback = up to 12min in one call).
         const model = instrumentVisionModel(geminiClient.getGenerativeModel({
             model: modelId,
-            generationConfig: {
-                responseMimeType: "application/json"
-            }
+            generationConfig: singleItemConfig
         }), { userId, modelName: modelId, retries: 0 });
 
         const contentParts = [
@@ -473,7 +485,7 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT, 
                     usedModel = 'gemini-2.5-flash';
                     const fallbackModel = instrumentVisionModel(geminiClient.getGenerativeModel({
                         model: usedModel,
-                        generationConfig: { responseMimeType: "application/json" }
+                        generationConfig: singleItemConfig
                     }), { userId, modelName: usedModel, retries: 0 });
                     result = await fallbackModel.generateContent(contentParts);
                 }
@@ -867,11 +879,7 @@ async function analyzeMultiItemWithClaude(imageSource, mimeType) {
             result.items = [];
         }
 
-        // Enforce 20 item limit
-        if (result.items.length > 20) {
-            console.log(`Claude returned ${result.items.length} items, truncating to 20`);
-            result.items = result.items.slice(0, 20);
-        }
+        // No silent item cap — keep every detected item (dense rooms exceed 20).
 
         // Set itemCount if not provided
         if (typeof result.itemCount !== 'number') {
@@ -958,11 +966,7 @@ async function analyzeMultiItemWithGPT4(imageSource, mimeType) {
             result.items = [];
         }
 
-        // Enforce 20 item limit
-        if (result.items.length > 20) {
-            console.log(`GPT-4 returned ${result.items.length} items, truncating to 20`);
-            result.items = result.items.slice(0, 20);
-        }
+        // No silent item cap — keep every detected item (dense rooms exceed 20).
 
         // Set itemCount if not provided
         if (typeof result.itemCount !== 'number') {
@@ -1018,6 +1022,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
             model: modelId,
             generationConfig: {
                 responseMimeType: "application/json",
+                responseSchema: photoMultiItemSchema,
                 maxOutputTokens: 8192  // Increase token limit to prevent truncation
             }
         }), { userId, modelName: modelId, retries: 0 });
@@ -1040,7 +1045,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
                     console.warn(`[Gemini Multi-Item] ${modelId} retry failed, falling back to flash: ${retryError.message}`);
                     const fallbackModel = instrumentVisionModel(geminiClient.getGenerativeModel({
                         model: 'gemini-2.5-flash',
-                        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
+                        generationConfig: { responseMimeType: "application/json", responseSchema: photoMultiItemSchema, maxOutputTokens: 8192 }
                     }), { userId, modelName: 'gemini-2.5-flash', retries: 0 });
                     try {
                         result = await fallbackModel.generateContent(contentParts);
@@ -1058,7 +1063,11 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
         const jsonText = result.response.text();
         console.log('Gemini raw response:', jsonText);
 
-        // Try to parse JSON, with extraction fallback for corrupted responses
+        // Try to parse JSON, with extraction + jsonrepair fallback. Now that the
+        // 20-item cap is gone, a dense room can overflow the 8192-token budget and
+        // arrive as truncated-but-recoverable JSON — jsonrepair salvages the items
+        // we DID get instead of throwing a zero-item hard failure (regressing the
+        // pre-E "returned 20" behavior). jsonrepair is a legacy shim only.
         let data;
         const tryParseJson = (text) => {
             // First try direct parse
@@ -1068,9 +1077,12 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
             if (match) {
                 try { return JSON.parse(match[0]); } catch (_) {}
             }
+            // Last resort: repair truncated/malformed JSON (partial items > none).
+            try { return JSON.parse(jsonrepair(text)); } catch (_) {}
             return null;
         };
 
+        let finalResult = result; // the result whose finishReason we trust for truncation
         data = tryParseJson(jsonText);
 
         if (!data) {
@@ -1085,6 +1097,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
             } catch (retryError) {
                 throw new Error(`Gemini API error on retry: ${retryError.message}`);
             }
+            finalResult = retryResult;
             const retryText = retryResult.response.text();
             console.log('[Gemini Multi-Item] Retry response:', retryText);
             data = tryParseJson(retryText);
@@ -1106,10 +1119,12 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
             data.items = [];
         }
 
-        // Enforce 20 item limit
-        if (data.items.length > 20) {
-            console.log(`Gemini returned ${data.items.length} items, truncating to 20`);
-            data.items = data.items.slice(0, 20);
+        // No silent item cap: dense rooms legitimately exceed 20. The only way the
+        // list is bounded now is a maxOutputTokens cut, which we report explicitly.
+        // Check the result we actually parsed (retry, if it ran) — not the original.
+        if (wasTruncated(finalResult)) {
+            console.warn(`[Gemini Multi-Item] Response hit maxOutputTokens — item list is truncated (${data.items.length} parsed)`);
+            data.truncated = true;
         }
 
         // Set itemCount if not provided
@@ -1151,6 +1166,7 @@ async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-f
             model: modelId,
             generationConfig: {
                 responseMimeType: "application/json",
+                responseSchema: photoMultiImageSchema,
                 maxOutputTokens: 8192
             }
         }), { userId, modelName: modelId, retries: 0 });
@@ -1184,7 +1200,7 @@ async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-f
                     console.warn(`[Gemini Multi-Image] ${modelId} retry failed, falling back to flash: ${retryError.message}`);
                     const fallbackModel = instrumentVisionModel(geminiClient.getGenerativeModel({
                         model: 'gemini-2.5-flash',
-                        generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
+                        generationConfig: { responseMimeType: "application/json", responseSchema: photoMultiImageSchema, maxOutputTokens: 8192 }
                     }), { userId, modelName: 'gemini-2.5-flash', retries: 0 });
                     try {
                         result = await fallbackModel.generateContent(parts);
@@ -1202,16 +1218,20 @@ async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-f
         const jsonText = result.response.text();
         console.log('[Gemini Multi-Image] Raw response:', jsonText);
 
-        // JSON parsing with retry — reuse pattern from analyzeMultiItemWithGemini
+        // JSON parsing with retry — reuse pattern from analyzeMultiItemWithGemini,
+        // including the jsonrepair last resort so a truncated dense-room response
+        // yields the partial items instead of a zero-item hard failure.
         const tryParseJson = (text) => {
             try { return JSON.parse(text); } catch (_) {}
             const match = text.match(/\{[\s\S]*\}/);
             if (match) {
                 try { return JSON.parse(match[0]); } catch (_) {}
             }
+            try { return JSON.parse(jsonrepair(text)); } catch (_) {}
             return null;
         };
 
+        let finalResult = result; // trust this result's finishReason for truncation
         let data = tryParseJson(jsonText);
 
         if (!data) {
@@ -1222,6 +1242,7 @@ async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-f
             } catch (retryError) {
                 throw new Error(`Gemini API error on retry: ${retryError.message}`);
             }
+            finalResult = retryResult;
             const retryText = retryResult.response.text();
             console.log('[Gemini Multi-Image] Retry response:', retryText);
             data = tryParseJson(retryText);
@@ -1236,9 +1257,11 @@ async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-f
         if (!Array.isArray(data.items)) {
             data.items = [];
         }
-        if (data.items.length > 20) {
-            console.log(`[Gemini Multi-Image] Returned ${data.items.length} items, truncating to 20`);
-            data.items = data.items.slice(0, 20);
+        // No silent item cap — report a maxOutputTokens cut (on the result we
+        // actually parsed) instead of dropping items.
+        if (wasTruncated(finalResult)) {
+            console.warn(`[Gemini Multi-Image] Response hit maxOutputTokens — item list is truncated (${data.items.length} parsed)`);
+            data.truncated = true;
         }
         if (typeof data.itemCount !== 'number') {
             data.itemCount = data.items.length;

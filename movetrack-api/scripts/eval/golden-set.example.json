@@ -1,0 +1,40 @@
+{
+  "$comment": "Copy this to golden-set.json (gitignored) and fill in real video URLs + ground truth. Videos are NEVER committed. The 2026-07-01 beta session is the first golden set: fetch each video's URL from the room_videos table (SELECT room_name, video_url, item_count, created_at FROM room_videos WHERE user_id = :betaUserId ORDER BY created_at). Ground truth is the human-verified list of distinct movable items actually in each room — build it by watching the clip once, not from the model's own output.",
+  "matching": {
+    "threshold": 0.5
+  },
+  "videos": [
+    {
+      "id": "living-room-2026-07-01",
+      "url": "https://storage.googleapis.com/<bucket>/users/<userId>/nexus/<living-room-video>.mov",
+      "mime_type": "video/quicktime",
+      "room_hint": "living room",
+      "ground_truth": [
+        "3-seat sofa",
+        "armchair",
+        "coffee table",
+        "TV",
+        "TV stand",
+        "floor lamp",
+        "bookshelf",
+        "area rug",
+        "side table"
+      ]
+    },
+    {
+      "id": "dining-room-2026-07-01",
+      "path": "./scripts/eval/videos/dining-room.mov",
+      "mime_type": "video/quicktime",
+      "room_hint": "dining room",
+      "ground_truth": [
+        "dining table",
+        "dining chair",
+        "china cabinet",
+        "wine rack",
+        "chandelier",
+        "sideboard",
+        "box of dishes"
+      ]
+    }
+  ]
+}

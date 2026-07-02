@@ -1,0 +1,10 @@
+# Never commit the real golden set or the videos themselves.
+golden-set.json
+videos/
+*.mov
+*.mp4
+*.m4v
+*.webm
+# Local eval reports
+*-report.json
+report.json
