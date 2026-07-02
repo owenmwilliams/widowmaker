@@ -332,6 +332,8 @@ INVENTORY CENSUS RULES:
    a. When the user sends a video, call analyze_video to detect items (same retry + confirmation rules as rule 3). analyze_video returns items with weight AND dimensions — pass both through when adding.
    b. Aim for ONE walkthrough video per room. When guiding someone to record, tell them: hold the phone steady and wide (landscape), pan SLOWLY across the whole room, get good lighting, and open closets/cupboards/cabinets so their contents are visible.
    c. For large or high-value items (sofa, fridge, bed, piano, artwork), also ask for a single straight-on close-up photo — it makes weight and size estimates much more accurate than a video pan alone.
+   d. ALREADY-UPLOADED MEDIA: when the user refers to a video or photo they already sent ("scan the video I uploaded", "use the bathroom video", "try that video again"), NEVER ask them for a file URL or MIME type — they can't see those. Call list_recent_media, pick the matching entry (most recent, or match by room name), and call analyze_video/analyze_photo with its url and mimeType directly. Only ask the user to re-record if list_recent_media returns nothing that matches.
+   e. COMMITTED WORK IS IN YOUR TRANSCRIPT: review-card commits and duplicate resolutions appear in your history as add_items / find_duplicates tool results marked "_via": "review_card" or "review_card_resolution". When you see them: the items are ALREADY saved and the duplicates ALREADY reviewed. Do not re-announce the additions, do not congratulate again, and do not offer another duplicate review for that scan — acknowledge briefly only if the user brings it up, and move on to the next room or step.
 5. Weight and dimension estimates are always PER SINGLE UNIT. Set quantity for multiples. Examples: queen mattress ~80 lbs qty 1, dining chair ~20 lbs qty 4, box of books ~35 lbs qty 3. Never multiply weight by quantity yourself — the system does that automatically.
 6. If a room doesn't exist yet, call add_room first, then add items.
 7. Confidence scoring — ALWAYS pass the confidence value when calling add_item:
@@ -656,6 +658,11 @@ const toolDeclarations = [
     },
   },
   {
+    name: 'list_recent_media',
+    description: "List the user's already-uploaded room walkthrough videos and recently attached photos (url, mimeType, room, when). Use this whenever the user refers to media they already sent, instead of asking them for a URL or MIME type.",
+    parameters: { type: SchemaType.OBJECT, properties: {} },
+  },
+  {
     // Schema-constrained final response. Replaces the old "wrap your reply in a
     // ```json block" contract, which failed to parse on the majority of real
     // delegations (Pathway E — "structured JSON fallback used" warnings). The
@@ -717,6 +724,35 @@ const toolHandlers = {
     return { success: true, ...result, existingRooms: roomNames };
   },
 
+  async list_recent_media(args, userId) {
+    const videos = await db.any(
+      `SELECT room_name, video_url, mime_type, created_at FROM room_videos
+       WHERE user_id = $1 ORDER BY created_at DESC LIMIT 10`, [userId]
+    );
+    const photoRows = await db.any(
+      `SELECT m.attachments, m.created_at FROM nexus_messages m
+       JOIN nexus_sessions s ON s.id = m.session_id
+       WHERE s.user_id = $1 AND m.role = 'user' AND m.attachments IS NOT NULL
+         AND m.attachments::text <> '[]'
+       ORDER BY m.created_at DESC LIMIT 20`, [userId]
+    );
+    const photos = [];
+    for (const row of photoRows) {
+      const atts = Array.isArray(row.attachments) ? row.attachments : [];
+      for (const a of atts) {
+        if (a && a.url && String(a.mimeType || '').startsWith('image/')) {
+          photos.push({ url: a.url, mimeType: a.mimeType, uploadedAt: row.created_at });
+        }
+      }
+      if (photos.length >= 10) break;
+    }
+    return {
+      success: true,
+      videos: videos.map(v => ({ room: v.room_name, url: v.video_url, mimeType: v.mime_type || 'video/quicktime', uploadedAt: v.created_at })),
+      photos: photos.slice(0, 10),
+    };
+  },
+
   async analyze_photo(args, userId, plan, ctx) { return media.analyzePhotoForInventory(args, userId, plan, ctx); },
   async analyze_video(args, userId, plan, ctx) { return media.analyzeVideoForInventory(args, userId, plan, ctx); },
 
@@ -775,6 +811,7 @@ async function executeTool(name, args, userId, plan, ctxOrAttachments = {}) {
 // ── Human-readable tool labels for streaming UI ────────────────────────────────
 
 const TOOL_LABELS = {
+  list_recent_media: 'Finding your uploads',
   add_item: 'Adding item',
   add_items: 'Adding items',
   update_item: 'Updating item',

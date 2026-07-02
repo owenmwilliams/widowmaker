@@ -143,21 +143,24 @@ struct ReadinessSheet: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.good)
             } else {
-                if !rooms.isEmpty {
+                // One explicit to-do per room and per big item — a joined
+                // summary string reads as one chore; a checklist reads as n
+                // small ones the user can actually knock out.
+                ForEach(rooms.compactMap { $0.room }, id: \.self) { room in
                     mediaRow(
                         icon: "video.fill",
-                        title: "Rooms still needing a walkthrough",
-                        detail: rooms.compactMap { $0.room }.joined(separator: ", ")
+                        title: "Record a walkthrough \u{2014} \(room)",
+                        detail: "A slow 20-second pan; open closets and cupboards."
                     )
                 }
-                if !items.isEmpty {
-                    let names = items.flatMap { gap in
-                        (gap.items ?? []).map { name in name + (gap.room.map { " (\($0))" } ?? "") }
-                    }
+                let photoTodos: [(String, String)] = items.flatMap { gap in
+                    (gap.items ?? []).map { name in (name, gap.room ?? "") }
+                }
+                ForEach(Array(photoTodos.prefix(12).enumerated()), id: \.offset) { _, todo in
                     mediaRow(
                         icon: "camera.fill",
-                        title: "Big items still needing a photo",
-                        detail: names.prefix(8).joined(separator: ", ")
+                        title: "Photograph \u{2014} \(todo.0)\(todo.1.isEmpty ? "" : " (\(todo.1))")",
+                        detail: "One straight-on shot tightens the size and weight estimate."
                     )
                 }
             }

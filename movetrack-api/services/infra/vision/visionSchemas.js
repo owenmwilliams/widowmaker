@@ -36,6 +36,10 @@ const videoDimensionsSchema = {
     width_in: { type: SchemaType.NUMBER },
     height_in: { type: SchemaType.NUMBER },
   },
+  // Required: with only name/quantity required, flash routinely omitted the
+  // optional fields under structured output — the beta review card showed no
+  // sizes, no weights, and (source_frame missing) no thumbnails at all.
+  required: ['length_in', 'width_in', 'height_in'],
 };
 
 /**
@@ -62,7 +66,11 @@ function buildVideoItemSchema(locator) {
   return {
     type: SchemaType.OBJECT,
     properties,
-    required: ['name', 'quantity'],
+    // The review card is only useful when every row carries a size, a weight,
+    // and a frame to thumbnail from — make the model supply them rather than
+    // hoping it volunteers optional fields.
+    required: ['name', 'quantity', 'room', 'estimated_weight_lbs', 'estimated_dimensions',
+      locator === 'source_frame' ? 'source_frame' : 'timestamp_seconds'],
   };
 }
 

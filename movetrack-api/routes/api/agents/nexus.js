@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const { db } = require('../../../services/infra/db');
 const multer = require('multer');
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
 const nexusOrchestrator = require('../../../agents/nexusOrchestratorAgent');
@@ -91,11 +92,33 @@ router.get('/active-session', async (req, res) => {
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
-    const session = await sessions.getActiveSession(userId, 'nexus');
+    let session = await sessions.getActiveSession(userId, 'nexus');
     const quickStartChips = await getQuickStartChips(userId);
 
     if (!session) {
-      return res.json({ session: null, messages: [], quickStartChips, guidance: null });
+      // First open: seed the conversation with Nexus's outreach as a real
+      // transcript row, so the user's first message is a reply the model has
+      // context for (the beta's first turn hit the LLM cold and it re-asked
+      // for the name the user had just typed).
+      try {
+        const user = await db.oneOrNone(
+          `SELECT onboarding_completed FROM users WHERE user_id = $1`, [userId]
+        );
+        const greeting = user && user.onboarding_completed
+          ? "Welcome back! Want to keep building your inventory, or review what you have so far?"
+          : "Hi! I'm Nexus, your moving assistant. What's your name?";
+        session = await db.one(
+          `INSERT INTO nexus_sessions (user_id, session_type) VALUES ($1, 'general') RETURNING *`,
+          [userId]
+        );
+        await db.none(
+          `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
+          [session.id, greeting]
+        );
+      } catch (err) {
+        log.error('greeting seed failed', { userId, error: err.message });
+        return res.json({ session: null, messages: [], quickStartChips, guidance: null });
+      }
     }
 
     const messages = await sessions.getSessionMessages(session.id);
@@ -344,6 +367,27 @@ router.post('/inventory/commit', express.json(), async (req, res) => {
     console.error('[nexus] inventory/commit visibility record failed (non-fatal):', err.message);
   }
 
+  // Mirror the confirmation the client shows into the transcript so the model
+  // sees the same chat the user does — it was re-congratulating on its next
+  // turn because the client's toast bubble was invisible to it.
+  try {
+    const sessionRow = await db.oneOrNone(
+      `SELECT id FROM nexus_sessions WHERE user_id = $1 AND is_active = TRUE
+       ORDER BY updated_at DESC LIMIT 1`, [userId]
+    );
+    if (sessionRow && addedCount > 0) {
+      const bits = [`\u2705 Added ${addedCount} item${addedCount === 1 ? '' : 's'} to your inventory.`];
+      if (skippedCount > 0) bits.push(`${skippedCount} were already on the list, so they were skipped.`);
+      if (failures.length > 0) bits.push(`${failures.length} couldn't be added.`);
+      await db.none(
+        `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
+        [sessionRow.id, bits.join(' ')]
+      );
+    }
+  } catch (err) {
+    console.error('[nexus] inventory/commit chat mirror failed (non-fatal):', err.message);
+  }
+
   res.json({
     success: true,
     addedCount,
@@ -370,6 +414,22 @@ router.post('/inventory/resolve-duplicates', express.json(), async (req, res) =>
       if (result?.success) removedCount++;
     } catch (_) { /* ownership-checked in deleteItem; skip failures */ }
   }
+
+  // Record the resolution into the census transcript (as the declared
+  // find_duplicates tool, so the pair is valid Gemini history). Without this
+  // the agent re-offered a duplicate review the user had already completed —
+  // it saw find_duplicates run but never saw the outcome.
+  try {
+    await censusAgent.recordCensusToolCall(
+      userId,
+      'find_duplicates',
+      { _via: 'review_card_resolution' },
+      { success: true, resolved: true, removedCount, _via: 'review_card_resolution' }
+    );
+  } catch (err) {
+    console.error('[nexus] duplicate-resolution visibility record failed (non-fatal):', err.message);
+  }
+
   res.json({ success: true, removedCount });
 });
 

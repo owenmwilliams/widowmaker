@@ -374,6 +374,20 @@ async function runClaimedJob(job) {
       return 'skipped';
     }
     console.log(`[scanJobs] job ${job.id} completed: ${result.items.length} items (${job.media_kind})`);
+    // Mirror the client's "I spotted N items" bubble into the transcript so the
+    // agent's history matches the chat the user saw (it can't see client-side
+    // bubbles, and a scan job never passes through a chat turn).
+    if (job.session_id) {
+      try {
+        const kindWord = job.media_kind === 'video' ? 'video' : 'photo';
+        await db.none(
+          `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
+          [job.session_id, `I spotted ${result.items.length} item${result.items.length === 1 ? '' : 's'} in your ${kindWord} \u2014 review them below.`]
+        );
+      } catch (err) {
+        console.warn(`[scanJobs] transcript mirror failed (non-fatal): ${err.message}`);
+      }
+    }
     // Telemetry parity with the agent path: one interaction row per finished
     // scan (logInteraction is non-fatal by design).
     await metrics.logInteraction({
