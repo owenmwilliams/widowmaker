@@ -8,6 +8,7 @@ const { Storage } = require('@google-cloud/storage');
 const path = require('path');
 const { jsonrepair } = require('jsonrepair');
 const { buildProviderOrder, runWithFailover } = require('./visionFailover');
+const { instrumentVisionModel } = require('../ai/resilientModel');
 
 // Initialize GCS client for fetching images from URLs
 const isLocalEnvironment = process.env.NODE_ENV !== 'production';
@@ -420,7 +421,7 @@ async function analyzeWithGPT4(imageSource, mimeType, prompt = VISION_PROMPT) {
  * @param {string} mimeType - MIME type of the image
  * @param {string} prompt - Analysis prompt
  */
-async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT, modelId = 'gemini-2.5-flash') {
+async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT, modelId = 'gemini-2.5-flash', userId = null) {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
@@ -442,12 +443,15 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT, 
             if (match) actualMimeType = match[1];
         }
 
-        const model = geminiClient.getGenerativeModel({
+        // Resilience + token metering (timeout / usage). retries:0 — this function
+        // has its own manual retry + flash-fallback layer below; letting the
+        // wrapper also retry would stack (2×2×fallback = up to 12min in one call).
+        const model = instrumentVisionModel(geminiClient.getGenerativeModel({
             model: modelId,
             generationConfig: {
                 responseMimeType: "application/json"
             }
-        });
+        }), { userId, modelName: modelId, retries: 0 });
 
         const contentParts = [
             { inlineData: { data: base64Image, mimeType: actualMimeType } },
@@ -467,10 +471,10 @@ async function analyzeWithGemini(imageSource, mimeType, prompt = VISION_PROMPT, 
                     // Fall back to flash
                     console.warn(`[Gemini] ${modelId} retry failed, falling back to flash: ${retryError.message}`);
                     usedModel = 'gemini-2.5-flash';
-                    const fallbackModel = geminiClient.getGenerativeModel({
+                    const fallbackModel = instrumentVisionModel(geminiClient.getGenerativeModel({
                         model: usedModel,
                         generationConfig: { responseMimeType: "application/json" }
-                    });
+                    }), { userId, modelName: usedModel, retries: 0 });
                     result = await fallbackModel.generateContent(contentParts);
                 }
             } else {
@@ -986,7 +990,7 @@ async function analyzeMultiItemWithGPT4(imageSource, mimeType) {
  * @param {string} imageSource - Base64 string or URL
  * @param {string} mimeType - MIME type of the image
  */
-async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemini-2.5-flash') {
+async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemini-2.5-flash', userId = null) {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
@@ -1008,13 +1012,15 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
             if (match) actualMimeType = match[1];
         }
 
-        const model = geminiClient.getGenerativeModel({
+        // Resilience + token metering (timeout / usage). retries:0 — manual retry +
+        // flash-fallback layer below handles retries; avoid wrapper retry stacking.
+        const model = instrumentVisionModel(geminiClient.getGenerativeModel({
             model: modelId,
             generationConfig: {
                 responseMimeType: "application/json",
                 maxOutputTokens: 8192  // Increase token limit to prevent truncation
             }
-        });
+        }), { userId, modelName: modelId, retries: 0 });
 
         const contentParts = [
             { inlineData: { data: base64Image, mimeType: actualMimeType } },
@@ -1032,10 +1038,10 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
                 } catch (retryError) {
                     // Fall back to flash
                     console.warn(`[Gemini Multi-Item] ${modelId} retry failed, falling back to flash: ${retryError.message}`);
-                    const fallbackModel = geminiClient.getGenerativeModel({
+                    const fallbackModel = instrumentVisionModel(geminiClient.getGenerativeModel({
                         model: 'gemini-2.5-flash',
                         generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
-                    });
+                    }), { userId, modelName: 'gemini-2.5-flash', retries: 0 });
                     try {
                         result = await fallbackModel.generateContent(contentParts);
                     } catch (fallbackError) {
@@ -1133,19 +1139,21 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
  * @param {Array<{base64: string, mimeType: string}>} imageSources
  * @param {string} modelId
  */
-async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-flash') {
+async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-flash', userId = null) {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
 
     try {
-        const model = geminiClient.getGenerativeModel({
+        // Resilience + token metering (timeout / usage). retries:0 — manual retry +
+        // flash-fallback layer below handles retries; avoid wrapper retry stacking.
+        const model = instrumentVisionModel(geminiClient.getGenerativeModel({
             model: modelId,
             generationConfig: {
                 responseMimeType: "application/json",
                 maxOutputTokens: 8192
             }
-        });
+        }), { userId, modelName: modelId, retries: 0 });
 
         // Build parts: label each image then append the prompt
         const parts = [];
@@ -1174,10 +1182,10 @@ async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-f
                 } catch (retryError) {
                     // Fall back to flash
                     console.warn(`[Gemini Multi-Image] ${modelId} retry failed, falling back to flash: ${retryError.message}`);
-                    const fallbackModel = geminiClient.getGenerativeModel({
+                    const fallbackModel = instrumentVisionModel(geminiClient.getGenerativeModel({
                         model: 'gemini-2.5-flash',
                         generationConfig: { responseMimeType: "application/json", maxOutputTokens: 8192 }
-                    });
+                    }), { userId, modelName: 'gemini-2.5-flash', retries: 0 });
                     try {
                         result = await fallbackModel.generateContent(parts);
                     } catch (fallbackError) {
@@ -1301,7 +1309,7 @@ async function analyzeMultiItemWithNemotron(base64Image, mimeType) {
 /**
  * Main function to analyze photo with current provider
  */
-async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt = VISION_PROMPT, itemHint = null, plan = 'basic') {
+async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt = VISION_PROMPT, itemHint = null, plan = 'basic', userId = null) {
     const providerToUse = provider || currentProvider;
 
     // If a specific item name is provided (multi-item add flow), prepend a focus instruction
@@ -1321,7 +1329,7 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt =
             case 'gemini':
             case 'google':
             case 'gemini-pro':
-                return analyzeWithGemini(base64Image, mimeType, effectivePrompt, geminiModel);
+                return analyzeWithGemini(base64Image, mimeType, effectivePrompt, geminiModel, userId);
             case 'together':
             case 'scout':
                 return analyzeWithTogetherScout(base64Image, mimeType, prompt);
@@ -1345,7 +1353,7 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt =
 /**
  * Main function to analyze photo for multiple items
  */
-async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, options = {}, plan = 'basic') {
+async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, options = {}, plan = 'basic', userId = null) {
     const providerToUse = provider || currentProvider;
     const promptOverride = options.prompt;
 
@@ -1361,7 +1369,7 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, opt
             case 'gemini':
             case 'google':
             case 'gemini-3-pro':
-                return analyzeMultiItemWithGemini(base64Image, mimeType, geminiModel);
+                return analyzeMultiItemWithGemini(base64Image, mimeType, geminiModel, userId);
             case 'together':
             case 'scout':
                 return analyzeMultiItemWithTogetherScout(base64Image, mimeType, promptOverride);
@@ -1386,7 +1394,7 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, opt
  * @param {Array<{base64: string, mimeType: string}>} imageSources
  * @param {string} provider
  */
-async function analyzeMultiImagePhoto(imageSources, provider = null, plan = 'basic') {
+async function analyzeMultiImagePhoto(imageSources, provider = null, plan = 'basic', userId = null) {
     const providerToUse = provider || currentProvider;
     const geminiModel = plan === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
     console.log(`Analyzing ${imageSources.length} photos holistically with provider: ${providerToUse} (model: ${geminiModel})`);
@@ -1394,11 +1402,11 @@ async function analyzeMultiImagePhoto(imageSources, provider = null, plan = 'bas
     switch (providerToUse.toLowerCase()) {
         case 'gemini':
         case 'google':
-            return await analyzeMultiImageWithGemini(imageSources, geminiModel);
+            return await analyzeMultiImageWithGemini(imageSources, geminiModel, userId);
         default:
             // Fallback: analyze first image only with multi-item
             console.warn(`[Multi-Image] Provider ${providerToUse} does not support multi-image; falling back to first image only`);
-            return await analyzeMultiItemPhoto(imageSources[0].base64, imageSources[0].mimeType, providerToUse, {}, plan);
+            return await analyzeMultiItemPhoto(imageSources[0].base64, imageSources[0].mimeType, providerToUse, {}, plan, userId);
     }
 }
 

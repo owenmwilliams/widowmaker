@@ -21,6 +21,11 @@ const DEFAULT_TIMEOUT_MS = Number(process.env.AI_CALL_TIMEOUT_MS || 30000);
 const DEFAULT_RETRIES = Number(process.env.AI_CALL_RETRIES || 2);
 const DEFAULT_BASE_DELAY_MS = Number(process.env.AI_RETRY_BASE_MS || 500);
 
+// Vision (photo/video) calls are the heaviest in the system — a 28-frame video
+// analysis legitimately takes 60–90s — so they get a much more generous timeout
+// than the chat models. Configurable via VISION_CALL_TIMEOUT_MS.
+const DEFAULT_VISION_TIMEOUT_MS = Number(process.env.VISION_CALL_TIMEOUT_MS || 120000);
+
 class AiUnavailableError extends Error {
   constructor(message = 'The AI assistant is temporarily unavailable. Please try again in a moment.') {
     super(message);
@@ -108,7 +113,7 @@ async function callWithResilience(factory, opts = {}) {
  * (timeout + retry) and records token usage. Mutates and returns the
  * (per-request) model.
  */
-function instrumentModel(model, { userId, modelName, timeoutMs, retries } = {}) {
+function instrumentModel(model, { userId, modelName, timeoutMs, retries, baseDelayMs, sleepFn } = {}) {
   if (!model || typeof model.generateContent !== 'function') return model;
   const original = model.generateContent.bind(model);
 
@@ -116,6 +121,8 @@ function instrumentModel(model, { userId, modelName, timeoutMs, retries } = {}) 
     const result = await callWithResilience(() => original(...args), {
       timeoutMs,
       retries,
+      baseDelayMs,
+      sleepFn,
       label: `generateContent(${modelName || 'gemini'})`,
     });
     try {
@@ -133,6 +140,23 @@ function instrumentModel(model, { userId, modelName, timeoutMs, retries } = {}) 
   return model;
 }
 
+/**
+ * Convenience wrapper around instrumentModel for vision (photo/video) calls:
+ * same timeout+retry+token-metering behaviour, but with the generous vision
+ * timeout by default. Keeps the vision timeout policy in one place so the video
+ * and image services stay in sync.
+ */
+function instrumentVisionModel(model, { userId, modelName, timeoutMs, retries, baseDelayMs, sleepFn } = {}) {
+  return instrumentModel(model, {
+    userId,
+    modelName,
+    timeoutMs: timeoutMs || DEFAULT_VISION_TIMEOUT_MS,
+    retries,
+    baseDelayMs,
+    sleepFn,
+  });
+}
+
 module.exports = {
   AiUnavailableError,
   isRetryable,
@@ -140,6 +164,8 @@ module.exports = {
   withTimeout,
   callWithResilience,
   instrumentModel,
+  instrumentVisionModel,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_RETRIES,
+  DEFAULT_VISION_TIMEOUT_MS,
 };
