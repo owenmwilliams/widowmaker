@@ -170,8 +170,13 @@ struct NexusChatView: View {
                         welcomeCard
                     }
                     ForEach(vm.messages) { message in
-                        MessageBubble(message: message, onButton: handleAgentButton)
-                            .id(message.id)
+                        if case .scanReview(let state) = message.kind {
+                            ScanReviewPill(state: state)
+                                .id(message.id)
+                        } else {
+                            MessageBubble(message: message, onButton: handleAgentButton)
+                                .id(message.id)
+                        }
                     }
                     if vm.isUploading {
                         UploadProgressRow(progress: vm.uploadProgress, label: vm.phaseText)
@@ -630,6 +635,61 @@ private struct UploadProgressRow: View {
             Text(label.isEmpty ? "Uploading…" : label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+
+/// Compact artifact of a scan review in the message stream — the review modal
+/// is the response; this pill just records that it happened and how it ended.
+private struct ScanReviewPill: View {
+    let state: ChatMessage.ScanReviewState
+
+    private var icon: String {
+        switch state {
+        case .pending: return "sparkle.magnifyingglass"
+        case .reviewed: return "checkmark.circle.fill"
+        case .dismissed: return "minus.circle"
+        case .record: return "checkmark.seal"
+        }
+    }
+
+    private var tint: Color {
+        switch state {
+        case .reviewed: return Theme.good
+        default: return Color.secondary
+        }
+    }
+
+    private var label: String {
+        switch state {
+        case .pending(let count):
+            return "\(count) item\(count == 1 ? "" : "s") found \u{2014} reviewing\u{2026}"
+        case .reviewed(let added, let skipped):
+            var t = "Items reviewed \u{00B7} \(added) added"
+            if skipped > 0 { t += ", \(skipped) skipped" }
+            return t
+        case .dismissed(let count):
+            return "\(count) item\(count == 1 ? "" : "s") found \u{00B7} not added"
+        case .record(let count):
+            return count > 0 ? "\(count) item\(count == 1 ? "" : "s") found \u{00B7} reviewed" : "Items reviewed"
+        }
+    }
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 0)
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.caption)
+                Text(label).font(.caption.weight(.medium))
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Theme.card)
+            .clipShape(Capsule())
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)

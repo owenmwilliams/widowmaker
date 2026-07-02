@@ -91,6 +91,10 @@ async function archiveSession(sessionId, userId, sessionType = null) {
  * Enrich visible messages (user + model) with the tool actions that occurred
  * between them. Attaches an `actions` array to each model message.
  */
+// Matches the scan-completion marker row written by scanJobService — the chat
+// renders these as a compact "items found / reviewed" pill, not a bubble.
+const SCAN_REVIEW_MARKER = /^Found (\d+) items? in .+ scan \u2014 review card shown\.$/u;
+
 function enrichMessagesWithActions(allMessages) {
   const visibleMessages = allMessages.filter(m => m.role === 'user' || m.role === 'model');
   return visibleMessages.map((msg, idx) => {
@@ -108,6 +112,10 @@ function enrichMessagesWithActions(allMessages) {
                  allMessages.indexOf(m) > allMessages.indexOf(tc) && allMessages.indexOf(m) < thisIdx
           )?.tool_response,
         }));
+      const marker = SCAN_REVIEW_MARKER.exec(msg.content || '');
+      if (marker) {
+        return { ...msg, actions: toolCalls, kind: 'scan_review', scanCount: parseInt(marker[1], 10) };
+      }
       return { ...msg, actions: toolCalls };
     }
     return msg;

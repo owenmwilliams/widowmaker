@@ -56,6 +56,9 @@ final class NexusViewModel: ObservableObject {
     // so killing the app with a card on screen re-surfaces it on next launch.
     private var reviewQueue: [DetectedItemsReview] = []
     private var presentedReviewJobId: String?
+    private var presentedReviewPillId: UUID?
+    private var presentedReviewCount = 0
+    private var presentedReviewHandled = false
 
     var isBusy: Bool { isLoading || isUploading }
 
@@ -341,6 +344,12 @@ final class NexusViewModel: ObservableObject {
         )
     }
 
+    /// Flip a scan pill to a new state in place.
+    private func updatePill(_ id: UUID?, to state: ChatMessage.ScanReviewState) {
+        guard let id, let idx = messages.firstIndex(where: { $0.id == id }) else { return }
+        messages[idx].kind = .scanReview(state)
+    }
+
     /// Turn a completed scan job into a review card plus a summary bubble.
     /// Zero-item scans have no card to acknowledge, so they surface a message
     /// and consume immediately.
@@ -356,10 +365,11 @@ final class NexusViewModel: ObservableObject {
             Task { try? await service.consumeScanJob(id: jobId) }
             return
         }
-        messages.append(ChatMessage(
-            role: .model,
-            text: "I spotted \(items.count) item\(items.count == 1 ? "" : "s") in your \(kindWord) — review them below."
-        ))
+        // The review card IS the response — the chat keeps a compact pill,
+        // not a prose bubble that duplicates the modal.
+        let pill = ChatMessage(role: .model, text: "\(items.count) items found",
+                               kind: .scanReview(.pending(count: items.count)))
+        messages.append(pill)
         // Backfill the room onto the remembered media so a later Rescan
         // (issue #43) targets the same room this scan resolved to.
         if let room = job.result?.room ?? job.roomHint, lastScan != nil { lastScan?.room = room }
@@ -367,7 +377,8 @@ final class NexusViewModel: ObservableObject {
             mediaKind: job.result?.mediaKind ?? job.mediaKind ?? "photo",
             room: job.result?.room ?? job.roomHint,
             items: items,
-            jobId: job.id
+            jobId: job.id,
+            pillId: pill.id
         ))
     }
 
@@ -408,6 +419,9 @@ final class NexusViewModel: ObservableObject {
         guard pendingReview == nil, let next = reviewQueue.first else { return }
         reviewQueue.removeFirst()
         presentedReviewJobId = next.jobId
+        presentedReviewPillId = next.pillId
+        presentedReviewCount = next.items.count
+        presentedReviewHandled = false
         pendingReview = next
     }
 
@@ -417,6 +431,12 @@ final class NexusViewModel: ObservableObject {
     func reviewSheetClosed() {
         let jobId = presentedReviewJobId
         presentedReviewJobId = nil
+        // Swipe-down / skip without committing: the pill records the outcome.
+        if !presentedReviewHandled {
+            updatePill(presentedReviewPillId, to: .dismissed(count: presentedReviewCount))
+        }
+        presentedReviewPillId = nil
+        presentedReviewHandled = false
         Task {
             if let jobId {
                 try? await service.consumeScanJob(id: jobId)
@@ -501,37 +521,44 @@ final class NexusViewModel: ObservableObject {
             $0.keep && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
         guard !kept.isEmpty else { return }
+        let pillId = presentedReviewPillId
+        let totalDetected = presentedReviewCount
         isLoading = true
         phaseText = "Adding your items…"
         errorMessage = nil
-        defer { isLoading = false; phaseText = "" }
+
+        var report: String? = nil
         do {
             let payload = kept.map { ReviewedItemPayload(from: $0, fallbackRoom: room) }
             let result = try await service.commitReviewedItems(payload, room: room, scanId: scanId)
-            let dest = room.map { " to the \($0)" } ?? ""
-            let text: String
-            if result.alreadyCommitted || (result.added == 0 && result.skipped > 0) {
-                // Re-submit of a card already committed — reassure, don't imply loss.
-                text = "These were already added\(dest) — nothing duplicated."
-            } else {
-                var t = "✅ Added \(result.added) item\(result.added == 1 ? "" : "s")\(dest) to your inventory."
-                if result.skipped > 0 {
-                    t += " \(result.skipped) were already on the list, so I skipped those."
-                }
-                if result.failed > 0 {
-                    t += " \(result.failed) couldn't be added — you can try those again."
-                }
-                text = t
-            }
-            messages.append(ChatMessage(role: .model, text: text))
+            presentedReviewHandled = true
+            updatePill(pillId, to: .reviewed(added: result.added, skipped: result.skipped))
             ClientEventLogger.shared.log(.reviewCardCommitted, sessionId: sessionId,
                                           metadata: ["itemCount": String(result.added)])
+            // A re-submitted card is already in the inventory — flip the pill,
+            // but don't send a second report for the same review.
+            if !(result.alreadyCommitted || (result.added == 0 && result.skipped > 0)) {
+                let fromScan = room.map { " from the \($0) scan" } ?? " from the scan"
+                var t = "Added \(result.added) of the \(totalDetected) items\(fromScan)."
+                if result.skipped > 0 { t += " \(result.skipped) were already on the list." }
+                if result.failed > 0 { t += " \(result.failed) couldn't be added." }
+                report = t
+            }
         } catch NexusError.unauthorized {
             sessionExpired = true
         } catch {
             errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
         }
+        isLoading = false
+        phaseText = ""
         await refreshReadiness()
+
+        // Closing the loop conversationally: the commit report goes out as a
+        // REAL user message, and the model's reply — not a canned toast — is
+        // what moves the chat forward. (send() owns its own loading state.)
+        if let report {
+            _ = await send(report)
+        }
     }
 
     /// Deterministically re-run analysis on the most recently scanned media and
@@ -545,14 +572,18 @@ final class NexusViewModel: ObservableObject {
         errorMessage = nil
         defer { isLoading = false; phaseText = "" }
         do {
-            let review = try await service.rescan(url: scan.url, mimeType: scan.mimeType, room: scan.room)
+            var review = try await service.rescan(url: scan.url, mimeType: scan.mimeType, room: scan.room)
             if review.items.isEmpty {
                 messages.append(ChatMessage(
                     role: .model,
                     text: "I ran the scan again but still couldn't pick out any items. Try a slower, well-lit pan with closets open — or add the items by name."
                 ))
             } else {
-                pendingReview = review
+                let pill = ChatMessage(role: .model, text: "\(review.items.count) items found",
+                                       kind: .scanReview(.pending(count: review.items.count)))
+                messages.append(pill)
+                review.pillId = pill.id
+                presentReview(review)
             }
         } catch NexusError.unauthorized {
             sessionExpired = true

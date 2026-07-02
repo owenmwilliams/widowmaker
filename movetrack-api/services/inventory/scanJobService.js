@@ -384,10 +384,15 @@ async function runClaimedJob(job) {
     // bubbles, and a scan job never passes through a chat turn).
     if (job.session_id) {
       try {
+        // Minimal marker, not prose: the review card IS the response the user
+        // sees; this row gives the model the antecedent for the user's
+        // "Added N of M items…" report and renders as a placeholder pill in
+        // the chat (enrichMessagesWithActions tags it kind: 'scan_review').
         const kindWord = job.media_kind === 'video' ? 'video' : 'photo';
+        const where = roomHint ? `the ${roomHint}` : `your ${kindWord}`;
         await db.none(
           `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
-          [job.session_id, `I spotted ${result.items.length} item${result.items.length === 1 ? '' : 's'} in your ${kindWord} \u2014 review them below.`]
+          [job.session_id, `Found ${result.items.length} item${result.items.length === 1 ? '' : 's'} in ${where} scan \u2014 review card shown.`]
         );
       } catch (err) {
         console.warn(`[scanJobs] transcript mirror failed (non-fatal): ${err.message}`);

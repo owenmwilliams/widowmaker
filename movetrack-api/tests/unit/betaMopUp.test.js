@@ -257,3 +257,28 @@ describe('gemini history — seeded greeting survives the leading-edge rule', ()
     expect(contents[0].parts[0].text).toBe('hello');
   });
 });
+
+describe('scan-review pill contract', () => {
+  const { enrichMessagesWithActions } = jest.requireActual('../../services/infra/agentSessionService');
+
+  test('the scan marker row is tagged kind=scan_review with its count', () => {
+    const rows = [
+      { role: 'user', content: 'Here is my video' },
+      { role: 'model', content: 'Found 18 items in the Bathroom 1 scan — review card shown.' },
+      { role: 'model', content: 'A normal reply.' },
+    ];
+    const enriched = enrichMessagesWithActions(rows);
+    expect(enriched[1].kind).toBe('scan_review');
+    expect(enriched[1].scanCount).toBe(18);
+    expect(enriched[2].kind).toBeUndefined();
+  });
+
+  test('singular form tags too', () => {
+    const enriched = enrichMessagesWithActions([
+      { role: 'user', content: 'photo' },
+      { role: 'model', content: 'Found 1 item in your photo scan — review card shown.' },
+    ]);
+    expect(enriched[1].kind).toBe('scan_review');
+    expect(enriched[1].scanCount).toBe(1);
+  });
+});
