@@ -367,26 +367,6 @@ router.post('/inventory/commit', express.json(), async (req, res) => {
     console.error('[nexus] inventory/commit visibility record failed (non-fatal):', err.message);
   }
 
-  // Mirror the confirmation the client shows into the transcript so the model
-  // sees the same chat the user does — it was re-congratulating on its next
-  // turn because the client's toast bubble was invisible to it.
-  try {
-    const sessionRow = await db.oneOrNone(
-      `SELECT id FROM nexus_sessions WHERE user_id = $1 AND is_active = TRUE
-       ORDER BY updated_at DESC LIMIT 1`, [userId]
-    );
-    if (sessionRow && addedCount > 0) {
-      const bits = [`\u2705 Added ${addedCount} item${addedCount === 1 ? '' : 's'} to your inventory.`];
-      if (skippedCount > 0) bits.push(`${skippedCount} were already on the list, so they were skipped.`);
-      if (failures.length > 0) bits.push(`${failures.length} couldn't be added.`);
-      await db.none(
-        `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
-        [sessionRow.id, bits.join(' ')]
-      );
-    }
-  } catch (err) {
-    console.error('[nexus] inventory/commit chat mirror failed (non-fatal):', err.message);
-  }
 
   res.json({
     success: true,

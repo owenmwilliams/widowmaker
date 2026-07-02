@@ -62,14 +62,20 @@ struct NexusMessageDTO: Decodable {
     let role: String
     let content: String
     let attachments: [NexusAttachment]?
+    /// Server-tagged rendering hint: "scan_review" marks the scan-completion
+    /// marker row, rendered as a compact pill instead of a chat bubble.
+    let kind: String?
+    let scanCount: Int?
 
-    enum CodingKeys: String, CodingKey { case role, content, attachments }
+    enum CodingKeys: String, CodingKey { case role, content, attachments, kind, scanCount }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         role = (try? c.decode(String.self, forKey: .role)) ?? "model"
         content = (try? c.decode(String.self, forKey: .content)) ?? ""
         attachments = try? c.decode([NexusAttachment].self, forKey: .attachments)
+        kind = try? c.decode(String.self, forKey: .kind)
+        scanCount = try? c.decode(Int.self, forKey: .scanCount)
     }
 }
 
@@ -419,6 +425,9 @@ struct DetectedItemsReview: Identifiable {
     /// job is consumed when the user closes the card (commit or dismiss) —
     /// never merely for displaying it.
     var jobId: String? = nil
+    /// The chat pill representing this scan; flipped to reviewed/dismissed
+    /// when the card closes.
+    var pillId: UUID? = nil
 }
 
 /// Drives the native duplicate-review sheet (Identifiable for `.sheet(item:)`).
@@ -481,16 +490,32 @@ enum NexusError: Error {
 /// optimistic (not-yet-persisted) messages and locally-created replies.
 struct ChatMessage: Identifiable, Equatable {
     enum Role { case user, model }
+
+    /// The review modal IS the response to a scan; the chat keeps a compact
+    /// pill artifact of it instead of a prose bubble.
+    enum ScanReviewState: Equatable {
+        case pending(count: Int)                 // card is up, undecided
+        case reviewed(added: Int, skipped: Int)  // committed from the card
+        case dismissed(count: Int)               // closed without adding
+        case record(count: Int)                  // reloaded from the transcript
+    }
+    enum Kind: Equatable {
+        case text
+        case scanReview(ScanReviewState)
+    }
+
     let id: UUID
     let role: Role
     let text: String
     let attachments: [NexusAttachment]
+    var kind: Kind = .text
 
-    init(role: Role, text: String, attachments: [NexusAttachment] = []) {
+    init(role: Role, text: String, attachments: [NexusAttachment] = [], kind: Kind = .text) {
         self.id = UUID()
         self.role = role
         self.text = text
         self.attachments = attachments
+        self.kind = kind
     }
 
     init(from dto: NexusMessageDTO) {
@@ -498,5 +523,8 @@ struct ChatMessage: Identifiable, Equatable {
         self.role = (dto.role == "user") ? .user : .model
         self.text = dto.content
         self.attachments = dto.attachments ?? []
+        self.kind = (dto.kind == "scan_review")
+            ? .scanReview(.record(count: dto.scanCount ?? 0))
+            : .text
     }
 }
