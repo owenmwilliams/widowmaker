@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const multer = require('multer');
 const { authenticate, resolveEffectivePlan } = require('../../../services/infra/authService');
 const nexusOrchestrator = require('../../../agents/nexusOrchestratorAgent');
