@@ -6,7 +6,58 @@
 
 ---
 
-## 1. TL;DR
+## 0. UPDATE — confirmed diagnosis from the 2026-07-01 beta session data
+
+Prod exports (nexus_messages transcript, beta_interaction_logs, room_videos, items, user_costs) for the beta session confirmed the diagnosis. The session: onboarding at 20:20, Living Room video at 20:57 (worked — 23 detected, 22 committed), then a Dining Room video analyzed **four times** between 21:11 and 21:17 (2, 2, 9, 3 items — none committed), user gave up, returned at 23:00, re-recorded twice (12 items, then 6), finally committed 5 items at 23:17, and ended with duplicate rows in the inventory.
+
+### 0.1 Primary failure: intermittent frame extraction → silent fallback to inline video analysis
+
+Items only receive a `picture_url` when the frames path runs (`mediaInventoryWorkflowService.js:216-222`); the inline fallback (`:229-231`) never attaches one. That makes `withPic` a perfect tracer in the tool results:
+
+| Time | Video | itemCount | items with picture | Path taken |
+|---|---|---|---|---|
+| 20:59 | Living Room | **23** | 22 | frames ✅ |
+| 21:11 | Dining #1 | **2** | 0 | **inline fallback** |
+| 21:13 | Dining #1 (same file) | **2** | 1 | partial frames |
+| 21:15 | Dining #1 (same file) | **9** | 8 | frames ✅ |
+| 21:17 | Dining #1 (same file) | **3** | 0 | **inline fallback** |
+| 23:08 | Dining #2 | **12** | 11 | frames ✅ |
+| 23:16 | Dining #3 | **6** | 0 | **inline fallback** |
+
+The **same video file** produced 2, 2, 9, 3 items across four runs — item count correlates exactly with whether frames were extracted, and failure is intermittent, i.e. not a property of the video. The inline fallback is the pre-#24 "only 2 items" bug reintroduced as a silent degradation: Gemini clearly received the full clip inline (the narration notes in `room_videos` are rich and accurate every time) but its low-res inline item recall is terrible. `parseError` was null throughout; `success: true` throughout — nothing surfaced the degradation to the user or to telemetry.
+
+Suspected root causes of the intermittent extraction failure (both fit; Cloud Run logs will disambiguate — see 0.5):
+- `downloadBuffer` (`:26-36`) has no HTTP status check, no timeout, no retry, and no Content-Length verification — a truncated GCS download yields a `.mov` whose trailing `moov` atom is missing, which ffmpeg cannot open (0 frames) or only partially decodes (few frames, cf. the 21:13 run).
+- Cloud Run default 512MB where `/tmp` is tmpfs (counts toward memory): video buffer + tmp file + ffmpeg + 28 JPEGs under any concurrency is genuine OOM territory.
+
+### 0.2 Photo failure: wine photo returned 0 items in 460ms, reported as success
+
+At 23:18 the user sent a photo of their wine (mentioned repeatedly: 90–180 bottles, the single biggest packing concern) plus four explicitly described boxes. `analyze_photo` returned `itemCount: 0, ok: true` with `visionMs: 460` — far too fast for a real vision call. Something failed before or at the provider and was swallowed into an empty-but-successful result (the `result.data?.items || result.items || []` pattern at `:105`, or an error-page buffer from `downloadBuffer`). The four explicit boxes were added; the wine never was, and the user was told the photo "didn't come through with any detectable items."
+
+### 0.3 Agent refused to rescan; then duplicates from two parallel add paths
+
+- At 23:00 and 23:01 the user asked twice to re-analyze; **no `analyze_video` call was made either turn** — the census LLM apologized from context ("it's consistently failing") instead of running the tool. Media re-analysis is at LLM discretion, and after several bad scans the model gives up on the user's behalf.
+- The user committed 5 items via the native review card at 23:17:09; `/inventory/commit` writes nothing to `nexus_messages`, so the agent never saw it. When the user then triggered the chat-side "Add the 6 items identified from the last video" (the `[BUTTONS]` add-all path that census offers in parallel with the native card), the agent re-added all 6 at 23:19:11 → 11 rows for 6 physical items. `find_duplicates` flagged 6 pairs, but resolution requires user action and never happened — the duplicates are still in the inventory.
+
+### 0.4 Confirmed telemetry findings
+
+Everything Section 5 predicted, now observed in real rows: `had_error` false on all 23 turns (including the failed wine photo); `items_added_this_turn` = 0 on every turn despite 33 items being added; `detected_item_count`, `avg_confidence`, and `vision_provider` empty on every row even though the tool results carried `_detectedItemCount` and `_visionProvider`; "Gemini did not return structured JSON — fallback used" warnings on the majority of delegations (the structured-response contract fails more often than it works); and the onboarding turn hit `delegation_budget_exhausted (4/4)` — the "processing limit" the user saw — leaving the Bathroom uncreated (improved but not eliminated by #36, which visibly deployed mid-session: budgets change from 4 to 5/6 between 20:26 and 20:59). Only $0.32 of AI spend for the whole day — cost is not the constraint; reliability is.
+
+### 0.5 Immediate actions (this week, in order)
+
+1. **Pull Cloud Run logs now** (default retention 30 days) for 2026-07-01 20:55–23:20 UTC, filters: `"[census] frame extraction failed"`, `"[census] no frames extracted"`, `"[census] Video downloaded:"`, `"[census] analyzePhotoForInventory"`. Comparing the "Video downloaded: X.XMB" values across the four runs of the same dining video proves (or rules out) truncated downloads vs OOM.
+2. **Fix `downloadBuffer`**: status check, timeout, retry, Content-Length verification, authenticated GCS SDK reads.
+3. **Kill the silent inline fallback**: on frame-extraction failure, retry extraction once, then fail the scan loudly ("Scan failed — tap to retry") instead of returning a 2-item result as success. A wrong-but-confident answer costs more trust than an honest error.
+4. **Make rescans deterministic**: an explicit user retry (or a Rescan button) must always invoke `analyze_video` — not depend on LLM mood.
+5. **Unify the add paths**: record `/inventory/commit` results into `nexus_messages` so the agent knows; drop the chat `[BUTTONS]` add-all when a native review card was emitted for the same scan.
+6. **Raise Cloud Run memory/timeout** (e.g. `--memory 2Gi --timeout 600`, low concurrency) to protect ffmpeg and tmpfs.
+7. **Wire the telemetry that already exists**: populate `detected_item_count`, `vision_provider`, `items_added_this_turn` (incl. `add_items` + commit), and `had_error` from the delegated census results.
+
+Even on the healthy frames path, recall for a genuinely cluttered dining room peaked at 9–12 items with the room's headline pieces (table, chairs, wine) inconsistently captured — capture guidance and/or segmented multi-pass analysis is the medium-term detection lever, but transport/fallback reliability above is what actually burned this beta.
+
+---
+
+## 1. TL;DR (original pre-data analysis)
 
 - **The single richest forensic source that already exists is `nexus_messages`** — it persists the full turn-by-turn transcript including every `analyze_photo`/`analyze_video` tool result (detected items, `parseError`) and every `add_items` result (including its `failures[]` array). Start there (queries below).
 - **However, several of the most likely failure modes leave no durable trace at all.** `beta_interaction_logs.had_error` is hardcoded to `false` at both call sites, hard failures skip telemetry entirely, the vision calls are uninstrumented, and the iOS client has zero crash/error reporting. So a full diagnosis of the beta session may not be possible from stored data — the logging improvements in Section 5 are needed before the next beta round.
