@@ -16,7 +16,7 @@ const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 
 const knex = require('./knex');
-const { storage, isLocalEnvironment, signUrl } = require('./gcsService');
+const { storage, isLocalEnvironment, signUrl, getSignedUploadUrl } = require('./gcsService');
 
 const BUCKET = 'movetrack-item-photos';
 const LOCAL_STORAGE_ROOT = path.join(__dirname, '../../.local-storage');
@@ -33,13 +33,21 @@ const VALID_SOURCES = new Set([
 
 // ── Path resolution ─────────────────────────────────────────────────────────
 
+// Client-supplied filenames (e.g. the `filename` field on POST /upload-url)
+// are untrusted — strip anything but alnum so a crafted extension segment
+// like "x.a/b" can't inject an extra path separator into the GCS object path
+// resolvePath() builds below.
+function sanitizeExt(raw) {
+  return String(raw || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 5);
+}
+
 function extensionFor(originalName, mimeType) {
   const fromName = originalName && originalName.includes('.')
-    ? originalName.split('.').pop().toLowerCase()
+    ? sanitizeExt(originalName.split('.').pop())
     : null;
-  if (fromName && fromName.length <= 5) return fromName;
+  if (fromName) return fromName;
   const fromMime = mimeType && mimeType.includes('/')
-    ? mimeType.split('/')[1].toLowerCase()
+    ? sanitizeExt(mimeType.split('/')[1])
     : null;
   return fromMime || 'bin';
 }
@@ -162,7 +170,6 @@ async function ingestUpload(options) {
   const {
     userId,
     buffer,
-    mimeType,
     originalName,
     source,
     folderHint,
@@ -171,9 +178,16 @@ async function ingestUpload(options) {
     bucket = BUCKET,
   } = options || {};
 
+  // Callers in the scan pipeline (analyzePhotoForInventory) pass through
+  // whatever mime_type the LLM echoed back on its tool call, which is
+  // sometimes omitted or empty. Defaulting here (rather than throwing) avoids
+  // discarding a photo — and wasting the vision call that already ran against
+  // it — over a missing header value we can safely assume for a crop/frame/
+  // thumbnail we generated ourselves as a JPEG.
+  const mimeType = options?.mimeType || 'image/jpeg';
+
   if (!userId) throw new Error('mediaAssetService.ingestUpload: userId is required');
   if (!buffer || !buffer.length) throw new Error('mediaAssetService.ingestUpload: buffer is required');
-  if (!mimeType) throw new Error('mediaAssetService.ingestUpload: mimeType is required');
   if (!source) throw new Error('mediaAssetService.ingestUpload: source is required');
   if (!VALID_SOURCES.has(source)) {
     console.warn(`[mediaAssetService] Unknown source '${source}' — accepting but this should be added to VALID_SOURCES.`);
@@ -223,6 +237,82 @@ async function ingestUpload(options) {
     source,
     assetType,
   };
+}
+
+/**
+ * Reserve a registry row + signed write URL for a client-side DIRECT-TO-GCS
+ * upload (e.g. large videos that bypass the API's request-size cap). Unlike
+ * `ingestUpload`, the server never sees the bytes here — the client PUTs them
+ * straight to the signed URL — so this cannot verify or store the real size.
+ * `declaredSize`, if provided, is the byte count the client captured locally
+ * before upload; it lets the row carry a size immediately instead of forever
+ * showing NULL, and is independently re-verified against the downloaded bytes
+ * at analysis time (see mediaDownloadService.downloadBuffer's `expectedBytes`).
+ *
+ * @param {object} options
+ * @param {string} options.userId
+ * @param {string} options.mimeType
+ * @param {string} [options.originalName]
+ * @param {string} options.source
+ * @param {string} [options.uploadSessionId]
+ * @param {number} [options.declaredSize] - byte count reported by the client
+ * @param {object} [options.metadata]
+ *
+ * @returns {Promise<{ assetId: string, uploadUrl: string, url: string, gcsPath: string, mimeType: string, bucket: string, assetType: 'image'|'video' }>}
+ */
+async function reserveUpload(options) {
+  const {
+    userId,
+    mimeType,
+    originalName,
+    source,
+    uploadSessionId,
+    declaredSize,
+    metadata = {},
+  } = options || {};
+
+  if (!userId) throw new Error('mediaAssetService.reserveUpload: userId is required');
+  if (!mimeType) throw new Error('mediaAssetService.reserveUpload: mimeType is required');
+  if (!source) throw new Error('mediaAssetService.reserveUpload: source is required');
+  if (!VALID_SOURCES.has(source)) {
+    console.warn(`[mediaAssetService] Unknown source '${source}' — accepting but this should be added to VALID_SOURCES.`);
+  }
+
+  const assetUuid = uuidv4();
+  const ext = extensionFor(originalName, mimeType);
+  const gcsPath = resolvePath({ source, userId, assetUuid, ext, uploadSessionId });
+  const assetType = mimeType.startsWith('video/') ? 'video' : 'image';
+  const url = `https://storage.googleapis.com/${BUCKET}/${gcsPath}`;
+  // getSignedUploadUrl always signs against gcsService's own BUCKET constant —
+  // there is no way to mint a signed URL for a different bucket, so (unlike
+  // ingestUpload's writeObject) this can't honor a caller-supplied bucket
+  // override without duplicating signing logic. Don't pretend otherwise.
+  const uploadUrl = await getSignedUploadUrl(gcsPath, mimeType);
+
+  const size = Number.isFinite(declaredSize) && declaredSize > 0 ? Math.round(declaredSize) : null;
+
+  await knex('image_uploads').insert({
+    asset_uuid: assetUuid,
+    user_id: userId,
+    image_url: url,
+    gcs_bucket: BUCKET,
+    gcs_path: gcsPath,
+    file_size: size,
+    mime_type: mimeType,
+    source,
+    asset_type: assetType,
+    status: 'uploaded',
+    upload_session_id: uploadSessionId || null,
+    metadata: JSON.stringify({
+      ...metadata,
+      original_name: originalName || null,
+      pending_direct_upload: true,
+    }),
+    uploaded_at: new Date(),
+    is_orphaned: true,
+  });
+
+  return { assetId: assetUuid, uploadUrl, url, gcsPath, mimeType, bucket: BUCKET, assetType };
 }
 
 /**
@@ -399,9 +489,36 @@ async function markAssetLinkedByUrl(imageUrl, itemId) {
   }
 }
 
+/**
+ * URL-based link for non-item entities (e.g. room_videos) — same idea as
+ * `markAssetLinkedByUrl` but doesn't touch `linked_to_item_id`, whose FK only
+ * makes sense for item photos. Without this, scan-pipeline crops/frames/
+ * direct-PUT videos stay `status:'uploaded'` forever and the 48h orphan
+ * cleanup deletes the GCS object out from under a committed item or a
+ * recorded room video the moment it ages past the threshold.
+ */
+async function markAssetLinkedByUrlAsEntity(imageUrl, entityType, entityId) {
+  if (!imageUrl || !entityType || entityId == null) return;
+  try {
+    await knex('image_uploads')
+      .update({
+        linked_to_entity_type: entityType,
+        linked_to_entity_id: String(entityId),
+        linked_at: new Date(),
+        is_orphaned: false,
+        status: 'linked',
+      })
+      .where('image_url', imageUrl);
+  } catch (err) {
+    console.error('[mediaAssetService] markAssetLinkedByUrlAsEntity failed (non-critical):', err.message);
+  }
+}
+
 module.exports = {
   ingestUpload,
+  reserveUpload,
   linkAsset,
+  markAssetLinkedByUrlAsEntity,
   deleteAsset,
   purgeAssetsForUser,
   cleanupUnlinkedAssets,

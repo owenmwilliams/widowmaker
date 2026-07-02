@@ -456,8 +456,8 @@ const toolHandlers = {
     return { success: true, ...result, existingRooms: roomNames };
   },
 
-  async analyze_photo(args, userId, plan) { return media.analyzePhotoForInventory(args, userId, plan); },
-  async analyze_video(args, userId, plan) { return media.analyzeVideoForInventory(args, userId, plan); },
+  async analyze_photo(args, userId, plan, ctx) { return media.analyzePhotoForInventory(args, userId, plan, ctx); },
+  async analyze_video(args, userId, plan, ctx) { return media.analyzeVideoForInventory(args, userId, plan, ctx); },
 
   async get_item_photo(args, userId) { return getItemPhoto(userId, args); },
   async search_items(args, userId) { return searchItems(userId, args); },
@@ -470,6 +470,22 @@ const toolHandlers = {
 
   async estimate_missing_items(args, userId) { return estimateMissingItems(userId, args); },
 };
+
+/**
+ * Execute a single tool call by name, forwarding the deterministic per-turn
+ * `attachments` ([{ url, mimeType, byteLength }]) alongside the LLM-generated
+ * `args`. analyze_photo/analyze_video read `ctx.attachments` to verify the
+ * downloaded bytes against the client-reported byteLength — NOT `args.file_url`,
+ * which the model regenerates from prompt text and can't be trusted as the
+ * source of expected size (see beta-scan-reliability-investigation.md).
+ * Extracted from the tool-execution loop so this wiring is directly testable
+ * without a full Gemini + DB turn.
+ */
+async function executeTool(name, args, userId, plan, attachments) {
+  const handler = toolHandlers[name];
+  if (!handler) return { success: false, error: `Unknown tool: ${name}` };
+  return handler(args, userId, plan, { attachments });
+}
 
 // ── Conversation Loop ───────────────────────────────────────────────────────────
 
@@ -763,12 +779,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
 
       let toolResult;
       try {
-        const handler = toolHandlers[name];
-        if (!handler) {
-          toolResult = { success: false, error: `Unknown tool: ${name}` };
-        } else {
-          toolResult = await handler(args, userId, plan);
-        }
+        toolResult = await executeTool(name, args, userId, plan, attachments);
       } catch (err) {
         console.error(`[census] Tool ${name} failed:`, err.message);
         toolResult = { success: false, error: err.message };
@@ -967,4 +978,4 @@ Write in third person: "The user..." not "You..."`,
   console.log(`[census] Summary updated for session ${sessionId} (through msg ${newSummaryThroughId}, ${newMessages.length} new messages summarized)`);
 }
 
-module.exports = { processMessage, generateContextSummary, SYSTEM_PROMPT };
+module.exports = { processMessage, generateContextSummary, SYSTEM_PROMPT, executeTool };

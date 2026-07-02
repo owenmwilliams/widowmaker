@@ -7,12 +7,11 @@
  * Downloads media, calls vision services, crops bounding boxes, uploads to GCS.
  */
 
-const https = require('https');
-const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const gcs = require('../infra/gcsService');
+const mediaAssetService = require('../infra/mediaAssetService');
+const { downloadBuffer } = require('../infra/mediaDownloadService');
 const { drawBoundingBox } = require('../infra/vision/imageUtils');
 const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../infra/vision/imageService');
 const { analyzeVideo, analyzeFrames } = require('../infra/vision/videoService');
@@ -21,18 +20,17 @@ const { recordRoomVideo } = require('./roomVideoService');
 const { specForName } = require('./itemSpecsReference');
 
 /**
- * Download a URL into a Buffer.
+ * Look up the byte count the client reported for this URL when it uploaded the
+ * file (set on the attachment before /message), so downloadBuffer can catch an
+ * upload that never fully landed in GCS — a Content-Length check alone can't
+ * see that, since the truncated object's own Content-Length matches its
+ * (wrong) size.
  */
-function downloadBuffer(url) {
-  return new Promise((resolve, reject) => {
-    const client = url.startsWith('https') ? https : http;
-    client.get(url, (res) => {
-      const chunks = [];
-      res.on('data', c => chunks.push(c));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
-      res.on('error', reject);
-    }).on('error', reject);
-  });
+function expectedBytesFor(url, attachments) {
+  if (!url || !Array.isArray(attachments)) return null;
+  const match = attachments.find(a => a && a.url === url);
+  const n = match && Number(match.byteLength);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /**
@@ -41,9 +39,15 @@ function downloadBuffer(url) {
  * @param {object} args - { files, file_url, mime_type, mode }
  * @param {string} userId
  * @param {string} plan - 'basic' or 'pro'
+ * @param {object} [ctx] - per-call context; `ctx.attachments` is the
+ *   deterministic list the user sent this turn ([{ url, mimeType, byteLength }]),
+ *   used to verify the downloaded bytes match what the client actually
+ *   uploaded. NOT the same as `args.files` — those `file_url`s are copied back
+ *   by the LLM and can't be trusted as the source of expected size.
  * @returns {object} - { success, mode, items, itemCount, ... }
  */
-async function analyzePhotoForInventory(args, userId, plan) {
+async function analyzePhotoForInventory(args, userId, plan, ctx = {}) {
+  const attachments = ctx.attachments || [];
   try {
     // ── Normalize inputs ──
     let files = args.files || [];
@@ -63,7 +67,8 @@ async function analyzePhotoForInventory(args, userId, plan) {
     const imageBuffers = [];
     for (const file of files) {
       try {
-        const buffer = await downloadBuffer(file.file_url);
+        const expectedBytes = expectedBytesFor(file.file_url, attachments);
+        const buffer = await downloadBuffer(file.file_url, { userId, expectedBytes });
         imageBuffers.push({ buffer, mimeType: file.mime_type, url: file.file_url });
       } catch (dlErr) {
         console.warn(`[census] Failed to download ${file.file_url}:`, dlErr.message);
@@ -79,9 +84,13 @@ async function analyzePhotoForInventory(args, userId, plan) {
     if (mode === 'single_item') {
       const base64 = imageBuffers[0].buffer.toString('base64');
       const result = await analyzeItemPhoto(base64, imageBuffers[0].mimeType, 'gemini', undefined, null, plan);
-      const photoPath = `users/${userId}/nexus/photos/${Date.now()}.jpg`;
-      await gcs.uploadBuffer(imageBuffers[0].buffer, photoPath, imageBuffers[0].mimeType);
-      const pictureUrl = `https://storage.googleapis.com/${gcs.BUCKET}/${photoPath}`;
+      const persisted = await mediaAssetService.ingestUpload({
+        userId,
+        buffer: imageBuffers[0].buffer,
+        mimeType: imageBuffers[0].mimeType,
+        source: 'derived_thumbnail',
+      });
+      const pictureUrl = persisted.url;
       const itemData = result.data || result;
       const conf = itemData.confidence || 0;
       return {
@@ -128,9 +137,13 @@ async function analyzePhotoForInventory(args, userId, plan) {
       try {
         const annotated = await drawBoundingBox(sourceBuffer, bbox, { minSize: 10, quality: 85 });
         if (!annotated) continue;
-        const cropPath = `users/${userId}/nexus/crops/${Date.now()}-${i}.jpg`;
-        await gcs.uploadBuffer(annotated, cropPath, 'image/jpeg');
-        item.picture_url = `https://storage.googleapis.com/${gcs.BUCKET}/${cropPath}`;
+        const persisted = await mediaAssetService.ingestUpload({
+          userId,
+          buffer: annotated,
+          mimeType: 'image/jpeg',
+          source: 'derived_crop',
+        });
+        item.picture_url = persisted.url;
         console.log(`[census] Cropped item[${i}] "${item.name}" from image ${srcIdx + 1}`);
       } catch (cropErr) {
         console.warn(`[census] Crop failed for item[${i}]:`, cropErr.message);
@@ -159,14 +172,19 @@ async function analyzePhotoForInventory(args, userId, plan) {
  * @param {object} args - { file_url, mime_type }
  * @param {string} userId
  * @param {string} plan - 'basic' or 'pro'
+ * @param {object} [ctx] - per-call context; `ctx.attachments` is the
+ *   deterministic list the user sent this turn, used to verify the downloaded
+ *   bytes match what the client uploaded.
  * @returns {object} - { success, items, itemCount, ... }
  */
-async function analyzeVideoForInventory(args, userId, plan) {
+async function analyzeVideoForInventory(args, userId, plan, ctx = {}) {
+  const attachments = ctx.attachments || [];
   let tmpPath = null;
   try {
     const url = args.file_url;
     console.log(`[census] Downloading video for analysis: ${url}`);
-    const videoBuffer = await downloadBuffer(url);
+    const expectedBytes = expectedBytesFor(url, attachments);
+    const videoBuffer = await downloadBuffer(url, { userId, expectedBytes });
     console.log(`[census] Video downloaded: ${(videoBuffer.length / 1024 / 1024).toFixed(1)}MB`);
 
     const ext = (args.mime_type || 'video/mp4').split('/')[1] || 'mp4';
@@ -204,9 +222,13 @@ async function analyzeVideoForInventory(args, userId, plan) {
       const frameUrls = [];
       for (let i = 0; i < frames.length; i++) {
         try {
-          const framePath = `users/${userId}/nexus/video-frames/${Date.now()}-${i}.jpg`;
-          await gcs.uploadBuffer(frames[i].buffer, framePath, 'image/jpeg');
-          frameUrls[i] = `https://storage.googleapis.com/${gcs.BUCKET}/${framePath}`;
+          const persisted = await mediaAssetService.ingestUpload({
+            userId,
+            buffer: frames[i].buffer,
+            mimeType: 'image/jpeg',
+            source: 'derived_thumbnail',
+          });
+          frameUrls[i] = persisted.url;
         } catch (e) {
           frameUrls[i] = null;
         }
@@ -273,7 +295,6 @@ async function analyzeVideoForInventory(args, userId, plan) {
 }
 
 module.exports = {
-  downloadBuffer,
   analyzePhotoForInventory,
   analyzeVideoForInventory,
 };

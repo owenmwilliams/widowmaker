@@ -9,6 +9,7 @@
  */
 
 const knex = require('../infra/knex');
+const mediaAssetService = require('../infra/mediaAssetService');
 
 /** Extract { bucket, path } from a public-style GCS URL, or null. */
 function gcsPathFromUrl(url) {
@@ -34,6 +35,17 @@ async function recordRoomVideo(userId, { videoUrl, mimeType = null, roomName = n
       notes: notes || null,
     })
     .returning('*');
+
+  // This is the confirm step for the direct-PUT video reservation
+  // (mediaAssetService.reserveUpload) and the representative frame chosen as
+  // its thumbnail — without it, a successful upload is indistinguishable from
+  // an abandoned one and the 48h orphan cleanup deletes the GCS object(s)
+  // while room_videos still points at them.
+  await mediaAssetService.markAssetLinkedByUrlAsEntity(videoUrl, 'room_video', row.id);
+  if (thumbnailUrl) {
+    await mediaAssetService.markAssetLinkedByUrlAsEntity(thumbnailUrl, 'room_video', row.id);
+  }
+
   return row;
 }
 

@@ -168,15 +168,18 @@ final class NexusService {
     /// Upload media DIRECTLY to storage via a signed URL, bypassing the API's
     /// ~32MB request cap (used for videos). Returns the public URL to attach to a
     /// message. 1) ask the API for a signed upload URL, 2) PUT the bytes to GCS.
+    /// Both network legs get one retry — this flow runs over cellular for large
+    /// video files, where a single transient blip shouldn't force a re-record.
     func uploadMediaDirect(data: Data, mimeType: String, filename: String) async throws -> UploadResponse {
         // 1. Request a signed upload URL.
         var urlReq = URLRequest(url: url(for: "/api/agents/nexus/upload-url"))
         urlReq.httpMethod = "POST"
         urlReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
         addAuth(&urlReq)
-        struct Body: Encodable { let mimeType: String; let filename: String }
-        urlReq.httpBody = try encoder.encode(Body(mimeType: mimeType, filename: filename))
-        let (metaData, metaResp) = try await session.data(for: urlReq)
+        struct Body: Encodable { let mimeType: String; let filename: String; let byteLength: Int }
+        urlReq.httpBody = try encoder.encode(Body(mimeType: mimeType, filename: filename, byteLength: data.count))
+
+        let (metaData, metaResp) = try await withOneRetry { try await session.data(for: urlReq) }
         try validate(metaResp, data: metaData)
 
         struct SignedUpload: Decodable { let uploadUrl: String; let url: String }
@@ -190,7 +193,7 @@ final class NexusService {
         var put = URLRequest(url: putURL)
         put.httpMethod = "PUT"
         put.setValue(mimeType, forHTTPHeaderField: "Content-Type")
-        let (putData, putResp) = try await session.upload(for: put, from: data)
+        let (putData, putResp) = try await withOneRetry { try await session.upload(for: put, from: data) }
         guard let http = putResp as? HTTPURLResponse else {
             throw NexusError.network("No response from storage")
         }
@@ -198,6 +201,22 @@ final class NexusService {
             throw NexusError.server(errorMessage(from: putData) ?? "Upload failed (\(http.statusCode))")
         }
         return UploadResponse(url: info.url, mimeType: mimeType)
+    }
+
+    /// Runs `operation` once more if it throws. A signed upload URL is valid for
+    /// 15 minutes, so a single retry on the same URL is safe for both legs of
+    /// `uploadMediaDirect` (the mint request and the PUT).
+    private func withOneRetry<T>(_ operation: () async throws -> T) async throws -> T {
+        do {
+            return try await operation()
+        } catch is CancellationError {
+            // The task (or its owning screen) was cancelled — e.g. the user
+            // backgrounded the app or navigated away mid-upload. Retrying
+            // would just race a second attempt against a caller that's gone.
+            throw CancellationError()
+        } catch {
+            return try await operation()
+        }
     }
 
     // MARK: - Share links
