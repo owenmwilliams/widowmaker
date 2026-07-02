@@ -46,6 +46,9 @@ var visionRouter = require('./routes/api/vision');
 
 var publicShareRouter = require('./routes/public/share');
 
+// ── internal/ (service-to-service, OIDC-verified — see middleware/auth.js) ────
+var internalScanJobsRouter = require('./routes/internal/scanJobs');
+
 // ── experimental/ (admin-only sandboxes — each route file gates via ensureAdmin) ──
 var visionLabRouter = require('./routes/experimental/visionLab');
 var visionLabVideoRouter = require('./routes/experimental/visionLabVideo');
@@ -175,6 +178,9 @@ app.use('/api/client-events', clientEventsRouter);
 
 // ── Public (unauthenticated, token-scoped) ───────────── /public/inventory/:token
 app.use('/public', publicShareRouter);
+
+// ── Internal (Cloud Tasks push target, OIDC-verified) ── /internal/scan-jobs/process
+app.use('/internal/scan-jobs', internalScanJobsRouter);
 
 // ── Auth ─────────────────────────────────────────────────────────────────────
 app.use('/auth', rateLimits.authLimiter, authRouter);

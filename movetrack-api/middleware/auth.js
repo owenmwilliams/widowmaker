@@ -16,11 +16,13 @@
 const { authenticate } = require('../services/infra/authService');
 
 // Path prefixes that must remain reachable without a session.
-//   /auth            – magic-link request / verify / logout
-//   /health          – liveness & readiness probes (no PII, no DB writes)
-//   /billing/webhook – Stripe webhook (verified by signature, not session) [future]
-//   /public          – tokenized read-only inventory shares (resolved by token)
-const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook', '/public'];
+//   /auth               – magic-link request / verify / logout
+//   /health             – liveness & readiness probes (no PII, no DB writes)
+//   /billing/webhook    – Stripe webhook (verified by signature, not session) [future]
+//   /public             – tokenized read-only inventory shares (resolved by token)
+//   /internal/scan-jobs – Cloud Tasks push target (verified by Google OIDC
+//                         token, not session — see routes/internal/scanJobs.js)
+const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook', '/public', '/internal/scan-jobs'];
 
 // Exact public paths (the Jade landing page + favicon).
 const PUBLIC_EXACT = new Set(['/', '/favicon.ico']);

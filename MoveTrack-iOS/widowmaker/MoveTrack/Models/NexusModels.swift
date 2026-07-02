@@ -413,12 +413,48 @@ struct DetectedItemsReview: Identifiable {
     /// Opaque per-scan id from the server; sent back on commit so re-submitting
     /// the same card is idempotent while a rescan's corrected items still land.
     var scanId: String? = nil
+    /// Backing scan job, when this card came from the durable job flow. The
+    /// job is consumed when the user closes the card (commit or dismiss) —
+    /// never merely for displaying it.
+    var jobId: String? = nil
 }
 
 /// Drives the native duplicate-review sheet (Identifiable for `.sheet(item:)`).
 struct DuplicateReview: Identifiable {
     let id = UUID()
     var pairs: [DuplicatePair]
+}
+
+// MARK: - Scan jobs (durable async scans)
+
+/// A durable scan job (`/api/agents/nexus/scan-jobs`). The scan runs server-side
+/// off the request path; the client polls this record and materializes the
+/// review card from `result`, so a scan survives connection drops, app
+/// backgrounding, and even an app relaunch.
+struct ScanJobDTO: Decodable {
+    let id: String
+    let status: String        // "queued" | "processing" | "completed" | "failed"
+    let stage: String?
+    let mediaKind: String?    // "photo" | "video"
+    let mediaUrl: String?
+    let roomHint: String?
+    let caption: String?
+    let result: ScanJobResult?
+    let error: String?
+
+    var isTerminal: Bool { status == "completed" || status == "failed" }
+}
+
+/// The `result` payload of a completed scan job — the same shape as the
+/// `detected_items` SSE event, so it decodes into the same review card.
+struct ScanJobResult: Decodable {
+    let mediaKind: String?
+    let room: String?
+    let items: [DetectedItem]?
+}
+
+struct ScanJobListResponse: Decodable {
+    let jobs: [ScanJobDTO]
 }
 
 // MARK: - Errors

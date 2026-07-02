@@ -219,6 +219,69 @@ final class NexusService {
         }
     }
 
+    // MARK: - Scan jobs (durable async scans)
+
+    /// Register uploaded media as a durable scan job. Idempotent per key: if the
+    /// request is retried (or the app re-sends the same media after a drop or
+    /// relaunch), the server returns the existing unconsumed job instead of
+    /// scanning twice.
+    func createScanJob(
+        mediaUrl: String,
+        mimeType: String,
+        caption: String?,
+        idempotencyKey: String,
+        sessionId: String?,
+        roomHint: String?
+    ) async throws -> ScanJobDTO {
+        var request = URLRequest(url: url(for: "/api/agents/nexus/scan-jobs"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        addAuth(&request)
+        struct Body: Encodable {
+            let mediaUrl: String
+            let mimeType: String
+            let caption: String?
+            let idempotencyKey: String
+            let sessionId: String?
+            let roomHint: String?
+        }
+        request.httpBody = try encoder.encode(Body(
+            mediaUrl: mediaUrl, mimeType: mimeType, caption: caption,
+            idempotencyKey: idempotencyKey, sessionId: sessionId, roomHint: roomHint
+        ))
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+        return try decoder.decode(ScanJobDTO.self, from: data)
+    }
+
+    func scanJob(id: String) async throws -> ScanJobDTO {
+        var request = URLRequest(url: url(for: "/api/agents/nexus/scan-jobs/\(id)"))
+        addAuth(&request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+        return try decoder.decode(ScanJobDTO.self, from: data)
+    }
+
+    /// Finished jobs the client hasn't shown yet — the reconnect/relaunch path.
+    func unconsumedScanJobs() async throws -> [ScanJobDTO] {
+        var request = URLRequest(url: url(for: "/api/agents/nexus/scan-jobs"))
+        addAuth(&request)
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+        return try decoder.decode(ScanJobListResponse.self, from: data).jobs
+    }
+
+    /// Tell the server this job's outcome reached the user (stop resurfacing it).
+    func consumeScanJob(id: String) async throws {
+        var request = URLRequest(url: url(for: "/api/agents/nexus/scan-jobs/\(id)/consume"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        addAuth(&request)
+        request.httpBody = Data("{}".utf8)
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+    }
+
     // MARK: - Share links
 
     /// Lists the user's existing share links.
