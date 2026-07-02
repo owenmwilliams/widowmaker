@@ -126,9 +126,10 @@ describe('isAllowedMediaUrl', () => {
 
 describe('roomFromCaption', () => {
   test('accepts short room-name-shaped captions', () => {
-    expect(roomFromCaption('dining room')).toBe('dining room');
+    // Cleaned + title-cased so the review card and findOrCreateRoom agree.
+    expect(roomFromCaption('dining room')).toBe('Dining Room');
     expect(roomFromCaption('  Garage ')).toBe('Garage');
-    expect(roomFromCaption('Kids bedroom 2')).toBe('Kids bedroom 2');
+    expect(roomFromCaption('Kids bedroom 2')).toBe('Kids Bedroom 2');
   });
 
   test('rejects sentences, long captions, and empties', () => {

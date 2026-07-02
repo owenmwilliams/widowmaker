@@ -22,6 +22,61 @@ const { getPrimaryLocationId } = locationQuery;
 /**
  * Find a collection by name for a user, or create one.
  */
+
+/**
+ * Normalize a room phrase for matching/creation: lowercase, strip punctuation,
+ * collapse spaces, and drop leading narration filler — a room is a place, not
+ * an activity, so "Scanning my Bathroom 1" must resolve to "Bathroom 1", never
+ * become a room of its own (2026-07-02 beta: junk rooms while the real ones
+ * sat empty).
+ */
+const ROOM_FILLER = /^(?:i\s*am|i'm|im|we\s*are|we're|now|currently|this\s+is|here\s+is|here's|it's|its)\s+/i;
+const ROOM_VERBS = /^(?:scanning|filming|recording|doing|cataloging|cataloguing|in|walking\s+through)\s+/i;
+const ROOM_POSSESSIVE = /^(?:my|our|the)\s+/i;
+
+function cleanRoomPhrase(raw) {
+  let t = String(raw || '').toLowerCase().replace(/[.?!,;:]+/g, ' ').replace(/\s+/g, ' ').trim();
+  for (let i = 0; i < 4; i++) {
+    const before = t;
+    t = t.replace(ROOM_FILLER, '').replace(ROOM_VERBS, '').replace(ROOM_POSSESSIVE, '').trim();
+    if (t === before) break;
+  }
+  return t;
+}
+
+/**
+ * Resolve a (possibly chatty) room name against the user's existing rooms.
+ * Returns the existing row on any confident match; null when nothing matches.
+ */
+async function matchExistingRoom(userId, roomName) {
+  const cleaned = cleanRoomPhrase(roomName);
+  if (!cleaned) return null;
+  const rooms = await db.any(
+    `SELECT id, name FROM collections WHERE user_id = $1`, [userId]
+  );
+  const norm = (v) => cleanRoomPhrase(v);
+  // 1. Exact match after cleaning ("scanning my bathroom 1" → "bathroom 1").
+  const exact = rooms.find((r) => norm(r.name) === cleaned);
+  if (exact) return exact;
+  // 2. An existing room's name appears whole inside the phrase — prefer the
+  //    longest (so "bathroom 1" wins over a hypothetical "bathroom").
+  const contained = rooms
+    .filter((r) => {
+      const n = norm(r.name);
+      return n && new RegExp(`(?:^| )${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: |$)`).test(cleaned);
+    })
+    .sort((a, b) => norm(b.name).length - norm(a.name).length);
+  if (contained.length > 0) return contained[0];
+  // 3. The phrase is a whole-word prefix/fragment of exactly ONE room
+  //    ("bathroom" → "Bathroom 1" only when there is no "Bathroom 2").
+  const within = rooms.filter((r) => {
+    const n = norm(r.name);
+    return n && new RegExp(`(?:^| )${cleaned.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?: |$)`).test(n);
+  });
+  if (within.length === 1) return within[0];
+  return null;
+}
+
 async function findOrCreateRoom(userId, roomName, locationId) {
   // Try exact match first
   let room = await db.oneOrNone(
@@ -29,6 +84,20 @@ async function findOrCreateRoom(userId, roomName, locationId) {
     [userId, roomName]
   );
   if (room) return room;
+
+  // Fuzzy: resolve chatty phrases to an existing room before ever creating one.
+  room = await matchExistingRoom(userId, roomName);
+  if (room) {
+    console.log(`[census] Room "${roomName}" resolved to existing "${room.name}" (id: ${room.id})`);
+    return room;
+  }
+
+  // Genuinely new: create it under the CLEANED, title-cased name so even a
+  // fresh room from "scanning my den" is "Den", not "Scanning My Den".
+  const cleaned = cleanRoomPhrase(roomName);
+  if (cleaned && cleaned !== String(roomName).toLowerCase().trim()) {
+    roomName = cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+  }
 
   // Create it
   if (!locationId) {
@@ -638,6 +707,8 @@ async function assignItemQr(userId, itemId, { token, regenerate } = {}) {
 }
 
 module.exports = {
+  cleanRoomPhrase,
+  matchExistingRoom,
   // Local inventory functions
   getPrimaryLocationId,
   findOrCreateRoom,

@@ -31,6 +31,7 @@ const db = conn.db;
 const gcs = require('../infra/gcsService');
 const workflow = require('./mediaInventoryWorkflowService');
 const metrics = require('../infra/metricsService');
+const inventoryMutation = require('./inventoryMutationService');
 const { createScanRecorder } = require('../infra/scanEventsService');
 
 const MAX_ATTEMPTS = 2;
@@ -65,10 +66,14 @@ function isAllowedMediaUrl(url, userId) {
  */
 function roomFromCaption(caption) {
   const text = String(caption || '').trim();
-  if (!text || text.length > 40) return null;
-  if (/[.?!,;:]/.test(text)) return null;
-  if (text.split(/\s+/).length > 4) return null;
-  return text;
+  if (!text || text.length > 60) return null;
+  // Strip narration filler FIRST ("I am scanning my living room" → "living
+  // room"), then apply the short/name-shaped gates to what's left — the beta
+  // created junk rooms like "Scanning my Bathroom 1" from chatty captions.
+  const cleaned = inventoryMutation.cleanRoomPhrase(text);
+  if (!cleaned || cleaned.length > 40) return null;
+  if (cleaned.split(/\s+/).length > 4) return null;
+  return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 /**
