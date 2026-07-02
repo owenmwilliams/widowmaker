@@ -170,7 +170,21 @@ final class NexusService {
     /// message. 1) ask the API for a signed upload URL, 2) PUT the bytes to GCS.
     /// Both network legs get one retry — this flow runs over cellular for large
     /// video files, where a single transient blip shouldn't force a re-record.
-    func uploadMediaDirect(data: Data, mimeType: String, filename: String) async throws -> UploadResponse {
+    /// Reports PUT body-upload progress (0.0–1.0) for the direct-GCS leg.
+    private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
+        let onProgress: (Double) -> Void
+        init(onProgress: @escaping (Double) -> Void) { self.onProgress = onProgress }
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        didSendBodyData bytesSent: Int64,
+                        totalBytesSent: Int64,
+                        totalBytesExpectedToSend: Int64) {
+            guard totalBytesExpectedToSend > 0 else { return }
+            onProgress(Double(totalBytesSent) / Double(totalBytesExpectedToSend))
+        }
+    }
+
+    func uploadMediaDirect(data: Data, mimeType: String, filename: String,
+                           onProgress: ((Double) -> Void)? = nil) async throws -> UploadResponse {
         // 1. Request a signed upload URL.
         var urlReq = URLRequest(url: url(for: "/api/agents/nexus/upload-url"))
         urlReq.httpMethod = "POST"
@@ -193,7 +207,10 @@ final class NexusService {
         var put = URLRequest(url: putURL)
         put.httpMethod = "PUT"
         put.setValue(mimeType, forHTTPHeaderField: "Content-Type")
-        let (putData, putResp) = try await withOneRetry { try await session.upload(for: put, from: data) }
+        let delegate = onProgress.map { UploadProgressDelegate(onProgress: $0) }
+        let (putData, putResp) = try await withOneRetry {
+            try await session.upload(for: put, from: data, delegate: delegate)
+        }
         guard let http = putResp as? HTTPURLResponse else {
             throw NexusError.network("No response from storage")
         }

@@ -26,6 +26,7 @@ final class NexusViewModel: ObservableObject {
     @Published var quickStartChips: [QuickStartChip] = []
     @Published var isLoading = false        // a message round-trip is in flight
     @Published var isUploading = false      // a photo/video is uploading
+    @Published var uploadProgress: Double = 0  // 0…1 for the direct-GCS PUT; 0 = indeterminate
     @Published var phaseText = ""           // "Thinking…", "Scanning your photo…"
     @Published var detailText = ""          // secondary specialist detail
     @Published var errorMessage: String?
@@ -205,14 +206,27 @@ final class NexusViewModel: ObservableObject {
             return false
         }
 
+        // The bubble appears the moment the user hits send — the upload can take
+        // a while for a big walkthrough video, and dead air reads as a broken app.
+        let optimistic = ChatMessage(
+            role: .user,
+            text: caption.isEmpty
+                ? (isVideo ? "\u{1F3A5} Video walkthrough" : "\u{1F4F7} Photo")
+                : caption
+        )
+        messages.append(optimistic)
+
         isUploading = true
+        uploadProgress = 0
         phaseText = isVideo ? "Uploading video…" : "Uploading photo…"
         let mediaMetadata = ["mediaKind": isVideo ? "video" : "photo", "bytes": String(data.count)]
         ClientEventLogger.shared.log(.uploadStarted, sessionId: sessionId, metadata: mediaMetadata)
         let uploaded: UploadResponse
         do {
             uploaded = isVideo
-                ? try await service.uploadMediaDirect(data: data, mimeType: mimeType, filename: filename)
+                ? try await service.uploadMediaDirect(data: data, mimeType: mimeType, filename: filename) { [weak self] p in
+                      Task { @MainActor in self?.uploadProgress = p }
+                  }
                 : try await service.uploadMedia(data: data, mimeType: mimeType, filename: filename)
             isUploading = false
             phaseText = ""
@@ -224,12 +238,14 @@ final class NexusViewModel: ObservableObject {
         } catch NexusError.unauthorized {
             isUploading = false
             phaseText = ""
+            messages.removeAll { $0.id == optimistic.id }
             sessionExpired = true
             ClientEventLogger.shared.log(.uploadFailed, sessionId: sessionId, metadata: mediaMetadata)
             return false
         } catch {
             isUploading = false
             phaseText = ""
+            messages.removeAll { $0.id == optimistic.id }
             errorMessage = friendlyError(error)
             ClientEventLogger.shared.log(.uploadFailed, sessionId: sessionId,
                                           metadata: mediaMetadata.merging(["error": String(describing: error).prefix(200).description]) { a, _ in a })
@@ -248,19 +264,14 @@ final class NexusViewModel: ObservableObject {
             caption: caption,
             roomHint: roomHint,
             idempotencyKey: idempotencyKey,
-            isVideo: isVideo
+            isVideo: isVideo,
+            optimistic: optimistic
         )
     }
 
     /// Register the uploaded media as a scan job, poll it to a terminal state,
     /// and materialize the review card from the job record.
-    private func runScanJob(mediaUrl: String, mimeType: String, caption: String, roomHint: String?, idempotencyKey: String, isVideo: Bool) async -> Bool {
-        let optimistic = ChatMessage(
-            role: .user,
-            text: caption,
-            attachments: [NexusAttachment(url: mediaUrl, mimeType: mimeType)]
-        )
-        messages.append(optimistic)
+    private func runScanJob(mediaUrl: String, mimeType: String, caption: String, roomHint: String?, idempotencyKey: String, isVideo: Bool, optimistic: ChatMessage) async -> Bool {
         quickStartChips = []
         isLoading = true
         phaseText = isVideo ? "Scanning your video…" : "Scanning your photo…"
