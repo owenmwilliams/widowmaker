@@ -31,6 +31,7 @@ const db = conn.db;
 const gcs = require('../infra/gcsService');
 const workflow = require('./mediaInventoryWorkflowService');
 const metrics = require('../infra/metricsService');
+const { createScanRecorder } = require('../infra/scanEventsService');
 
 const MAX_ATTEMPTS = 2;
 const LEASE_SECONDS = 300;        // silence this long = the attempt is dead
@@ -329,9 +330,25 @@ async function runClaimedJob(job) {
     // and no explicit hint was sent (#49 review finding 6).
     const roomHint = job.room_hint || roomFromCaption(job.caption);
     const args = { file_url: job.media_url, mime_type: job.mime_type, room_hint: roomHint };
-    const analysis = job.media_kind === 'video'
-      ? await workflow.analyzeVideoForInventory(args, job.user_id, job.plan)
-      : await workflow.analyzePhotoForInventory({ ...args, mode: 'multi_item' }, job.user_id, job.plan);
+    // Per-stage forensics parity with the chat path (issue #45): the job path
+    // is the primary iOS flow, so it must leave the same scan_events trail.
+    const recorder = createScanRecorder({
+      userId: job.user_id,
+      sessionId: job.session_id || null,
+      requestId: `scan_job:${job.id}`,
+      mediaKind: job.media_kind === 'video' ? 'video' : 'photo',
+      mediaUrl: job.media_url,
+    });
+    let analysis;
+    try {
+      analysis = job.media_kind === 'video'
+        ? await workflow.analyzeVideoForInventory(args, job.user_id, job.plan, { onStage: recorder.onStage })
+        : await workflow.analyzePhotoForInventory({ ...args, mode: 'multi_item' }, job.user_id, job.plan, { onStage: recorder.onStage });
+    } finally {
+      // Record whatever we saw even when the analysis throws — the row's
+      // stage_status/error_stage is exactly the forensic trail we need then.
+      recorder.finish(analysis);
+    }
 
     if (!analysis || analysis.success === false) {
       throw new Error(analysis?.error || 'Scan analysis failed');

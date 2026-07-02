@@ -6,6 +6,7 @@ const censusAgent = require('../../../agents/censusAgent');
 const media = require('../../../services/inventory/mediaInventoryWorkflowService');
 const mediaAssetService = require('../../../services/infra/mediaAssetService');
 const gcs = require('../../../services/infra/gcsService');
+const { createScanRecorder } = require('../../../services/infra/scanEventsService');
 const inventoryMutation = require('../../../services/inventory/inventoryMutationService');
 const rateLimits = require('../../../config/rateLimits');
 const scanJobs = require('../../../services/inventory/scanJobService');
@@ -403,10 +404,24 @@ router.post('/rescan', rateLimits.rescanLimiter, express.json(), async (req, res
   const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
   const scanId = crypto.randomUUID();
 
+  // Same scan_events forensic trail as the chat and job paths (issue #45).
+  const recorder = createScanRecorder({
+    userId,
+    sessionId: null,
+    requestId: `rescan:${scanId}`,
+    mediaKind: isVideo ? 'video' : 'photo',
+    mediaUrl: url,
+  });
+
+  let result;
   try {
-    const result = isVideo
-      ? await media.analyzeVideoForInventory({ file_url: url, mime_type: mimeType, room_hint: room }, userId, plan)
-      : await media.analyzePhotoForInventory({ file_url: url, mime_type: mimeType, mode: 'multi_item', room_hint: room }, userId, plan);
+    try {
+      result = isVideo
+        ? await media.analyzeVideoForInventory({ file_url: url, mime_type: mimeType, room_hint: room }, userId, plan, { onStage: recorder.onStage })
+        : await media.analyzePhotoForInventory({ file_url: url, mime_type: mimeType, mode: 'multi_item', room_hint: room }, userId, plan, { onStage: recorder.onStage });
+    } finally {
+      recorder.finish(result);
+    }
 
     if (!result || result.success === false) {
       // Honest failure — don't return a fake success with an empty list.
