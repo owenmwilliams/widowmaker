@@ -3,6 +3,7 @@ const { authenticate, resolveEffectivePlan } = require('../../../services/infra/
 const vectorService = require('../../../agents/vectorAgent');
 const sessions = require('../../../services/infra/agentSessionService');
 const { enrichMessagesWithActions } = sessions;
+const { startSSEHeartbeat } = require('../../../services/infra/sseHeartbeat');
 
 const router = express.Router();
 
@@ -39,7 +40,9 @@ router.post('/message', express.json(), async (req, res) => {
     'X-Accel-Buffering': 'no',
   });
 
+  const heartbeat = startSSEHeartbeat(res);
   const sendSSE = (event) => {
+    heartbeat.touch();
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
 
@@ -50,6 +53,7 @@ router.post('/message', express.json(), async (req, res) => {
     console.error('[vector] processMessage (stream) failed:', err);
     sendSSE({ type: 'error', error: err.message || 'Vector processing failed' });
   } finally {
+    heartbeat.stop();
     res.end();
   }
 });

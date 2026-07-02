@@ -353,8 +353,12 @@ struct NexusChatView: View {
             Task {
                 let ok = await vm.sendMedia(data: media.data, mimeType: media.mimeType, filename: media.filename, caption: text)
                 if !ok {
-                    // Don't lose the video on a failed send — put it back so the user can retry.
+                    // Don't lose the video on a failed send — put it back so the
+                    // user can retry. Exception: if the scan finished server-side
+                    // and its review card survived the drop, restoring the media
+                    // would just invite a duplicate rescan.
                     await MainActor.run {
+                        guard vm.pendingReview == nil else { return }
                         pendingMedia = media
                         if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = text }
                     }

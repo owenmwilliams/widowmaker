@@ -75,14 +75,19 @@ final class NexusViewModel: ObservableObject {
 
     // MARK: - Send
 
-    func send(_ text: String) async {
+    @discardableResult
+    func send(_ text: String) async -> Bool {
         await send(text: text, attachments: [])
     }
 
-    func send(text rawText: String, attachments: [OutgoingAttachment]) async {
+    /// Returns true only when the turn genuinely completed (a `done` event
+    /// arrived). Callers that clear state on send — like the composer clearing
+    /// its pending media — must key off this, not off the call returning.
+    @discardableResult
+    func send(text rawText: String, attachments: [OutgoingAttachment]) async -> Bool {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !attachments.isEmpty else { return }
-        guard !isLoading else { return }
+        guard !text.isEmpty || !attachments.isEmpty else { return false }
+        guard !isLoading else { return false }
 
         let optimistic = ChatMessage(
             role: .user,
@@ -98,10 +103,12 @@ final class NexusViewModel: ObservableObject {
         stagedReview = nil
         stagedDuplicates = nil
 
+        var completed = false
         do {
             let done = try await service.sendMessage(text: text, attachments: attachments) { [weak self] event in
                 self?.handle(event)
             }
+            completed = true
             sessionId = done.sessionId ?? sessionId
             let rawReply = (done.reply ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             // When a review/duplicate card is about to appear, drop the agent's
@@ -129,15 +136,23 @@ final class NexusViewModel: ObservableObject {
             messages.removeAll { $0.id == optimistic.id }
             sessionExpired = true
         } catch {
-            // Drop the optimistic bubble and surface the error.
+            // Drop the optimistic bubble and surface the error — but keep any
+            // review card that already arrived. The scan can finish server-side
+            // and stream `detected_items` before the connection drops; the
+            // detected items shouldn't die with the connection.
             messages.removeAll { $0.id == optimistic.id }
             errorMessage = friendlyError(error)
+            if let review = stagedReview { pendingReview = review }
+            if let dups = stagedDuplicates { pendingDuplicates = DuplicateReview(pairs: dups) }
+            stagedReview = nil
+            stagedDuplicates = nil
         }
 
         isLoading = false
         phaseText = ""
         detailText = ""
         await refreshReadiness()
+        return completed
     }
 
     // MARK: - Media
@@ -167,11 +182,14 @@ final class NexusViewModel: ObservableObject {
                 : try await service.uploadMedia(data: data, mimeType: mimeType, filename: filename)
             isUploading = false
             phaseText = ""
-            await send(
+            // Propagate the send outcome: a failed scan turn must return false
+            // so the composer keeps the media for a retry (the upload alone
+            // succeeding isn't enough — the old `return true` here silently
+            // discarded the user's video whenever the turn errored).
+            return await send(
                 text: caption,
                 attachments: [OutgoingAttachment(url: uploaded.url, mimeType: uploaded.mimeType)]
             )
-            return true
         } catch NexusError.unauthorized {
             isUploading = false
             phaseText = ""

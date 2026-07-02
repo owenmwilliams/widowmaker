@@ -5,6 +5,7 @@ const censusAgentService = require('../../../agents/censusAgent');
 const mediaAssetService = require('../../../services/infra/mediaAssetService');
 const sessions = require('../../../services/infra/agentSessionService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
+const { startSSEHeartbeat } = require('../../../services/infra/sseHeartbeat');
 
 const router = express.Router();
 
@@ -50,7 +51,9 @@ router.post('/message', express.json(), async (req, res) => {
     'X-Accel-Buffering': 'no', // Disable nginx buffering
   });
 
+  const heartbeat = startSSEHeartbeat(res);
   const sendSSE = (event) => {
+    heartbeat.touch();
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
 
@@ -64,6 +67,7 @@ router.post('/message', express.json(), async (req, res) => {
     console.error('[census] processMessage (stream) failed:', err);
     sendSSE({ type: 'error', error: err.message || 'Census processing failed' });
   } finally {
+    heartbeat.stop();
     res.end();
   }
 });

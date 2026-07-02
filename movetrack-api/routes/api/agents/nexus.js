@@ -8,6 +8,7 @@ const gcs = require('../../../services/infra/gcsService');
 const inventoryMutation = require('../../../services/inventory/inventoryMutationService');
 const sessions = require('../../../services/infra/agentSessionService');
 const { enrichMessagesWithActions, getQuickStartChips } = sessions;
+const { startSSEHeartbeat } = require('../../../services/infra/sseHeartbeat');
 
 const { isConversationStale } = require('../../../agents/schemas/orchestratorModes');
 const { buildWorkflowGuidanceContext } = require('../../../agents/schemas/workflowGuidance');
@@ -55,7 +56,9 @@ router.post('/message', express.json(), async (req, res) => {
     'X-Accel-Buffering': 'no',
   });
 
+  const heartbeat = startSSEHeartbeat(res);
   const sendSSE = (event) => {
+    heartbeat.touch();
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
 
@@ -68,6 +71,7 @@ router.post('/message', express.json(), async (req, res) => {
     console.error('[nexus] processMessage (stream) failed:', err);
     sendSSE({ type: 'error', error: err.message || 'Nexus processing failed' });
   } finally {
+    heartbeat.stop();
     res.end();
   }
 });
@@ -149,7 +153,9 @@ router.post('/guidance', express.json(), async (req, res) => {
     'X-Accel-Buffering': 'no',
   });
 
+  const heartbeat = startSSEHeartbeat(res);
   const sendSSE = (event) => {
+    heartbeat.touch();
     res.write(`data: ${JSON.stringify(event)}\n\n`);
   };
 
@@ -163,6 +169,7 @@ router.post('/guidance', express.json(), async (req, res) => {
     console.error('[nexus] guidance (stream) failed:', err);
     sendSSE({ type: 'error', error: err.message || 'Guidance request failed' });
   } finally {
+    heartbeat.stop();
     res.end();
   }
 });
