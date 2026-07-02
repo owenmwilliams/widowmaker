@@ -258,12 +258,13 @@ struct SSEEvent: Decodable {
     let detectedItems: [DetectedItem]?    // detected_items ("items")
     let mediaKind: String?                // detected_items ("video"|"photo")
     let room: String?                     // detected_items
+    let scanId: String?                   // detected_items (opaque per-scan id)
     let duplicatePairs: [DuplicatePair]?  // duplicate_pairs ("pairs")
 
     enum CodingKeys: String, CodingKey {
         case type, phase, source, delegationTarget, hasAttachments
         case label, detail, tool, success, text, reply, sessionId, error, actions
-        case detectedItems = "items", mediaKind, room, duplicatePairs = "pairs"
+        case detectedItems = "items", mediaKind, room, scanId, duplicatePairs = "pairs"
     }
 
     init(from decoder: Decoder) throws {
@@ -287,6 +288,7 @@ struct SSEEvent: Decodable {
         detectedItems = try? c.decode([DetectedItem].self, forKey: .detectedItems)
         mediaKind = str(.mediaKind)
         room = str(.room)
+        scanId = str(.scanId)
         duplicatePairs = try? c.decode([DuplicatePair].self, forKey: .duplicatePairs)
     }
 }
@@ -408,6 +410,9 @@ struct DetectedItemsReview: Identifiable {
     let mediaKind: String   // "video" | "photo"
     let room: String?
     var items: [DetectedItem]
+    /// Opaque per-scan id from the server; sent back on commit so re-submitting
+    /// the same card is idempotent while a rescan's corrected items still land.
+    var scanId: String? = nil
 }
 
 /// Drives the native duplicate-review sheet (Identifiable for `.sheet(item:)`).

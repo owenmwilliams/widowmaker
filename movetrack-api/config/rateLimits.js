@@ -183,6 +183,39 @@ const visionLimiter = rateLimit({
 });
 
 /**
+ * Rescan Rate Limiter
+ * Limits for the deterministic /api/agents/nexus/rescan endpoint, which re-runs
+ * the most expensive call in the system (video frame extraction + a large
+ * multi-image vision call) on demand. globalLimiter is IP-keyed and generous;
+ * this bounds the per-user cost of hammering Rescan.
+ *
+ * Limits: 15 rescans per hour per user
+ */
+const rescanLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 15, // 15 rescans per hour per user
+  message: {
+    error: 'You\'ve rescanned a lot in a short time. Please try again later.',
+    retryAfter: '1 hour'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    if (req.user && req.user.user_id) {
+      return `rescan:${req.user.user_id}`;
+    }
+    return `rescan:${ipKeyGenerator(req)}`;
+  },
+  handler: (req, res) => {
+    console.warn(`Rescan rate limit exceeded: ${req.user?.user_id || req.ip}`);
+    res.status(429).json({
+      error: 'You\'ve rescanned a lot in a short time. Please try again later.',
+      retryAfter: '1 hour'
+    });
+  }
+});
+
+/**
  * Email Rate Limiter
  * Limits for email sending endpoints
  *
@@ -231,6 +264,7 @@ module.exports = {
   apiLimiter,
   uploadLimiter,
   visionLimiter,
+  rescanLimiter,
   emailLimiter,
   publicLimiter
 };

@@ -78,6 +78,203 @@ function deriveTurnError(actions) {
   return { hadError: false, message: null };
 }
 
+// ── Add / dedup control plane ─────────────────────────────────────────────────
+// A single scan can reach the inventory two ways — the native review card
+// (POST /inventory/commit) and the chat "add them all" (add_items). The beta
+// produced 11 rows for 6 physical items when both fired for one scan
+// (investigation §0.3). We kill that WITHOUT ever silently dropping legitimate
+// items — a bare (name, room) guess is wrong (it eats corrected rescans, the
+// second of two distinct "Dining chair"s, etc.). Instead:
+//   • The review card is the user's curated list, so /inventory/commit adds
+//     EVERYTHING reviewed. Its only skip is re-submitting the SAME card, keyed
+//     on an opaque scanId — and a rescan is a NEW card with a NEW scanId, so
+//     corrected data always lands.
+//   • The chat add path skips only items the user JUST committed via a card
+//     (read back from the transcript), so the exact §0.3 double-add can't slip
+//     through, while distinct same-named items and genuine adds are untouched.
+
+const COMMIT_LOOKBACK_MINUTES = 15;
+
+/** Normalize a name for comparison. */
+function normName(name) {
+  return String(name || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+/** Normalize a (name, room) pair into a comparison key. Returns '|' when empty. */
+function dedupKey(name, room) {
+  return `${normName(name)}|${normName(room)}`;
+}
+
+/**
+ * Recent review-card commits for a user, read from the transcript (where
+ * /inventory/commit records them via recordCensusToolCall). Returns the set of
+ * committed (name|room) keys, the set of committed names (room-agnostic, to
+ * catch a chat add with no room_name against the card's "Unsorted" default),
+ * and the set of scanIds already committed (for card re-submit idempotency).
+ */
+async function recentReviewCommits(userId, minutes = COMMIT_LOOKBACK_MINUTES) {
+  const rows = await db.any(
+    `SELECT m.tool_args
+       FROM nexus_messages m
+       JOIN nexus_sessions s ON s.id = m.session_id
+      WHERE s.user_id = $1
+        AND m.role = 'tool_call' AND m.tool_name = 'add_items'
+        AND m.tool_args ->> '_via' = 'review_card'
+        AND m.created_at > NOW() - ($2 * INTERVAL '1 minute')`,
+    [userId, minutes]
+  );
+  const keys = new Set();
+  const names = new Set();
+  const scanIds = new Set();
+  for (const row of rows) {
+    const args = row.tool_args || {};
+    if (args._scanId) scanIds.add(String(args._scanId));
+    for (const it of Array.isArray(args.items) ? args.items : []) {
+      const nm = normName(it.name);
+      if (!nm) continue;
+      names.add(nm);
+      const key = dedupKey(it.name, it.room_name);
+      if (key !== '|') keys.add(key);
+    }
+  }
+  return { keys, names, scanIds };
+}
+
+/** Whether this exact review card (scanId) was already committed recently. */
+async function scanAlreadyCommitted(userId, scanId, minutes = COMMIT_LOOKBACK_MINUTES) {
+  if (!scanId) return false;
+  const { scanIds } = await recentReviewCommits(userId, minutes);
+  return scanIds.has(String(scanId));
+}
+
+/**
+ * Chat "add them all" path. Skips ONLY items the user just committed via a
+ * review card (looked up from the transcript) — the §0.3 double-add — and adds
+ * everything else. Distinct same-named items in other rooms and genuinely new
+ * items are never dropped. Returns an honest breakdown so nothing vanishes.
+ */
+async function addItemsDeduped(userId, list) {
+  const items = Array.isArray(list) ? list : [];
+  let added = 0;
+  const failures = [];
+  const skipped = [];
+
+  // A failure loading the guard set must never block a legitimate add.
+  let committed;
+  try {
+    committed = await recentReviewCommits(userId);
+  } catch (e) {
+    console.warn('[census] commit-index lookup failed, proceeding without guard:', e.message);
+    committed = { keys: new Set(), names: new Set(), scanIds: new Set() };
+  }
+
+  for (const it of items) {
+    const hasRoom = !!String(it.room_name || '').trim();
+    const key = dedupKey(it.name, it.room_name);
+    // Same item the user just committed via the card: match exact (name, room),
+    // or — when the chat call omitted the room — by name alone (the card path
+    // defaults an empty room to "Unsorted", so a bare name would otherwise slip
+    // through as the exact §0.3 duplicate).
+    const isJustCommitted = (key !== '|' && committed.keys.has(key))
+      || (!hasRoom && committed.names.has(normName(it.name)));
+    if (isJustCommitted) {
+      skipped.push({ name: it.name, room: it.room_name || null });
+      continue;
+    }
+    try {
+      const r = await mutation.addItem(userId, it);
+      if (r && r.success === false) failures.push({ name: it.name, error: r.error || 'unknown' });
+      else added++;
+    } catch (e) {
+      failures.push({ name: it.name, error: e.message });
+    }
+  }
+
+  return {
+    success: true,
+    added,
+    skipped: skipped.length,
+    failed: failures.length,
+    total: items.length,
+    failures: failures.slice(0, 10),
+    skippedItems: skipped.slice(0, 10),
+  };
+}
+
+/**
+ * Map raw vision items (snake_case) into the camelCase shape the native review
+ * card decodes. Shared by the SSE 'detected_items' emit and the deterministic
+ * /rescan endpoint so both surface an identical review card.
+ */
+function mapDetectedItemsForClient(items, roomHint = null) {
+  return (Array.isArray(items) ? items : []).map((it) => ({
+    name: it.name || 'Item',
+    quantity: Number.isFinite(it.quantity) && it.quantity > 0 ? Math.floor(it.quantity) : 1,
+    room: it.room || roomHint || null,
+    pictureUrl: it.picture_url || null,
+    weightLbs: numOrNull(it.weight_lbs),
+    lengthIn: numOrNull(it.length_in),
+    widthIn: numOrNull(it.width_in),
+    heightIn: numOrNull(it.height_in),
+    material: it.material || null,
+    fragile: !!it.fragile,
+    confidence: numOrNull(it.confidence),
+  }));
+}
+
+/**
+ * Resolve the census session the agent reads from (creating one if the user has
+ * none) and append a tool_call/tool_result pair for a control-plane action that
+ * happened outside the chat loop (a native-card commit, a deterministic rescan).
+ * This gives the agent visibility of the action on its next turn — so it won't,
+ * e.g., re-add items the user already committed — and keeps the transcript honest.
+ * Uses only real declared tool names so the pair is valid Gemini history.
+ */
+async function recordCensusToolCall(userId, toolName, toolArgs, toolResponse) {
+  let session = await db.oneOrNone(
+    `SELECT id FROM nexus_sessions WHERE user_id = $1 AND is_active = TRUE
+       AND session_type IN ('census', 'onboarding', 'general')
+     ORDER BY updated_at DESC LIMIT 1`,
+    [userId]
+  );
+  if (!session) {
+    session = await db.one(`INSERT INTO nexus_sessions (user_id) VALUES ($1) RETURNING id`, [userId]);
+  }
+  const sessionId = session.id;
+
+  // If the session has no user/model turn yet, geminiHistoryBuilder trims a
+  // LEADING functionCall turn (contents must start with a user turn) — silently
+  // dropping this record for a first-time user. Seed a short user turn so the
+  // functionCall/Response pair is anchored and survives.
+  const { cnt } = await db.one(
+    `SELECT COUNT(*)::int AS cnt FROM nexus_messages
+      WHERE session_id = $1 AND role IN ('user', 'model')`,
+    [sessionId]
+  );
+
+  // Both inserts (and the seed) go in ONE transaction: a persisted tool_call
+  // with no matching tool_result would build an orphaned functionCall turn that
+  // 400s Gemini on the next load.
+  await db.tx(async (t) => {
+    if (cnt === 0) {
+      await t.none(
+        `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'user', $2)`,
+        [sessionId, '(reviewed and confirmed items from a scan)']
+      );
+    }
+    await t.none(
+      `INSERT INTO nexus_messages (session_id, role, tool_name, tool_args) VALUES ($1, 'tool_call', $2, $3)`,
+      [sessionId, toolName, JSON.stringify(toolArgs || {})]
+    );
+    await t.none(
+      `INSERT INTO nexus_messages (session_id, role, tool_name, tool_response) VALUES ($1, 'tool_result', $2, $3)`,
+      [sessionId, toolName, JSON.stringify(toolResponse || {})]
+    );
+    await t.none(`UPDATE nexus_sessions SET updated_at = NOW() WHERE id = $1`, [sessionId]);
+  });
+  return sessionId;
+}
+
 // ── System Prompt ───────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT = `You are Nexus, the Nexus Moves AI assistant. You help people manage their moves and catalog their belongings through natural conversation.
@@ -459,21 +656,7 @@ const toolDeclarations = [
 
 const toolHandlers = {
   async add_item(args, userId) { return mutation.addItem(userId, args); },
-  async add_items(args, userId) {
-    const list = Array.isArray(args.items) ? args.items : [];
-    let added = 0;
-    const failures = [];
-    for (const it of list) {
-      try {
-        const r = await mutation.addItem(userId, it);
-        if (r && r.success === false) failures.push({ name: it.name, error: r.error || 'unknown' });
-        else added++;
-      } catch (e) {
-        failures.push({ name: it.name, error: e.message });
-      }
-    }
-    return { success: true, added, failed: failures.length, total: list.length, failures: failures.slice(0, 10) };
-  },
+  async add_items(args, userId) { return addItemsDeduped(userId, args.items); },
   async add_room(args, userId) { return mutation.addRoom(userId, args); },
   async update_item(args, userId) { return mutation.updateItem(userId, args); },
   async delete_item(args, userId) { return mutation.deleteItem(userId, args); },
@@ -902,21 +1085,13 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
       if ((name === 'analyze_photo' || name === 'analyze_video')
           && toolResult.success && Array.isArray(toolResult.items) && toolResult.items.length > 0) {
         emit('detected_items', {
+          // Opaque per-scan id: the client sends it back on /inventory/commit so
+          // a re-submit of THIS card is idempotent, while a rescan (new id) still
+          // lands. Keyed on identity, never on bare (name, room).
+          scanId: crypto.randomUUID(),
           mediaKind: name === 'analyze_video' ? 'video' : 'photo',
           room: args.room_hint || null,
-          items: toolResult.items.map((it) => ({
-            name: it.name || 'Item',
-            quantity: Number.isFinite(it.quantity) && it.quantity > 0 ? Math.floor(it.quantity) : 1,
-            room: it.room || args.room_hint || null,
-            pictureUrl: it.picture_url || null,
-            weightLbs: numOrNull(it.weight_lbs),
-            lengthIn: numOrNull(it.length_in),
-            widthIn: numOrNull(it.width_in),
-            heightIn: numOrNull(it.height_in),
-            material: it.material || null,
-            fragile: !!it.fragile,
-            confidence: numOrNull(it.confidence),
-          })),
+          items: mapDetectedItemsForClient(toolResult.items, args.room_hint || null),
         });
       }
       if (name === 'find_duplicates' && toolResult.success
@@ -1085,4 +1260,18 @@ Write in third person: "The user..." not "You..."`,
   rootLog.info('Summary updated', { sessionId, throughMessageId: newSummaryThroughId, newMessageCount: newMessages.length });
 }
 
-module.exports = { processMessage, generateContextSummary, SYSTEM_PROMPT, executeTool, countItemsAdded, deriveTurnError };
+module.exports = {
+  processMessage,
+  generateContextSummary,
+  SYSTEM_PROMPT,
+  executeTool,
+  countItemsAdded,
+  deriveTurnError,
+  // Control-plane helpers shared with the REST routes (rescan / commit).
+  dedupKey,
+  recentReviewCommits,
+  scanAlreadyCommitted,
+  addItemsDeduped,
+  mapDetectedItemsForClient,
+  recordCensusToolCall,
+};

@@ -44,6 +44,11 @@ final class NexusViewModel: ObservableObject {
     private var stagedReview: DetectedItemsReview?
     private var stagedDuplicates: [DuplicatePair]?
 
+    // The most recent scanned media, remembered so "Rescan" can deterministically
+    // re-run analysis on the same file (issue #43) without the user re-recording.
+    private struct LastScan { let url: String; let mimeType: String; var room: String? }
+    private var lastScan: LastScan?
+
     var isBusy: Bool { isLoading || isUploading }
 
     // MARK: - Load
@@ -196,6 +201,9 @@ final class NexusViewModel: ObservableObject {
             isUploading = false
             phaseText = ""
             ClientEventLogger.shared.log(.uploadSucceeded, sessionId: sessionId, metadata: mediaMetadata)
+            // Remember this media so the user can deterministically rescan it.
+            // The room is filled in from the scan's detected_items event (below).
+            lastScan = LastScan(url: uploaded.url, mimeType: uploaded.mimeType, room: nil)
             // Propagate the send outcome: a failed scan turn must return false
             // so the composer keeps the media for a retry (the upload alone
             // succeeding isn't enough — the old `return true` here silently
@@ -290,7 +298,7 @@ final class NexusViewModel: ObservableObject {
     /// Commit the items the user kept/edited in the detected-items review sheet.
     /// The client owns this commit (exact, no LLM re-interpretation), so the agent
     /// is told in its prompt not to re-add items the user added themselves.
-    func commitReview(_ items: [DetectedItem], room: String?) async {
+    func commitReview(_ items: [DetectedItem], room: String?, scanId: String?) async {
         pendingReview = nil
         let kept = items.filter {
             $0.keep && !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -302,20 +310,58 @@ final class NexusViewModel: ObservableObject {
         defer { isLoading = false; phaseText = "" }
         do {
             let payload = kept.map { ReviewedItemPayload(from: $0, fallbackRoom: room) }
-            let added = try await service.commitReviewedItems(payload, room: room)
+            let result = try await service.commitReviewedItems(payload, room: room, scanId: scanId)
             let dest = room.map { " to the \($0)" } ?? ""
-            messages.append(ChatMessage(
-                role: .model,
-                text: "✅ Added \(added) item\(added == 1 ? "" : "s")\(dest) to your inventory."
-            ))
+            let text: String
+            if result.alreadyCommitted || (result.added == 0 && result.skipped > 0) {
+                // Re-submit of a card already committed — reassure, don't imply loss.
+                text = "These were already added\(dest) — nothing duplicated."
+            } else {
+                var t = "✅ Added \(result.added) item\(result.added == 1 ? "" : "s")\(dest) to your inventory."
+                if result.skipped > 0 {
+                    t += " \(result.skipped) were already on the list, so I skipped those."
+                }
+                if result.failed > 0 {
+                    t += " \(result.failed) couldn't be added — you can try those again."
+                }
+                text = t
+            }
+            messages.append(ChatMessage(role: .model, text: text))
             ClientEventLogger.shared.log(.reviewCardCommitted, sessionId: sessionId,
-                                          metadata: ["itemCount": String(added)])
+                                          metadata: ["itemCount": String(result.added)])
         } catch NexusError.unauthorized {
             sessionExpired = true
         } catch {
             errorMessage = (error as? NexusError)?.userMessage ?? error.localizedDescription
         }
         await refreshReadiness()
+    }
+
+    /// Deterministically re-run analysis on the most recently scanned media and
+    /// re-present the review card. Backed by POST /rescan, which always invokes
+    /// the vision tool — so this can't be talked out of the way a chat "please
+    /// re-analyze" was in the beta (issue #43). No-op if nothing was scanned yet.
+    func rescanLast() async {
+        guard let scan = lastScan, !isBusy else { return }
+        isLoading = true
+        phaseText = "Rescanning…"
+        errorMessage = nil
+        defer { isLoading = false; phaseText = "" }
+        do {
+            let review = try await service.rescan(url: scan.url, mimeType: scan.mimeType, room: scan.room)
+            if review.items.isEmpty {
+                messages.append(ChatMessage(
+                    role: .model,
+                    text: "I ran the scan again but still couldn't pick out any items. Try a slower, well-lit pan with closets open — or add the items by name."
+                ))
+            } else {
+                pendingReview = review
+            }
+        } catch NexusError.unauthorized {
+            sessionExpired = true
+        } catch {
+            errorMessage = friendlyError(error)
+        }
     }
 
     /// Remove the item ids the user chose in the duplicate-review sheet.
@@ -405,10 +451,13 @@ final class NexusViewModel: ObservableObject {
                 stagedReview = DetectedItemsReview(
                     mediaKind: event.mediaKind ?? "photo",
                     room: event.room,
-                    items: items
+                    items: items,
+                    scanId: event.scanId
                 )
                 ClientEventLogger.shared.log(.reviewCardShown, sessionId: sessionId,
                                               metadata: ["mediaKind": event.mediaKind ?? "photo", "itemCount": String(items.count)])
+                // Remember the room so a later rescan targets the same room.
+                if let room = event.room, lastScan != nil { lastScan?.room = room }
             }
 
         case "duplicate_pairs":

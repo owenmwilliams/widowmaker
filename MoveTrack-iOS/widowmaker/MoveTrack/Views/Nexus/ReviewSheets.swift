@@ -20,15 +20,19 @@ struct ReviewItemsSheet: View {
     let review: DetectedItemsReview
     let onCommit: ([DetectedItem]) -> Void
     let onCancel: () -> Void
+    /// Deterministically re-run the scan (issue #43). Nil hides the Rescan button.
+    let onRescan: (() -> Void)?
 
     @State private var items: [DetectedItem]
 
     init(review: DetectedItemsReview,
          onCommit: @escaping ([DetectedItem]) -> Void,
-         onCancel: @escaping () -> Void) {
+         onCancel: @escaping () -> Void,
+         onRescan: (() -> Void)? = nil) {
         self.review = review
         self.onCommit = onCommit
         self.onCancel = onCancel
+        self.onRescan = onRescan
         _items = State(initialValue: review.items)
     }
 
@@ -61,6 +65,15 @@ struct ReviewItemsSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { onCancel() }
+                }
+                if let onRescan {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            onRescan()
+                        } label: {
+                            Label("Rescan", systemImage: "arrow.clockwise")
+                        }
+                    }
                 }
             }
             .safeAreaInset(edge: .bottom) {

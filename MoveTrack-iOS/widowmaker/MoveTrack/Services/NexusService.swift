@@ -253,18 +253,53 @@ final class NexusService {
 
     // MARK: - Inventory review (native review cards)
 
-    /// Commit the items the user kept/edited in the review sheet. Returns how many were added.
-    func commitReviewedItems(_ items: [ReviewedItemPayload], room: String?) async throws -> Int {
+    /// Outcome of a review-card commit. `skipped` is non-zero only when the exact
+    /// same card was already committed (idempotency) — never a silent name-based drop.
+    struct CommitOutcome { let added: Int; let skipped: Int; let failed: Int; let alreadyCommitted: Bool }
+
+    /// Commit the items the user kept/edited in the review sheet. Sends the scan's
+    /// opaque `scanId` so re-submitting the same card is idempotent (issue #43),
+    /// and surfaces added/skipped/failed rather than silently dropping anything.
+    func commitReviewedItems(_ items: [ReviewedItemPayload], room: String?, scanId: String?) async throws -> CommitOutcome {
         var request = URLRequest(url: url(for: "/api/agents/nexus/inventory/commit"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         addAuth(&request)
-        struct Body: Encodable { let items: [ReviewedItemPayload]; let room: String? }
-        request.httpBody = try encoder.encode(Body(items: items, room: room))
+        struct Body: Encodable { let items: [ReviewedItemPayload]; let room: String?; let scanId: String? }
+        request.httpBody = try encoder.encode(Body(items: items, room: room, scanId: scanId))
         let (data, response) = try await session.data(for: request)
         try validate(response, data: data)
-        struct Resp: Decodable { let addedCount: Int? }
-        return (try? decoder.decode(Resp.self, from: data))?.addedCount ?? items.count
+        struct Resp: Decodable { let addedCount: Int?; let skippedCount: Int?; let failedCount: Int?; let alreadyCommitted: Bool? }
+        let resp = try? decoder.decode(Resp.self, from: data)
+        return CommitOutcome(
+            added: resp?.addedCount ?? items.count,
+            skipped: resp?.skippedCount ?? 0,
+            failed: resp?.failedCount ?? 0,
+            alreadyCommitted: resp?.alreadyCommitted ?? false
+        )
+    }
+
+    /// Deterministically re-run vision analysis on an already-uploaded photo/video.
+    /// Hits POST /rescan, which ALWAYS invokes the scan (unlike the chat path, where
+    /// the agent could decline to re-analyze), and returns a fresh review card
+    /// (with a new `scanId`, so its corrected items land on commit).
+    func rescan(url mediaURL: String, mimeType: String, room: String?) async throws -> DetectedItemsReview {
+        var request = URLRequest(url: url(for: "/api/agents/nexus/rescan"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        addAuth(&request)
+        struct Body: Encodable { let url: String; let mimeType: String; let room: String? }
+        request.httpBody = try encoder.encode(Body(url: mediaURL, mimeType: mimeType, room: room))
+        let (data, response) = try await session.data(for: request)
+        try validate(response, data: data)
+        struct Resp: Decodable { let items: [DetectedItem]?; let mediaKind: String?; let room: String?; let scanId: String? }
+        let resp = try decoder.decode(Resp.self, from: data)
+        return DetectedItemsReview(
+            mediaKind: resp.mediaKind ?? (mimeType.hasPrefix("video") ? "video" : "photo"),
+            room: resp.room ?? room,
+            items: resp.items ?? [],
+            scanId: resp.scanId
+        )
     }
 
     /// Remove the item ids the user chose in the duplicate-review sheet. Returns how many were removed.

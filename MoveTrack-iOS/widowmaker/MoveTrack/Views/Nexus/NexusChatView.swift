@@ -69,8 +69,12 @@ struct NexusChatView: View {
         .sheet(item: $vm.pendingReview) { review in
             ReviewItemsSheet(
                 review: review,
-                onCommit: { items in Task { await vm.commitReview(items, room: review.room) } },
-                onCancel: { vm.pendingReview = nil }
+                onCommit: { items in Task { await vm.commitReview(items, room: review.room, scanId: review.scanId) } },
+                onCancel: { vm.pendingReview = nil },
+                onRescan: {
+                    vm.pendingReview = nil
+                    Task { await vm.rescanLast() }
+                }
             )
         }
         .sheet(item: $vm.pendingDuplicates) { dup in
