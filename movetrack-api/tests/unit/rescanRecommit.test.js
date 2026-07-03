@@ -23,7 +23,13 @@ jest.mock('../../services/infra/authService', () => ({
 jest.mock('../../agents/nexusOrchestratorAgent', () => ({ processMessage: jest.fn() }));
 jest.mock('../../services/infra/mediaAssetService', () => ({ reserveUpload: jest.fn(), ingestUpload: jest.fn() }));
 jest.mock('../../services/infra/gcsService', () => ({ BUCKET: 'test-bucket', getSignedUploadUrl: jest.fn() }));
-jest.mock('../../services/inventory/inventoryMutationService', () => ({ addItem: jest.fn() }));
+jest.mock('../../services/inventory/inventoryMutationService', () => ({
+  addItem: jest.fn(),
+  attachItemPhoto: jest.fn(),
+  // pure matcher — use the real one so the commit route's photo-update branch
+  // behaves exactly as in production (no targets here: db.any returns [])
+  pickPhotoUpdateTarget: jest.requireActual('../../services/inventory/inventoryMutationService').pickPhotoUpdateTarget,
+}));
 jest.mock('../../services/inventory/mediaInventoryWorkflowService', () => ({
   analyzeVideoForInventory: jest.fn(),
   analyzePhotoForInventory: jest.fn(),

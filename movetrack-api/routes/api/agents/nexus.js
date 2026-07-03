@@ -298,10 +298,41 @@ router.post('/inventory/commit', express.json(), async (req, res) => {
       raw: r,
     }));
 
+  // "Take a picture of your sofa" must update the sofa's photo, not add a
+  // second sofa. Load the user's photo-less items once; any reviewed item that
+  // pickPhotoUpdateTarget matches becomes a photo update instead of an insert.
+  let photoTargets = [];
+  try {
+    photoTargets = await db.any(
+      `SELECT i.id, i.name, i.picture_url, c.name AS room_name
+       FROM items i LEFT JOIN collections c ON i.collection_id = c.id
+       WHERE i.user_id = $1 AND COALESCE(i.picture_url, '') = ''`,
+      [userId]
+    );
+  } catch (err) {
+    console.error('[nexus] commit photo-target lookup failed (items will add normally):', err.message);
+  }
+
   let addedCount = 0;
+  let updatedCount = 0;
   const failures = [];
   for (const it of normalized) {
     try {
+      const target = inventoryMutation.pickPhotoUpdateTarget(photoTargets, {
+        name: it.name,
+        room: it.room,
+        quantity: it.quantity,
+        pictureUrl: typeof it.raw.pictureUrl === 'string' ? it.raw.pictureUrl : null,
+      });
+      if (target) {
+        const upd = await inventoryMutation.attachItemPhoto(userId, target.id, it.raw.pictureUrl);
+        if (upd?.success) {
+          updatedCount++;
+          photoTargets = photoTargets.filter((t) => t.id !== target.id);
+          continue;
+        }
+        // fall through to a normal add if the update failed
+      }
       const result = await inventoryMutation.addItem(userId, {
         name: it.name,
         room_name: it.room,
@@ -341,7 +372,7 @@ router.post('/inventory/commit', express.json(), async (req, res) => {
     log.error('inventory/commit metrics failed (non-fatal)', { userId, error: err.message });
   }
 
-  if (addedCount === 0) {
+  if (addedCount === 0 && updatedCount === 0) {
     return res.status(failures.length ? 500 : 400).json({
       error: failures[0]?.error || 'No items could be added. Set up a home location first.',
       failures: failures.slice(0, 20),
@@ -361,7 +392,7 @@ router.post('/inventory/commit', express.json(), async (req, res) => {
         _via: 'review_card',
         _scanId: scanId || undefined,
       },
-      { success: true, added: addedCount, failed: failures.length, _via: 'review_card', _scanId: scanId || undefined }
+      { success: true, added: addedCount, photosUpdated: updatedCount, failed: failures.length, _via: 'review_card', _scanId: scanId || undefined }
     );
   } catch (err) {
     console.error('[nexus] inventory/commit visibility record failed (non-fatal):', err.message);
@@ -371,6 +402,7 @@ router.post('/inventory/commit', express.json(), async (req, res) => {
   res.json({
     success: true,
     addedCount,
+    updatedCount,
     skippedCount: 0,
     failedCount: failures.length,
     failures: failures.slice(0, 20),

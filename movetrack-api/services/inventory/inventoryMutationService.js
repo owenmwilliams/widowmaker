@@ -8,6 +8,7 @@
  */
 
 const knex = require('../infra/knex');
+const { sameItemName } = require('../infra/vision/scanItemFilters');
 const conn = require('../infra/db');
 const db = conn.db;
 const mediaAssetService = require('../infra/mediaAssetService');
@@ -204,6 +205,80 @@ async function updateItem(userId, args) {
     return { success: false, error: 'Item not found or not authorized' };
   }
   return { success: true, itemId: args.item_id };
+}
+
+/**
+ * Delete a room (collection) by name. Safety: when the room still holds items
+ * the caller must say what happens to them — delete_items:true removes them,
+ * move_items_to reassigns them — otherwise the call refuses with the count so
+ * the agent can ask the user first.
+ */
+async function deleteRoom(userId, { name, delete_items = false, move_items_to = null } = {}) {
+  if (!name || !String(name).trim()) return { success: false, error: 'Room name is required' };
+  const room = await matchExistingRoom(userId, String(name));
+  if (!room) return { success: false, error: `No room matches "${name}"` };
+
+  const [{ count }] = await knex('items')
+    .where({ collection_id: room.id, user_id: userId }).count('id as count');
+  const itemCount = Number(count) || 0;
+
+  if (itemCount > 0 && !delete_items && !move_items_to) {
+    return {
+      success: false,
+      needs_confirmation: true,
+      itemCount,
+      room: room.name,
+      error: `"${room.name}" still has ${itemCount} item(s). Ask the user whether to delete them or move them to another room, then retry with delete_items=true or move_items_to.`,
+    };
+  }
+
+  if (itemCount > 0 && move_items_to) {
+    const target = await findOrCreateRoom(userId, String(move_items_to));
+    if (!target || target.id === room.id) {
+      return { success: false, error: 'Could not resolve the destination room' };
+    }
+    await knex('items')
+      .where({ collection_id: room.id, user_id: userId })
+      .update({ collection_id: target.id, updated_at: new Date() });
+  }
+
+  const res = await deleteCollection(userId, room.id);
+  if (!res.success) return res;
+  console.log(`[census] Deleted room "${room.name}" (items ${move_items_to ? 'moved' : itemCount > 0 ? 'deleted' : 'none'})`);
+  return {
+    success: true,
+    deletedRoom: room.name,
+    itemsMoved: move_items_to ? itemCount : 0,
+    itemsDeleted: !move_items_to ? itemCount : 0,
+  };
+}
+
+/**
+ * The "take a picture of your sofa" flow must UPDATE the sofa, not add a
+ * second one. An incoming reviewed item is a photo-update for an existing row
+ * when it carries a picture, is a single item, and an existing photo-less item
+ * in the same room has the same head noun (sameItemName). Pure — caller
+ * supplies the candidate rows.
+ */
+function pickPhotoUpdateTarget(existingItems, incoming) {
+  if (!incoming || !incoming.pictureUrl) return null;
+  if ((Number(incoming.quantity) || 1) !== 1) return null;
+  const room = cleanRoomPhrase(incoming.room || '');
+  return (existingItems || []).find((e) =>
+    !(e.picture_url && String(e.picture_url).trim() !== '') &&
+    cleanRoomPhrase(e.room_name || '') === room &&
+    sameItemName(e.name, incoming.name)
+  ) || null;
+}
+
+/** Attach a photo to an existing item (the pickPhotoUpdateTarget commit path). */
+async function attachItemPhoto(userId, itemId, pictureUrl) {
+  const count = await knex('items')
+    .where({ id: itemId, user_id: userId })
+    .update({ picture_url: pictureUrl, updated_at: new Date() });
+  return count > 0
+    ? { success: true, itemId }
+    : { success: false, error: 'Item not found or not authorized' };
 }
 
 /**
@@ -707,6 +782,9 @@ async function assignItemQr(userId, itemId, { token, regenerate } = {}) {
 }
 
 module.exports = {
+  deleteRoom,
+  pickPhotoUpdateTarget,
+  attachItemPhoto,
   cleanRoomPhrase,
   matchExistingRoom,
   // Local inventory functions

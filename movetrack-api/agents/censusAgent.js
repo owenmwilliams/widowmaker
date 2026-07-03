@@ -335,7 +335,7 @@ INVENTORY CENSUS RULES:
    d. ALREADY-UPLOADED MEDIA: when the user refers to a video or photo they already sent ("scan the video I uploaded", "use the bathroom video", "try that video again"), NEVER ask them for a file URL or MIME type — they can't see those. Call list_recent_media, pick the matching entry (most recent, or match by room name), and call analyze_video/analyze_photo with its url and mimeType directly. Only ask the user to re-record if list_recent_media returns nothing that matches.
    e. COMMITTED WORK IS IN YOUR TRANSCRIPT: review-card commits and duplicate resolutions appear in your history as add_items / find_duplicates tool results marked "_via": "review_card" or "review_card_resolution". When you see them: the items are ALREADY saved and the duplicates ALREADY reviewed. Do not re-announce the additions, do not congratulate again, and do not offer another duplicate review for that scan — acknowledge briefly only if the user brings it up, and move on to the next room or step. When the user's own message reports a finished review ("Added N of M items from the X scan"), that report IS the acknowledgment — reply with ONE short sentence that moves things forward (the next room to scan, photos of the big items, or sharing when everything's covered); NEVER re-list the items and NEVER call add_items for them.
 5. Weight and dimension estimates are always PER SINGLE UNIT. Set quantity for multiples. Examples: queen mattress ~80 lbs qty 1, dining chair ~20 lbs qty 4, box of books ~35 lbs qty 3. Never multiply weight by quantity yourself — the system does that automatically.
-6. ROOMS ARE PLACES, NEVER ACTIVITIES. "I'm scanning my living room" means the EXISTING Living Room — never a new room named after the sentence. Before adding items, match the room to the user's existing rooms (get_inventory_status lists them); reuse on any reasonable match (case, "the", plurals, filler words). Only call add_room for a genuinely new PLACE, named as a place ("Den", "Garage"), never with words like "scanning"/"my" in it.
+6. ROOMS ARE PLACES, NEVER ACTIVITIES. "I'm scanning my living room" means the EXISTING Living Room — never a new room named after the sentence. Before adding items, match the room to the user's existing rooms (get_inventory_status lists them); reuse on any reasonable match (case, "the", plurals, filler words). Only call add_room for a genuinely new PLACE, named as a place ("Den", "Garage"), never with words like "scanning"/"my" in it. A message that describes CONTENTS is not a room either: "Everything in this closet" or "all the stuff on these shelves" answers WHAT to add, not WHERE — put those items in the room currently under discussion (the room YOU last asked about), and NEVER create a room named after such a phrase. To remove a room use delete_room; when it refuses because items remain, ask the user whether to move or delete them before retrying.
 7. Confidence scoring — ALWAYS pass the confidence value when calling add_item:
    - 0.9+: user explicitly named the item with details → confidence_source: "explicit"
    - 0.7-0.8: detected in a photo → use the per-item confidence from analyze_photo results → confidence_source: "photo"
@@ -492,6 +492,19 @@ const toolDeclarations = [
       properties: {
         name:        { type: SchemaType.STRING, description: 'Room name, e.g. "Kitchen", "Master Bedroom"' },
         description: { type: SchemaType.STRING, description: 'Brief description of the room' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'delete_room',
+    description: 'Delete a room/collection the user no longer wants. If the room still has items the tool refuses with the count — confirm with the user, then retry with delete_items=true (items removed) or move_items_to (items reassigned to that room).',
+    parameters: {
+      type: SchemaType.OBJECT,
+      properties: {
+        name:          { type: SchemaType.STRING, description: 'Room to delete (loose match against existing rooms)' },
+        delete_items:  { type: SchemaType.BOOLEAN, description: 'Also delete every item in the room. Only after the user explicitly confirmed.' },
+        move_items_to: { type: SchemaType.STRING, description: 'Move the room\'s items into this room instead of deleting them.' },
       },
       required: ['name'],
     },
@@ -702,6 +715,7 @@ const toolHandlers = {
   async add_item(args, userId) { return mutation.addItem(userId, args); },
   async add_items(args, userId) { return addItemsDeduped(userId, args.items); },
   async add_room(args, userId) { return mutation.addRoom(userId, args); },
+  async delete_room(args, userId) { return mutation.deleteRoom(userId, args); },
   async update_item(args, userId) { return mutation.updateItem(userId, args); },
   async delete_item(args, userId) { return mutation.deleteItem(userId, args); },
   async update_room(args, userId) { return mutation.updateRoom(userId, args); },
@@ -819,6 +833,7 @@ const TOOL_LABELS = {
   search_items: 'Searching inventory',
   get_item_photo: 'Fetching photo',
   add_room: 'Creating room',
+  delete_room: 'Deleting room',
   update_room: 'Updating room',
   get_inventory_summary: 'Reviewing inventory',
   get_missing_context: 'Checking for gaps',

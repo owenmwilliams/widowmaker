@@ -102,6 +102,14 @@ const LARGE_KEYWORDS = [
   'tv', 'television', 'mirror', 'artwork', 'painting', 'framed', 'chandelier',
   'armchair', 'accent chair', 'lounge chair', 'pool table', 'crib', 'hutch',
   'aquarium', 'fish tank', 'grandfather clock',
+  // Beta gap: real homes had large items none of the above matched.
+  'cabinet', 'credenza', 'shelving', 'shelf unit', 'daybed', 'bunk',
+  'filing cabinet', 'safe', 'workbench', 'tool chest', 'toolbox',
+  'generator', 'mower', 'snow blower', 'snowblower', 'grill', 'smoker',
+  'kayak', 'canoe', 'paddleboard', 'surfboard', 'trampoline', 'playset',
+  'swing set', 'basketball hoop', 'hot tub', 'sauna', 'exercise bike',
+  'rowing machine', 'rower', 'weight bench', 'squat rack', 'power rack',
+  'patio table', 'sectional', 'ping pong', 'foosball', 'air hockey',
 ];
 
 const LARGE_WEIGHT_THRESHOLD = 70;
@@ -122,9 +130,26 @@ function isLargeImpactItem(name) {
   return !!spec && spec.w >= LARGE_WEIGHT_THRESHOLD;
 }
 
+// Furniture-sized by bounding box (~11.5 cu ft) — catches large items whose
+// names match nothing in the lexicon but whose own recorded specs say "big".
+const LARGE_VOLUME_CUIN = 20000;
+
+/** Like isLargeImpactItem, but also trusts the item row's OWN weight/dims —
+ * the name lexicon can never cover every large thing people own. */
+function isLargeItemRecord(item) {
+  if (!item) return false;
+  if (isLargeImpactItem(item.name)) return true;
+  const w = Number(item.weight_lbs);
+  if (Number.isFinite(w) && w >= LARGE_WEIGHT_THRESHOLD) return true;
+  const vol = Number(item.length_in) * Number(item.width_in) * Number(item.height_in);
+  return Number.isFinite(vol) && vol >= LARGE_VOLUME_CUIN;
+}
+
 module.exports = {
   ITEM_SPECS,
   specForName,
   isLargeImpactItem,
+  isLargeItemRecord,
   LARGE_WEIGHT_THRESHOLD,
+  LARGE_VOLUME_CUIN,
 };

@@ -99,7 +99,8 @@ struct NexusChatView: View {
                 readiness: vm.readiness,
                 onShare: { Task { await onShareTapped() } },
                 onEstimateWeights: { Task { await vm.send("Estimate the missing weights for my items.") } },
-                onAddVideo: { beginCapture(caption: "") }
+                onAddVideo: { beginCapture(caption: "") },
+                onStep: { step in Task { await vm.send(step) } }
             )
         }
         .alert("Photos & videos use AI", isPresented: $showAINotice) {
