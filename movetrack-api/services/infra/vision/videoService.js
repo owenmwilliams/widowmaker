@@ -294,4 +294,119 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = nu
   };
 }
 
-module.exports = { analyzeVideo, analyzeFrames, normalizeVideoItem, parseItemsArray, INVENTORY_PROMPT, INVENTORY_PROMPT_FRAMES, GEMINI_MODELS };
+
+// ── Chunked frame analysis ──────────────────────────────────────────────────
+// One Gemini call has a hard output budget (maxOutputTokens 8192, and
+// 2.5-flash spends thinking tokens from the same pool). With the review-card
+// fields required, that caps a single call at roughly 40-60 items — and since
+// the model emits items in frame order, a long walkthrough always loses
+// EXACTLY the end-of-video items. Chunking gives every ~14-frame window its
+// own full budget and full attention.
+
+const CHUNK_FRAME_LIMIT = Number(process.env.SCAN_CHUNK_FRAMES || 14);
+const CHUNK_SINGLE_CALL_MAX = Number(process.env.SCAN_SINGLE_CALL_FRAMES || 28);
+const CHUNK_CONCURRENCY = Math.max(1, Number(process.env.SCAN_CHUNK_CONCURRENCY || 2));
+
+/** Consecutive, chronological groups of at most CHUNK_FRAME_LIMIT frames. */
+function chunkFrames(frames) {
+  const chunks = [];
+  for (let i = 0; i < frames.length; i += CHUNK_FRAME_LIMIT) {
+    chunks.push({ offset: i, frames: frames.slice(i, i + CHUNK_FRAME_LIMIT) });
+  }
+  return chunks;
+}
+
+/**
+ * Merge chunk results: remap each chunk's 1-based source_frame to the GLOBAL
+ * frame index (so thumbnails keep working), and collapse cross-chunk
+ * duplicates — a pan that carries the same sofa across a chunk boundary
+ * reports it twice; same normalized (name, room) within one scan means the
+ * same physical items, so keep the larger quantity rather than summing.
+ */
+function mergeChunkResults(chunkResults, chunks) {
+  const items = [];
+  const byKey = new Map();
+  let parseError = null;
+  let truncated = false;
+  let narrationNotes = null;
+  const usage = { promptTokenCount: 0, candidatesTokenCount: 0, totalTokenCount: 0 };
+  let sawUsage = false;
+
+  chunkResults.forEach((r, ci) => {
+    if (!r) return;
+    if (r.parseError && !parseError) parseError = r.parseError;
+    if (r.truncated) truncated = true;
+    if (r.narrationNotes && !narrationNotes) narrationNotes = r.narrationNotes;
+    if (r.usageMetadata) {
+      sawUsage = true;
+      usage.promptTokenCount += r.usageMetadata.promptTokenCount || 0;
+      usage.candidatesTokenCount += r.usageMetadata.candidatesTokenCount || 0;
+      usage.totalTokenCount += r.usageMetadata.totalTokenCount || 0;
+    }
+    for (const it of (r.items || [])) {
+      const sf = Number(it.source_frame);
+      const global = Number.isFinite(sf) && sf >= 1 && sf <= chunks[ci].frames.length
+        ? chunks[ci].offset + sf
+        : null;
+      const mapped = { ...it, source_frame: global };
+      const key = `${String(it.name || '').toLowerCase().trim().replace(/\s+/g, ' ')}|${String(it.room || '').toLowerCase().trim()}`;
+      const existing = key !== '|' ? byKey.get(key) : null;
+      if (existing) {
+        // Same physical items seen across a boundary — don't double-count.
+        const q = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : 1);
+        if (q(mapped.quantity) > q(existing.quantity)) existing.quantity = mapped.quantity;
+        continue;
+      }
+      if (key !== '|') byKey.set(key, mapped);
+      items.push(mapped);
+    }
+  });
+
+  return {
+    items,
+    parseError: items.length > 0 ? null : parseError,
+    truncated,
+    narrationNotes,
+    usageMetadata: sawUsage ? usage : null,
+    model: chunkResults.find(r => r && r.model)?.model || null,
+    chunkCount: chunks.length,
+  };
+}
+
+/**
+ * Analyze sampled frames, splitting long walkthroughs into windows so no part
+ * of the video competes for one output budget. Short clips (≤
+ * CHUNK_SINGLE_CALL_MAX frames) keep the proven single-call path. Narration
+ * audio goes to the FIRST chunk only — the model uses it for names/notes once,
+ * instead of re-inventing narration items per chunk.
+ */
+async function analyzeFramesChunked(frames, plan = 'basic', roomHint = null, audio = null, userId = null, opts = {}) {
+  const analyze = opts._analyzeFn || analyzeFrames; // injectable for tests
+  if (!frames || frames.length <= CHUNK_SINGLE_CALL_MAX) {
+    const single = await analyze(frames, plan, roomHint, audio, userId);
+    return { ...single, chunkCount: 1 };
+  }
+  const chunks = chunkFrames(frames);
+  log.info('Chunked frame analysis', { totalFrames: frames.length, chunks: chunks.length, perChunk: CHUNK_FRAME_LIMIT });
+
+  const results = new Array(chunks.length);
+  let next = 0;
+  async function worker() {
+    while (next < chunks.length) {
+      const i = next++;
+      try {
+        results[i] = await analyze(chunks[i].frames, plan, roomHint, i === 0 ? audio : null, userId);
+      } catch (err) {
+        log.warn('Chunk analysis failed', { chunk: i + 1, of: chunks.length, error: err.message });
+        results[i] = null; // partial coverage beats a dead scan; merge notes the gap
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, chunks.length) }, worker));
+
+  const merged = mergeChunkResults(results, chunks);
+  if (results.some(r => r === null)) merged.truncated = true; // a failed window = incomplete list
+  return merged;
+}
+
+module.exports = { analyzeVideo, analyzeFrames, analyzeFramesChunked, chunkFrames, mergeChunkResults, normalizeVideoItem, parseItemsArray, INVENTORY_PROMPT, INVENTORY_PROMPT_FRAMES, GEMINI_MODELS };
