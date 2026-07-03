@@ -248,6 +248,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "widowmaker-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Nexus Moves";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to photograph items for your inventory.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access to your photo library to select photos for your items.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -282,6 +283,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "widowmaker-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Nexus Moves";
 				INFOPLIST_KEY_NSCameraUsageDescription = "We need access to your camera to photograph items for your inventory.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need access to your photo library to select photos for your items.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
