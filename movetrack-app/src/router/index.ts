@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory, type NavigationGuardNext, type RouteLocationNormalized } from 'vue-router'
-import { isMobileViewport } from '../utils/viewport'
 
 import Home from '../views/Home.vue'
 import Profile from '../views/Profile.vue'
@@ -194,6 +193,11 @@ const router = createRouter({
       redirect: { name: 'mobile-moves' }
     },
     {
+      path: "/get-the-app",
+      name: "get-the-app",
+      component: () => import('../views/MobileGetApp.vue')
+    },
+    {
       path: "/",
       name: "home",
       component: Home
@@ -239,7 +243,26 @@ const router = createRouter({
   ],
 });
 
+// Phones get pointed at the native app. Share links (movers open these from
+// texts/emails on any device) and legal/marketing pages stay reachable; a
+// sessionStorage flag ("Continue to the web version anyway") bypasses for the
+// tab. Tablets and desktops are untouched — this matches on phone UAs only.
+const MOBILE_WEB_ALLOWED = [/^\/share\//, /^\/get-the-app$/, /^\/privacypolicy$/, /^\/terms$/, /^\/pricing$/];
+
+function isPhoneBrowser(): boolean {
+  const ua = navigator.userAgent || '';
+  return /iPhone|iPod|Windows Phone/i.test(ua) || (/Android/i.test(ua) && /Mobile/i.test(ua));
+}
+
 router.beforeEach(async (to, from, next) => {
+  if (
+    isPhoneBrowser() &&
+    sessionStorage.getItem('nexus-force-web') !== '1' &&
+    !MOBILE_WEB_ALLOWED.some((re) => re.test(to.path))
+  ) {
+    return next({ name: 'get-the-app' });
+  }
+
   // Public mover-facing share view is always reachable, logged in or not.
   if (to.path.startsWith('/share/')) {
     return next();
@@ -288,7 +311,7 @@ router.beforeEach(async (to, from, next) => {
 
   if (!completed && !isOnboardingRoute && !isNexusRoute) {
     console.log('[Router Guard] Onboarding not completed, redirecting to Nexus agent');
-    return next(isMobileViewport() ? { name: 'mobile-nexus' } : { path: '/nexus' });
+    return next({ path: '/nexus' });
   }
 
   if (completed && to.name === 'onboarding-welcome' && from.name && !from.path.startsWith('/onboarding')) {
