@@ -1130,6 +1130,7 @@ CREATE TABLE IF NOT EXISTS scan_jobs (
     session_id UUID REFERENCES nexus_sessions(id) ON DELETE SET NULL,
     idempotency_key VARCHAR(80),
     media_url TEXT NOT NULL,
+    media_urls JSONB,
     mime_type VARCHAR(100),
     media_kind VARCHAR(10) NOT NULL DEFAULT 'photo' CHECK (media_kind IN ('photo', 'video')),
     room_hint VARCHAR(255),

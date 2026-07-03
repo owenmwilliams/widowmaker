@@ -429,18 +429,31 @@ router.post('/rescan', rateLimits.rescanLimiter, express.json(), async (req, res
   const room = (typeof req.body?.room === 'string' && req.body.room.trim())
     ? req.body.room.trim().slice(0, 120)
     : null;
+  // Optional multi-photo rescan — same batch the original scan job carried.
+  const rawUrls = Array.isArray(req.body?.urls)
+    ? req.body.urls.map(u => String(u || '').trim()).filter(Boolean)
+    : [];
+  const urls = rawUrls.length > 0 ? rawUrls : (url ? [url] : []);
+  if (urls.length === 0 || urls.length > 5) {
+    return res.status(400).json({ error: 'Provide between 1 and 5 media URLs' });
+  }
 
   // SSRF + cross-user guard: the server raw-fetches this URL, so it must be a
   // GCS object in our bucket UNDER THE CALLER'S OWN prefix. Without this a user
   // could hit internal endpoints or rescan another user's media and read their
   // detected inventory back. Rejects anything that isn't exactly that shape.
   const allowedPrefix = `https://storage.googleapis.com/${gcs.BUCKET}/users/${userId}/`;
-  if (!url.startsWith(allowedPrefix) || url.includes('..')) {
-    return res.status(403).json({ error: 'That media URL is not accessible.' });
+  for (const u of urls) {
+    if (!u.startsWith(allowedPrefix) || u.includes('..')) {
+      return res.status(403).json({ error: 'That media URL is not accessible.' });
+    }
   }
   const isVideo = mimeType.startsWith('video/');
   const isImage = mimeType.startsWith('image/');
   if (!isVideo && !isImage) return res.status(400).json({ error: 'Unsupported media type' });
+  if (urls.length > 1 && !isImage) {
+    return res.status(400).json({ error: 'Only photos can be rescanned as a batch' });
+  }
 
   const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
   const scanId = crypto.randomUUID();
@@ -451,15 +464,19 @@ router.post('/rescan', rateLimits.rescanLimiter, express.json(), async (req, res
     sessionId: null,
     requestId: `rescan:${scanId}`,
     mediaKind: isVideo ? 'video' : 'photo',
-    mediaUrl: url,
+    mediaUrl: urls[0],
   });
 
   let result;
   try {
     try {
       result = isVideo
-        ? await media.analyzeVideoForInventory({ file_url: url, mime_type: mimeType, room_hint: room }, userId, plan, { onStage: recorder.onStage })
-        : await media.analyzePhotoForInventory({ file_url: url, mime_type: mimeType, mode: 'multi_item', room_hint: room }, userId, plan, { onStage: recorder.onStage });
+        ? await media.analyzeVideoForInventory({ file_url: urls[0], mime_type: mimeType, room_hint: room }, userId, plan, { onStage: recorder.onStage })
+        : await media.analyzePhotoForInventory(
+            urls.length > 1
+              ? { files: urls.map(u => ({ file_url: u, mime_type: mimeType })), mode: 'multi_item', room_hint: room }
+              : { file_url: urls[0], mime_type: mimeType, mode: 'multi_item', room_hint: room },
+            userId, plan, { onStage: recorder.onStage });
     } finally {
       recorder.finish(result);
     }
@@ -478,7 +495,7 @@ router.post('/rescan', rateLimits.rescanLimiter, express.json(), async (req, res
       await censusAgent.recordCensusToolCall(
         userId,
         isVideo ? 'analyze_video' : 'analyze_photo',
-        { file_url: url, mime_type: mimeType, room_hint: room, _via: 'rescan', _scanId: scanId },
+        { file_url: urls[0], files: urls.length > 1 ? urls.map(u => ({ file_url: u, mime_type: mimeType })) : undefined, mime_type: mimeType, room_hint: room, _via: 'rescan', _scanId: scanId },
         {
           success: true,
           itemCount: items.length,
@@ -519,8 +536,23 @@ router.post('/scan-jobs', express.json(), async (req, res) => {
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   const mediaUrl = String(req.body?.mediaUrl || '').trim();
-  if (!scanJobs.isAllowedMediaUrl(mediaUrl, userId)) {
-    return res.status(400).json({ error: 'mediaUrl must point at your uploaded media' });
+  // Optional photo batch: up to 5 images analyzed together as ONE scan.
+  // Every URL gets the same ownership/SSRF guard as the single path.
+  const rawUrls = Array.isArray(req.body?.mediaUrls)
+    ? req.body.mediaUrls.map(u => String(u || '').trim()).filter(Boolean)
+    : [];
+  const mediaUrls = rawUrls.length > 0 ? rawUrls : (mediaUrl ? [mediaUrl] : []);
+  if (mediaUrls.length === 0 || mediaUrls.length > 5) {
+    return res.status(400).json({ error: 'Provide between 1 and 5 media URLs' });
+  }
+  for (const u of mediaUrls) {
+    if (!scanJobs.isAllowedMediaUrl(u, userId)) {
+      return res.status(400).json({ error: 'mediaUrl must point at your uploaded media' });
+    }
+  }
+  const jobMime = req.body?.mimeType ? String(req.body.mimeType) : null;
+  if (mediaUrls.length > 1 && !String(jobMime || '').startsWith('image/')) {
+    return res.status(400).json({ error: 'Only photos can be scanned as a batch' });
   }
 
   // Opportunistic safety net (runs in request context): rescue jobs whose
@@ -530,8 +562,9 @@ router.post('/scan-jobs', express.json(), async (req, res) => {
   try {
     const plan = (resolveEffectivePlan(req) || 'basic').toLowerCase();
     const { job, created } = await scanJobs.createJob(userId, {
-      mediaUrl,
-      mimeType: req.body?.mimeType ? String(req.body.mimeType) : null,
+      mediaUrl: mediaUrls[0],
+      mediaUrls,
+      mimeType: jobMime,
       sessionId: req.body?.sessionId ? String(req.body.sessionId) : null,
       roomHint: req.body?.roomHint ? String(req.body.roomHint).slice(0, 255) : null,
       caption: req.body?.caption ? String(req.body.caption).slice(0, 2000) : null,

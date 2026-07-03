@@ -107,6 +107,7 @@ function toDTO(row) {
     stage: row.stage,
     mediaKind: row.media_kind,
     mediaUrl: row.media_url,
+    mediaUrls: row.media_urls || null,
     roomHint: row.room_hint,
     caption: row.caption,
     result: row.result || null,
@@ -206,9 +207,15 @@ async function resolveSessionId(userId, sessionId) {
  * a deliberate rescan after the previous result was acknowledged (consumed)
  * creates a fresh job.
  */
-async function createJob(userId, { mediaUrl, mimeType = null, sessionId = null, roomHint = null, caption = null, idempotencyKey = null, plan = 'basic' }) {
+async function createJob(userId, { mediaUrl, mediaUrls = null, mimeType = null, sessionId = null, roomHint = null, caption = null, idempotencyKey = null, plan = 'basic' }) {
   if (!userId || !mediaUrl) throw new Error('userId and mediaUrl are required');
   const mediaKind = String(mimeType || '').startsWith('video') ? 'video' : 'photo';
+  // A batch is photos-only, 2–5 URLs, analyzed together as one scan (same
+  // room, different angles). Single-media jobs keep media_urls NULL.
+  const batch = Array.isArray(mediaUrls) && mediaUrls.length > 1 ? mediaUrls : null;
+  if (batch && (mediaKind !== 'photo' || batch.length > 5)) {
+    throw new Error('Only 2-5 photos can be scanned as a batch');
+  }
 
   let resolvedSessionId = null;
   try {
@@ -218,12 +225,12 @@ async function createJob(userId, { mediaUrl, mimeType = null, sessionId = null, 
   }
 
   const row = await db.one(
-    `INSERT INTO scan_jobs (user_id, session_id, idempotency_key, media_url, mime_type, media_kind, room_hint, caption, plan)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO scan_jobs (user_id, session_id, idempotency_key, media_url, media_urls, mime_type, media_kind, room_hint, caption, plan)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (user_id, idempotency_key) WHERE idempotency_key IS NOT NULL AND consumed_at IS NULL
        DO UPDATE SET updated_at = NOW()
      RETURNING *, (xmax = 0) AS _inserted`,
-    [userId, resolvedSessionId, idempotencyKey, mediaUrl, mimeType, mediaKind, roomHint, caption, plan]
+    [userId, resolvedSessionId, idempotencyKey, mediaUrl, batch ? JSON.stringify(batch) : null, mimeType, mediaKind, roomHint, caption, plan]
   );
   const created = row._inserted === true;
   delete row._inserted;
@@ -237,7 +244,7 @@ async function createJob(userId, { mediaUrl, mimeType = null, sessionId = null, 
         await db.none(
           `INSERT INTO nexus_messages (session_id, role, content, attachments)
            VALUES ($1, 'user', $2, $3)`,
-          [row.session_id, caption || '', JSON.stringify([{ url: mediaUrl, mimeType }])]
+          [row.session_id, caption || '', JSON.stringify((batch || [mediaUrl]).map(u => ({ url: u, mimeType })))]
         );
       } catch (err) {
         console.error(`[scanJobs] transcript row failed for ${row.id}:`, err.message);
@@ -334,6 +341,7 @@ async function runClaimedJob(job) {
     // Caption flows into the analysis as the room hint when it's name-shaped
     // and no explicit hint was sent (#49 review finding 6).
     const roomHint = job.room_hint || roomFromCaption(job.caption);
+    const urls = Array.isArray(job.media_urls) && job.media_urls.length > 1 ? job.media_urls : [job.media_url];
     const args = { file_url: job.media_url, mime_type: job.mime_type, room_hint: roomHint };
     // Per-stage forensics parity with the chat path (issue #45): the job path
     // is the primary iOS flow, so it must leave the same scan_events trail.
@@ -348,7 +356,11 @@ async function runClaimedJob(job) {
     try {
       analysis = job.media_kind === 'video'
         ? await workflow.analyzeVideoForInventory(args, job.user_id, job.plan, { onStage: recorder.onStage })
-        : await workflow.analyzePhotoForInventory({ ...args, mode: 'multi_item' }, job.user_id, job.plan, { onStage: recorder.onStage });
+        : await workflow.analyzePhotoForInventory(
+            urls.length > 1
+              ? { files: urls.map(u => ({ file_url: u, mime_type: job.mime_type })), mode: 'multi_item', room_hint: roomHint }
+              : { ...args, mode: 'multi_item' },
+            job.user_id, job.plan, { onStage: recorder.onStage });
     } finally {
       // Record whatever we saw even when the analysis throws — the row's
       // stage_status/error_stage is exactly the forensic trail we need then.

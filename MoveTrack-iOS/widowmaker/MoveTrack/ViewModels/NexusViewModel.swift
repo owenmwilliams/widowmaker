@@ -48,7 +48,7 @@ final class NexusViewModel: ObservableObject {
 
     // The most recent scanned media, remembered so "Rescan" can deterministically
     // re-run analysis on the same file (issue #43) without the user re-recording.
-    private struct LastScan { let url: String; let mimeType: String; var room: String? }
+    private struct LastScan { let urls: [String]; let mimeType: String; var room: String? }
     private var lastScan: LastScan?
 
     // Review cards awaiting the user, one presented at a time. A card's scan
@@ -237,7 +237,7 @@ final class NexusViewModel: ObservableObject {
             // Remember this media so the user can deterministically rescan it
             // (issue #43). The room is backfilled when the review card
             // materializes from the finished scan job.
-            lastScan = LastScan(url: uploaded.url, mimeType: uploaded.mimeType, room: nil)
+            lastScan = LastScan(urls: [uploaded.url], mimeType: uploaded.mimeType, room: nil)
         } catch NexusError.unauthorized {
             isUploading = false
             phaseText = ""
@@ -262,7 +262,7 @@ final class NexusViewModel: ObservableObject {
         // or even an app relaunch can't lose it (reload() re-materializes any
         // finished-but-unseen job).
         return await runScanJob(
-            mediaUrl: uploaded.url,
+            mediaUrls: [uploaded.url],
             mimeType: uploaded.mimeType,
             caption: caption,
             roomHint: roomHint,
@@ -272,9 +272,93 @@ final class NexusViewModel: ObservableObject {
         )
     }
 
+    /// Send up to five photos as ONE scan: each uploads separately (and shows
+    /// as its own attachment in the transcript), then a single scan job
+    /// analyzes them together — one review card, not five.
+    @discardableResult
+    func sendMediaBatch(_ items: [PickedMedia], caption: String = "", roomHint: String? = nil) async -> Bool {
+        guard !isBusy else { return false }
+        guard items.count > 1 else {
+            if let only = items.first {
+                return await sendMedia(data: only.data, mimeType: only.mimeType, filename: only.filename, caption: caption, roomHint: roomHint)
+            }
+            return false
+        }
+        errorMessage = nil
+        guard items.count <= 5, items.allSatisfy({ !$0.isVideo }) else {
+            errorMessage = "Up to 5 photos can be sent together — videos go one at a time."
+            return false
+        }
+        if let big = items.first(where: { $0.data.count > 30 * 1024 * 1024 }) {
+            errorMessage = "One of those photos is too large to upload (\(big.data.count / 1024 / 1024) MB)."
+            return false
+        }
+
+        // Content-derived idempotency key over the whole batch: the same five
+        // photos retried reuse the in-flight/unseen job instead of scanning twice.
+        var hasher = SHA256()
+        for item in items { hasher.update(data: item.data) }
+        let idempotencyKey = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+
+        // One optimistic bubble with a separate attachment chip per photo.
+        let optimistic = ChatMessage(
+            role: .user,
+            text: caption,
+            attachments: items.map { NexusAttachment(url: nil, mimeType: $0.mimeType) }
+        )
+        messages.append(optimistic)
+
+        isUploading = true
+        uploadProgress = 0
+        let mediaMetadata = [
+            "mediaKind": "photo_batch",
+            "count": String(items.count),
+            "bytes": String(items.reduce(0) { $0 + $1.data.count }),
+        ]
+        ClientEventLogger.shared.log(.uploadStarted, sessionId: sessionId, metadata: mediaMetadata)
+        var urls: [String] = []
+        do {
+            for (index, item) in items.enumerated() {
+                phaseText = "Uploading photo \(index + 1) of \(items.count)…"
+                let up = try await service.uploadMedia(data: item.data, mimeType: item.mimeType, filename: item.filename)
+                urls.append(up.url)
+                uploadProgress = Double(index + 1) / Double(items.count)
+            }
+            isUploading = false
+            phaseText = ""
+            ClientEventLogger.shared.log(.uploadSucceeded, sessionId: sessionId, metadata: mediaMetadata)
+            lastScan = LastScan(urls: urls, mimeType: "image/jpeg", room: nil)
+        } catch NexusError.unauthorized {
+            isUploading = false
+            phaseText = ""
+            messages.removeAll { $0.id == optimistic.id }
+            sessionExpired = true
+            ClientEventLogger.shared.log(.uploadFailed, sessionId: sessionId, metadata: mediaMetadata)
+            return false
+        } catch {
+            isUploading = false
+            phaseText = ""
+            messages.removeAll { $0.id == optimistic.id }
+            errorMessage = friendlyError(error)
+            ClientEventLogger.shared.log(.uploadFailed, sessionId: sessionId,
+                                          metadata: mediaMetadata.merging(["error": String(describing: error).prefix(200).description]) { a, _ in a })
+            return false
+        }
+
+        return await runScanJob(
+            mediaUrls: urls,
+            mimeType: "image/jpeg",
+            caption: caption,
+            roomHint: roomHint,
+            idempotencyKey: idempotencyKey,
+            isVideo: false,
+            optimistic: optimistic
+        )
+    }
+
     /// Register the uploaded media as a scan job, poll it to a terminal state,
     /// and materialize the review card from the job record.
-    private func runScanJob(mediaUrl: String, mimeType: String, caption: String, roomHint: String?, idempotencyKey: String, isVideo: Bool, optimistic: ChatMessage) async -> Bool {
+    private func runScanJob(mediaUrls: [String], mimeType: String, caption: String, roomHint: String?, idempotencyKey: String, isVideo: Bool, optimistic: ChatMessage) async -> Bool {
         quickStartChips = []
         isLoading = true
         phaseText = isVideo ? "Scanning your video…" : "Scanning your photo…"
@@ -286,7 +370,8 @@ final class NexusViewModel: ObservableObject {
 
         do {
             let created = try await service.createScanJob(
-                mediaUrl: mediaUrl,
+                mediaUrl: mediaUrls.first ?? "",
+                mediaUrls: mediaUrls.count > 1 ? mediaUrls : nil,
                 mimeType: mimeType,
                 caption: caption.isEmpty ? nil : caption,
                 idempotencyKey: idempotencyKey,
@@ -572,7 +657,7 @@ final class NexusViewModel: ObservableObject {
         errorMessage = nil
         defer { isLoading = false; phaseText = "" }
         do {
-            var review = try await service.rescan(url: scan.url, mimeType: scan.mimeType, room: scan.room)
+            var review = try await service.rescan(urls: scan.urls, mimeType: scan.mimeType, room: scan.room)
             if review.items.isEmpty {
                 messages.append(ChatMessage(
                     role: .model,
