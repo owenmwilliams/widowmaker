@@ -672,12 +672,16 @@ async function logout(sessionToken) {
  * Get user from session token
  */
 async function getUserFromToken(sessionToken) {
-    try {
-        // Verify JWT (this checks signature and expiration)
-        const decoded = verifySessionToken(sessionToken);
-        if (!decoded) {
-            return null;
-        }
+    // Verify JWT (signature + expiration). A bad token returns null — that is
+    // an AUTH decision. Anything thrown below (DB down, pool cold after a
+    // deploy) is an INFRA failure and must propagate: mapping it to null made
+    // every deploy blip read as "invalid token" → 401 → the app logged the
+    // user out (2026-07-02 beta: frequent iPhone logouts on deploy days).
+    const decoded = verifySessionToken(sessionToken);
+    if (!decoded) {
+        return null;
+    }
+    {
 
         // Check that the session token hasn't been revoked (logout sets used_at)
         const hashedToken = hashToken(sessionToken);
@@ -719,9 +723,6 @@ async function getUserFromToken(sessionToken) {
             plan: flags.plan,
             is_admin: flags.is_admin
         };
-    } catch (error) {
-        console.error('Error getting user from token:', error);
-        return null;
     }
 }
 
@@ -760,8 +761,11 @@ async function authenticate(req, res, next) {
 
         next();
     } catch (error) {
-        console.error('Authentication error:', error);
-        return res.status(401).json({ error: 'Unauthorized - Authentication failed' });
+        // Token problems return null above and get a 401. Reaching here means
+        // the CHECK failed, not the token — surface it as a transient server
+        // error so clients retry instead of discarding a valid session.
+        console.error('Authentication infrastructure error:', error);
+        return res.status(503).json({ error: 'Service temporarily unavailable - please retry' });
     }
 }
 
