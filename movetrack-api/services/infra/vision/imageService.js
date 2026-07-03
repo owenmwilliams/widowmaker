@@ -249,7 +249,9 @@ Important:
 - Prioritize larger, more prominent items over small details
 - Confidence should reflect certainty about each item (0.0 = very uncertain, 1.0 = very certain)
 
-Return ONLY the JSON object, nothing else.`;
+Return ONLY the JSON object, nothing else.
+
+FIXTURES STAY WITH THE HOUSE - NEVER list them: toilets, sinks, bathtubs, showers, faucets, countertops, built-in cabinets/shelving/appliances, ceiling lights and fans, chandeliers, light switches, thermostats, radiators, water heaters, fireplaces, doors, windows, and window blinds. Movable appliances DO count (fridge, washer/dryer, microwave, window AC unit).`;
 
 const MULTI_IMAGE_VISION_PROMPT = `You are analyzing MULTIPLE photos of the SAME room for moving inventory. These images show the same space from different angles.
 
@@ -293,7 +295,9 @@ Important:
 - Prioritize larger, more prominent items over small details
 - Confidence should reflect certainty (0.0 = very uncertain, 1.0 = very certain)
 
-Return ONLY the JSON object, nothing else.`;
+Return ONLY the JSON object, nothing else.
+
+FIXTURES STAY WITH THE HOUSE - NEVER list them: toilets, sinks, bathtubs, showers, faucets, countertops, built-in cabinets/shelving/appliances, ceiling lights and fans, chandeliers, light switches, thermostats, radiators, water heaters, fireplaces, doors, windows, and window blinds. Movable appliances DO count (fridge, washer/dryer, microwave, window AC unit).`;
 
 /**
  * Analyze photo using Claude 3.5 Sonnet Vision

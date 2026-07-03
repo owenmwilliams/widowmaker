@@ -46,6 +46,8 @@ Rules:
 
 Weights and dimensions are PER SINGLE UNIT — do not multiply by quantity. Movers quote on weight and cubic feet, so ALWAYS give your best numeric estimate; never leave weight or dimensions blank or zero.
 
+FIXTURES STAY WITH THE HOUSE — NEVER list them: toilets, sinks, bathtubs, showers, faucets, countertops, built-in cabinets/shelving/appliances, ceiling lights and fans, chandeliers, light switches, thermostats, radiators, water heaters, fireplaces, doors, windows, and window blinds. Movable appliances DO count (fridge, washer/dryer, microwave, window AC unit).
+
 Return ONLY a valid JSON array with no markdown or explanation. Example:
 [
   {"name":"3-seat sofa","quantity":1,"room":"living room","estimated_weight_lbs":150,"estimated_dimensions":{"length_in":84,"width_in":36,"height_in":34},"material":"fabric","fragile":false,"notes":"heavy","timestamp_seconds":12,"bbox":{"x":0.05,"y":0.3,"w":0.6,"h":0.5}},
@@ -61,6 +63,7 @@ Identify EVERY household item a mover would need to pack or move — be thorough
 - Group many small packable items into boxes (e.g. "Box of dishes" quantity 3, "Box of pantry goods" quantity 2) instead of skipping them — kitchens, closets, and garages have lots of these.
 - A typical room is 15–40 lines; a kitchen or garage may have more. Do NOT artificially shorten the list — capture everything that's actually there.
 - The same physical item can appear in several frames — list it ONCE.
+FIXTURES STAY WITH THE HOUSE — NEVER list them: toilets, sinks, bathtubs, showers, faucets, countertops, built-in cabinets/shelving/appliances, ceiling lights and fans, chandeliers, light switches, thermostats, radiators, water heaters, fireplaces, doors, windows, and window blinds. Movable appliances DO count (fridge, washer/dryer, microwave, window AC unit).
 
 For each item include:
 - name: descriptive name for ONE unit (e.g. "3-seat sofa", "55\\" TV", "Box of dishes").
@@ -303,6 +306,8 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = nu
 // EXACTLY the end-of-video items. Chunking gives every ~14-frame window its
 // own full budget and full attention.
 
+const { partitionFixtures, dedupeScanItems } = require('./scanItemFilters');
+
 const CHUNK_FRAME_LIMIT = Number(process.env.SCAN_CHUNK_FRAMES || 14);
 const CHUNK_SINGLE_CALL_MAX = Number(process.env.SCAN_SINGLE_CALL_FRAMES || 28);
 const CHUNK_CONCURRENCY = Math.max(1, Number(process.env.SCAN_CHUNK_CONCURRENCY || 2));
@@ -384,7 +389,7 @@ async function analyzeFramesChunked(frames, plan = 'basic', roomHint = null, aud
   const analyze = opts._analyzeFn || analyzeFrames; // injectable for tests
   if (!frames || frames.length <= CHUNK_SINGLE_CALL_MAX) {
     const single = await analyze(frames, plan, roomHint, audio, userId);
-    return { ...single, chunkCount: 1 };
+    return { ...single, ...refineItems(single.items), chunkCount: 1 };
   }
   const chunks = chunkFrames(frames);
   log.info('Chunked frame analysis', { totalFrames: frames.length, chunks: chunks.length, perChunk: CHUNK_FRAME_LIMIT });
@@ -406,7 +411,25 @@ async function analyzeFramesChunked(frames, plan = 'basic', roomHint = null, aud
 
   const merged = mergeChunkResults(results, chunks);
   if (results.some(r => r === null)) merged.truncated = true; // a failed window = incomplete list
-  return merged;
+  return { ...merged, ...refineItems(merged.items) };
+}
+
+/**
+ * Precision pass over a scan's items: drop house fixtures (prompt backstop)
+ * and collapse same-item-different-name duplicates. Returns the replacement
+ * fields to spread onto the result.
+ */
+function refineItems(items) {
+  const { kept, fixtures } = partitionFixtures(items || []);
+  const deduped = dedupeScanItems(kept);
+  if (fixtures.length > 0 || deduped.length !== (items || []).length) {
+    log.info('Scan items refined', {
+      raw: (items || []).length,
+      fixturesDropped: fixtures.length,
+      duplicatesCollapsed: kept.length - deduped.length,
+    });
+  }
+  return { items: deduped, fixturesDropped: fixtures.length, duplicatesCollapsed: kept.length - deduped.length };
 }
 
 module.exports = { analyzeVideo, analyzeFrames, analyzeFramesChunked, chunkFrames, mergeChunkResults, normalizeVideoItem, parseItemsArray, INVENTORY_PROMPT, INVENTORY_PROMPT_FRAMES, GEMINI_MODELS };

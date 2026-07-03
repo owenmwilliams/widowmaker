@@ -25,6 +25,7 @@ const { analyzeVideo, analyzeFramesChunked } = require('../infra/vision/videoSer
 const { extractSharpestFrame, extractFramesForScan, extractAudio } = require('../infra/vision/frameExtractor');
 const { recordRoomVideo } = require('./roomVideoService');
 const { specForName } = require('./itemSpecsReference');
+const { partitionFixtures, dedupeScanItems } = require('../infra/vision/scanItemFilters');
 const { SCAN_STAGES, SCAN_STATUS, makeStageEmitter } = require('./scanStatus');
 
 // ── Fail-loud tuning (issue #41) ───────────────────────────────────────────────
@@ -229,7 +230,11 @@ async function analyzePhotoForInventory(args, userId, plan, opts = {}) {
     }
 
     let items = result.data?.items || result.items || [];
-    let itemCount = result.data?.itemCount || result.itemCount || items.length;
+    // Precision backstop (same as the video path): fixtures never move, and
+    // one photo set can report the same item under two names.
+    const { kept } = partitionFixtures(items);
+    items = dedupeScanItems(kept);
+    let itemCount = items.length;
     // A MAX_TOKENS cut means the item list is incomplete — surface it as a
     // degraded outcome, never a clean-looking success (Pathway E).
     const truncated = !!(result.data?.truncated || result.truncated);
