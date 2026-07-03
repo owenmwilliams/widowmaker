@@ -420,7 +420,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     historyRows = await db.any(
       `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
        FROM nexus_messages WHERE session_id = $1 AND id > $2
-       ORDER BY created_at DESC LIMIT 30`,
+       ORDER BY created_at DESC, id DESC LIMIT 30`,
       [sessionId, session.summary_through_id]
     );
     historyRows.reverse();
@@ -428,7 +428,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     historyRows = await db.any(
       `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
        FROM nexus_messages WHERE session_id = $1
-       ORDER BY created_at DESC LIMIT 30`,
+       ORDER BY created_at DESC, id DESC LIMIT 30`,
       [sessionId]
     );
     historyRows.reverse();
@@ -475,7 +475,7 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     const lastUserMsg = await db.oneOrNone(
       `SELECT created_at FROM nexus_messages
        WHERE session_id = $1 AND role = 'user'
-       ORDER BY created_at DESC LIMIT 1 OFFSET 1`,
+       ORDER BY created_at DESC, id DESC LIMIT 1 OFFSET 1`,
       [sessionId]
     );
     const lastUserMessageAt = lastUserMsg ? new Date(lastUserMsg.created_at).getTime() : Date.now();
@@ -749,9 +749,11 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
             toolResult = await handler(args, delegationId);
           } catch (err) {
             console.error(`[orchestrator] Delegation ${delegationId || agentName} failed:`, err.message);
+            // summary can end up in the chat via the abort path — keep it
+            // human-readable; the raw error lives in errors[] for the logs.
             toolResult = {
               status: 'failed', agent: agentName, workflow: 'unknown', step: 'unknown',
-              step_status: 'failed', summary: `Delegation failed: ${err.message}`,
+              step_status: 'failed', summary: 'a temporary technical error interrupted this step',
               user_action_required: false, recommended_orchestrator_action: 'continue',
               next_suggested_step: null, state_delta: {}, artifacts: {},
               warnings: [], errors: [err.message],
@@ -866,11 +868,20 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
           toolResponses.push({ functionResponse: { name, response: toolResult } });
         }
 
-        // If any delegation aborted, short-circuit
+        // If any delegation aborted, short-circuit. A hard failure means the
+        // summary may describe internals (or be the generic fallback above) —
+        // never show technical detail to the user; log it and keep the chat
+        // message human. Agent-authored summaries (user_action_required
+        // aborts) are prose meant for the user and pass through.
         if (abortResult) {
-          const abortReply = abortResult.summary
-            ? `I ran into an issue: ${abortResult.summary}. Let me know how you'd like to proceed.`
-            : 'Something went wrong while processing your request. Please try again or let me know what you\'d like to do.';
+          if (abortResult.errors?.length > 0) {
+            console.error('[orchestrator] Abort after failed delegation:', abortResult.errors.join(' | '));
+          }
+          const abortReply = abortResult.status === 'failed'
+            ? 'Sorry — I hit a technical snag on my end just now. Give it another try in a moment; everything you\'ve added so far is safe.'
+            : abortResult.summary
+              ? `I ran into an issue: ${abortResult.summary}. Let me know how you'd like to proceed.`
+              : 'Something went wrong while processing your request. Please try again or let me know what you\'d like to do.';
 
           await db.none(
             `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
@@ -942,7 +953,7 @@ async function generateContextSummary(sessionId) {
   const allUserModel = await db.any(
     `SELECT id, role, content FROM nexus_messages
      WHERE session_id = $1 AND role IN ('user', 'model') AND content IS NOT NULL
-     ORDER BY created_at ASC`,
+     ORDER BY created_at ASC, id ASC`,
     [sessionId]
   );
 

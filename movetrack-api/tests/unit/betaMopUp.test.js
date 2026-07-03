@@ -258,6 +258,111 @@ describe('gemini history — seeded greeting survives the leading-edge rule', ()
   });
 });
 
+describe('gemini history — concurrent writers can never produce an invalid function-call sequence', () => {
+  const { buildGeminiContents } = jest.requireActual('../../services/infra/geminiHistoryBuilder');
+
+  // Gemini's rule: every model turn with functionCalls must be immediately
+  // followed by a user turn with one same-named functionResponse per call.
+  function expectValidPairing(contents) {
+    for (let i = 0; i < contents.length; i++) {
+      const turn = contents[i];
+      const calls = turn.parts.filter(p => p.functionCall);
+      const responses = turn.parts.filter(p => p.functionResponse);
+      if (turn.role === 'model') {
+        expect(responses).toHaveLength(0);
+        if (calls.length > 0) {
+          const next = contents[i + 1];
+          expect(next).toBeDefined();
+          expect(next.role).toBe('user');
+          const frs = next.parts.filter(p => p.functionResponse);
+          expect(frs.map(p => p.functionResponse.name).sort())
+            .toEqual(calls.map(p => p.functionCall.name).sort());
+        }
+      }
+      if (turn.role === 'user' && responses.length > 0) {
+        const prev = contents[i - 1];
+        expect(prev?.role).toBe('model');
+        expect(prev.parts.some(p => p.functionCall)).toBe(true);
+      }
+      if (i > 0) expect(turn.role).not.toBe(contents[i - 1].role); // roles alternate
+    }
+    if (contents.length > 0) expect(contents[0].role).toBe('user');
+  }
+
+  test('an impatient user message inside a tool span is moved after the pair, not left splitting it', () => {
+    // This exact shape produced the beta 400: "function response turn must
+    // come immediately after a function call turn" — repeating every turn
+    // because the rows are persisted.
+    const contents = buildGeminiContents([
+      { role: 'user', content: 'scan my kitchen video' },
+      { role: 'tool_call', tool_name: 'delegate_to_census', tool_args: {} },
+      { role: 'user', content: 'hello? are you still there?' },
+      { role: 'tool_result', tool_name: 'delegate_to_census', tool_response: { status: 'completed' } },
+      { role: 'model', content: 'Done! Found 12 items.' },
+    ]);
+    expectValidPairing(contents);
+    // Nothing was thrown away — the impatient message survives, after the pair
+    const allText = contents.flatMap(c => c.parts).map(p => p.text).filter(Boolean).join(' ');
+    expect(allText).toContain('are you still there');
+    expect(contents.flatMap(c => c.parts).some(p => p.functionCall)).toBe(true);
+  });
+
+  test('an async scan-marker row landing between two results keeps call/response counts equal', () => {
+    const contents = buildGeminiContents([
+      { role: 'user', content: 'scan these two rooms' },
+      { role: 'tool_call', tool_name: 'delegate_to_census', tool_args: { room: 'Kitchen' } },
+      { role: 'tool_call', tool_name: 'delegate_to_census', tool_args: { room: 'Den' } },
+      { role: 'tool_result', tool_name: 'delegate_to_census', tool_response: { status: 'completed' } },
+      { role: 'model', content: 'Found 9 items in the Kitchen scan — review card shown.' },
+      { role: 'tool_result', tool_name: 'delegate_to_census', tool_response: { status: 'completed' } },
+      { role: 'model', content: 'Both rooms done.' },
+    ]);
+    expectValidPairing(contents);
+  });
+
+  test('a mid-history orphaned call (result insert crashed) is dropped so the session self-heals', () => {
+    const contents = buildGeminiContents([
+      { role: 'user', content: 'add my sofa' },
+      { role: 'tool_call', tool_name: 'add_items', tool_args: {} }, // result never written
+      { role: 'model', content: 'Hmm, something went wrong.' },
+      { role: 'user', content: 'try again?' },
+      { role: 'model', content: 'Sure!' },
+    ]);
+    expectValidPairing(contents);
+    expect(contents.flatMap(c => c.parts).some(p => p.functionCall)).toBe(false);
+  });
+
+  test('a history window starting mid-batch drops the unmatched response, keeps the whole pair', () => {
+    // LIMIT 30 sliced between call A and call B: A's call is outside the
+    // window but A's result is inside.
+    const contents = buildGeminiContents([
+      { role: 'tool_result', tool_name: 'add_items', tool_response: { status: 'completed' } },
+      { role: 'tool_call', tool_name: 'find_duplicates', tool_args: {} },
+      { role: 'tool_result', tool_name: 'find_duplicates', tool_response: { duplicates: [] } },
+      { role: 'user', content: 'thanks' },
+      { role: 'model', content: 'Anytime!' },
+    ]);
+    expectValidPairing(contents);
+    const names = contents.flatMap(c => c.parts).filter(p => p.functionCall).map(p => p.functionCall.name);
+    expect(names).toEqual(['find_duplicates']);
+  });
+
+  test('a fully valid interleaved transcript is preserved intact', () => {
+    const contents = buildGeminiContents([
+      { role: 'user', content: 'hi' },
+      { role: 'model', content: 'hello!' },
+      { role: 'user', content: 'add a lamp' },
+      { role: 'tool_call', tool_name: 'add_items', tool_args: {} },
+      { role: 'tool_result', tool_name: 'add_items', tool_response: { added: 1 } },
+      { role: 'model', content: 'Added your lamp.' },
+    ]);
+    expectValidPairing(contents);
+    expect(contents.flatMap(c => c.parts).filter(p => p.functionCall)).toHaveLength(1);
+    expect(contents.flatMap(c => c.parts).filter(p => p.functionResponse)).toHaveLength(1);
+    expect(contents[contents.length - 1].parts[0].text).toBe('Added your lamp.');
+  });
+});
+
 describe('scan-review pill contract', () => {
   const { enrichMessagesWithActions } = jest.requireActual('../../services/infra/agentSessionService');
 
