@@ -15,20 +15,35 @@ class AuthViewModel: ObservableObject {
     @Published var currentUser: User?
     @Published var isLoading = false
     @Published var errorMessage: String?
+    // Launch gate: while a stored session is being validated the UI shows the
+    // splash, never the login screen — a valid session must not be able to
+    // start a second login flow, and a network blip must not read as
+    // "logged out".
+    @Published var isCheckingAuth: Bool
+    @Published var authCheckFailed = false
 
     init() {
+        isCheckingAuth = AuthService.shared.isLoggedIn
         checkAuthStatus()
     }
 
     // MARK: - Check Auth Status
     func checkAuthStatus() {
-        isAuthenticated = AuthService.shared.isLoggedIn
-
-        if isAuthenticated {
-            Task {
-                await loadCurrentUser()
-            }
+        guard AuthService.shared.isLoggedIn else {
+            isAuthenticated = false
+            isCheckingAuth = false
+            return
         }
+        isCheckingAuth = true
+        authCheckFailed = false
+        Task {
+            await loadCurrentUser()
+        }
+    }
+
+    // MARK: - Retry after an unreachable-server launch
+    func retryAuthCheck() {
+        checkAuthStatus()
     }
 
     // MARK: - Request Magic Link
@@ -124,11 +139,26 @@ class AuthViewModel: ObservableObject {
         do {
             currentUser = try await AuthService.shared.getCurrentUser()
             isAuthenticated = true
+            authCheckFailed = false
+        } catch let error as APIError {
+            print("❌ Error loading current user: \(error)")
+            if case .unauthorized = error {
+                // Real 401 — the server rejected the token (APIClient already
+                // cleared it from the keychain). This is the ONLY case that
+                // ends the session.
+                currentUser = nil
+                isAuthenticated = false
+            } else {
+                // Timeout, offline, 5xx: the session is still good — keep the
+                // token and let the splash offer a retry instead of dumping
+                // the user to the login screen.
+                authCheckFailed = true
+            }
         } catch {
             print("❌ Error loading current user: \(error)")
-            // If we can't load the user, clear auth
-            await logout()
+            authCheckFailed = true
         }
+        isCheckingAuth = false
     }
 
     // MARK: - Logout
@@ -144,5 +174,7 @@ class AuthViewModel: ObservableObject {
         currentUser = nil
         isAuthenticated = false
         isLoading = false
+        isCheckingAuth = false
+        authCheckFailed = false
     }
 }
