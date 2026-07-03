@@ -45,7 +45,7 @@ async function getSessionMessages(sessionId) {
   return db.any(
     `SELECT id, role, content, tool_name, tool_args, tool_response, attachments, created_at
      FROM nexus_messages WHERE session_id = $1
-     ORDER BY created_at ASC`,
+     ORDER BY created_at ASC, id ASC`,
     [sessionId]
   );
 }

@@ -264,14 +264,14 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     historyRows = await db.any(
       `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
        FROM nexus_messages WHERE session_id = $1 AND id > $2
-       ORDER BY created_at ASC`,
+       ORDER BY created_at ASC, id ASC`,
       [sessionId, session.summary_through_id]
     );
   } else {
     historyRows = await db.any(
       `SELECT id, role, content, tool_name, tool_args, tool_response, attachments
        FROM nexus_messages WHERE session_id = $1
-       ORDER BY created_at DESC LIMIT 60`,
+       ORDER BY created_at DESC, id DESC LIMIT 60`,
       [sessionId]
     );
     historyRows.reverse();
@@ -494,7 +494,7 @@ async function generateContextSummary(sessionId) {
   const allUserModel = await db.any(
     `SELECT id, role, content FROM nexus_messages
      WHERE session_id = $1 AND role IN ('user', 'model') AND content IS NOT NULL
-     ORDER BY created_at ASC`,
+     ORDER BY created_at ASC, id ASC`,
     [sessionId]
   );
 
