@@ -353,3 +353,57 @@ describe('chunked video analysis — long walkthroughs keep their tails', () => 
     expect(res.truncated).toBe(true);
   });
 });
+
+describe('precision dials — fixtures never move, one item is one row', () => {
+  const { isFixture, partitionFixtures, dedupeScanItems, sameItemName } =
+    jest.requireActual('../../services/infra/vision/scanItemFilters');
+
+  test('unambiguous fixtures are filtered', () => {
+    for (const f of ['Toilet', 'Bathroom sink', 'Bathtub', 'Shower head', 'Ceiling fan',
+                     'Chandelier', 'Built-in bookshelf', 'Radiator', 'Water heater',
+                     'Window blinds', 'Countertop', 'Curtain rod', 'Front door']) {
+      expect(isFixture(f)).toBe(true);
+    }
+  });
+
+  test('movable near-misses survive', () => {
+    for (const m of ['Shower curtain', 'Door mat', 'Over-the-door coat hooks', 'Window AC unit',
+                     'Refrigerator', 'Washer', 'Framed mirror', 'Floor lamp', 'Table lamp',
+                     'Curtains', 'Storage tub', 'China cabinet', 'Bookshelf']) {
+      expect(isFixture(m)).toBe(false);
+    }
+  });
+
+  test('partition keeps order and reports the drops', () => {
+    const { kept, fixtures } = partitionFixtures([
+      { name: '3-seat sofa' }, { name: 'Toilet' }, { name: 'Bar cart' }, { name: 'Ceiling light' },
+    ]);
+    expect(kept.map(i => i.name)).toEqual(['3-seat sofa', 'Bar cart']);
+    expect(fixtures.map(i => i.name)).toEqual(['Toilet', 'Ceiling light']);
+  });
+
+  test('same head noun + token subset = same item; different heads stay separate', () => {
+    expect(sameItemName('sofa', '3-seat sofa')).toBe(true);
+    expect(sameItemName('Dining chair', 'chair')).toBe(true);
+    expect(sameItemName('dining chairs', 'Dining chair')).toBe(true);   // plural
+    expect(sameItemName('table lamp', 'table')).toBe(false);            // head differs
+    expect(sameItemName('box of books', 'box of dishes')).toBe(false);  // head differs
+    expect(sameItemName('coffee table', 'dining table')).toBe(false);   // not a subset
+  });
+
+  test('dedupe keeps the descriptive name, max quantity, first picture', () => {
+    const out = dedupeScanItems([
+      { name: 'Sofa', room: 'Living Room', quantity: 1, picture_url: 'a.jpg', source_frame: 2 },
+      { name: '3-seat sofa', room: 'Living Room', quantity: 1 },
+      { name: 'Dining chair', room: 'Living Room', quantity: 4 },
+      { name: 'chair', room: 'Living Room', quantity: 6 },
+      { name: 'Sofa', room: 'Bedroom 1', quantity: 1 },   // different room — separate
+    ]);
+    expect(out).toHaveLength(3);
+    const sofa = out.find(i => i.room === 'Living Room' && /sofa/i.test(i.name));
+    expect(sofa.name).toBe('3-seat sofa');       // more descriptive name wins
+    expect(sofa.picture_url).toBe('a.jpg');      // first picture kept
+    const chair = out.find(i => /chair/i.test(i.name));
+    expect(chair.quantity).toBe(6);              // max, never summed
+  });
+});
