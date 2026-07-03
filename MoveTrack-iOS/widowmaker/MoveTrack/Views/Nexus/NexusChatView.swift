@@ -22,7 +22,7 @@ struct NexusChatView: View {
     @State private var showAINotice = false
     @State private var showReadiness = false
     @State private var captureCaption = ""
-    @State private var pendingMedia: PendingMedia?
+    @State private var pendingMedia: [PickedMedia] = []
     @AppStorage("aiCaptureNoticeShown") private var aiNoticeShown = false
     @FocusState private var inputFocused: Bool
 
@@ -43,24 +43,34 @@ struct NexusChatView: View {
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
                 Button("Take Photo or Video") { pickerSource = .camera }
             }
-            Button("Choose from Library") { pickerSource = .library }
+            Button("Choose Photos (up to 5)") { pickerSource = .photoLibrary }
+            Button("Choose a Video") { pickerSource = .videoLibrary }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Recording a room? For the best results:\n1) Talk through your items out loud — Nexus listens.\n2) Open closets, cabinets & drawers.\n3) Pan slowly across the whole room (phone sideways, lights on).\nFor big items, add a straight-on close-up photo.")
         }
         .sheet(item: $pickerSource) { source in
-            MediaPicker(
-                source: source,
-                onPicked: { data, mime, name in
-                    pickerSource = nil
-                    // Attach to the composer instead of sending immediately — the
-                    // user can add a note (e.g. the room) and then tap send.
-                    if draft.isEmpty && !captureCaption.isEmpty { draft = captureCaption }
-                    captureCaption = ""
-                    pendingMedia = PendingMedia(data: data, mimeType: mime, filename: name)
-                },
-                onCancel: { pickerSource = nil }
-            )
+            Group {
+                if source == .photoLibrary {
+                    PhotoLibraryPicker(
+                        selectionLimit: photoSlotsLeft,
+                        onPicked: { picked in
+                            pickerSource = nil
+                            attach(picked)
+                        },
+                        onCancel: { pickerSource = nil }
+                    )
+                } else {
+                    MediaPicker(
+                        source: source,
+                        onPicked: { data, mime, name in
+                            pickerSource = nil
+                            attach([PickedMedia(data: data, mimeType: mime, filename: name)])
+                        },
+                        onCancel: { pickerSource = nil }
+                    )
+                }
+            }
             .ignoresSafeArea()
         }
         .sheet(item: $shareItem) { item in
@@ -277,8 +287,8 @@ struct NexusChatView: View {
 
     private var inputBar: some View {
         VStack(spacing: 8) {
-            if let media = pendingMedia {
-                pendingMediaChip(media)
+            if !pendingMedia.isEmpty {
+                pendingMediaChips
             }
             HStack(alignment: .bottom, spacing: 10) {
                 Button {
@@ -293,7 +303,7 @@ struct NexusChatView: View {
                 }
                 .disabled(vm.isBusy)
 
-                TextField(pendingMedia == nil ? "Message Nexus…" : "Add a note (optional)…", text: $draft, axis: .vertical)
+                TextField(pendingMedia.isEmpty ? "Message Nexus…" : "Add a note (optional)…", text: $draft, axis: .vertical)
                     .lineLimit(1...5)
                     .focused($inputFocused)
                     .padding(.horizontal, 15)
@@ -319,25 +329,54 @@ struct NexusChatView: View {
         .overlay(alignment: .top) { Divider() }
     }
 
-    private func pendingMediaChip(_ media: PendingMedia) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: media.isVideo ? "video.fill" : "photo.fill")
-                .foregroundStyle(Theme.brand)
-            Text(media.isVideo ? "Video attached" : "Photo attached")
-                .font(.subheadline.weight(.medium))
-            Spacer()
-            Button { pendingMedia = nil } label: {
-                Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+    private var pendingMediaChips: some View {
+        VStack(spacing: 6) {
+            ForEach(Array(pendingMedia.enumerated()), id: \.element.id) { index, media in
+                HStack(spacing: 8) {
+                    Image(systemName: media.isVideo ? "video.fill" : "photo.fill")
+                        .foregroundStyle(Theme.brand)
+                    Text(media.isVideo
+                         ? "Video attached"
+                         : (pendingMedia.count == 1 ? "Photo attached" : "Photo \(index + 1) of \(pendingMedia.count)"))
+                        .font(.subheadline.weight(.medium))
+                    Spacer()
+                    Button { pendingMedia.removeAll { $0.id == media.id } } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Theme.brandSoft)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Theme.brandSoft)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// How many more photos the library picker may hand back. A pending video
+    /// doesn't count — attaching photos replaces it.
+    private var photoSlotsLeft: Int {
+        let photos = pendingMedia.contains(where: { $0.isVideo }) ? 0 : pendingMedia.count
+        return max(1, 5 - photos)
+    }
+
+    /// Composer attachment rules: a video always scans alone (attaching one
+    /// replaces everything); photos accumulate up to five (attaching one
+    /// replaces a pending video).
+    private func attach(_ items: [PickedMedia]) {
+        if draft.isEmpty && !captureCaption.isEmpty { draft = captureCaption }
+        captureCaption = ""
+        for item in items {
+            if item.isVideo {
+                pendingMedia = [item]
+            } else {
+                if pendingMedia.contains(where: { $0.isVideo }) { pendingMedia = [] }
+                if pendingMedia.count < 5 { pendingMedia.append(item) }
+            }
+        }
     }
 
     private var canSend: Bool {
-        !vm.isBusy && (pendingMedia != nil || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        !vm.isBusy && (!pendingMedia.isEmpty || !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     // MARK: - Overlay
@@ -360,19 +399,25 @@ struct NexusChatView: View {
     private func sendDraft() {
         let text = draft
         inputFocused = false
-        if let media = pendingMedia {
+        if !pendingMedia.isEmpty {
+            let items = pendingMedia
             draft = ""
-            pendingMedia = nil
+            pendingMedia = []
             Task {
-                let ok = await vm.sendMedia(data: media.data, mimeType: media.mimeType, filename: media.filename, caption: text)
+                let ok: Bool
+                if items.count == 1, let only = items.first {
+                    ok = await vm.sendMedia(data: only.data, mimeType: only.mimeType, filename: only.filename, caption: text)
+                } else {
+                    ok = await vm.sendMediaBatch(items, caption: text)
+                }
                 if !ok {
-                    // Don't lose the video on a failed send — put it back so the
+                    // Don't lose the media on a failed send — put it back so the
                     // user can retry. Exception: if the scan finished server-side
                     // and its review card survived the drop, restoring the media
                     // would just invite a duplicate rescan.
                     await MainActor.run {
                         guard vm.pendingReview == nil else { return }
-                        pendingMedia = media
+                        pendingMedia = items
                         if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { draft = text }
                     }
                 }
@@ -599,17 +644,16 @@ private struct ShareItem: Identifiable {
     let url: URL
 }
 
-// A captured photo/video attached to the composer, sent on the next Send tap.
-private struct PendingMedia {
-    let data: Data
-    let mimeType: String
-    let filename: String
-    var isVideo: Bool { mimeType.hasPrefix("video") }
-}
 
 // Lets `.sheet(item:)` present the camera/library picker.
 extension MediaPicker.Source: Identifiable {
-    var id: Int { self == .camera ? 0 : 1 }
+    var id: Int {
+        switch self {
+        case .camera: return 0
+        case .videoLibrary: return 1
+        case .photoLibrary: return 2
+        }
+    }
 }
 
 

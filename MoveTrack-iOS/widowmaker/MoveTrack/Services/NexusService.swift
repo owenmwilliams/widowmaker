@@ -244,6 +244,7 @@ final class NexusService {
     /// scanning twice.
     func createScanJob(
         mediaUrl: String,
+        mediaUrls: [String]? = nil,
         mimeType: String,
         caption: String?,
         idempotencyKey: String,
@@ -256,6 +257,7 @@ final class NexusService {
         addAuth(&request)
         struct Body: Encodable {
             let mediaUrl: String
+            let mediaUrls: [String]?
             let mimeType: String
             let caption: String?
             let idempotencyKey: String
@@ -263,7 +265,7 @@ final class NexusService {
             let roomHint: String?
         }
         request.httpBody = try encoder.encode(Body(
-            mediaUrl: mediaUrl, mimeType: mimeType, caption: caption,
+            mediaUrl: mediaUrl, mediaUrls: mediaUrls, mimeType: mimeType, caption: caption,
             idempotencyKey: idempotencyKey, sessionId: sessionId, roomHint: roomHint
         ))
         let (data, response) = try await session.data(for: request)
@@ -363,13 +365,13 @@ final class NexusService {
     /// Hits POST /rescan, which ALWAYS invokes the scan (unlike the chat path, where
     /// the agent could decline to re-analyze), and returns a fresh review card
     /// (with a new `scanId`, so its corrected items land on commit).
-    func rescan(url mediaURL: String, mimeType: String, room: String?) async throws -> DetectedItemsReview {
+    func rescan(urls: [String], mimeType: String, room: String?) async throws -> DetectedItemsReview {
         var request = URLRequest(url: url(for: "/api/agents/nexus/rescan"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         addAuth(&request)
-        struct Body: Encodable { let url: String; let mimeType: String; let room: String? }
-        request.httpBody = try encoder.encode(Body(url: mediaURL, mimeType: mimeType, room: room))
+        struct Body: Encodable { let url: String; let urls: [String]; let mimeType: String; let room: String? }
+        request.httpBody = try encoder.encode(Body(url: urls.first ?? "", urls: urls, mimeType: mimeType, room: room))
         let (data, response) = try await session.data(for: request)
         try validate(response, data: data)
         struct Resp: Decodable { let items: [DetectedItem]?; let mediaKind: String?; let room: String?; let scanId: String? }

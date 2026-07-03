@@ -91,6 +91,7 @@ describe('toDTO', () => {
       stage: 'done',
       mediaKind: 'video',
       mediaUrl: 'https://x/y.mov',
+      mediaUrls: null,
       roomHint: 'Den',
       caption: 'my den',
       result: { mediaKind: 'video', room: 'Den', items: [] },
