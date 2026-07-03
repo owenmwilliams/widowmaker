@@ -26,6 +26,7 @@ jest.mock('../../services/infra/vision/frameExtractor', () => ({
 }));
 jest.mock('../../services/infra/vision/videoService', () => ({
   analyzeFrames: (...a) => mockAnalyzeFrames(...a),
+  analyzeFramesChunked: (...a) => mockAnalyzeFrames(...a),
   analyzeVideo: (...a) => mockAnalyzeVideo(...a),
 }));
 jest.mock('../../services/infra/gcsService', () => ({

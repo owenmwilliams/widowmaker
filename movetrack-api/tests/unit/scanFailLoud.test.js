@@ -19,6 +19,9 @@ jest.mock('../../services/infra/vision/frameExtractor', () => ({
 }));
 jest.mock('../../services/infra/vision/videoService', () => ({
   analyzeFrames: jest.fn(),
+  // Workflow calls the chunked wrapper; tiny test frame arrays take the
+  // single-call path, so aliasing to the same mock keeps assertions unchanged.
+  get analyzeFramesChunked() { return this.analyzeFrames; },
   analyzeVideo: jest.fn(),
 }));
 jest.mock('../../services/infra/vision/imageService', () => ({

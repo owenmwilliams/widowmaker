@@ -282,3 +282,74 @@ describe('scan-review pill contract', () => {
     expect(enriched[1].scanCount).toBe(1);
   });
 });
+
+describe('chunked video analysis — long walkthroughs keep their tails', () => {
+  const { chunkFrames, mergeChunkResults, analyzeFramesChunked } =
+    jest.requireActual('../../services/infra/vision/videoService');
+
+  const frame = (i) => ({ buffer: Buffer.from(`f${i}`), tsSeconds: i });
+
+  test('frames split into consecutive 14-frame windows', () => {
+    const chunks = chunkFrames(Array.from({ length: 30 }, (_, i) => frame(i)));
+    expect(chunks.map(c => c.frames.length)).toEqual([14, 14, 2]);
+    expect(chunks.map(c => c.offset)).toEqual([0, 14, 28]);
+  });
+
+  test('short clips take the single-call path untouched', async () => {
+    const analyze = jest.fn().mockResolvedValue({ items: [{ name: 'Sofa', source_frame: 2 }], parseError: null });
+    const res = await analyzeFramesChunked(
+      Array.from({ length: 20 }, (_, i) => frame(i)), 'basic', null, null, null, { _analyzeFn: analyze }
+    );
+    expect(analyze).toHaveBeenCalledTimes(1);
+    expect(res.chunkCount).toBe(1);
+    expect(res.items[0].source_frame).toBe(2); // untouched — no remap needed
+  });
+
+  test('long videos: every window analyzed, source_frame remapped globally, boundary dupes collapsed', async () => {
+    const frames = Array.from({ length: 42 }, (_, i) => frame(i)); // 3 windows
+    const analyze = jest.fn()
+      .mockResolvedValueOnce({ items: [
+        { name: '3-seat sofa', room: 'Living Room', quantity: 1, source_frame: 3 },
+      ], parseError: null, usageMetadata: { totalTokenCount: 100 } })
+      .mockResolvedValueOnce({ items: [
+        { name: '3-seat sofa', room: 'Living Room', quantity: 1, source_frame: 1 },   // same sofa across the boundary
+        { name: 'Bookshelf', room: 'Living Room', quantity: 2, source_frame: 5 },
+      ], parseError: null, usageMetadata: { totalTokenCount: 100 } })
+      .mockResolvedValueOnce({ items: [
+        { name: 'Bar cart', room: 'Living Room', quantity: 1, source_frame: 14 },     // END-of-video item
+      ], parseError: null, truncated: true, usageMetadata: { totalTokenCount: 100 } });
+
+    const res = await analyzeFramesChunked(frames, 'basic', 'Living Room', null, null, { _analyzeFn: analyze });
+
+    expect(analyze).toHaveBeenCalledTimes(3);
+    // Narration audio only accompanies the first window.
+    expect(analyze.mock.calls.filter(c => c[3] !== null)).toHaveLength(0); // audio was null here anyway
+    expect(res.chunkCount).toBe(3);
+    const names = res.items.map(i => i.name);
+    expect(names).toEqual(['3-seat sofa', 'Bookshelf', 'Bar cart']); // dupe collapsed, tail kept
+    // Global thumbnail mapping: chunk 2's frame 5 → 14+5 = 19; chunk 3's 14 → 28+14 = 42.
+    expect(res.items.find(i => i.name === 'Bookshelf').source_frame).toBe(19);
+    expect(res.items.find(i => i.name === 'Bar cart').source_frame).toBe(42);
+    expect(res.truncated).toBe(true);                 // any truncated window flags the scan
+    expect(res.usageMetadata.totalTokenCount).toBe(300);
+  });
+
+  test('audio goes to the first window only', async () => {
+    const frames = Array.from({ length: 30 }, (_, i) => frame(i));
+    const analyze = jest.fn().mockResolvedValue({ items: [], parseError: null });
+    await analyzeFramesChunked(frames, 'basic', null, Buffer.from('audio'), null, { _analyzeFn: analyze });
+    const audioArgs = analyze.mock.calls.map(c => c[3]);
+    expect(audioArgs.filter(a => a !== null)).toHaveLength(1);
+    expect(analyze.mock.calls[0][3]).not.toBeNull();
+  });
+
+  test('a failed window degrades to truncated, never a dead scan', async () => {
+    const frames = Array.from({ length: 30 }, (_, i) => frame(i));
+    const analyze = jest.fn()
+      .mockResolvedValueOnce({ items: [{ name: 'Sofa', room: 'A', quantity: 1, source_frame: 1 }], parseError: null })
+      .mockRejectedValueOnce(new Error('503 overloaded'));
+    const res = await analyzeFramesChunked(frames, 'basic', null, null, null, { _analyzeFn: analyze });
+    expect(res.items).toHaveLength(1);
+    expect(res.truncated).toBe(true);
+  });
+});

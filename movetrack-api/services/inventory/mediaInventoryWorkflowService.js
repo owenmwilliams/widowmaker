@@ -21,7 +21,7 @@ const mediaAssetService = require('../infra/mediaAssetService');
 const { downloadBuffer } = require('../infra/mediaDownloadService');
 const { drawBoundingBox } = require('../infra/vision/imageUtils');
 const { analyzeMultiItemPhoto, analyzeMultiImagePhoto, analyzeItemPhoto } = require('../infra/vision/imageService');
-const { analyzeVideo, analyzeFrames } = require('../infra/vision/videoService');
+const { analyzeVideo, analyzeFramesChunked } = require('../infra/vision/videoService');
 const { extractSharpestFrame, extractFramesForScan, extractAudio } = require('../infra/vision/frameExtractor');
 const { recordRoomVideo } = require('./roomVideoService');
 const { specForName } = require('./itemSpecsReference');
@@ -104,7 +104,7 @@ function expectedBytesFor(url, attachments) {
 async function extractFramesWithRetry(tmpPath) {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const frames = await extractFramesForScan(tmpPath, { maxFrames: 28, fps: 1 });
+      const frames = await extractFramesForScan(tmpPath, { maxFrames: Number(process.env.SCAN_MAX_FRAMES || 84), fps: 1 });
       if (frames && frames.length > 0) return frames;
       console.warn(`[census] frame extraction attempt ${attempt}/2 produced 0 frames`);
     } catch (e) {
@@ -435,7 +435,7 @@ async function analyzeVideoForInventory(args, userId, plan, opts = {}) {
     // guard able to fire, and keeps the latency F persists honest.)
     emitStage(SCAN_STAGES.ANALYZE, SCAN_STATUS.START, { frameCount: frames.length });
     const analyzeStart = Date.now();
-    const result = await analyzeFrames(frames, plan, args.room_hint || null, audio, userId);
+    const result = await analyzeFramesChunked(frames, plan, args.room_hint || null, audio, userId);
     const items = result.items || [];
     const parseError = result.parseError;
     const truncated = !!result.truncated;
@@ -457,7 +457,7 @@ async function analyzeVideoForInventory(args, userId, plan, opts = {}) {
         { _visionMs: analyzeMs }
       );
     }
-    emitStage(SCAN_STAGES.ANALYZE, SCAN_STATUS.OK, { itemCount: items.length, latencyMs: analyzeMs, provider: 'gemini' });
+    emitStage(SCAN_STAGES.ANALYZE, SCAN_STATUS.OK, { itemCount: items.length, latencyMs: analyzeMs, provider: 'gemini', chunks: result.chunkCount || 1 });
 
     // Attach a real frame photo to each detected item.
     for (const item of items) {

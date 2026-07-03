@@ -41,7 +41,7 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 
-const { analyzeFrames, analyzeVideo } = require('../services/infra/vision/videoService');
+const { analyzeFramesChunked, analyzeVideo } = require('../services/infra/vision/videoService');
 const { extractFramesForScan, extractAudio } = require('../services/infra/vision/frameExtractor');
 
 // ── args ─────────────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ async function analyzeOnce(source, video, opts) {
   let pathTaken;
   if (frames.length > 0) {
     pathTaken = 'frames';
-    result = await analyzeFrames(frames, opts.plan, video.room_hint || null, audio);
+    result = await analyzeFramesChunked(frames, opts.plan, video.room_hint || null, audio);
   } else {
     pathTaken = 'inline';
     // Inline fallback needs the raw bytes + a mime type.
