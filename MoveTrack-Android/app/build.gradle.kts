@@ -52,6 +52,10 @@ dependencies {
     implementation(composeBom)
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    // Line icons — Material Symbols Outlined (Icons.Outlined.*), the closest
+    // Compose set to the design system's Lucide standard. Replaces the emoji/
+    // text glyphs used in v1. R8 strips the unused vectors in release.
+    implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("androidx.activity:activity-compose:1.9.3")

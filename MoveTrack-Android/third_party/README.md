@@ -1,0 +1,1 @@
+JetBrains Mono (app/src/main/res/font/jetbrains_mono.ttf) is licensed under the SIL Open Font License 1.1 — see JetBrainsMono-OFL.txt. Bundled for mono data-readout/eyebrow text per the design system.
