@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, nextTick } from 'vue';
+import { usePlan } from '../../../composables/usePlan';
+import { API_BASE_URL } from "../../../config/api";
+import { calculateDedicatedMoversCost, calculateVanLineCost, colMultiplierForName, recommendTruck } from '../../../utils/moveCostMath';
 import { inventoryStore } from '../../../stores/InventoryStore'
 import { storeToRefs } from 'pinia';
 import { useQuasar, Notify } from 'quasar';
@@ -85,14 +88,6 @@ interface MoveLocationData {
   access_notes?: string | null;
 }
 
-interface UserData {
-  plan?: string;
-  user_id?: string;
-  userId?: string;
-  is_admin?: boolean;
-  [key: string]: unknown;
-}
-
 interface MoveDaySession {
   id: number;
   saved_move_id?: string | number;
@@ -121,7 +116,7 @@ const store = inventoryStore();
 const { locationValues, collectionValues, containerValues } = storeToRefs(store);
 
 // API URL based on environment
-const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+const core_url = API_BASE_URL;
 
 // Get auth headers
 const getAuthHeaders = (): AxiosRequestHeaders | undefined => {
@@ -321,20 +316,7 @@ watch(moveDate, (newStart) => {
   }
 });
 
-const userData = ref<UserData>({});
-if (typeof window !== 'undefined') {
-  try {
-    userData.value = JSON.parse(localStorage.getItem('user_data') || '{}');
-  } catch (e) {
-    userData.value = {};
-  }
-}
-
-const planPreviewOverride = ref<'basic' | 'pro' | null>(localStorage.getItem('plan_preview') as 'basic' | 'pro' | null);
-const basePlan = computed(() => (userData.value?.plan || 'basic').toLowerCase());
-const isAdmin = computed(() => !!userData.value?.is_admin);
-const effectivePlan = computed(() => (planPreviewOverride.value || basePlan.value) as 'basic' | 'pro');
-const isPro = computed(() => effectivePlan.value === 'pro');
+const { isPro } = usePlan();
 
 const selectTab = (tab: 'planning' | 'costs' | 'route' | 'moveday') => {
   if (tab === 'moveday' && !isPro.value) {
@@ -584,46 +566,7 @@ const looseItemsCount = computed(() => {
 });
 
 // Truck size recommendation
-const truckRecommendation = computed(() => {
-  const volume = totalVolumeCuFt.value;
-
-  // Add 30% buffer for irregular packing and space between items
-  const adjustedVolume = volume * 1.3;
-
-  if (adjustedVolume <= 400) {
-    return {
-      size: '10 ft',
-      capacity: 400,
-      description: 'Small moving truck',
-      suitable: 'Studio or small 1-bedroom apartment',
-      utilization: (adjustedVolume / 400) * 100
-    };
-  } else if (adjustedVolume <= 700) {
-    return {
-      size: '15 ft',
-      capacity: 700,
-      description: 'Medium moving truck',
-      suitable: '1-2 bedroom apartment',
-      utilization: (adjustedVolume / 700) * 100
-    };
-  } else if (adjustedVolume <= 1100) {
-    return {
-      size: '20 ft',
-      capacity: 1100,
-      description: 'Large moving truck',
-      suitable: '2-3 bedroom home',
-      utilization: (adjustedVolume / 1100) * 100
-    };
-  } else {
-    return {
-      size: '26 ft',
-      capacity: 1600,
-      description: 'Extra large moving truck',
-      suitable: '3-5 bedroom home',
-      utilization: (adjustedVolume / 1600) * 100
-    };
-  }
-});
+const truckRecommendation = computed(() => recommendTruck(totalVolumeCuFt.value));
 
 // Density-based box estimates for LOOSE items only (in origin location)
 const boxEstimates = computed(() => {
@@ -987,30 +930,6 @@ const getUtilizationColor = (pct: number) => {
 };
 
 // Cost of Living multipliers by major metro areas
-const colMultipliers: Record<string, number> = {
-  // Very High CoL (1.4x - 1.6x)
-  'san francisco': 1.6, 'sf': 1.6, 'bay area': 1.6, 'silicon valley': 1.6,
-  'new york': 1.5, 'nyc': 1.5, 'manhattan': 1.5, 'brooklyn': 1.5,
-  'los angeles': 1.4, 'la': 1.4, 'santa monica': 1.4, 'beverly hills': 1.4,
-  'boston': 1.4, 'cambridge': 1.4,
-  'seattle': 1.4, 'bellevue': 1.4,
-  'washington': 1.4, 'dc': 1.4,
-
-  // High CoL (1.2x - 1.3x)
-  'san diego': 1.3, 'san jose': 1.3, 'oakland': 1.3,
-  'chicago': 1.2, 'denver': 1.2, 'portland': 1.2, 'austin': 1.2,
-  'miami': 1.2, 'honolulu': 1.5,
-
-  // Medium CoL (1.0x - baseline)
-  'atlanta': 1.0, 'dallas': 1.0, 'houston': 1.0, 'phoenix': 1.0,
-  'philadelphia': 1.1, 'minneapolis': 1.0, 'charlotte': 1.0,
-
-  // Low CoL (0.8x - 0.9x)
-  'nashville': 0.9, 'indianapolis': 0.85, 'columbus': 0.85,
-  'milwaukee': 0.85, 'kansas city': 0.8, 'oklahoma city': 0.75,
-  'memphis': 0.75, 'detroit': 0.8
-};
-
 // Helper to get CoL multiplier from location name
 const getColMultiplier = (locationValue: string | null): number => {
   if (!locationValue) return 1.0;
@@ -1018,16 +937,7 @@ const getColMultiplier = (locationValue: string | null): number => {
   const location = store.locations.find(l => l.value === locationValue);
   if (!location) return 1.0;
 
-  const locationName = location.label.toLowerCase();
-
-  // Check for matches in CoL multipliers
-  for (const [city, multiplier] of Object.entries(colMultipliers)) {
-    if (locationName.includes(city)) {
-      return multiplier;
-    }
-  }
-
-  return 1.0; // Default multiplier
+  return colMultiplierForName(location.label);
 };
 
 // Calculate average CoL multiplier for origin and destination
@@ -1156,7 +1066,7 @@ const generateMoveSchedule = async (clearExisting: boolean = false) => {
 
   try {
     const response = await axios.post(
-      `${core_url}/api/move-day/generate-from-route`,
+      `${core_url}/api/move-day/generate-schedule`,
       {
         savedMoveId: currentSavedMoveId.value,
         clearExisting,
@@ -1311,7 +1221,7 @@ const calculateDistance = async () => {
     }
 
     // Call backend API to calculate distance with route geometry
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/move/distance`, {
+    const response = await fetch(`${core_url}/api/move/distance`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -1357,232 +1267,6 @@ watch([useTruckRoute, avoidTolls], () => {
     calculateDistance();
   }
 });
-
-// Dedicated movers pricing calculation
-interface DedicatedMoversPricingParams {
-  distance: number;
-  totalHours: number;
-  weight: number;
-  volume: number;
-  colMultiplier: number;
-  totalPackingHours: number;
-  professionalMaterialsCost: number;
-  furnitureBreakdownTime: number;
-  furniturePadsCost: number;
-  shrinkWrapCost: number;
-  cornerProtectorsCost: number;
-  packingServicesRequired: 'none' | 'partial' | 'full';
-}
-
-interface DedicatedMoversPricingResult {
-  professionalLow: number;
-  professionalHigh: number;
-  packingCostLow: number;
-  packingCostHigh: number;
-  adjustedPackingCostLow: number;
-  adjustedPackingCostHigh: number;
-  partialPackingMaterials: number;
-}
-
-const calculateDedicatedMoversCost = (params: DedicatedMoversPricingParams): DedicatedMoversPricingResult => {
-  const {
-    distance,
-    totalHours,
-    weight,
-    volume,
-    colMultiplier,
-    totalPackingHours,
-    professionalMaterialsCost,
-    furnitureBreakdownTime,
-    furniturePadsCost,
-    shrinkWrapCost,
-    cornerProtectorsCost,
-    packingServicesRequired
-  } = params;
-
-  let professionalLow, professionalHigh, packingCostLow, packingCostHigh;
-
-  if (distance < 100) {
-    // Local move: hourly rate
-    const hourlyRate = 150; // $150/hour for 2-person crew (2024 rates)
-    professionalLow = hourlyRate * totalHours * 0.9 * colMultiplier;
-    professionalHigh = hourlyRate * totalHours * 1.4 * colMultiplier;
-
-    // Packing service: $50-75/hour per packer + materials (with 110% upcharge)
-    packingCostLow = (totalPackingHours * 50) + professionalMaterialsCost;
-    packingCostHigh = (totalPackingHours * 75) + professionalMaterialsCost;
-  } else {
-    // Long distance: More realistic formula based on distance + weight/volume
-    // Base rate: $2-3 per pound for cross-country
-    const baseCostPerPound = distance > 2000 ? 2.5 : (distance > 1000 ? 1.5 : 1.0);
-
-    // Volume-based alternative (whichever is higher)
-    const volumeCostMultiplier = distance > 2000 ? 12 : (distance > 1000 ? 10 : 8);
-
-    const weightBased = weight * baseCostPerPound;
-    const volumeBased = volume * volumeCostMultiplier;
-    const baseCost = Math.max(weightBased, volumeBased);
-
-    // Add distance-based surcharge for very long moves
-    const distanceSurcharge = distance > 2000 ? 1500 : (distance > 1000 ? 800 : 0);
-
-    professionalLow = (baseCost + distanceSurcharge) * 0.85 * colMultiplier;
-    professionalHigh = (baseCost + distanceSurcharge) * 1.25 * colMultiplier;
-
-    // Packing for long distance: labor + materials (with 110% upcharge)
-    // $60-85/hour per packer for long distance (higher skilled)
-    packingCostLow = (totalPackingHours * 60) + professionalMaterialsCost;
-    packingCostHigh = (totalPackingHours * 85) + professionalMaterialsCost;
-  }
-
-  // Adjust packing costs based on packingServicesRequired toggle
-  let adjustedPackingCostLow = 0;
-  let adjustedPackingCostHigh = 0;
-  let partialPackingMaterials = 0;
-
-  if (packingServicesRequired === 'full') {
-    // Full packing: all labor + all materials
-    adjustedPackingCostLow = packingCostLow;
-    adjustedPackingCostHigh = packingCostHigh;
-  } else if (packingServicesRequired === 'partial') {
-    // Partial packing: furniture protection only (no box packing labor)
-    // Only include furniture protection materials + minimal labor for wrapping
-    partialPackingMaterials = (furniturePadsCost + shrinkWrapCost + cornerProtectorsCost) * 1.10;
-    const furnitureWrappingHours = furnitureBreakdownTime; // Just furniture wrapping, no box packing
-
-    if (distance < 100) {
-      adjustedPackingCostLow = (furnitureWrappingHours * 50) + partialPackingMaterials;
-      adjustedPackingCostHigh = (furnitureWrappingHours * 75) + partialPackingMaterials;
-    } else {
-      adjustedPackingCostLow = (furnitureWrappingHours * 60) + partialPackingMaterials;
-      adjustedPackingCostHigh = (furnitureWrappingHours * 85) + partialPackingMaterials;
-    }
-  }
-  // else 'none': packing costs remain 0
-
-  return {
-    professionalLow,
-    professionalHigh,
-    packingCostLow,
-    packingCostHigh,
-    adjustedPackingCostLow,
-    adjustedPackingCostHigh,
-    partialPackingMaterials
-  };
-};
-
-// Van line pricing calculation
-interface VanLinePricingParams {
-  distance: number;
-  weight: number;
-  volume: number;
-  colMultiplier: number;
-  adjustedPackingCostLow: number;
-  adjustedPackingCostHigh: number;
-  totalDifficultyPremium: number;
-  professionalLow: number;
-  professionalHigh: number;
-  miscCosts: number;
-  multiStopPremium: number;
-  isFlexible: boolean;
-  intermediateStops: number;
-}
-
-interface VanLinePricingResult {
-  vanLineTotalLow: number;
-  vanLineTotalHigh: number;
-  adjustedVanLineLow: number;
-  adjustedVanLineHigh: number;
-  chargeableWeight: number;
-  deliveryWindow: string;
-  breakdown: {
-    linehaul: number;
-    fuelSurcharge: number;
-    destinationLabor: number;
-    shuttleFee: number;
-  };
-}
-
-const calculateVanLineCost = (params: VanLinePricingParams): VanLinePricingResult => {
-  const {
-    distance,
-    weight,
-    volume,
-    colMultiplier,
-    adjustedPackingCostLow,
-    adjustedPackingCostHigh,
-    totalDifficultyPremium,
-    professionalLow,
-    professionalHigh,
-    miscCosts,
-    multiStopPremium,
-    isFlexible,
-    intermediateStops
-  } = params;
-
-  // 1. Chargeable Weight: Greater of actual weight or volumetric weight (7 lbs/cu ft)
-  const chargeableWeight = Math.max(weight, volume * 7);
-
-  // 2. Linehaul Rate: Lower tariff for shared load, tiered by distance
-  // Rates: >2000mi: $0.75/lb, >1000mi: $0.85/lb, <1000mi: $1.00/lb
-  const vanLineRatePerLb = distance > 2000 ? 0.75 : (distance > 1000 ? 0.85 : 1.00);
-  const linehaul = chargeableWeight * vanLineRatePerLb;
-
-  // 3. Mandatory Fees
-  const fuelSurcharge = linehaul * 0.12; // 12% Fuel Surcharge
-  const destinationLabor = chargeableWeight * 0.25; // $0.25/lb for destination services
-
-  // 4. Shuttle / Access Fees for High CoL Areas
-  // If CoL multiplier > 1.3 (e.g. SF, NYC), assume shuttle or long carry is needed
-  const shuttleFee = colMultiplier > 1.3 ? 750 : 0;
-
-  // 5. Delivery Window Calculation
-  const deliveryWindowMin = Math.max(5, Math.ceil(distance / 500) + 2);
-  const deliveryWindowMax = Math.max(14, Math.ceil(distance / 300) + 5);
-  const deliveryWindow = `${deliveryWindowMin}-${deliveryWindowMax} days`;
-
-  // Total Van Line Cost
-  const vanLineBase = linehaul + fuelSurcharge + destinationLabor + shuttleFee;
-  // Apply CoL multiplier to the base cost as well to reflect local labor rates
-  const vanLineTotalLow = (vanLineBase * colMultiplier) + adjustedPackingCostLow + (totalDifficultyPremium * 1.2);
-  const vanLineTotalHigh = (vanLineBase * 1.25 * colMultiplier) + adjustedPackingCostHigh + (totalDifficultyPremium * 1.2);
-
-  // Van line vs dedicated cost guardrail
-  // For long-distance, heavy, flexible moves, ensure van lines are cheaper
-  let adjustedVanLineLow = vanLineTotalLow;
-  let adjustedVanLineHigh = vanLineTotalHigh;
-
-  const shouldVanLinesBeCheaper = distance >= 500 && weight >= 2000 && isFlexible && intermediateStops === 0;
-
-  if (shouldVanLinesBeCheaper) {
-    const dedicatedMid = (professionalLow + adjustedPackingCostLow + miscCosts + totalDifficultyPremium + multiStopPremium +
-                          professionalHigh + adjustedPackingCostHigh + miscCosts + totalDifficultyPremium + multiStopPremium) / 2;
-    const vanMid = (vanLineTotalLow + vanLineTotalHigh) / 2;
-    const ratio = vanMid / dedicatedMid;
-
-    // If van lines are more expensive than 95% of dedicated, adjust them down
-    if (ratio > 0.95) {
-      const adjustmentFactor = 0.95 / ratio;
-      adjustedVanLineLow = vanLineTotalLow * adjustmentFactor;
-      adjustedVanLineHigh = vanLineTotalHigh * adjustmentFactor;
-    }
-  }
-
-  return {
-    vanLineTotalLow,
-    vanLineTotalHigh,
-    adjustedVanLineLow,
-    adjustedVanLineHigh,
-    chargeableWeight,
-    deliveryWindow,
-    breakdown: {
-      linehaul,
-      fuelSurcharge,
-      destinationLabor,
-      shuttleFee
-    }
-  };
-};
 
 // Cost estimates
 const costEstimates = computed(() => {
@@ -2701,7 +2385,7 @@ const fetchSavedMoves = async () => {
       return;
     }
 
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/saved-moves`, {
+    const response = await fetch(`${core_url}/api/saved-moves`, {
       headers: {
         'Authorization': `Bearer ${sessionToken}`
       }
@@ -2794,8 +2478,8 @@ const saveMove = async () => {
     };
 
     const url = currentSavedMoveId.value
-      ? `${import.meta.env.VITE_API_BASE_URL}/api/saved-moves/${currentSavedMoveId.value}`
-      : `${import.meta.env.VITE_API_BASE_URL}/api/saved-moves`;
+      ? `${core_url}/api/saved-moves/${currentSavedMoveId.value}`
+      : `${core_url}/api/saved-moves`;
 
     const method = currentSavedMoveId.value ? 'PUT' : 'POST';
 
@@ -2852,7 +2536,7 @@ const loadMove = async (moveId: number) => {
       throw new Error('No session token found. Please log in again.');
     }
 
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/saved-moves/${moveId}`, {
+    const response = await fetch(`${core_url}/api/saved-moves/${moveId}`, {
       headers: {
         'Authorization': `Bearer ${sessionToken}`
       }
@@ -3053,7 +2737,7 @@ const deleteSavedMove = async (moveId: number, moveName: string) => {
       throw new Error('No session token found. Please log in again.');
     }
 
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/saved-moves/${moveId}`, {
+    const response = await fetch(`${core_url}/api/saved-moves/${moveId}`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${sessionToken}`
@@ -3610,190 +3294,6 @@ const downloadPdfEstimate = async () => {
   }
 };
 
-// Send confirmation email with PDF attachment
-const sendConfirmationEmail = async (depositAmount: number, totalAmount: number) => {
-  try {
-    const origin = locationsWithDetails.value.find(l => l.value === originLocation.value);
-    const destination = locationsWithDetails.value.find(l => l.value === destinationLocation.value);
-
-    if (!origin || !destination || !userData.value?.email) {
-      console.error('Missing required data for confirmation email');
-      return;
-    }
-
-    const bookingData = {
-      depositAmount,
-      totalAmount,
-      remainingBalance: totalAmount - depositAmount,
-      origin: origin.label || 'Origin',
-      destination: destination.label || 'Destination',
-      moveDate: moveDate.value || 'TBD',
-      userName: userData.value.name || ''
-    };
-
-    // Generate PDF as base64 for attachment
-    // We'll generate the PDF and convert to base64
-    const pdfDoc = await generateInventoryPdfDocument();
-    const pdfBase64 = pdfDoc.output('datauristring').split(',')[1]; // Get base64 part only
-
-    const response = await fetch(`${core_url}/reloprep/send-confirmation`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify({
-        email: userData.value.email,
-        bookingData,
-        pdfBase64
-      })
-    });
-
-    const result = await response.json();
-
-    if (result.success) {
-      console.log('Confirmation email sent successfully');
-    } else {
-      console.error('Failed to send confirmation email:', result.error);
-      Notify.create({
-        type: 'warning',
-        message: 'Email sending failed',
-        caption: 'Your booking is confirmed, but we couldn\'t send the confirmation email. Please contact support.',
-        timeout: 5000
-      });
-    }
-  } catch (error) {
-    console.error('Error sending confirmation email:', error);
-    // Don't show error to user - email failure shouldn't block the booking
-  }
-};
-
-// Helper function to generate PDF document (returns jsPDF instance instead of downloading)
-const generateInventoryPdfDocument = async () => {
-  const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.getWidth();
-
-  // Title
-  doc.setFontSize(20);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Move Inventory', pageWidth / 2, 20, { align: 'center' });
-
-  // Move Details
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  const origin = locationsWithDetails.value.find(l => l.value === originLocation.value);
-  const destination = locationsWithDetails.value.find(l => l.value === destinationLocation.value);
-
-  let yPos = 35;
-  doc.text(`From: ${origin?.label || 'N/A'}`, 15, yPos);
-  yPos += 7;
-  doc.text(`To: ${destination?.label || 'N/A'}`, 15, yPos);
-  yPos += 7;
-  doc.text(`Move Date: ${moveDate.value || 'TBD'}`, 15, yPos);
-  yPos += 7;
-  doc.text(`Distance: ${estimatedDistance.value} miles`, 15, yPos);
-  yPos += 10;
-
-  // Inventory Table
-  const inventoryData = containerValues.value.map(container => {
-    const items = collectionValues.value.filter(c => c.container_id === container.id);
-    return [
-      container.name || 'Unnamed Container',
-      items.length.toString(),
-      items.map(i => i.name).join(', ') || 'No items'
-    ];
-  });
-
-  autoTable(doc, {
-    startY: yPos,
-    head: [['Container', 'Items', 'Contents']],
-    body: inventoryData,
-    theme: 'grid',
-    headStyles: { fillColor: [25, 118, 210] }
-  });
-
-  return doc;
-};
-
-// Initiate Stripe Checkout for Nexus Moves booking
-const initiateStripeCheckout = async () => {
-  if (!estimatedDistance.value || !costEstimates.value) {
-    Notify.create({
-      type: 'warning',
-      message: 'Please select origin and destination locations first',
-      timeout: 3000
-    });
-    return;
-  }
-
-  const depositAmount = Math.round(costEstimates.value.reloprep.high * 0.15);
-  const totalAmount = costEstimates.value.reloprep.high;
-
-  // TODO: Integrate with Stripe Checkout
-  // This is a placeholder for now
-  console.log('Stripe Checkout Details:', {
-    depositAmount,
-    totalAmount,
-    originLocation: originLocation.value,
-    destinationLocation: destinationLocation.value,
-    moveDate: moveDate.value
-  });
-
-  // Placeholder: Show confirmation dialog
-  $q.dialog({
-    title: 'Confirm Move Booking Request',
-    message: `
-      <div class="q-mb-md"><strong>Nexus Moves Move Booking</strong></div>
-      <div class="q-mb-sm">Estimated Move Cost: $${totalAmount.toLocaleString()}</div>
-      <div class="text-caption text-grey-7">
-        Booking is free while we’re in launch — no payment is required. You’ll receive:
-        <ul class="q-mt-sm">
-          <li>Move booking confirmation</li>
-          <li>PDF download of your inventory</li>
-          <li>Email with your inventory PDF attached</li>
-        </ul>
-      </div>
-    `,
-    html: true,
-    ok: {
-      label: 'Confirm Booking Request',
-      color: 'primary'
-    },
-    cancel: {
-      label: 'Cancel',
-      color: 'grey-7',
-      flat: true
-    }
-  }).onOk(async () => {
-    // Free during launch — no payment taken; record the booking request.
-    Notify.create({
-      type: 'positive',
-      message: 'Booking request received!',
-      caption: 'Downloading your inventory PDF and sending confirmation email...',
-      timeout: 4000,
-      actions: [
-        {
-          label: 'Download PDF',
-          color: 'white',
-          handler: () => {
-            downloadInventoryPdf();
-          }
-        }
-      ]
-    });
-
-    // Send confirmation email
-    await sendConfirmationEmail(depositAmount, totalAmount);
-
-    // TODO: In production:
-    // 1. Create Stripe checkout session via API
-    // 2. Redirect to Stripe
-    // 3. Handle webhook for successful payment
-    // 4. Redirect back to confirmation page
-    // 5. Store booking in database
-  });
-};
-
 // Initiate Quote Shopping Service Checkout
 const initiateQuoteShoppingCheckout = async () => {
   if (!estimatedDistance.value || !costEstimates.value) {
@@ -3879,24 +3379,6 @@ const initiateQuoteShoppingCheckout = async () => {
   });
 };
 
-// Listen for plan preview changes
-onMounted(() => {
-  const handleStorage = (event: StorageEvent) => {
-    if (event.key === 'plan_preview') {
-      planPreviewOverride.value = (event.newValue as 'basic' | 'pro' | null) || null;
-    }
-  };
-  const handleCustom = (event: Event) => {
-    planPreviewOverride.value = ((event as CustomEvent).detail as 'basic' | 'pro' | null) || null;
-  };
-  window.addEventListener('storage', handleStorage);
-  window.addEventListener('plan-preview-change', handleCustom);
-
-  onUnmounted(() => {
-    window.removeEventListener('storage', handleStorage);
-    window.removeEventListener('plan-preview-change', handleCustom);
-  });
-});
 </script>
 
 <template>
