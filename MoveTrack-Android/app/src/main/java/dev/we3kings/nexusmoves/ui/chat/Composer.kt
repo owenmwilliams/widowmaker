@@ -1,6 +1,8 @@
 package dev.we3kings.nexusmoves.ui.chat
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -39,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import dev.we3kings.nexusmoves.data.upload.MediaUploader
 import dev.we3kings.nexusmoves.data.upload.PickedMedia
@@ -160,6 +163,27 @@ fun Composer(
         recordVideo.launch(uri)
     }
 
+    // CAMERA is declared in the manifest, so some OEMs require the app to hold it
+    // before the system camera intent will return. Request at first use, then run
+    // the pending capture.
+    var pendingCameraAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val requestCamera = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val action = pendingCameraAction
+        pendingCameraAction = null
+        if (granted) action?.invoke()
+    }
+
+    fun withCamera(action: () -> Unit) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) action() else {
+            pendingCameraAction = action
+            requestCamera.launch(Manifest.permission.CAMERA)
+        }
+    }
+
     fun beginCapture(caption: String) {
         captureCaption = caption
         if (aiNoticeShown) showAttachSheet = true else showAINotice = true
@@ -255,8 +279,8 @@ fun Composer(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.size(12.dp))
-                AttachOption("Take Photo") { showAttachSheet = false; launchTakePhoto() }
-                AttachOption("Record Video") { showAttachSheet = false; launchRecordVideo() }
+                AttachOption("Take Photo") { showAttachSheet = false; withCamera { launchTakePhoto() } }
+                AttachOption("Record Video") { showAttachSheet = false; withCamera { launchRecordVideo() } }
                 AttachOption("Choose Photos (up to 5)") {
                     showAttachSheet = false
                     pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
