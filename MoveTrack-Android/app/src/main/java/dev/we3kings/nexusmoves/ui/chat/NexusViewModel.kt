@@ -505,22 +505,35 @@ class NexusViewModel : ViewModel() {
     }
 
     /**
-     * Called when the review sheet closes — commit, skip, and swipe-down all
-     * funnel here. Closing the card is the acknowledgment: consume its job
-     * (idempotent server-side) and present the next queued card.
+     * The acknowledgment path for the presented card — commit, skip, and
+     * swipe-down all funnel here. Consumes its job (idempotent server-side) and
+     * presents the next queued card. On Compose we call this explicitly from the
+     * sheet's dismissal (iOS got it free from `.sheet(item:)` onDismiss).
      */
-    fun reviewSheetClosed() {
+    private fun finishPresentedReview(markDismissed: Boolean) {
         val jobId = presentedReviewJobId
-        presentedReviewJobId = null
-        if (!presentedReviewHandled) {
+        if (markDismissed && !presentedReviewHandled) {
             updatePill(presentedReviewPillId, ChatMessage.ScanReviewState.Dismissed(presentedReviewCount))
         }
+        presentedReviewJobId = null
         presentedReviewPillId = null
         presentedReviewHandled = false
         viewModelScope.launch {
             if (jobId != null) runCatching { service.consumeScanJob(jobId) }
             presentNextReview()
         }
+    }
+
+    /** Swipe-down / Cancel — the user closed the card without committing. */
+    fun dismissReview() {
+        pendingReview = null
+        finishPresentedReview(markDismissed = true)
+    }
+
+    /** Rescan button — close the current card (dismissed), then re-run analysis. */
+    suspend fun rescanFromReview() {
+        dismissReview()
+        rescanLast()
     }
 
     // MARK: - Share
@@ -586,7 +599,11 @@ class NexusViewModel : ViewModel() {
     suspend fun commitReview(items: List<EditableItem>, room: String?, scanId: String?) {
         pendingReview = null
         val kept = items.filter { it.keep && it.name.trim().isNotEmpty() }
-        if (kept.isEmpty()) return
+        if (kept.isEmpty()) {
+            // Nothing to add — still acknowledge the card (consume + present next).
+            finishPresentedReview(markDismissed = true)
+            return
+        }
         val pillId = presentedReviewPillId
         val totalDetected = presentedReviewCount
         isLoading = true
@@ -617,6 +634,9 @@ class NexusViewModel : ViewModel() {
         }
         isLoading = false
         phaseText = ""
+        // Acknowledge the card: consume its job + present the next queued one.
+        // (handled=true above, so no dismissed-pill flip.)
+        finishPresentedReview(markDismissed = false)
         refreshReadiness()
 
         // Close the loop conversationally: the report goes out as a REAL user

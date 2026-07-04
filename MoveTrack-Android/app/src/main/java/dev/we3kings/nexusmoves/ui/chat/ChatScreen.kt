@@ -29,11 +29,13 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,6 +54,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.we3kings.nexusmoves.model.ChatMessage
 import dev.we3kings.nexusmoves.ui.auth.AuthViewModel
+import dev.we3kings.nexusmoves.ui.readiness.ReadinessSheet
+import dev.we3kings.nexusmoves.ui.review.DuplicateReviewSheet
+import dev.we3kings.nexusmoves.ui.review.ReviewItemsSheet
 import dev.we3kings.nexusmoves.ui.theme.Theme
 import kotlinx.coroutines.launch
 
@@ -62,6 +67,7 @@ import kotlinx.coroutines.launch
  * share flow. The composer's `+` capture button is disabled pending Phase 3;
  * the review/duplicate/readiness sheets arrive in Phase 4.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(auth: AuthViewModel, vm: NexusViewModel = viewModel()) {
     val scope = rememberCoroutineScope()
@@ -69,6 +75,7 @@ fun ChatScreen(auth: AuthViewModel, vm: NexusViewModel = viewModel()) {
     var draft by remember { mutableStateOf("") }
     var shareWarningText by remember { mutableStateOf<String?>(null) }
     var cameraRequest by remember { mutableStateOf<String?>(null) }
+    var showReadiness by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.loadIfNeeded() }
     LaunchedEffect(vm.sessionExpired) { if (vm.sessionExpired) auth.logout() }
@@ -93,7 +100,8 @@ fun ChatScreen(auth: AuthViewModel, vm: NexusViewModel = viewModel()) {
 
     Column(Modifier.fillMaxSize().background(Theme.canvas)) {
         Header(vm, onNewConversation = { scope.launch { vm.startNewConversation() } },
-            onLogout = { auth.logout() }, onShare = { onShareTapped() })
+            onLogout = { auth.logout() }, onShare = { onShareTapped() },
+            onOpenReadiness = { showReadiness = true })
 
         Conversation(vm, modifier = Modifier.weight(1f),
             onChip = { message -> scope.launch { vm.send(message) } },
@@ -132,6 +140,54 @@ fun ChatScreen(auth: AuthViewModel, vm: NexusViewModel = viewModel()) {
             },
         )
     }
+
+    // Scan review card — the modal IS the scan response. Every close path funnels
+    // through the view model so the job is consumed once and the pill records it.
+    val review = vm.pendingReview
+    if (review != null) {
+        ModalBottomSheet(
+            onDismissRequest = { vm.dismissReview() },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            ReviewItemsSheet(
+                review = review,
+                onCommit = { items -> scope.launch { vm.commitReview(items, review.room, review.scanId) } },
+                onCancel = { vm.dismissReview() },
+                onRescan = { scope.launch { vm.rescanFromReview() } },
+            )
+        }
+    }
+
+    val dup = vm.pendingDuplicates
+    if (dup != null) {
+        ModalBottomSheet(
+            onDismissRequest = { vm.pendingDuplicates = null },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            DuplicateReviewSheet(
+                review = dup,
+                onApply = { ids -> scope.launch { vm.resolveDuplicates(ids) } },
+                onCancel = { vm.pendingDuplicates = null },
+            )
+        }
+    }
+
+    if (showReadiness) {
+        ModalBottomSheet(
+            onDismissRequest = { showReadiness = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            ReadinessSheet(
+                readiness = vm.readiness,
+                onShare = { showReadiness = false; onShareTapped() },
+                onEstimateWeights = {
+                    showReadiness = false
+                    scope.launch { vm.send("Estimate the missing weights for my items.") }
+                },
+                onAddVideo = { showReadiness = false; cameraRequest = "" },
+            )
+        }
+    }
 }
 
 // MARK: - Header
@@ -142,6 +198,7 @@ private fun Header(
     onNewConversation: () -> Unit,
     onLogout: () -> Unit,
     onShare: () -> Unit,
+    onOpenReadiness: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Column(
@@ -180,12 +237,12 @@ private fun Header(
             }
         }
         Spacer(Modifier.height(12.dp))
-        ReadinessBanner(vm, onShare = onShare)
+        ReadinessBanner(vm, onShare = onShare, onOpenReadiness = onOpenReadiness)
     }
 }
 
 @Composable
-private fun ReadinessBanner(vm: NexusViewModel, onShare: () -> Unit) {
+private fun ReadinessBanner(vm: NexusViewModel, onShare: () -> Unit, onOpenReadiness: () -> Unit) {
     val r = vm.readiness
     Row(
         Modifier
@@ -196,7 +253,7 @@ private fun ReadinessBanner(vm: NexusViewModel, onShare: () -> Unit) {
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).clickable { onOpenReadiness() }) {
             Row {
                 Text(r?.statusLabel ?: "Building your inventory",
                     style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
@@ -211,6 +268,9 @@ private fun ReadinessBanner(vm: NexusViewModel, onShare: () -> Unit) {
                 trackColor = Theme.brandSoft,
                 modifier = Modifier.fillMaxWidth(),
             )
+            Spacer(Modifier.height(4.dp))
+            Text("See what's left ›", style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold, color = Theme.brand)
         }
         Spacer(Modifier.width(12.dp))
         Column(
