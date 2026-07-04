@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import PrivacyPolicy from './PrivacyPolicy.vue';
 import TermsOfService from './TermsAndConditions.vue';
-import ReloPrepLogo from '../components/brand/ReloPrepLogo.vue';
+import { ArrowRight, Check, Clock, FileText, Lock, Package, Share2, Sparkles } from 'lucide-vue-next';
 
 const showPrivacyPolicy = ref(false);
 const showTermsOfService = ref(false);
@@ -25,11 +25,11 @@ const planRows = [
     <q-header bordered class="header">
       <q-toolbar class="constrained">
         <div class="brand">
-          <ReloPrepLogo :width="120" :height="28" />
+          <img src="../assets/brand/logo-lockup-light.svg" alt="Nexus Moves" class="brand-logo" height="32" />
         </div>
         <div class="actions">
-          <q-btn flat color="primary" label="Login" to="/login" />
-          <q-btn unelevated color="primary" label="Get started" to="/login" class="q-ml-sm" />
+          <q-btn flat no-caps color="primary" label="Login" to="/login" />
+          <q-btn unelevated no-caps color="primary" label="Get started" to="/login" class="q-ml-sm" />
         </div>
       </q-toolbar>
     </q-header>
@@ -39,23 +39,26 @@ const planRows = [
         <!-- Hero -->
         <section class="constrained hero hero-surface">
           <div class="hero-copy">
-            <div class="eyebrow">Verified Inventory for your move</div>
+            <div class="eyebrow">Verified inventory for your move</div>
             <h1>Build a verified inventory in minutes. Get quotes that match reality.</h1>
             <p>
               Capture photos, dimensions, and weights automatically. Share a verified inventory with movers for quotes you can trust.
             </p>
             <div class="hero-ctas">
-              <q-btn unelevated color="primary" icon-right="arrow_forward" label="Start your inventory" to="/login" />
+              <q-btn unelevated no-caps class="cta-shimmer" to="/login">
+                Start your inventory
+                <ArrowRight :size="20" class="btn-icon-right" aria-hidden="true" />
+              </q-btn>
             </div>
             <div class="hero-bullets vertical">
-              <div class="bullet"><q-icon name="check_circle" color="positive" size="18px" /> Photos, weight, and dimensions together</div>
-              <div class="bullet"><q-icon name="check_circle" color="positive" size="18px" /> Private links you control</div>
-              <div class="bullet"><q-icon name="check_circle" color="positive" size="18px" /> Export to PDF/CSV anytime</div>
+              <div class="bullet"><span class="bullet-check"><Check :size="15" aria-hidden="true" /></span> Photos, weight, and dimensions together</div>
+              <div class="bullet"><span class="bullet-check"><Check :size="15" aria-hidden="true" /></span> Private links you control</div>
+              <div class="bullet"><span class="bullet-check"><Check :size="15" aria-hidden="true" /></span> Export to PDF/CSV anytime</div>
             </div>
           </div>
           <div class="hero-visual">
             <q-card flat class="visual-card">
-              <img src="https://storage.googleapis.com/widowmaker-site-images/temp_hero_banner_4.png" alt="Nexus Moves hero" class="hero-image" />
+              <img src="../assets/brand/hero-inventory.svg" alt="Belongings being scanned into a verified inventory" class="hero-image" />
             </q-card>
           </div>
         </section>
@@ -70,20 +73,23 @@ const planRows = [
           <div class="cards-grid">
             <q-card flat bordered class="info-card">
               <q-card-section>
-                <div class="text-subtitle1 semi-bold">Capture</div>
-                <div class="text-body2 text-grey-8">Snap photos or add items; AI helps with names, weights, and dimensions.</div>
+                <div class="step-num">01</div>
+                <div class="card-title">Capture</div>
+                <div class="card-body">Snap photos or add items; AI helps with names, weights, and dimensions.</div>
               </q-card-section>
             </q-card>
             <q-card flat bordered class="info-card">
               <q-card-section>
-                <div class="text-subtitle1 semi-bold">Organize</div>
-                <div class="text-body2 text-grey-8">Group into rooms or boxes, check weight/volume fit, and prep labels.</div>
+                <div class="step-num">02</div>
+                <div class="card-title">Organize</div>
+                <div class="card-body">Group into rooms or boxes, check weight/volume fit, and prep labels.</div>
               </q-card-section>
             </q-card>
             <q-card flat bordered class="info-card">
               <q-card-section>
-                <div class="text-subtitle1 semi-bold">Share</div>
-                <div class="text-body2 text-grey-8">Send a private link or export so movers can quote without an in-home visit.</div>
+                <div class="step-num">03</div>
+                <div class="card-title">Share</div>
+                <div class="card-body">Send a private link or export so movers can quote without an in-home visit.</div>
               </q-card-section>
             </q-card>
           </div>
@@ -97,20 +103,20 @@ const planRows = [
           <div class="cards-grid">
             <q-card flat bordered class="info-card">
               <q-card-section>
-                <div class="text-subtitle1 semi-bold">Accurate quotes</div>
-                <div class="text-body2 text-grey-8">Fewer surprises when movers see photos, weights, and dimensions upfront.</div>
+                <div class="card-title">Accurate quotes</div>
+                <div class="card-body">Fewer surprises when movers see photos, weights, and dimensions upfront.</div>
               </q-card-section>
             </q-card>
             <q-card flat bordered class="info-card">
               <q-card-section>
-                <div class="text-subtitle1 semi-bold">Smoother move day</div>
-                <div class="text-body2 text-grey-8">Packing constraints and labels keep everything organized.</div>
+                <div class="card-title">Smoother move day</div>
+                <div class="card-body">Packing constraints and labels keep everything organized.</div>
               </q-card-section>
             </q-card>
             <q-card flat bordered class="info-card">
               <q-card-section>
-                <div class="text-subtitle1 semi-bold">Peace of mind</div>
-                <div class="text-body2 text-grey-8">Timestamped photos and item history simplify claims and verification.</div>
+                <div class="card-title">Peace of mind</div>
+                <div class="card-body">Timestamped photos and item history simplify claims and verification.</div>
               </q-card-section>
             </q-card>
           </div>
@@ -125,65 +131,68 @@ const planRows = [
           <div class="cards-grid">
             <q-card flat bordered class="info-card">
               <q-card-section>
-                <div class="text-subtitle1 semi-bold">Faster estimates</div>
-                <div class="text-body2 text-grey-8">Photos + measurements often remove the need for a site visit.</div>
+                <div class="card-title">Faster estimates</div>
+                <div class="card-body">Photos + measurements often remove the need for a site visit.</div>
               </q-card-section>
             </q-card>
             <q-card flat bordered class="info-card">
               <q-card-section>
-                <div class="text-subtitle1 semi-bold">Less risk</div>
-                <div class="text-body2 text-grey-8">Clear counts and photo evidence reduce disputes and claims.</div>
+                <div class="card-title">Less risk</div>
+                <div class="card-body">Clear counts and photo evidence reduce disputes and claims.</div>
               </q-card-section>
             </q-card>
             <q-card flat bordered class="info-card">
               <q-card-section>
-                <div class="text-subtitle1 semi-bold">Better planning</div>
-                <div class="text-body2 text-grey-8">Volume/weight estimates help with truck, crew, and materials.</div>
+                <div class="card-title">Better planning</div>
+                <div class="card-body">Volume/weight estimates help with truck, crew, and materials.</div>
               </q-card-section>
             </q-card>
           </div>
         </section>
 
         <div class="constrained section-cta outside">
-          <q-btn class="cta-strong" unelevated color="primary" label="Create a shareable inventory" to="/login" icon-right="arrow_forward" />
+          <q-btn class="cta-strong" unelevated no-caps color="primary" to="/login">
+            Create a shareable inventory
+            <ArrowRight :size="18" class="btn-icon-right" aria-hidden="true" />
+          </q-btn>
         </div>
 
         <!-- Features (expanded) -->
         <section id="features" class="constrained section surface">
           <div class="section-header">
-            <h2>Smart Moving Inventory Features Powered by AI</h2>
+            <h2>Smart moving inventory features powered by AI</h2>
             <p class="section-subtext">
               Create a complete, accurate home inventory in minutes using AI-powered item capture and smart packing tools—built for homeowners, renters, and moving professionals.
             </p>
           </div>
           <div class="feature-grid">
             <div class="feature-card">
-              <q-icon name="auto_awesome" color="primary" size="28px" />
+              <span class="feature-icon"><Sparkles :size="22" aria-hidden="true" /></span>
               <div class="feature-title">AI item detection</div>
               <div class="feature-body">Snap photos and let the moving inventory app auto-label items, weights, and dimensions for a verified home inventory.</div>
             </div>
             <div class="feature-card">
-              <q-icon name="view_in_ar" color="primary" size="28px" />
+              <span class="feature-icon"><Package :size="22" aria-hidden="true" /></span>
               <div class="feature-title">Smart packing & fit checks</div>
               <div class="feature-body">Drag-and-drop items into boxes with volume/weight constraints, so your packing checklist stays accurate.</div>
             </div>
             <div class="feature-card">
-              <q-icon name="share" color="primary" size="28px" />
+              <span class="feature-icon"><Share2 :size="22" aria-hidden="true" /></span>
               <div class="feature-title">Shareable “Verified Inventory”</div>
               <div class="feature-body">Private links movers can use instantly—no special software required. Control permissions, revoke anytime.</div>
             </div>
             <div class="feature-card">
-              <q-icon name="description" color="primary" size="28px" />
+              <span class="feature-icon"><FileText :size="22" aria-hidden="true" /></span>
               <div class="feature-title">Export ready (PDF & CSV)</div>
               <div class="feature-body">Download inventory export files with photos, counts, and details for insurance, claims, and move-day checklists.</div>
             </div>
             <div class="feature-card">
-              <q-icon name="lock" color="primary" size="28px" />
+              <span class="feature-icon"><Lock :size="22" aria-hidden="true" /></span>
               <div class="feature-title">Secure & private</div>
               <div class="feature-body">Share only when you choose. Your home inventory stays secure with permissioned access and auditability.</div>
             </div>
             <div class="feature-card">
-              <q-icon name="schedule" color="primary" size="28px" />
+              <span class="feature-icon"><Clock :size="22" aria-hidden="true" /></span>
               <div class="feature-title">Fast setup, free to start</div>
               <div class="feature-body">Create your smart moving inventory in minutes—perfect for long-distance moves, local moves, or downsizing.</div>
             </div>
@@ -199,40 +208,40 @@ const planRows = [
           <div class="cards-grid">
             <q-card flat bordered class="info-card pricing-card">
               <q-card-section>
-                <div class="semi-bold text-subtitle1">Monthly</div>
+                <div class="card-title">Monthly</div>
                 <div class="price">$8<span class="price-suffix">/month</span></div>
-                <div class="text-body2 text-grey-8 q-mt-sm">
+                <div class="card-body q-mt-sm">
                   Unlimited items, photos, exports, and packing fit checks. Perfect if you’re mid-move or organizing now.
                 </div>
               </q-card-section>
               <q-card-actions align="right">
-                <q-btn unelevated color="primary" label="Choose monthly" to="/login" />
+                <q-btn unelevated no-caps color="primary" label="Choose monthly" to="/login" />
               </q-card-actions>
             </q-card>
 
             <q-card flat bordered class="info-card pricing-card">
               <q-card-section>
-                <div class="semi-bold text-subtitle1">Move Pack</div>
+                <div class="card-title">Move Pack</div>
                 <div class="price">$20<span class="price-suffix"> / 3 months</span></div>
-                <div class="text-body2 text-grey-8 q-mt-sm">
+                <div class="card-body q-mt-sm">
                   One-time access for a single move. Full features for 90 days to capture, share, and export your inventory.
                 </div>
               </q-card-section>
               <q-card-actions align="right">
-                <q-btn unelevated color="primary" label="Choose move pack" to="/login" />
+                <q-btn unelevated no-caps color="primary" label="Choose move pack" to="/login" />
               </q-card-actions>
             </q-card>
 
             <q-card flat bordered class="info-card pricing-card">
               <q-card-section>
-                <div class="semi-bold text-subtitle1">Annual</div>
+                <div class="card-title">Annual</div>
                 <div class="price">$70<span class="price-suffix">/year</span></div>
-                <div class="text-body2 text-grey-8 q-mt-sm">
+                <div class="card-body q-mt-sm">
                   Best value for planners and organizers. All features, all year—great for multiple moves or ongoing inventory.
                 </div>
               </q-card-section>
               <q-card-actions align="right">
-                <q-btn unelevated color="primary" label="Choose annual" to="/login" />
+                <q-btn unelevated no-caps color="primary" label="Choose annual" to="/login" />
               </q-card-actions>
             </q-card>
           </div>
@@ -255,7 +264,7 @@ const planRows = [
                 <div class="plan-grid-cell">{{ row.basic }}</div>
                 <div class="plan-grid-cell">
                   <span v-if="row.proCheck" class="check-icon">
-                    <q-icon name="check" size="16px" />
+                    <Check :size="13" aria-hidden="true" />
                   </span>
                   <span>{{ row.pro }}</span>
                 </div>
@@ -266,23 +275,23 @@ const planRows = [
         <!-- FAQ -->
         <section id="faq" class="constrained section surface">
           <div class="section-header">
-            <h2>Frequently Asked Questions</h2>
+            <h2>Frequently asked questions</h2>
           </div>
           <div class="faq-buckets">
             <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="AI capture" header-class="faq-header">
               <div class="faq-list">
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="How does AI item detection work for home inventory?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     AI item detection reads photos to suggest labels, weights, and dimensions. You can edit anything, and we store the photo with the record for verification.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Can AI capture fragile or unusual items?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     If AI isn’t confident, it flags the item so you can confirm or edit the label before sharing your moving inventory.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Do I have to add dimensions manually?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     If AI can’t infer dimensions, you can enter length/width/height. Fit checks only need rough dimensions to warn about oversized items.
                   </div>
                 </q-expansion-item>
@@ -292,17 +301,17 @@ const planRows = [
             <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Movers" header-class="faq-header">
               <div class="faq-list">
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="How do movers use shared inventories?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     Movers open your “Verified Inventory” in a browser—no special software needed. They review photos, dimensions, and weights to quote or plan without a site visit.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Can movers add notes or adjust items?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     You can grant edit access so movers can propose changes, add packing notes, or flag items that need special handling.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Do movers still need an in-home visit?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     Often no. Detailed photos, weights, and dimensions reduce the need for a visit. Some movers may still choose to confirm complex jobs on-site.
                   </div>
                 </q-expansion-item>
@@ -312,17 +321,17 @@ const planRows = [
             <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Long-distance moves" header-class="faq-header">
               <div class="faq-list">
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Can I use this app to prepare for a long-distance move?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     Yes. A complete, exportable inventory helps movers quote accurately for long-distance moves and plan truck space, crew, and materials.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Does this help with weight tickets and valuation?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     Your itemized weights and dimensions help prevent overloading and clarify declared value for long hauls.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Can I share with multiple movers for competing quotes?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     Yes. Send read-only links to multiple movers and revoke access anytime. You own the inventory.
                   </div>
                 </q-expansion-item>
@@ -332,17 +341,17 @@ const planRows = [
             <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Privacy & security" header-class="faq-header">
               <div class="faq-list">
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Is my inventory secure and private?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     You control sharing. Links can be read-only or editable, and you can revoke access anytime. Data is encrypted in transit and at rest.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Can I remove photos after sharing?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     Yes. You can update or remove photos; shared links update instantly, or you can disable the link entirely.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Who owns my data?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     You own your data. We only process it to provide the moving inventory app features; you can export or delete it anytime.
                   </div>
                 </q-expansion-item>
@@ -352,17 +361,17 @@ const planRows = [
             <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Exports & packing" header-class="faq-header">
               <div class="faq-list">
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="What export formats are available?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     You can export PDF and CSV with photos, counts, and item details. Exports work for insurance, claims, or sharing with movers.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Can I track packing and fit checks?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     Yes. Drag items into boxes with volume/weight constraints to build a packing checklist and prevent overload.
                   </div>
                 </q-expansion-item>
                 <q-expansion-item dense expand-separator expand-icon="add" expanded-icon="remove" label="Do you support inventory labels or QR codes?" header-class="faq-subheader">
-                  <div class="faq-answer text-body2 text-grey-8">
+                  <div class="faq-answer">
                     You can generate label-ready item lists now; QR labeling is on the roadmap so you can scan items in/out of boxes.
                   </div>
                 </q-expansion-item>
@@ -371,15 +380,15 @@ const planRows = [
           </div>
         </section>
 
-        <!-- Final CTA -->
-        <section class="constrained section final-cta">
-          <div class="final-card simple">
-            <div class="final-text">
-              <h3 class="q-mt-none q-mb-xs">Create your smart moving inventory in minutes—free to start.</h3>
-            </div>
-            <div class="final-btn">
-              <q-btn unelevated color="primary" label="Get started" to="/login" icon-right="arrow_forward" />
-            </div>
+        <!-- Final CTA (dark aurora band) -->
+        <section class="cta-band">
+          <div class="cta-band__aurora" aria-hidden="true"></div>
+          <div class="constrained cta-band__inner">
+            <h3>Create your smart moving inventory in minutes—free to start.</h3>
+            <q-btn unelevated no-caps color="primary" to="/login" class="cta-band__btn">
+              Get started
+              <ArrowRight :size="18" class="btn-icon-right" aria-hidden="true" />
+            </q-btn>
           </div>
         </section>
       </q-page>
@@ -387,7 +396,8 @@ const planRows = [
 
     <q-footer bordered class="footer">
       <div class="constrained footer-content">
-        <div class="text-caption text-grey-7">&copy; 2025 Nexus Moves</div>
+        <img src="../assets/brand/logo-lockup-light.svg" alt="Nexus Moves" class="footer-logo" height="24" />
+        <div class="footer-copy">&copy; 2025 Nexus Moves</div>
         <div class="footer-links">
           <q-btn flat no-caps dense label="Terms" class="footer-link" @click="showTermsOfService = true" />
           <q-btn flat no-caps dense label="Privacy" class="footer-link" @click="showPrivacyPolicy = true" />
@@ -399,7 +409,7 @@ const planRows = [
       <q-card style="max-width: 800px; width: 90vw;">
         <q-card-section><div class="text-h6">Terms of Service</div></q-card-section>
         <q-card-section class="q-pt-none"><TermsOfService /></q-card-section>
-        <q-card-actions align="right"><q-btn flat label="Close" color="primary" v-close-popup /></q-card-actions>
+        <q-card-actions align="right"><q-btn flat no-caps label="Close" color="primary" v-close-popup /></q-card-actions>
       </q-card>
     </q-dialog>
 
@@ -407,7 +417,7 @@ const planRows = [
       <q-card style="max-width: 800px; width: 90vw;">
         <q-card-section><div class="text-h6">Privacy Policy</div></q-card-section>
         <q-card-section class="q-pt-none"><PrivacyPolicy /></q-card-section>
-        <q-card-actions align="right"><q-btn flat label="Close" color="primary" v-close-popup /></q-card-actions>
+        <q-card-actions align="right"><q-btn flat no-caps label="Close" color="primary" v-close-popup /></q-card-actions>
       </q-card>
     </q-dialog>
 
@@ -416,33 +426,29 @@ const planRows = [
 
 <style scoped>
 .constrained {
-  max-width: 1100px;
+  max-width: var(--content-max);
   margin: 0 auto;
   width: 100%;
-  padding: 0 16px;
+  padding: 0 var(--gutter);
 }
 
+/* ---- Header ---- */
 .header {
-  background: #f5f9ff;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(12px);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  font-weight: 700;
-  letter-spacing: -0.4px;
-  color: #1f2a44;
 }
 
-.nav {
-  display: flex;
-  gap: 4px;
-  margin-left: 16px;
-}
-
-.nav-link {
-  color: #3e4a5a;
-  font-weight: 600;
+.brand-logo {
+  display: block;
+  height: 32px;
+  width: auto;
 }
 
 .actions {
@@ -451,63 +457,108 @@ const planRows = [
   align-items: center;
 }
 
+/* ---- Buttons: shared interaction states ---- */
+.q-btn {
+  border-radius: var(--r-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title);
+}
+
+.q-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.q-btn:active {
+  transform: scale(0.97);
+}
+
+.q-btn.disabled {
+  opacity: 0.45 !important;
+}
+
+.q-btn.bg-primary:hover {
+  background: var(--accent-hover) !important;
+}
+
+.btn-icon-right {
+  margin-left: var(--sp-3);
+}
+
+/* The ONE shimmer CTA on this page — the hero action. */
+.cta-shimmer {
+  background: var(--shimmer);
+  color: var(--on-accent);
+  padding: var(--sp-4) var(--sp-7);
+  font-size: var(--fs-body-l);
+  transition: box-shadow var(--dur-base) var(--ease-standard), transform var(--dur-fast) var(--ease-standard);
+}
+
+.cta-shimmer:hover {
+  box-shadow: var(--glow-shimmer);
+}
+
+/* ---- Page ---- */
 .page {
-  background: #f7f8fa;
-  padding: 64px 0 88px;
+  background: var(--bg);
+  color: var(--text-primary);
+  padding: var(--sp-11) 0 var(--sp-12);
 }
 
 .hero-surface {
   background: transparent;
-  border-radius: 16px;
-  padding: 24px 20px 28px;
+  border-radius: var(--r-lg);
+  padding-top: var(--sp-7);
+  padding-bottom: var(--sp-8);
 }
 
 .hero {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 32px;
+  gap: var(--sp-8);
   align-items: center;
-  margin-bottom: 56px;
+  margin-bottom: var(--sp-10);
 }
 
 .hero-copy h1 {
-  font-size: 2.6rem;
-  line-height: 1.2;
-  margin: 0.5rem 0 0.9rem;
-  color: #1f2a44;
+  font-family: var(--font-display);
+  font-size: var(--fs-display-xl);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-display);
+  line-height: var(--lh-tight);
+  margin: var(--sp-5) 0 0;
+  color: var(--text-primary);
 }
 
 .hero-copy p {
-  color: #4b5563;
-  font-size: 1.05rem;
-  line-height: 1.65;
-  margin: 0 0 1rem;
+  color: var(--text-secondary);
+  font-size: var(--fs-title-s);
+  line-height: var(--lh-body);
+  margin: var(--sp-6) 0 var(--sp-7);
+  max-width: 470px;
 }
 
 .eyebrow {
+  font-family: var(--font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  font-size: 0.75rem;
-  color: #3b82f6;
-  font-weight: 700;
+  letter-spacing: var(--ls-eyebrow);
+  font-size: var(--fs-label);
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
 }
 
 .hero-ctas {
-  margin-top: 8px;
+  margin-top: var(--sp-3);
   display: flex;
   flex-wrap: wrap;
 }
 
-.tertiary-link :deep(.q-btn__content) {
-  text-decoration: underline;
-}
-
 .hero-bullets {
-  margin-top: 14px;
+  margin-top: var(--sp-6);
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 8px 12px;
-  color: #374151;
+  gap: var(--sp-4) var(--sp-4);
+  color: var(--text-primary);
 }
 
 .hero-bullets.vertical {
@@ -517,8 +568,21 @@ const planRows = [
 .bullet {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 0.95rem;
+  gap: var(--sp-4);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+
+.bullet-check {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--success-quiet);
+  color: var(--success);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .hero-visual {
@@ -530,7 +594,7 @@ const planRows = [
 
 .visual-card {
   width: 100%;
-  border-radius: 14px;
+  border-radius: var(--r-lg);
   background: transparent;
   box-shadow: none;
   overflow: hidden;
@@ -540,134 +604,164 @@ const planRows = [
 .hero-image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  border-radius: 12px;
+  object-fit: contain;
 }
 
-
+/* ---- Sections ---- */
 .section {
-  margin-bottom: 64px;
+  margin-bottom: var(--sp-11);
 }
 
 .section-divider {
-  height: 32px;
+  height: var(--sp-8);
 }
 
 .section.surface {
-  background: #f2f5ff;
-  border-radius: 16px;
-  padding: 32px 24px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: var(--sp-9) var(--sp-8);
+  box-shadow: var(--shadow-sm);
 }
 
 .section-header h2 {
   margin: 0;
-  font-size: 2rem;
-  color: #1f2a44;
+  font-family: var(--font-display);
+  font-size: var(--fs-display-m);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-display);
+  color: var(--text-primary);
 }
 
 .section-header p {
-  margin: 6px 0 0;
-  color: #374151;
+  margin: var(--sp-3) 0 0;
+  color: var(--text-secondary);
 }
 
 .section-subtext {
-  color: #4b5563;
-  margin-top: 6px;
+  color: var(--text-secondary);
+  margin-top: var(--sp-3);
 }
 
 .cards-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 14px;
-  margin-top: 16px;
+  gap: var(--sp-5);
+  margin-top: var(--sp-6);
 }
 
 .info-card {
-  border-radius: 12px;
-  background: white;
+  border-radius: var(--r-lg);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
 }
 
-.semi-bold {
-  font-weight: 600;
+.step-num {
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  color: var(--cyan-600);
+  margin-bottom: var(--sp-4);
 }
 
+.card-title {
+  font-size: var(--fs-title-s);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title);
+  color: var(--text-primary);
+}
+
+.card-body {
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  margin-top: var(--sp-2);
+}
+
+/* ---- FAQ ---- */
 .faq-buckets {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
 }
 
 .faq-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
 }
 
 .faq-header {
-  font-weight: 700;
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
 }
 
 .faq-subheader {
-  font-weight: 700;
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
 }
 
 .faq-answer {
-  padding: 12px 0;
-}
-
-.dialog-list {
-  margin: 0;
-  padding-left: 18px;
-  color: #4b5563;
-  line-height: 1.5;
+  padding: var(--sp-4) 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
 }
 
 .section-cta {
-  margin-top: 20px;
+  margin-top: var(--sp-6);
   display: flex;
   justify-content: center;
 }
 
 .section-cta.outside {
-  margin-top: 8px;
-  margin-bottom: 56px;
+  margin-top: var(--sp-3);
+  margin-bottom: var(--sp-10);
 }
 
+/* ---- Pricing ---- */
 .pricing-card {
   display: grid;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 
 .price {
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: #1f2a44;
+  font-family: var(--font-display);
+  font-size: var(--fs-title-l);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-title);
+  color: var(--text-primary);
+  margin-top: var(--sp-2);
 }
 
 .price-suffix {
-  font-size: 0.95rem;
-  color: #374151;
-  margin-left: 4px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-medium);
+  color: var(--text-secondary);
+  margin-left: var(--sp-2);
 }
 
+/* ---- Plan comparison ---- */
 .plan-grid {
-  margin-top: 12px;
+  margin-top: var(--sp-4);
   display: grid;
   grid-template-columns: 1fr;
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   overflow: hidden;
-  background: white;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.04);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
 }
 
 .plan-grid-row {
   display: grid;
   grid-template-columns: 1.2fr 1fr 1fr;
   align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
 }
 
 .plan-grid-row:last-child {
@@ -675,37 +769,32 @@ const planRows = [
 }
 
 .plan-grid-head {
-  background: #f8fafc;
-  font-weight: 700;
-  color: #1f2a44;
-  border-bottom: 2px solid #d8deeb;
+  background: var(--surface-hover);
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
 }
 
 .plan-grid-cell {
   display: flex;
   align-items: center;
-  line-height: 1.45;
-  color: #374151;
+  line-height: var(--lh-body);
+  color: var(--text-secondary);
   justify-content: flex-start;
   text-align: left;
 }
 
 .plan-label-cell {
-  font-weight: 700;
-  color: #1f2a44;
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
 }
 
 .plan-grid-row:not(.plan-grid-head) .plan-label-cell {
-  font-weight: 600;
-  margin-right: 12px;
+  font-weight: var(--fw-semibold);
+  margin-right: var(--sp-4);
 }
 
 .plan-grid-row:nth-child(2n + 1):not(.plan-grid-head) {
-  background: #f9fbfd;
-}
-
-.text-muted {
-  color: #9ba3af;
+  background: var(--surface-sunk);
 }
 
 .check-icon {
@@ -714,145 +803,147 @@ const planRows = [
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 50%;
-  background: #274690;
-  color: white;
-  box-shadow: 0 4px 10px rgba(39, 70, 144, 0.25);
-  margin-right: 6px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--success-quiet);
+  color: var(--success);
+  margin-right: var(--sp-3);
 }
 
 .cta-strong {
-  padding: 12px 20px;
-  font-weight: 600;
-  font-size: 1.05rem;
-  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.25);
+  padding: var(--sp-4) var(--sp-6);
+  font-size: var(--fs-body-l);
 }
 
-.micro-ctas {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.trust-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-  margin-top: 16px;
-  color: #374151;
-}
-
-.trust-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.95rem;
-}
-
+/* ---- Features ---- */
 .feature-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 16px;
-  margin-top: 16px;
+  gap: var(--sp-5);
+  margin-top: var(--sp-6);
 }
 
 .feature-card {
-  background: #fff;
-  border-radius: 12px;
-  padding: 16px;
-  border: 1px solid #e5e7eb;
+  background: var(--surface-card);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
   display: grid;
-  gap: 6px;
+  gap: var(--sp-3);
+}
+
+.feature-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  background: var(--accent-quiet);
+  color: var(--accent);
 }
 
 .feature-title {
-  font-weight: 600;
-  color: #1f2a44;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title);
+  color: var(--text-primary);
 }
 
 .feature-body {
-  color: #4b5563;
-  font-size: 0.95rem;
-  line-height: 1.5;
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
 }
 
-.feature-link {
-  color: #2563eb;
-  font-weight: 600;
-  font-size: 0.9rem;
-  text-decoration: none;
-  cursor: pointer;
+/* ---- Final CTA: dark aurora band ---- */
+.cta-band {
+  position: relative;
+  overflow: hidden;
+  background: var(--navy-800);
+  border-radius: var(--r-xl);
+  margin: 0 var(--gutter) var(--sp-8);
+  padding: var(--sp-11) 0;
 }
 
-.feature-link:hover {
-  text-decoration: underline;
+.cta-band__aurora {
+  position: absolute;
+  inset: 0;
+  background: var(--aurora);
+  pointer-events: none;
 }
 
-.button-like {
-  background: none;
-  border: none;
-  padding: 0;
-}
-.final-cta .final-card {
+.cta-band__inner {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  padding: 18px 20px;
-  gap: 12px;
+  gap: var(--sp-6);
+  flex-wrap: wrap;
 }
 
-.final-card.simple {
-  padding: 20px 24px;
+.cta-band__inner h3 {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-m);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-display);
+  line-height: var(--lh-snug);
+  color: var(--text-on-accent);
+  margin: 0;
+  max-width: 640px;
 }
 
-.final-text h3 {
-  font-size: 1.8rem;
-  color: #1f2a44;
+.cta-band__btn {
+  padding: var(--sp-4) var(--sp-7);
+  font-size: var(--fs-body-l);
 }
 
-.final-btn {
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-}
-
+/* ---- Footer ---- */
 .footer {
-  background: white;
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
 }
 
 .footer-content {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  gap: var(--sp-5);
+  padding-top: var(--sp-4);
+  padding-bottom: var(--sp-4);
+}
+
+.footer-logo {
+  display: block;
+  height: 24px;
+  width: auto;
+}
+
+.footer-copy {
+  font-size: var(--fs-label);
+  color: var(--text-tertiary);
 }
 
 .footer-links {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .footer-link {
-  color: #4b5563;
+  color: var(--text-secondary);
 }
 
 @media (max-width: 900px) {
-  .nav {
-    display: none;
-  }
   .hero-copy h1 {
-    font-size: 2.2rem;
+    font-size: var(--fs-display-l);
   }
-  .final-cta .final-card {
+  .section.surface {
+    padding: var(--sp-8) var(--sp-6);
+  }
+  .cta-band__inner {
     flex-direction: column;
     align-items: flex-start;
-  }
-  .section.alt {
-    padding: 24px 16px;
   }
 }
 </style>

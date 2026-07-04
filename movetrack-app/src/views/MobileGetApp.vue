@@ -21,7 +21,7 @@ function continueToWeb () {
 <template>
   <div class="get-app">
     <div class="get-app__card">
-      <img src="/favicon.ico" alt="" class="get-app__logo" />
+      <img src="../assets/brand/app-icon.svg" alt="" class="get-app__logo" />
       <h1 class="get-app__title">Nexus Moves</h1>
       <p class="get-app__tagline">Smart inventory for your move</p>
 
@@ -60,8 +60,8 @@ function continueToWeb () {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: linear-gradient(160deg, #f5f3ff 0%, #ffffff 55%);
+  padding: var(--sp-7);
+  background: var(--bg);
 }
 .get-app__card {
   max-width: 420px;
@@ -69,72 +69,104 @@ function continueToWeb () {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: var(--sp-4);
 }
 .get-app__logo {
   width: 72px;
   height: 72px;
-  border-radius: 18px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-md);
 }
 .get-app__title {
-  font-size: 1.8rem;
-  font-weight: 800;
-  margin: 8px 0 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-title-l);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-display);
+  color: var(--text-primary);
+  margin: var(--sp-3) 0 0;
 }
 .get-app__tagline {
-  color: #6b7280;
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
   margin: 0;
 }
 .get-app__body {
-  margin: 14px 0 6px;
-  color: #374151;
-  line-height: 1.5;
+  margin: var(--sp-5) 0 var(--sp-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
 }
+/* The ONE shimmer CTA on this page — the primary hero action. */
 .get-app__cta {
   display: inline-block;
-  margin-top: 8px;
-  padding: 14px 28px;
-  border-radius: 14px;
-  background: #6d28d9;
-  color: #fff;
-  font-weight: 700;
+  margin-top: var(--sp-3);
+  padding: var(--sp-4) var(--sp-7);
+  border-radius: var(--r-md);
+  background: var(--shimmer);
+  color: var(--on-accent);
+  font-size: var(--fs-body-l);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title);
   text-decoration: none;
+  transition: box-shadow var(--dur-base) var(--ease-standard), transform var(--dur-fast) var(--ease-standard);
+}
+.get-app__cta:hover {
+  box-shadow: var(--glow-shimmer);
+}
+.get-app__cta:active {
+  transform: scale(0.97);
+}
+.get-app__cta:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 .get-app__beta {
-  margin-top: 8px;
-  padding: 14px 18px;
-  border-radius: 14px;
-  background: #ede9fe;
+  margin-top: var(--sp-3);
+  padding: var(--sp-5) var(--sp-6);
+  border-radius: var(--r-md);
+  background: var(--accent-quiet);
+  border: 1px solid var(--border);
 }
 .get-app__beta-title {
-  font-weight: 700;
-  color: #4c1d95;
-  margin: 0 0 4px;
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
+  margin: 0 0 var(--sp-2);
 }
 .get-app__beta-body {
-  color: #6b7280;
-  font-size: 0.9rem;
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
   margin: 0;
 }
 .get-app__android {
-  color: #6b7280;
-  font-size: 0.9rem;
-  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
+  margin: var(--sp-4) 0 0;
 }
 .get-app__note {
-  margin-top: 18px;
-  font-size: 0.85rem;
-  color: #6b7280;
-  line-height: 1.45;
+  margin-top: var(--sp-6);
+  font-size: var(--fs-label);
+  color: var(--text-secondary);
+  line-height: var(--lh-body);
 }
 .get-app__web-link {
-  margin-top: 6px;
+  margin-top: var(--sp-2);
   background: none;
   border: none;
-  color: #9ca3af;
-  font-size: 0.8rem;
+  border-radius: var(--r-xs);
+  color: var(--text-tertiary);
+  font-size: var(--fs-label);
   text-decoration: underline;
   cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard);
+}
+.get-app__web-link:hover {
+  color: var(--text-secondary);
+}
+.get-app__web-link:active {
+  transform: scale(0.97);
+}
+.get-app__web-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 </style>
