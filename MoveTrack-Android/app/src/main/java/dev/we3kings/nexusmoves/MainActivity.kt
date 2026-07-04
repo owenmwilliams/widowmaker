@@ -3,37 +3,52 @@ package dev.we3kings.nexusmoves
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.we3kings.nexusmoves.ui.auth.AuthViewModel
 import dev.we3kings.nexusmoves.ui.chat.ChatScreen
 import dev.we3kings.nexusmoves.ui.login.LoginScreen
 import dev.we3kings.nexusmoves.ui.splash.SplashScreen
 import dev.we3kings.nexusmoves.ui.theme.NexusTheme
+import dev.we3kings.nexusmoves.ui.theme.Theme
 
 /**
- * Nexus Moves — Android. A 1:1 port of the iOS app in MoveTrack-iOS: the whole
- * post-login experience is the Nexus agent chat against the same movetrack-api
- * contract. Screen inventory and porting order live in the "Android app:
- * populate the scaffold" GitHub issue.
+ * Nexus Moves — Android. A 1:1 port of the iOS app: the whole post-login
+ * experience is the Nexus agent chat against the same movetrack-api contract.
  *
- * Navigation mirrors iOS ContentView: splash while the stored session
- * validates (401-only logout), then chat or login.
+ * The root gate mirrors iOS ContentView exactly — it's reactive, not a nav
+ * stack: splash while a stored session validates (401-only logout), then chat
+ * or login. A state-driven gate (rather than a NavHost) is what closes the
+ * double-login window PR #66 was about.
  */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { NexusTheme { NexusNavHost() } }
+        setContent {
+            NexusTheme {
+                Surface(modifier = Modifier.fillMaxSize(), color = Theme.canvas) {
+                    NexusRoot()
+                }
+            }
+        }
     }
 }
 
 @Composable
-fun NexusNavHost() {
-    val nav = rememberNavController()
-    NavHost(navController = nav, startDestination = "splash") {
-        composable("splash") { SplashScreen(nav) }
-        composable("login") { LoginScreen(nav) }
-        composable("chat") { ChatScreen(nav) }
+private fun NexusRoot(auth: AuthViewModel = viewModel()) {
+    when {
+        // A stored session is being validated (or the server was unreachable).
+        // Never show login here — the user may well be logged in.
+        auth.isCheckingAuth || auth.authCheckFailed ->
+            SplashScreen(failed = auth.authCheckFailed, onRetry = { auth.retryAuthCheck() })
+
+        auth.isAuthenticated && auth.currentUser != null ->
+            ChatScreen(auth = auth)
+
+        else ->
+            LoginScreen(vm = auth)
     }
 }

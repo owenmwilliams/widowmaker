@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- In-app brand mark (parity with iOS "AppLogo"): a brand-indigo rounded
+     square with a white sparkle. The Play Store launcher icon is a separate
+     deliverable tracked in the Android issue. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="88dp"
+    android:height="88dp"
+    android:viewportWidth="88"
+    android:viewportHeight="88">
+    <path
+        android:pathData="M20,4 L68,4 A16,16 0 0 1 84,20 L84,68 A16,16 0 0 1 68,84 L20,84 A16,16 0 0 1 4,68 L4,20 A16,16 0 0 1 20,4 Z"
+        android:fillColor="#5B5BD9" />
+    <!-- Central four-point sparkle -->
+    <path
+        android:pathData="M44,22 C46,34 54,42 66,44 C54,46 46,54 44,66 C42,54 34,46 22,44 C34,42 42,34 44,22 Z"
+        android:fillColor="#FFFFFF" />
+    <!-- Small accent sparkle -->
+    <path
+        android:pathData="M64,20 C64.8,24 67,26.2 71,27 C67,27.8 64.8,30 64,34 C63.2,30 61,27.8 57,27 C61,26.2 63.2,24 64,20 Z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.85" />
+</vector>
