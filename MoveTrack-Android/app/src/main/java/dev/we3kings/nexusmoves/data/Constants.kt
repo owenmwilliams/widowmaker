@@ -19,6 +19,7 @@ object Constants {
     object Endpoints {
         const val requestCode = "/auth/request-code"
         const val verifyCode = "/auth/verify-code"
+        const val verifyMagicLink = "/auth/verify-magic-link"
         const val logout = "/auth/logout"
         const val me = "/auth/me"
     }
