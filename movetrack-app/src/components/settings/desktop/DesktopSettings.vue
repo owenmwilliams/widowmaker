@@ -554,24 +554,25 @@ const getTruckSizeLabel = (size: string | null) => {
 .settings-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 24px;
+  padding: var(--sp-7);
 }
 
 .settings-header {
-  background: white;
-  border-bottom: 1px solid #E0E0E0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 .settings-content {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: var(--sp-7);
 }
 
 .settings-card {
-  border-radius: 12px;
+  background: var(--surface-card);
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border);
 }
 
 .section-header {
@@ -586,9 +587,9 @@ const getTruckSizeLabel = (size: string | null) => {
   align-items: center;
   justify-content: center;
   text-align: center;
-  background: var(--bg-secondary);
-  border-radius: 12px;
-  border: 1px dashed var(--border-light);
+  background: var(--surface-sunk);
+  border-radius: var(--r-md);
+  border: 1px dashed var(--border);
 }
 
 .location-row {
@@ -598,7 +599,7 @@ const getTruckSizeLabel = (size: string | null) => {
 .location-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-4);
 }
 
 .location-form .q-input {
@@ -611,6 +612,6 @@ const getTruckSizeLabel = (size: string | null) => {
 
 .primary-toggle {
   align-self: flex-start;
-  margin-top: 4px;
+  margin-top: var(--sp-2);
 }
 </style>

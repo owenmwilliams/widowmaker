@@ -14,8 +14,9 @@
   import PhotoCapture from '../../capture/PhotoCapture.vue';
   import VideoInventoryScan from '../../capture/VideoInventoryScan.vue';
   import VisionProviderToggle from '../../capture/VisionProviderToggle.vue';
-  import ReloPrepLogo from '../../brand/ReloPrepLogo.vue';
   import ShareInventoryButton from '../ShareInventoryButton.vue';
+  import logoLockup from '../../../assets/brand/logo-lockup-light.svg';
+  import { Cpu, Settings as SettingsIcon, CircleHelp, LogOut } from 'lucide-vue-next';
   import { storeToRefs } from 'pinia';
   import { useQuasar } from 'quasar';
   import { logout as serverLogout } from '../../../utils/auth';
@@ -156,7 +157,7 @@
         position: 'top',
         timeout: 0,
         actions: [
-          { label: 'Go to Settings', color: 'white', handler: () => changePage('settings') },
+          { label: 'Go to settings', color: 'white', handler: () => changePage('settings') },
           { label: 'Dismiss', color: 'white' },
         ],
       })
@@ -209,14 +210,15 @@
   <div>
     <q-layout view="hHh LpR lff">
 
-      <q-header bordered class="temp_bg text-primary" style="z-index: 9998;">
+      <q-header bordered class="workspace-header text-primary" style="z-index: 9998;">
         <q-toolbar>
           <div class="toolbar-left">
             <div class="nexus-logo-btn" @click="router.push('/nexus')">
-              <ReloPrepLogo
-                :width="120"
-                :height="28"
-                logo-src="https://storage.googleapis.com/widowmaker-site-images/wordlogo_dark.png"
+              <img
+                :src="logoLockup"
+                alt="Nexus Moves"
+                height="28"
+                class="brand-lockup"
               />
             </div>
             <q-btn-group flat class="primary-nav">
@@ -275,21 +277,21 @@
               <q-menu style="z-index: 9999;">
                 <q-list style="min-width: 200px;">
                   <q-item clickable v-ripple @click="showVisionSettings = true">
-                    <q-item-section avatar><q-icon name="memory" /></q-item-section>
-                    <q-item-section>Vision Provider</q-item-section>
+                    <q-item-section avatar><Cpu :size="20" class="menu-icon" /></q-item-section>
+                    <q-item-section>Vision provider</q-item-section>
                   </q-item>
                   <q-item clickable v-ripple @click="changePage('settings')">
-                    <q-item-section avatar><q-icon name="settings" /></q-item-section>
+                    <q-item-section avatar><SettingsIcon :size="20" class="menu-icon" /></q-item-section>
                     <q-item-section>Settings</q-item-section>
                   </q-item>
                   <q-item clickable v-ripple @click="changePage('support')">
-                    <q-item-section avatar><q-icon name="help_outline" /></q-item-section>
+                    <q-item-section avatar><CircleHelp :size="20" class="menu-icon" /></q-item-section>
                     <q-item-section>Support</q-item-section>
                   </q-item>
                   <q-separator />
                   <q-item clickable v-ripple @click="logoutFunction">
-                    <q-item-section avatar><q-icon name="logout" /></q-item-section>
-                    <q-item-section>Logout</q-item-section>
+                    <q-item-section avatar><LogOut :size="20" class="menu-icon" /></q-item-section>
+                    <q-item-section>Log out</q-item-section>
                   </q-item>
                 </q-list>
               </q-menu>
@@ -317,7 +319,7 @@
                   no-caps
                   :class="{ 'pill-tab-active': dashboardTab === 'attributes' }"
                   class="pill-tab"
-                  label="Review Attributes"
+                  label="Review attributes"
                   @click="dashboardTab = 'attributes'"
                 />
                 <q-btn
@@ -326,7 +328,7 @@
                   no-caps
                   :class="{ 'pill-tab-active': dashboardTab === 'duplicates' }"
                   class="pill-tab"
-                  label="Review Duplicates"
+                  label="Review duplicates"
                   @click="dashboardTab = 'duplicates'"
                 />
               </q-btn-group>
@@ -394,7 +396,7 @@
         <q-dialog v-model="showAddOptionsDialog" persistent>
           <q-card class="add-options-card">
             <q-card-section>
-              <div class="text-h6 text-primary">Add Items</div>
+              <div class="text-h6 text-primary">Add items</div>
               <div v-if="effectivePlan === 'basic'" class="text-caption text-grey-7">Choose how you want to capture items. Limits reset weekly. <a href="/pricing">Upgrade to pro</a> for unlimited scans.</div>
               <div v-else class="text-caption text-grey-7">Choose how you want to capture items.</div>
               <em></em>
@@ -404,7 +406,7 @@
                 unelevated
                 color="primary"
                 icon="photo_camera"
-                label="Scan Single Item"
+                label="Scan single item"
                 :disable="store.collections.length === 0"
                 @click="handleScanOption('single')"
               />
@@ -413,7 +415,7 @@
                 unelevated
                 color="primary"
                 icon="view_module"
-                label="Scan Multiple Items"
+                label="Scan multiple items"
                 :disable="store.collections.length === 0"
                 @click="handleScanOption('multi')"
               />
@@ -423,7 +425,7 @@
                 unelevated
                 color="primary"
                 icon="videocam"
-                label="Scan by Video"
+                label="Scan by video"
                 :disable="store.collections.length === 0 || effectivePlan !== 'pro'"
                 @click="handleVideoScanOption"
               />
@@ -432,7 +434,7 @@
               <q-btn
                 flat
                 color="grey-7"
-                label="Add Manually"
+                label="Add manually"
                 :disable="!props.user"
                 @click="handleManualAdd"
               />
@@ -447,7 +449,7 @@
         <q-dialog v-model="showVisionSettings">
           <q-card style="min-width: 400px;">
             <q-card-section>
-              <div class="text-h6">Vision AI Settings</div>
+              <div class="text-h6">Vision AI settings</div>
             </q-card-section>
 
             <q-card-section>
@@ -465,7 +467,7 @@
           <q-card style="min-width: 520px; max-width: 720px;">
             <q-card-section class="q-pb-sm">
               <div class="row items-center justify-between">
-                <div class="text-h6 text-primary">Scan by Video</div>
+                <div class="text-h6 text-primary">Scan by video</div>
                 <q-btn flat round dense icon="close" color="grey-6" @click="showVideoScan = false" />
               </div>
             </q-card-section>
@@ -507,14 +509,15 @@
 </template>
 
 <style scoped>
-.temp_bg {
-  background-color: #F7F8FA;
+.workspace-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 
 /* Floating Action Button */
 .fab-button {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  transition: transform 0.2s ease;
+  box-shadow: var(--shadow-md);
+  transition: transform var(--dur-base) var(--ease-standard);
 }
 
 .fab-button:hover {
@@ -528,25 +531,31 @@
 .toolbar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-4);
 }
 
 .nexus-logo-btn {
   display: flex;
   align-items: center;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 8px;
-  transition: background 0.2s ease;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-xs);
+  transition: background var(--dur-base) var(--ease-standard);
 }
 .nexus-logo-btn:hover {
-  background: rgba(39, 70, 144, 0.08);
+  background: var(--surface-hover);
+}
+
+.brand-lockup {
+  display: block;
+  height: 28px;
+  width: auto;
 }
 
 .primary-nav {
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.7);
-  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--surface-hover);
+  padding: var(--sp-1);
 }
 
 .toolbar-actions {
@@ -555,43 +564,52 @@
 }
 
 .header-plan-toggle {
-  background: rgba(255, 255, 255, 0.18);
-  padding: 4px 8px;
-  border-radius: 10px;
+  background: var(--surface-hover);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
 }
 
 .admin-btn {
-  border-radius: 999px;
+  border-radius: var(--r-pill);
+}
+
+.menu-icon {
+  color: var(--text-secondary);
 }
 
 .subnav {
-  padding: 12px 24px 0;
+  padding: var(--sp-4) var(--sp-7) 0;
 }
 
 .pill-tabs {
-  background: #F0F2F5;
-  border-radius: 8px;
-  padding: 4px;
+  background: var(--surface-hover);
+  border-radius: var(--r-xs);
+  padding: var(--sp-2);
   display: inline-flex;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .pill-tab {
-  border-radius: 6px;
-  padding: 6px 16px;
-  transition: all 0.2s;
-  color: #5F6368;
-  font-weight: 500;
+  border-radius: var(--r-xs);
+  padding: var(--sp-3) var(--sp-5);
+  transition: all var(--dur-base) var(--ease-standard);
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
 }
 
 .pill-tab:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--surface-sunk);
+}
+
+.pill-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .pill-tab-active {
-  background: white !important;
-  color: #1976D2 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  background: var(--surface-card) !important;
+  color: var(--accent) !important;
+  box-shadow: var(--shadow-xs);
 }
 
 .add-options-card {
@@ -604,26 +622,26 @@
 }
 
 .multi-scan-note {
-  font-size: 0.85rem;
-  color: #374151;
-  margin-top: 4px;
+  font-size: var(--fs-label);
+  color: var(--text-secondary);
+  margin-top: var(--sp-2);
 }
 
 .limit-tag {
-  font-size: 0.8rem;
-  color: #4b5563;
-  margin-top: 2px;
+  font-size: var(--fs-label);
+  color: var(--text-secondary);
+  margin-top: var(--sp-1);
   text-align: center;
 }
 
 .multi-scan-footnote {
-  font-size: 0.75rem;
-  color: #6b7280;
-  margin-top: 4px;
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
+  margin-top: var(--sp-2);
 }
 
 .multi-scan-footnote a {
-  color: #1d4ed8;
+  color: var(--accent);
   text-decoration: underline;
 }
 </style>

@@ -75,8 +75,8 @@ async function nativeShare() {
   <q-dialog v-model="showDialog">
     <q-card style="min-width: 320px; max-width: 480px;">
       <q-card-section>
-        <div class="text-h6">Share with moving companies</div>
-        <div class="text-caption text-grey-7 q-mt-xs">
+        <div class="text-h6 share-dialog__title">Share with moving companies</div>
+        <div class="text-caption text-muted q-mt-xs">
           Anyone with this link can view your inventory to prepare a quote — no account needed.
           You can revoke it anytime from your shares.
         </div>
@@ -92,9 +92,23 @@ async function nativeShare() {
         </q-input>
       </q-card-section>
       <q-card-actions align="right">
-        <q-btn flat label="Close" v-close-popup />
+        <q-btn flat label="Close" class="btn-muted" v-close-popup />
         <q-btn unelevated color="primary" icon="ios_share" label="Share" no-caps @click="nativeShare" />
       </q-card-actions>
     </q-card>
   </q-dialog>
 </template>
+
+<style scoped>
+.share-dialog__title {
+  color: var(--text-primary);
+}
+
+.text-muted {
+  color: var(--text-secondary);
+}
+
+.btn-muted {
+  color: var(--text-secondary);
+}
+</style>

@@ -4,6 +4,7 @@ import { inventoryStore } from '../../../stores/InventoryStore'
 import { useDataQuality } from '../../../composables/useDataQuality';
 import { useDuplicateDetection } from '../../../composables/useDuplicateDetection';
 import { useQuasar } from 'quasar';
+import { CheckCircle2 } from 'lucide-vue-next';
 
 const props = defineProps({
   user: String,
@@ -30,11 +31,11 @@ const normalizedView = computed(() => {
 const viewTitle = computed(() => {
   switch (normalizedView.value) {
     case 'attributes':
-      return 'Review Attributes';
+      return 'Review attributes';
     case 'duplicates':
-      return 'Review Duplicates';
+      return 'Review duplicates';
     default:
-      return 'Data Quality Overview';
+      return 'Data quality overview';
   }
 });
 
@@ -155,7 +156,7 @@ const reviewColumns = [
   },
   {
     name: 'issues',
-    label: 'Missing Details',
+    label: 'Missing details',
     field: 'issues',
     align: 'left'
   },
@@ -485,7 +486,7 @@ const handleMarkAsLoose = async (itemId: number) => {
 
   const handleDeleteItem = (itemId: number, itemName: string) => {
   $q.dialog({
-    title: 'Delete Item?',
+    title: 'Delete item?',
     message: `Are you sure you want to permanently delete "${itemName}"? This action cannot be undone.`,
     persistent: false,
     ok: {
@@ -518,7 +519,7 @@ const handleMarkAsLoose = async (itemId: number) => {
 // Duplicate handling functions
 const keepItemA = async (pairKey: string, itemAId: number, itemBId: number) => {
   $q.dialog({
-    title: 'Delete Item B?',
+    title: 'Delete item B?',
     message: 'This will permanently delete the second item and keep the first one.',
     cancel: true,
     persistent: false
@@ -541,7 +542,7 @@ const keepItemA = async (pairKey: string, itemAId: number, itemBId: number) => {
 
 const keepItemB = async (pairKey: string, itemAId: number, itemBId: number) => {
   $q.dialog({
-    title: 'Delete Item A?',
+    title: 'Delete item A?',
     message: 'This will permanently delete the first item and keep the second one.',
     cancel: true,
     persistent: false
@@ -613,7 +614,7 @@ const keepBothItems = (pairKey: string) => {
         :class="{ 'has-duplicates': duplicateCount > 0 }"
       >
         <q-card-section>
-          <div class="summary-label">Potential Duplicates</div>
+          <div class="summary-label">Potential duplicates</div>
           <div class="summary-value">{{ duplicateCount }}</div>
           <q-linear-progress
             :value="duplicateCount > 0 ? 1 : 0"
@@ -808,7 +809,7 @@ const keepBothItems = (pairKey: string) => {
                               dense
                               color="secondary"
                               icon="chair"
-                              label="Mark as Loose Item"
+                              label="Mark as loose item"
                               class="full-width"
                               @click="handleMarkAsLoose(props.row.id); scope.cancel()"
                             >
@@ -907,8 +908,8 @@ const keepBothItems = (pairKey: string) => {
     <!-- Potential Duplicates Section -->
     <div v-else class="duplicates-section q-pa-md">
       <div v-if="duplicatePairs.length === 0" class="no-duplicates q-pa-xl text-center">
-        <q-icon name="check_circle" size="64px" color="positive" />
-        <div class="text-h6 q-mt-md">No Potential Duplicates Found</div>
+        <CheckCircle2 :size="64" class="no-duplicates-icon" />
+        <div class="text-h6 q-mt-md">No potential duplicates found</div>
         <div class="text-body2 text-grey-7 q-mt-sm">
           Your inventory looks clean!
         </div>
@@ -925,7 +926,7 @@ const keepBothItems = (pairKey: string) => {
           <q-card-section>
             <div class="pair-header q-mb-md">
               <q-badge :color="pair.similarity >= 90 ? 'negative' : pair.similarity >= 80 ? 'warning' : 'info'" outline>
-                {{ pair.similarity }}% Match
+                {{ pair.similarity }}% match
               </q-badge>
             </div>
 
@@ -1009,7 +1010,7 @@ const keepBothItems = (pairKey: string) => {
               <q-btn
                 flat
                 color="grey-7"
-                label="Keep Both"
+                label="Keep both"
                 icon="done_all"
                 @click="keepBothItems(pair.pairKey)"
               />
@@ -1024,40 +1025,52 @@ const keepBothItems = (pairKey: string) => {
 <style scoped>
 .review-queue-container {
   max-width: 100%;
-  background: #F7F8FA;
+  background: var(--bg);
 }
 
 .review-header {
-  background: white;
-  border-bottom: 1px solid #E0E0E0;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border);
+}
+
+.review-header h5 {
+  font-family: var(--font-display);
+  letter-spacing: var(--ls-title);
 }
 
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 16px;
+  gap: var(--sp-5);
 }
 
 .summary-card {
-  background: white;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--dur-base) var(--ease-standard);
 }
 
 .summary-card:hover {
-  background: #f5f5f5;
   transform: translateY(-2px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
+}
+
+.summary-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .summary-card.selected-filter {
-  border-color: var(--q-primary);
+  border-color: var(--accent);
   border-width: 2px;
-  background: rgba(25, 118, 210, 0.05);
+  background: var(--accent-quiet);
 }
 
 .duplicate-card.has-duplicates {
-  border-color: var(--q-warning);
+  border-color: var(--warning);
   border-width: 2px;
 }
 
@@ -1082,7 +1095,7 @@ const keepBothItems = (pairKey: string) => {
 .summary-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  gap: var(--sp-5);
   margin-bottom: 0;
 }
 
@@ -1099,19 +1112,21 @@ const keepBothItems = (pairKey: string) => {
 }
 
 .summary-label {
-  font-size: 0.9rem;
+  font-size: var(--fs-body);
   color: var(--text-secondary);
 }
 
 .summary-value {
-  font-size: 2rem;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: var(--fs-display-m);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
   color: var(--text-primary);
 }
 
 .attributes-container {
   min-height: 0;
-  background: #F7F8FA;
+  background: var(--bg);
   display: flex;
   flex-direction: column;
 }
@@ -1128,9 +1143,10 @@ const keepBothItems = (pairKey: string) => {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: white;
-  border: 1px solid #E0E0E0;
-  border-radius: 16px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
@@ -1149,7 +1165,7 @@ const keepBothItems = (pairKey: string) => {
 
 .review-attributes-table :deep(.q-table__top) {
   flex-shrink: 0;
-  padding-bottom: 8px;
+  padding-bottom: var(--sp-3);
 }
 
 .review-attributes-table :deep(.q-table__middle) {
@@ -1164,9 +1180,9 @@ const keepBothItems = (pairKey: string) => {
 }
 
 .review-attributes-table :deep(thead tr th) {
-  background: #274690;
-  color: white;
-  font-weight: 600;
+  background: var(--accent-quiet);
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
 }
 
 .search-input {
@@ -1177,59 +1193,61 @@ const keepBothItems = (pairKey: string) => {
 .filters-menu {
   min-width: 320px;
   max-width: 420px;
-  padding: 16px;
+  padding: var(--sp-5);
 }
 
 .actions-cell {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .action-buttons {
   display: flex;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 
 .ai-suggestion-pill {
-  border: 1px solid #d0def6;
-  border-radius: 8px;
-  padding: 6px 10px;
-  background: #eef4ff;
+  border: 1px solid var(--accent-quiet-2);
+  border-radius: var(--r-xs);
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--accent-quiet);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .ai-suggestion-pill .pill-summary {
-  font-size: 12px;
-  color: #0f172a;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  color: var(--text-primary);
+  font-weight: var(--fw-semibold);
 }
 
 .filter-section + .filter-section {
-  margin-top: 12px;
+  margin-top: var(--sp-4);
 }
 
 .section-label {
-  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #6b7280;
-  margin-bottom: 6px;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-tertiary);
+  margin-bottom: var(--sp-2);
 }
 
 .chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .dimension-form-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-3);
   width: 240px;
 }
 
@@ -1238,20 +1256,20 @@ const keepBothItems = (pairKey: string) => {
 }
 
 .review-table-footer {
-  border-top: 1px solid #e0e0e0;
-  background: #fafafa;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunk);
 }
 
 .issue-chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .issue-chip {
-  font-size: 0.7rem;
+  font-size: var(--fs-micro);
   cursor: pointer;
-  transition: transform 0.1s ease;
+  transition: transform var(--dur-fast) var(--ease-standard);
 }
 
 .issue-chip:hover {
@@ -1263,7 +1281,7 @@ const keepBothItems = (pairKey: string) => {
 }
 
 .item-tooltip {
-  padding: 4px;
+  padding: var(--sp-2);
 }
 
 /* Section Toggle */
@@ -1278,20 +1296,29 @@ const keepBothItems = (pairKey: string) => {
 }
 
 .no-duplicates {
-  background: white;
-  border-radius: 8px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.no-duplicates-icon {
+  color: var(--success);
 }
 
 .duplicate-pairs-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 16px;
+  gap: var(--sp-5);
   max-width: 1200px;
   margin: 0 auto;
 }
 
 .duplicate-pair-card {
-  background: white;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .pair-header {
@@ -1303,44 +1330,45 @@ const keepBothItems = (pairKey: string) => {
 .comparison-container {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: var(--sp-7);
   align-items: start;
 }
 
 .comparison-item {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-4);
 }
 
 .item-a-box,
 .item-b-box {
-  border: 2px solid #e0e0e0;
-  border-radius: 12px;
-  padding: 16px;
-  background: #fafafa;
-  transition: border-color 0.2s ease;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: var(--sp-5);
+  background: var(--surface-sunk);
+  transition: border-color var(--dur-base) var(--ease-standard);
 }
 
 .item-a-box:hover,
 .item-b-box:hover {
-  border-color: var(--q-primary);
+  border-color: var(--accent);
 }
 
 .item-label {
-  font-weight: 600;
-  font-size: 0.9rem;
+  font-family: var(--font-mono);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-micro);
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--ls-eyebrow);
 }
 
 .item-photo-container {
   width: 120px;
   height: 120px;
-  border-radius: 8px;
+  border-radius: var(--r-xs);
   overflow: hidden;
-  background: #f5f5f5;
+  background: var(--surface-hover);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1356,12 +1384,12 @@ const keepBothItems = (pairKey: string) => {
 .item-details {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .item-name {
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: var(--fs-body-l);
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
   word-break: break-word;
 }
@@ -1369,17 +1397,17 @@ const keepBothItems = (pairKey: string) => {
 .item-meta {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .meta-row {
   display: flex;
-  gap: 8px;
-  font-size: 0.85rem;
+  gap: var(--sp-3);
+  font-size: var(--fs-label);
 }
 
 .meta-label {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-secondary);
   min-width: 80px;
 }
@@ -1391,7 +1419,7 @@ const keepBothItems = (pairKey: string) => {
 
 .action-buttons {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-3);
   justify-content: center;
   flex-wrap: wrap;
 }
@@ -1399,7 +1427,7 @@ const keepBothItems = (pairKey: string) => {
 @media (max-width: 768px) {
   .comparison-container {
     grid-template-columns: 1fr;
-    gap: 16px;
+    gap: var(--sp-5);
   }
 
   .action-buttons {

@@ -304,13 +304,13 @@
 
         <q-card-section class="q-pt-none">
             <!-- REQUIRED FOR ALL -->
-            <q-input dense color="teal" v-model="name" label="Name" :rules="[(val: any) => !!val || 'Field is required']" />
+            <q-input dense color="primary" v-model="name" label="Name" :rules="[(val: any) => !!val || 'Field is required']" />
             
             <!-- REQUIRED FOR ITEM -->
-            <q-input dense v-if="(props.addType == 'Item')" color="teal" v-model.number="quantity" type="number" label="Quantity" :rules="[(val: number) => val > 0 || 'Quantity has to be 1 or greater']"/>
+            <q-input dense v-if="(props.addType == 'Item')" color="primary" v-model.number="quantity" type="number" label="Quantity" :rules="[(val: number) => val > 0 || 'Quantity has to be 1 or greater']"/>
             
             <!-- OPTIONAL FOR ITEM / COLLECTION -->
-            <q-input dense v-if="(props.addType == 'Item') || (props.addType == 'Collection')" v-model="description" label="Description" color="teal" autogrow />
+            <q-input dense v-if="(props.addType == 'Item') || (props.addType == 'Collection')" v-model="description" label="Description" color="primary" autogrow />
 
             <!-- REQUIRED FOR ITEM, CONTAINER -->
             <q-select
@@ -344,35 +344,35 @@
             />
 
             <template v-if="props.addType == 'Container'">
-                <q-input dense v-model="boxNumber" label="Box Number" color="teal" />
+                <q-input dense v-model="boxNumber" label="Box number" color="primary" />
                 <q-select
                     dense
                     v-model="boxType"
                     :options="boxTypeOptions"
-                    label="Box Type"
+                    label="Box type"
                     filled
-                    color="teal"
+                    color="primary"
                 />
                 <q-select
                     dense
                     v-model="boxSize"
                     :options="boxSizeOptions"
-                    label="Standard Size"
+                    label="Standard size"
                     filled
-                    color="teal"
+                    color="primary"
                     emit-value
                     map-options
                 />
-                <q-input dense v-model="colorCode" label="Color Code" color="teal" />
-                <q-checkbox dense v-model="fragileContents" label="Contains Fragile Items" color="orange" />
-                <q-checkbox dense v-model="sealed" label="Box is Sealed" color="green" />
-                <q-input dense v-model.number="weightLbs" type="number" label="Current Weight (lbs)" color="teal" suffix="lbs" step="0.1" />
+                <q-input dense v-model="colorCode" label="Color code" color="primary" />
+                <q-checkbox dense v-model="fragileContents" label="Contains fragile items" color="warning" />
+                <q-checkbox dense v-model="sealed" label="Box is sealed" color="positive" />
+                <q-input dense v-model.number="weightLbs" type="number" label="Current weight (lbs)" color="primary" suffix="lbs" step="0.1" />
                 <q-input
                     dense
                     v-model.number="maxWeightCapacity"
                     type="number"
-                    label="Max Weight Capacity (lbs)"
-                    color="teal"
+                    label="Max weight capacity (lbs)"
+                    color="primary"
                     suffix="lbs"
                     step="0.5"
                     :hint="boxSize !== 'custom' ? `Preset from ${selectedBoxPreset?.label || ''}` : 'Define your own limit'"
@@ -384,7 +384,7 @@
                             v-model.number="boxLength"
                             type="number"
                             label="Length (in)"
-                            color="teal"
+                            color="primary"
                             step="0.5"
                         />
                     </div>
@@ -394,7 +394,7 @@
                             v-model.number="boxWidth"
                             type="number"
                             label="Width (in)"
-                            color="teal"
+                            color="primary"
                             step="0.5"
                         />
                     </div>
@@ -404,17 +404,17 @@
                             v-model.number="boxHeight"
                             type="number"
                             label="Height (in)"
-                            color="teal"
+                            color="primary"
                             step="0.5"
                         />
                     </div>
                 </div>
-                <div class="text-caption text-grey-7">
+                <div class="text-caption text-grey-7 volume-readout">
                     Volume: {{ maxVolumeCapacity ? `${maxVolumeCapacity} cu ft` : 'Enter dimensions to calculate volume' }}
                 </div>
 
                 <!-- Weight Status Warning -->
-                <q-banner v-if="weightStatus" rounded dense class="q-mt-sm" :class="`bg-${weightStatus.color} text-white`">
+                <q-banner v-if="weightStatus" rounded dense class="q-mt-sm status-banner" :class="`status-banner--${weightStatus.status}`">
                     <template v-slot:avatar>
                         <q-icon :name="weightStatus.icon" />
                     </template>
@@ -422,32 +422,32 @@
                 </q-banner>
 
                 <!-- Density Recommendation for Custom Boxes -->
-                <q-banner v-if="densityRecommendation" rounded dense class="q-mt-sm bg-info text-white">
+                <q-banner v-if="densityRecommendation" rounded dense class="q-mt-sm status-banner status-banner--info">
                     <template v-slot:avatar>
                         <q-icon :name="densityRecommendation.icon" />
                     </template>
                     {{ densityRecommendation.message }}
                     <template v-slot:action>
-                        <q-btn flat dense label="Use Preset" @click="boxSize = densityRecommendation.recommended" />
+                        <q-btn flat dense label="Use preset" @click="boxSize = densityRecommendation.recommended" />
                     </template>
                 </q-banner>
 
                 <!-- Box Type Description -->
-                <q-banner v-if="selectedBoxPreset && selectedBoxPreset.description" rounded dense class="q-mt-sm bg-grey-3 text-grey-8">
+                <q-banner v-if="selectedBoxPreset && selectedBoxPreset.description" rounded dense class="q-mt-sm status-banner status-banner--neutral">
                     <template v-slot:avatar>
                         <q-icon name="info" color="primary" />
                     </template>
                     <div class="text-body2">{{ selectedBoxPreset.description }}</div>
                 </q-banner>
 
-                <q-input dense v-model="description" label="Container Description" color="teal" autogrow />
+                <q-input dense v-model="description" label="Container description" color="primary" autogrow />
             </template>
             
-            <q-input dense v-if="(props.addType == 'Location')"  color="teal" v-model="address" label="Address" />
-            <q-input dense v-if="(props.addType == 'Location')"  color="teal" v-model="address_2" label="Unit / Apt Number" />
-            <q-input dense v-if="(props.addType == 'Location')"  color="teal" v-model="city" label="City" />
-            <q-input dense v-if="(props.addType == 'Location')"  color="teal" v-model="state" label="State" />
-            <q-input dense v-if="(props.addType == 'Location')"  color="teal" v-model="zip" label="Zip Code" />
+            <q-input dense v-if="(props.addType == 'Location')"  color="primary" v-model="address" label="Address" />
+            <q-input dense v-if="(props.addType == 'Location')"  color="primary" v-model="address_2" label="Unit / apt number" />
+            <q-input dense v-if="(props.addType == 'Location')"  color="primary" v-model="city" label="City" />
+            <q-input dense v-if="(props.addType == 'Location')"  color="primary" v-model="state" label="State" />
+            <q-input dense v-if="(props.addType == 'Location')"  color="primary" v-model="zip" label="Zip code" />
         </q-card-section>
 
         <q-card-actions align="right" class="text-primary">
@@ -465,10 +465,49 @@
     max-width: 520px;
     max-height: calc(100vh - 96px);
     overflow-y: auto;
-    font-size: 0.92rem;
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    font-size: var(--fs-body);
 }
 
 .modal-card :deep(.q-field__label) {
-    font-size: 0.85rem;
+    font-size: var(--fs-label);
+}
+
+.volume-readout {
+    font-family: var(--font-mono);
+    font-size: var(--fs-label);
+}
+
+.status-banner {
+    border-radius: var(--r-sm);
+    font-size: var(--fs-body);
+}
+
+.status-banner--over {
+    background: var(--danger-quiet);
+    color: var(--danger);
+}
+
+.status-banner--near {
+    background: var(--warning-surface);
+    color: var(--warning-ink);
+}
+
+.status-banner--ok {
+    background: var(--success-quiet);
+    color: var(--success);
+}
+
+.status-banner--info {
+    background: var(--accent-quiet);
+    color: var(--accent);
+}
+
+.status-banner--neutral {
+    background: var(--surface-sunk);
+    color: var(--text-secondary);
 }
 </style>

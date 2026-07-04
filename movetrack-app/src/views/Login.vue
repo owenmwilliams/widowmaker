@@ -4,7 +4,7 @@ import { API_BASE_URL } from "../config/api";
 import { isMobileViewport } from '../utils/viewport';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
-import ReloPrepLogo from '../components/brand/ReloPrepLogo.vue';
+import { CircleAlert, Mail } from 'lucide-vue-next';
 import { useQuasar } from 'quasar';
 
 
@@ -242,10 +242,11 @@ const redirectAfterLogin = (_user: any) => {
 <template>
   <!-- Full-screen loading when verifying magic link -->
   <div v-if="isVerifying" class="fullscreen-loading">
+    <div class="fullscreen-loading__aurora" aria-hidden="true"></div>
     <div class="loading-content">
-      <q-spinner color="primary" size="80px" />
-      <div class="q-mt-lg text-h5">Logging you in...</div>
-      <div class="q-mt-sm text-body2 text-grey-7">Please wait a moment</div>
+      <q-spinner color="white" size="80px" />
+      <div class="loading-title q-mt-lg">Logging you in...</div>
+      <div class="loading-sub q-mt-sm">Please wait a moment</div>
     </div>
   </div>
 
@@ -253,20 +254,20 @@ const redirectAfterLogin = (_user: any) => {
     <q-card class="login-card" flat bordered>
       <q-card-section>
         <div class="logo-row">
-          <ReloPrepLogo :width="140" :height="34" />
+          <img src="../assets/brand/logo-lockup-light.svg" alt="Nexus Moves" class="login-logo" height="34" />
         </div>
 
         <!-- Verification error (magic link) -->
         <div v-if="verificationError" class="text-center q-py-lg">
-          <q-icon name="error" color="negative" size="50px" />
-          <div class="q-mt-md text-body1 text-negative">{{ verificationError }}</div>
-          <q-btn color="primary" label="Try Again" class="q-mt-md" @click="tryAgain" />
+          <CircleAlert :size="50" class="error-icon" aria-hidden="true" />
+          <div class="q-mt-md text-body1 error-text">{{ verificationError }}</div>
+          <q-btn unelevated no-caps color="primary" label="Try again" class="q-mt-md" @click="tryAgain" />
         </div>
 
         <!-- Code entry -->
         <div v-else-if="codeSent">
-          <div class="text-h6 text-center">Enter your code</div>
-          <div class="text-body2 text-grey-7 text-center q-mt-xs q-mb-lg">
+          <div class="login-title text-center">Enter your code</div>
+          <div class="hint-text text-center q-mt-xs q-mb-lg">
             We sent a 6-digit code to <strong>{{ email }}</strong>
           </div>
 
@@ -288,11 +289,13 @@ const redirectAfterLogin = (_user: any) => {
             />
           </div>
 
-          <div v-if="codeError" class="text-negative text-center text-body2 q-mt-sm">{{ codeError }}</div>
+          <div v-if="codeError" class="error-text text-center text-body2 q-mt-sm">{{ codeError }}</div>
 
           <q-btn
+            unelevated
+            no-caps
             color="primary"
-            label="Verify & Log In"
+            label="Verify and log in"
             :loading="isVerifyingCode"
             :disable="isVerifyingCode || code.length !== 6"
             @click="verifyCode"
@@ -300,21 +303,21 @@ const redirectAfterLogin = (_user: any) => {
             size="lg"
           />
 
-          <div v-if="isDevelopment" class="q-mt-md q-pa-sm bg-grey-3 rounded-borders text-center">
-            <div class="text-caption text-weight-bold">Development Mode</div>
+          <div v-if="isDevelopment" class="dev-note q-mt-md q-pa-sm text-center">
+            <div class="text-caption text-weight-bold">Development mode</div>
             <div class="text-caption">Check the API console for the code</div>
           </div>
 
           <div class="row justify-center q-mt-md q-gutter-sm">
-            <q-btn flat dense color="primary" label="Resend code" :disable="isSubmitting" @click="requestCode" />
-            <q-btn flat dense color="grey-7" label="Use a different email" @click="tryAgain" />
+            <q-btn flat dense no-caps color="primary" label="Resend code" :disable="isSubmitting" @click="requestCode" />
+            <q-btn flat dense no-caps class="quiet-btn" label="Use a different email" @click="tryAgain" />
           </div>
         </div>
 
         <!-- Email form -->
         <div v-else>
-          <div class="text-h5 text-center q-mb-xs">Log in to Nexus Moves</div>
-          <div class="text-body2 text-grey-7 text-center q-mb-lg">
+          <div class="login-title text-center q-mb-xs">Log in to Nexus Moves</div>
+          <div class="hint-text text-center q-mb-lg">
             Enter your email and we'll send you a 6-digit code.
           </div>
 
@@ -330,11 +333,13 @@ const redirectAfterLogin = (_user: any) => {
             class="q-mb-md"
           >
             <template v-slot:prepend>
-              <q-icon name="mail" />
+              <Mail :size="22" class="input-icon" aria-hidden="true" />
             </template>
           </q-input>
 
           <q-btn
+            unelevated
+            no-caps
             color="primary"
             label="Email me a code"
             :loading="isSubmitting"
@@ -344,7 +349,7 @@ const redirectAfterLogin = (_user: any) => {
             size="lg"
           />
 
-          <div class="q-mt-lg text-center text-body2 text-grey-7">
+          <div class="hint-text q-mt-lg text-center">
             No password needed — just a quick code by email.
           </div>
         </div>
@@ -363,13 +368,35 @@ const redirectAfterLogin = (_user: any) => {
   display: flex;
   justify-content: center;
   align-items: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--navy-800);
+  overflow: hidden;
   z-index: 9999;
 }
 
+.fullscreen-loading__aurora {
+  position: absolute;
+  inset: 0;
+  background: var(--aurora);
+  pointer-events: none;
+}
+
 .loading-content {
+  position: relative;
   text-align: center;
-  color: white;
+  color: var(--text-on-accent);
+}
+
+.loading-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-title-l);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-display);
+}
+
+.loading-sub {
+  font-size: var(--fs-body);
+  color: var(--text-on-accent);
+  opacity: 0.75;
 }
 
 .login-container {
@@ -377,54 +404,129 @@ const redirectAfterLogin = (_user: any) => {
   justify-content: center;
   align-items: center;
   min-height: 80vh;
-  padding: 20px;
+  padding: var(--sp-6);
+  background: var(--bg);
 }
 
 .login-card {
   width: 100%;
   max-width: 440px;
-  border-radius: 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 
 .logo-row {
   display: flex;
   justify-content: center;
   align-items: center;
-  margin-bottom: 20px;
+  margin-bottom: var(--sp-6);
+}
+
+.login-logo {
+  display: block;
+  height: 34px;
+  width: auto;
+}
+
+.login-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-title-m);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-display);
+  color: var(--text-primary);
+}
+
+.hint-text {
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+  line-height: var(--lh-body);
+}
+
+.error-icon {
+  color: var(--danger);
+}
+
+.error-text {
+  color: var(--danger);
+}
+
+.input-icon {
+  color: var(--text-tertiary);
+}
+
+.quiet-btn {
+  color: var(--text-secondary);
+}
+
+.dev-note {
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+}
+
+.q-btn {
+  border-radius: var(--r-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title);
+}
+
+.q-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.q-btn:active {
+  transform: scale(0.97);
+}
+
+.q-btn.disabled {
+  opacity: 0.45 !important;
+}
+
+.q-btn.bg-primary:hover {
+  background: var(--accent-hover) !important;
 }
 
 .code-boxes {
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: var(--sp-4);
 }
 
 .code-box {
   width: 48px;
   height: 58px;
   text-align: center;
-  font-size: 26px;
-  font-weight: 600;
-  color: #1f2033;
-  border: 1.5px solid #d6d6e0;
-  border-radius: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-title-l);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+  border: 1.5px solid var(--border);
+  border-radius: var(--r-md);
   outline: none;
-  transition: border-color .12s, box-shadow .12s;
-  background: #fff;
+  transition: border-color var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
+  background: var(--surface-card);
 }
 
 .code-box:focus {
-  border-color: #5b5bd6;
-  box-shadow: 0 0 0 3px rgba(91, 91, 214, 0.18);
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.code-box:disabled {
+  opacity: 0.45;
 }
 
 .code-box--error {
-  border-color: #c10015;
+  border-color: var(--danger);
 }
 
 @media (max-width: 420px) {
-  .code-box { width: 42px; height: 52px; font-size: 22px; }
-  .code-boxes { gap: 7px; }
+  .code-box { width: 42px; height: 52px; font-size: var(--fs-title-m); }
+  .code-boxes { gap: var(--sp-3); }
 }
 
 @media (max-width: 600px) {

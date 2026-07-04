@@ -1,0 +1,43 @@
+/* ============================================================
+   NEXUS MOVES — TYPOGRAPHY TOKENS
+   ============================================================ */
+
+:root {
+  /* -------- FAMILIES -------- */
+  --font-display: "Bricolage Grotesque", system-ui, -apple-system, sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+             Roboto, system-ui, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* -------- WEIGHTS -------- */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-extrabold: 800;
+
+  /* -------- TYPE SCALE (px) --------
+     Mobile UI floor is generous — the app never goes below 15px body. */
+  --fs-display-xl: 56px;  /* marketing hero */
+  --fs-display-l:  44px;
+  --fs-display-m:  34px;  /* sheet titles "In progress" */
+  --fs-title-l:    28px;
+  --fs-title-m:    22px;  /* card / section headers "Nexus Moves" */
+  --fs-title-s:    18px;
+  --fs-body-l:     17px;  /* chat body */
+  --fs-body:       15px;  /* default UI body */
+  --fs-label:      13px;  /* captions, meta */
+  --fs-micro:      11px;  /* eyebrows, status bar */
+
+  /* -------- LINE HEIGHTS -------- */
+  --lh-tight: 1.08;   /* display */
+  --lh-snug:  1.25;   /* titles */
+  --lh-body:  1.45;   /* running text */
+  --lh-loose: 1.6;
+
+  /* -------- TRACKING -------- */
+  --ls-display: -0.02em;
+  --ls-title: -0.01em;
+  --ls-body: 0;
+  --ls-eyebrow: 0.14em; /* mono uppercase eyebrows */
+}

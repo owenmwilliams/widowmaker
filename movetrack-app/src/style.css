@@ -1,82 +1,47 @@
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
+/* App glue on top of the design system. Tokens live in
+   styles/design-system/ (single style source) — no palette,
+   type, spacing, or shadow values may be defined here. */
 
-  color-scheme: dark light;
+/* DEPRECATED aliases for the pre-rollout variable names still
+   referenced by a handful of components (ItemDetailsModal,
+   ItemToggleCard, CollectionsBoard, DesktopSettings,
+   DesktopSupport). They resolve to tokens — never to literals —
+   and each usage is removed as its surface is restyled. Do not
+   add new usages. */
+:root {
+  --primary: var(--accent);
+  --primary-subtle: var(--accent-quiet);
+  --bg-secondary: var(--surface-sunk);
+  --bg-tertiary: var(--surface-hover);
+  --border-light: var(--border);
+  --text-hint: var(--text-tertiary);
+  --negative: var(--danger);
+}
+
+:root {
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-regular);
+
+  color-scheme: light;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
 
-  /* Nexus Moves Color System - Precision Blue */
-
-  /* Primary Colors - Trust Navy & Royal Blue */
-  --primary: #274690;          /* Royal Blue - primary brand */
-  --primary-light: #3A5AA0;    /* Lighter blue for hover states */
-  --primary-dark: #0E1B2A;     /* Trust Navy - emphasis */
-  --primary-subtle: #E8EDF5;   /* Very light blue for backgrounds */
-
-  /* Secondary Colors - Proof Cyan (verification/transparency) */
-  --secondary: #1CA1C1;        /* Proof Cyan - secondary actions */
-  --secondary-light: #3BB5CE;  /* Light cyan for hover */
-  --secondary-dark: #158196;   /* Dark cyan for emphasis */
-  --secondary-subtle: #E3F5F9; /* Very light cyan for backgrounds */
-
-  /* Accent Colors */
-  --accent: #1CA1C1;           /* Proof Cyan - highlights */
-  --accent-warm: #C99A3E;      /* Brass for premium touches */
-  --accent-cool: #2EBD85;      /* On-Time Green */
-
-  /* Neutrals */
-  --bg-primary: #FFFFFF;       /* Main background */
-  --bg-secondary: #F9F9F9;     /* Secondary background */
-  --bg-tertiary: #F5F5F5;      /* Tertiary background */
-
-  --text-primary: #212121;     /* Primary text */
-  --text-secondary: #616161;   /* Secondary text */
-  --text-tertiary: #757575;    /* Tertiary text/disabled */
-  --text-hint: #BDBDBD;        /* Placeholder text */
-
-  --border-light: #E0E0E0;     /* Light borders */
-  --border-medium: #BDBDBD;    /* Medium borders */
-  --border-dark: #9E9E9E;      /* Dark borders */
-
-  /* Status Colors */
-  --success: #4CAF50;          /* Success states */
-  --success-light: #81C784;
-  --warning: #FF9800;          /* Warning states */
-  --warning-light: #FFB74D;
-  --error: #F44336;            /* Error states */
-  --error-light: #E57373;
-  --info: #2196F3;             /* Info states */
-  --info-light: #64B5F6;
-
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.12);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.15);
-  --shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.2);
-
-  /* Apply defaults */
-  background-color: var(--bg-primary);
+  background-color: var(--bg);
   color: var(--text-primary);
 }
 
-h2 {
-  font-size: 1.5em;
-  font-weight: 700;
-}
-
 a {
-  font-weight: 500;
-  color: #646cff;
+  font-weight: var(--fw-medium);
+  color: var(--accent);
   text-decoration: inherit;
 }
 a:hover {
-  color: #535bf2;
+  color: var(--accent-hover);
 }
 
 body {
@@ -87,25 +52,8 @@ body {
   min-height: 100vh;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-.card {
-  padding: 2em;
-}
-
 #app {
-  width:100%;
+  width: 100%;
   text-align: left;
 }
 

@@ -2,6 +2,7 @@
     import { Ref, computed, ref, watch } from 'vue';
     import { inventoryStore } from '../../../stores/InventoryStore'
     import { onMounted } from 'vue';
+    import { ArrowLeftRight, Package, Info, Folder, Archive, MapPin } from 'lucide-vue-next';
 
     const emits = defineEmits<{
         (e: 'item:saved', id: boolean): void
@@ -86,11 +87,11 @@
 </script>
 
 <template>
-    <q-card style="min-width: 450px; max-width: 600px;">
-        <q-card-section class="bg-primary text-white">
+    <q-card class="move-dialog" style="min-width: 450px; max-width: 600px;">
+        <q-card-section class="dialog-header">
             <div class="text-h6 row items-center">
-                <q-icon name="swap_horiz" size="sm" class="q-mr-sm" />
-                Move Items
+                <ArrowLeftRight :size="20" class="q-mr-sm" />
+                Move items
             </div>
             <div class="text-caption">Organize your inventory by moving items to a different location</div>
         </q-card-section>
@@ -99,10 +100,10 @@
             <div class="text-subtitle2 text-grey-8 q-mb-sm">
                 Moving {{ props.idList.length }} item{{ props.idList.length > 1 ? 's' : '' }}:
             </div>
-            <q-list dense bordered class="rounded-borders q-mb-md" style="max-height: 150px; overflow-y: auto;">
+            <q-list dense class="move-items-list q-mb-md" style="max-height: 150px; overflow-y: auto;">
                 <q-item v-for="(item, index) in props.idList.slice(0,6)" :key="index" dense>
                     <q-item-section avatar>
-                        <q-icon name="inventory_2" size="xs" color="grey-6" />
+                        <Package :size="14" class="list-item-icon" />
                     </q-item-section>
                     <q-item-section v-if="index <= 4">
                         <q-item-label>{{ store.items.find(i => i.value == item)?.label }}</q-item-label>
@@ -114,7 +115,7 @@
             </q-list>
 
             <div class="text-subtitle2 text-grey-8 q-mb-xs q-mt-md">
-                <q-icon name="info" size="xs" color="info" class="q-mr-xs" />
+                <Info :size="14" class="info-icon q-mr-xs" />
                 How it works:
             </div>
             <div class="text-caption text-grey-7 q-mb-md q-pl-md">
@@ -129,12 +130,12 @@
                 v-model="store.activeCollection"
                 :options="store.collections.map(i => {return {label: i.label, value: i.value}})"
                 filled
-                label="1. Collection (Required)"
+                label="1. Collection (required)"
                 hint="Which room or area do these items belong to?"
                 color="primary"
             >
                 <template v-slot:prepend>
-                    <q-icon name="folder" />
+                    <Folder :size="18" class="field-icon" />
                 </template>
             </q-select>
 
@@ -143,19 +144,19 @@
                 v-model="store.activeContainer"
                 :options="store.containers.filter(i => i.collection == store.activeCollection?.value).map(i => {return {label: i.label, value: i.value}})"
                 filled
-                label="2. Container (Optional)"
+                label="2. Container (optional)"
                 hint="Which box or container are these items in?"
                 clearable
                 color="secondary"
                 class="q-mt-md"
             >
                 <template v-slot:prepend>
-                    <q-icon name="archive" />
+                    <Archive :size="18" class="field-icon" />
                 </template>
             </q-select>
 
-            <div v-else class="text-caption text-grey-6 q-mt-md q-mb-md q-pa-sm bg-grey-2 rounded-borders">
-                <q-icon name="info" size="xs" /> No containers in this collection yet. Items will be unassigned.
+            <div v-else class="text-caption empty-note q-mt-md q-mb-md q-pa-sm">
+                <Info :size="12" /> No containers in this collection yet. Items will be unassigned.
             </div>
 
             <q-select
@@ -164,14 +165,14 @@
                 :options="locationOptions"
                 :disable="(store.activeContainer != undefined && store.containers.find(i => i.value == store.activeContainer?.value)?.location != undefined)"
                 filled
-                label="3. Location (Optional)"
+                label="3. Location (optional)"
                 :hint="store.activeContainer != undefined && store.containers.find(i => i.value == store.activeContainer?.value)?.location != undefined ? 'Automatically set from container' : 'Where are these items physically located?'"
                 clearable
                 color="accent"
                 class="q-mt-md"
             >
                 <template v-slot:prepend>
-                    <q-icon name="place" />
+                    <MapPin :size="18" class="field-icon" />
                 </template>
             </q-select>
 
@@ -179,7 +180,47 @@
 
         <q-card-actions align="right" class="q-pa-md">
             <q-btn flat label="Cancel" color="grey-7" v-close-popup />
-            <q-btn unelevated label="Move Items" color="primary" icon-right="arrow_forward" @click="submit" v-close-popup />
+            <q-btn unelevated label="Move items" color="primary" icon-right="arrow_forward" @click="submit" v-close-popup />
         </q-card-actions>
     </q-card>
 </template>
+
+<style scoped>
+.move-dialog {
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+}
+
+.dialog-header {
+    background: var(--accent);
+    color: var(--on-accent);
+}
+
+.move-items-list {
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: var(--surface-sunk);
+}
+
+.list-item-icon {
+    color: var(--text-tertiary);
+}
+
+.info-icon {
+    color: var(--accent);
+    vertical-align: text-bottom;
+}
+
+.field-icon {
+    color: var(--text-tertiary);
+}
+
+.empty-note {
+    background: var(--surface-sunk);
+    border-radius: var(--r-sm);
+    color: var(--text-secondary);
+}
+</style>

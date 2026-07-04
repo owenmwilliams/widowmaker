@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import axios from 'axios'
 import NexusChat from '../components/nexus/NexusChat.vue'
 import ReloPrepLogo from '../components/brand/ReloPrepLogo.vue'
+import logoLockupLight from '../assets/brand/logo-lockup-light.svg'
 import { logout as serverLogout } from '../utils/auth'
 
 const core_url = API_BASE_URL;
@@ -81,29 +82,26 @@ const logout = async () => {
             <div class="nexus-logo-btn" @click="navigateTo('/nexus')">
               <ReloPrepLogo
                 :width="120"
-                :height="28"
-                logo-src="https://storage.googleapis.com/widowmaker-site-images/wordlogo_white.png"
+                :height="30"
+                :logo-src="logoLockupLight"
               />
             </div>
             <q-btn-group flat class="primary-nav">
               <q-btn
                 flat dense padding="xs md" no-caps
-                class="text-weight-medium"
-                color="grey-5"
+                class="nav-btn"
                 label="Dashboard"
                 @click="navigateTo('/items')"
               />
               <q-btn
                 flat dense padding="xs md" no-caps
-                class="text-weight-medium"
-                color="grey-5"
+                class="nav-btn"
                 label="Inventory"
                 @click="navigateTo('/items')"
               />
               <q-btn
                 flat dense padding="xs md" no-caps
-                class="text-weight-medium"
-                color="grey-5"
+                class="nav-btn"
                 label="Move"
                 @click="navigateTo('/items')"
               />
@@ -111,12 +109,12 @@ const logout = async () => {
           </div>
           <q-toolbar-title />
           <div class="toolbar-actions">
-            <q-btn flat round dense icon="menu" class="menu-btn">
+            <q-btn flat round dense icon="menu" aria-label="Menu" class="menu-btn">
               <q-menu style="z-index: 9999;">
                 <q-list style="min-width: 200px;">
                   <q-item clickable v-ripple @click="navigateToSettings('vision')">
                     <q-item-section avatar><q-icon name="memory" /></q-item-section>
-                    <q-item-section>Vision Provider</q-item-section>
+                    <q-item-section>Vision provider</q-item-section>
                   </q-item>
                   <q-item clickable v-ripple @click="navigateToSettings('settings')">
                     <q-item-section avatar><q-icon name="settings" /></q-item-section>
@@ -150,16 +148,19 @@ const logout = async () => {
 <style scoped>
 .desktop-route-loader {
   min-height: 100vh;
-  background: #1e1e1e;
+  background: var(--bg);
 }
 
 .desktop-nexus-layout {
-  background: #1e1e1e;
+  background: var(--bg);
+  font-family: var(--font-ui);
 }
 
 .desktop-nexus-header {
-  background: #1a1a1a;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--surface);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
   z-index: 9998;
 }
 
@@ -174,22 +175,39 @@ const logout = async () => {
   align-items: center;
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 8px;
-  transition: background 0.2s ease;
+  border-radius: var(--r-sm);
+  transition: background var(--dur-base) var(--ease-standard);
 }
 .nexus-logo-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--surface-hover);
 }
 
 .menu-btn {
-  color: #999;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  color: var(--text-secondary);
+  transition: color var(--dur-base) var(--ease-standard);
 }
 .menu-btn:hover {
-  color: #e0e0e0;
+  color: var(--text-primary);
 }
 
 .primary-nav {
   gap: 4px;
+}
+.nav-btn {
+  min-height: var(--tap-min);
+  color: var(--text-secondary);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  border-radius: var(--r-md);
+  transition:
+    color var(--dur-base) var(--ease-standard),
+    background var(--dur-base) var(--ease-standard);
+}
+.nav-btn:hover {
+  color: var(--accent);
+  background: var(--surface-hover);
 }
 
 .nexus-container {

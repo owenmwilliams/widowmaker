@@ -4,6 +4,7 @@
     import { QTableProps, useQuasar } from 'quasar';
     import MoveItemsDialog from './MoveItemsDialog.vue';
     import { storeToRefs } from 'pinia';
+    import { Search, TriangleAlert } from 'lucide-vue-next';
 
     const store = inventoryStore();
 
@@ -384,9 +385,9 @@
         >
 
         <template v-slot:top>
-                <q-input dense filled debounce="300" style="padding: 3px; width: 25vw;" color="primary" bg-color="transparent" v-model="search">
+                <q-input dense filled debounce="300" class="search-input" color="primary" bg-color="transparent" v-model="search">
                     <template v-slot:prepend>
-                        <q-icon color="primary" name="search" />
+                        <Search :size="18" class="search-icon" />
                     </template>
                 </q-input>
 
@@ -409,9 +410,8 @@
                                     :key="collection.value"
                                     dense
                                     clickable
-                                    :outline="!isCollectionActive(collection.value)"
-                                    color="primary"
-                                    text-color="white"
+                                    class="filter-chip"
+                                    :class="{ 'filter-chip--active': isCollectionActive(collection.value) }"
                                     @click="toggleCollectionFilter(collection.value)"
                                 >
                                     {{ collection.label }}
@@ -427,9 +427,8 @@
                                     :key="container.value"
                                     dense
                                     clickable
-                                    :outline="!isContainerActive(container.value)"
-                                    color="secondary"
-                                    text-color="white"
+                                    class="filter-chip"
+                                    :class="{ 'filter-chip--active': isContainerActive(container.value) }"
                                     @click="toggleContainerFilter(container.value)"
                                 >
                                     {{ container.label }}
@@ -445,9 +444,8 @@
                                     :key="location.value"
                                     dense
                                     clickable
-                                    :outline="!isLocationActive(location.value)"
-                                    color="accent"
-                                    text-color="white"
+                                    class="filter-chip"
+                                    :class="{ 'filter-chip--active': isLocationActive(location.value) }"
                                     @click="toggleLocationFilter(location.value)"
                                 >
                                     {{ location.label }}
@@ -461,9 +459,8 @@
                                 <q-chip
                                     dense
                                     clickable
-                                    :outline="!filterFragile"
-                                    color="red"
-                                    text-color="white"
+                                    class="filter-chip filter-chip--danger"
+                                    :class="{ 'filter-chip--active': filterFragile }"
                                     @click="filterFragile = !filterFragile"
                                 >
                                     Fragile
@@ -483,7 +480,7 @@
         </template>
 
         <template v-slot:bottom="props">
-            <div class="full-width row items-center justify-between q-pa-sm">
+            <div class="items-table-footer full-width row items-center justify-between q-pa-sm">
                 <div class="row items-center q-gutter-sm">
                     <q-btn
                         flat
@@ -596,21 +593,21 @@
                 <div class="text-pre-wrap">{{ props.row.description }}</div>
             </q-td>
 
-            <q-td key="quantity" :props="props">
+            <q-td key="quantity" :props="props" class="data-mono">
                 {{ props.row.quantity }}
             </q-td>
 
             <q-td key="fragile" :props="props">
-                <q-badge v-if="props.row.fragile" color="red" text-color="white">
-                    <q-icon name="warning" size="xs" class="q-mr-xs" />
+                <span v-if="props.row.fragile" class="pill pill--danger">
+                    <TriangleAlert :size="12" />
                     Fragile
-                </q-badge>
+                </span>
                 <span v-else class="text-grey-5">—</span>
             </q-td>
 
             <q-td key="weight_lbs" :props="props">
                 <div class="weight-cell">
-                    <span>{{ props.row.weight_lbs ? props.row.weight_lbs + ' lbs' : '—' }}</span>
+                    <span class="data-mono">{{ props.row.weight_lbs ? props.row.weight_lbs + ' lbs' : '—' }}</span>
                     <q-btn
                         v-if="!props.row.weight_lbs || !props.row.dimensions"
                         flat
@@ -654,7 +651,7 @@
                 </div>
             </q-td>
 
-            <q-td key="dimensions" :props="props">
+            <q-td key="dimensions" :props="props" class="data-mono">
                 {{ props.row.dimensions || '—' }}
             </q-td>
 
@@ -701,7 +698,7 @@
 <style scoped>
 .items-container {
   max-width: 100%;
-  background: #F7F8FA;
+  background: var(--bg);
   height: calc(100vh - 50px - 48px); /* 50px for header, 48px for subnav */
   overflow: hidden;
   display: flex;
@@ -710,8 +707,13 @@
 
 .items-header {
   flex-shrink: 0;
-  background: white;
-  border-bottom: 1px solid #E0E0E0;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border);
+}
+
+.items-header h5 {
+  font-family: var(--font-display);
+  letter-spacing: var(--ls-title);
 }
 
 .items-table-page {
@@ -727,9 +729,10 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: white;
-  border: 1px solid #E0E0E0;
-  border-radius: 16px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
 }
 
@@ -738,13 +741,6 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.button-container {
-    position: sticky;
-    top: 0;
-    background-color: white; /* Adjust the background color as needed */
-    z-index: 1; /* Ensure buttons appear above the table */
 }
 
 .full-height-table {
@@ -788,17 +784,18 @@
 }
 
 .my-sticky-header-column-table td:first-child {
-  background-color: #467599;
-  color: #fff;
+  /* sticky column needs an opaque background */
+  background: var(--surface-card);
 }
 .my-sticky-header-column-table thead tr th {
   position: sticky;
     /* higher than z-index for td below */
     z-index: 2;
     /* bg color is important; just specify one */
-    background: #467599;
+    background: var(--accent-quiet);
     /* text color must be specified */
-    color: #fff;
+    color: var(--accent);
+    font-weight: var(--fw-semibold);
 }
 
 .my-sticky-header-column-table thead tr:last-child th {
@@ -832,57 +829,137 @@
 
 .item-row {
   cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-standard);
 }
 
 .item-row:hover {
-  background-color: rgba(70, 117, 153, 0.08);
+  background: var(--surface-hover);
+}
+
+.item-row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.items-table-footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface-sunk);
+}
+
+.search-input {
+  padding: 3px;
+  width: 25vw;
+  min-width: 220px;
+}
+
+.search-icon {
+  color: var(--accent);
 }
 
 .filters-menu {
   min-width: 320px;
   max-width: 420px;
-  padding: 16px;
+  padding: var(--sp-5);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .filter-section + .filter-section {
-  margin-top: 12px;
+  margin-top: var(--sp-4);
 }
 
 .section-label {
-  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #6b7280;
-  margin-bottom: 6px;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-tertiary);
+  margin-bottom: var(--sp-2);
 }
 
 .chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--sp-3);
+}
+
+.filter-chip {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  border-radius: var(--r-pill);
+  padding: 3px 10px;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-semibold);
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard),
+    transform var(--dur-fast) var(--ease-standard);
+}
+
+.filter-chip:active {
+  transform: scale(0.97);
+}
+
+.filter-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.filter-chip--active {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+.filter-chip--danger.filter-chip--active {
+  background: var(--danger-quiet);
+  color: var(--danger);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+
+.pill--danger {
+  background: var(--danger-quiet);
+  color: var(--danger);
+}
+
+.data-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
 }
 
 .weight-cell {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 
 .ai-suggestion-inline {
-  margin-top: 4px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid #d0def6;
-  background: #eef4ff;
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-xs);
+  border: 1px solid var(--accent-quiet-2);
+  background: var(--accent-quiet);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .ai-inline-summary {
-  font-size: 12px;
-  font-weight: 600;
-  color: #0f172a;
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
 }
 </style>

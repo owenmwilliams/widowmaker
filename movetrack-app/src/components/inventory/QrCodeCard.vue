@@ -2,6 +2,7 @@
 import { computed, ref, watch } from "vue";
 import { useQuasar } from "quasar";
 import QRCode from "qrcode";
+import { QrCode as QrCodeIcon } from "lucide-vue-next";
 
 const props = withDefaults(
   defineProps<{
@@ -12,11 +13,11 @@ const props = withDefaults(
     actionLabel?: string;
   }>(),
   {
-    title: "QR Code",
+    title: "QR code",
     description: "",
     qrUrl: null,
     generating: false,
-    actionLabel: "Generate QR Code",
+    actionLabel: "Generate QR code",
   },
 );
 
@@ -208,7 +209,7 @@ const handleAssignManual = () => {
       <div>
         <div class="qr-card__eyebrow">Share via QR</div>
         <div class="text-subtitle1">{{ title }}</div>
-        <div v-if="description" class="text-caption text-grey-7">
+        <div v-if="description" class="text-caption text-muted">
           {{ description }}
         </div>
       </div>
@@ -242,17 +243,17 @@ const handleAssignManual = () => {
             />
           </template>
         </q-input>
-        <div class="text-caption text-grey-7 text-center q-mt-sm">
+        <div class="text-caption text-muted text-center q-mt-sm">
           Print or place this QR on the box/item. Scanning routes directly to
           the inventory.
         </div>
       </div>
       <div v-else class="qr-card__empty">
-        <q-icon name="qr_code_2" size="48px" color="grey-5" />
+        <QrCodeIcon :size="48" class="qr-card__empty-icon" />
         <div v-if="qrError" class="text-negative text-caption q-mt-sm">
           {{ qrError }}
         </div>
-        <div v-else class="text-caption text-grey-6 q-mt-sm">
+        <div v-else class="text-caption text-faint q-mt-sm">
           Assign a QR code to quickly check this record in the field.
         </div>
       </div>
@@ -262,8 +263,8 @@ const handleAssignManual = () => {
   <q-dialog v-model="showLinkDialog" persistent>
     <q-card style="min-width: 340px; max-width: 420px">
       <q-card-section>
-        <div class="text-subtitle1">Link Existing QR</div>
-        <div class="text-caption text-grey-7">
+        <div class="text-subtitle1">Link existing QR</div>
+        <div class="text-caption text-muted">
           Scan a sticker or paste the URL from a pre-printed QR code.
         </div>
       </q-card-section>
@@ -292,7 +293,7 @@ const handleAssignManual = () => {
             label="Restart scanner"
             @click="startScanner"
           />
-          <q-btn flat color="grey-7" dense label="Stop" @click="stopScanner" />
+          <q-btn flat class="btn-muted" dense label="Stop" @click="stopScanner" />
         </div>
         <q-input
           v-model="manualValue"
@@ -302,7 +303,7 @@ const handleAssignManual = () => {
         />
       </q-card-section>
       <q-card-actions align="right">
-        <q-btn flat label="Cancel" color="grey-7" @click="showLinkDialog = false" />
+        <q-btn flat label="Cancel" class="btn-muted" @click="showLinkDialog = false" />
         <q-btn color="primary" label="Link QR" @click="handleAssignManual" />
       </q-card-actions>
     </q-card>
@@ -311,41 +312,58 @@ const handleAssignManual = () => {
 
 <style scoped>
 .qr-card {
-  border-radius: 16px;
-  background: linear-gradient(180deg, #f9fbff 0%, #ffffff 80%);
+  border-radius: var(--r-lg);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 
 .qr-card__eyebrow {
+  font-family: var(--font-mono);
   text-transform: uppercase;
-  letter-spacing: 0.2em;
-  font-size: 0.65rem;
-  color: #3b5ccc;
-  margin-bottom: 4px;
+  letter-spacing: var(--ls-eyebrow);
+  font-size: var(--fs-micro);
+  color: var(--accent);
+  margin-bottom: var(--sp-2);
+}
+
+.text-muted {
+  color: var(--text-secondary);
+}
+
+.text-faint {
+  color: var(--text-tertiary);
+}
+
+.btn-muted {
+  color: var(--text-secondary);
 }
 
 .qr-card__content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .qr-card__image {
   width: 180px;
   height: 180px;
   object-fit: contain;
-  padding: 12px;
-  border-radius: 12px;
-  background: white;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  padding: var(--sp-4);
+  border-radius: var(--r-md);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
 }
 
 .qr-card__link {
   width: 100%;
-  background: rgba(15, 23, 42, 0.05);
-  border-radius: 999px;
-  padding-left: 16px;
+  background: var(--surface-hover);
+  border-radius: var(--r-pill);
+  padding-left: var(--sp-5);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
 }
 
 .qr-card__empty {
@@ -354,17 +372,21 @@ const handleAssignManual = () => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 23, 42, 0.03);
-  border-radius: 12px;
+  background: var(--surface-sunk);
+  border-radius: var(--r-md);
+}
+
+.qr-card__empty-icon {
+  color: var(--text-tertiary);
 }
 
 .scanner-window {
   position: relative;
   width: 100%;
   height: 220px;
-  border-radius: 16px;
+  border-radius: var(--r-lg);
   overflow: hidden;
-  background: rgba(15, 23, 42, 0.1);
+  background: var(--surface-hover);
 }
 
 .scanner-window video {
@@ -375,12 +397,12 @@ const handleAssignManual = () => {
 
 .scanner-overlay {
   position: absolute;
-  bottom: 8px;
+  bottom: var(--sp-3);
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.4);
-  padding: 4px 12px;
-  border-radius: 999px;
-  color: #fff;
+  background: color-mix(in oklab, var(--navy-900) 45%, transparent);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--r-pill);
+  color: var(--on-accent);
 }
 </style>

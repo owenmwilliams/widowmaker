@@ -247,20 +247,20 @@
 
         <q-card-section class="q-pt-none">
             <!-- REQUIRED FOR ALL -->
-            <q-input dense color="teal" v-model="name" label="Name" :rules="[(val: any) => val != '' || 'Field is required']" />
+            <q-input dense color="primary" v-model="name" label="Name" :rules="[(val: any) => val != '' || 'Field is required']" />
             
             <!-- REQUIRED FOR ITEM -->
-            <q-input dense v-if="(props.addType == 'Item')"  color="teal" v-model.number="quantity" type="number" label="Quantity" :rules="[(val: number) => val > 0 || 'Quantity has to be 1 or greater']"/>
+            <q-input dense v-if="(props.addType == 'Item')"  color="primary" v-model.number="quantity" type="number" label="Quantity" :rules="[(val: number) => val > 0 || 'Quantity has to be 1 or greater']"/>
 
             <!-- REQUIRED FOR ITEM & COLLECTION -->
-            <q-input dense v-if="(props.addType == 'Item') || (props.addType == 'Collection')"  v-model="description" label="Description" color="teal" autogrow />
+            <q-input dense v-if="(props.addType == 'Item') || (props.addType == 'Collection')"  v-model="description" label="Description" color="primary" autogrow />
 
             <!-- NEW MOVETRACK FIELDS FOR ITEMS -->
             <template v-if="props.addType == 'Item'">
-                <q-input dense v-model.number="estimatedValue" type="number" label="Estimated Value ($)" color="teal" prefix="$" step="0.01" />
-                <q-checkbox dense v-model="fragile" label="Fragile Item" color="orange" />
-                <q-select dense v-model="priority" :options="priorityOptions" label="Priority" filled color="teal" />
-                <q-input dense v-model.number="weightLbs" type="number" label="Weight (lbs)" color="teal" suffix="lbs" step="0.1" />
+                <q-input dense v-model.number="estimatedValue" type="number" label="Estimated value ($)" color="primary" prefix="$" step="0.01" />
+                <q-checkbox dense v-model="fragile" label="Fragile item" color="warning" />
+                <q-select dense v-model="priority" :options="priorityOptions" label="Priority" filled color="primary" />
+                <q-input dense v-model.number="weightLbs" type="number" label="Weight (lbs)" color="primary" suffix="lbs" step="0.1" />
                 <div class="row q-col-gutter-sm">
                     <div class="col-4">
                         <q-input
@@ -268,7 +268,7 @@
                             v-model.number="itemLength"
                             type="number"
                             label="Length (in)"
-                            color="teal"
+                            color="primary"
                             step="0.5"
                             hint="Rough measurement"
                         />
@@ -279,7 +279,7 @@
                             v-model.number="itemWidth"
                             type="number"
                             label="Width (in)"
-                            color="teal"
+                            color="primary"
                             step="0.5"
                         />
                     </div>
@@ -289,38 +289,38 @@
                             v-model.number="itemHeight"
                             type="number"
                             label="Height (in)"
-                            color="teal"
+                            color="primary"
                             step="0.5"
                         />
                     </div>
                 </div>
-                <q-input dense v-model="notes" label="Notes" color="teal" autogrow type="textarea" />
+                <q-input dense v-model="notes" label="Notes" color="primary" autogrow type="textarea" />
             </template>
 
             <!-- NEW MOVETRACK FIELDS FOR CONTAINERS -->
             <template v-if="props.addType == 'Container'">
-                <q-input dense v-model="boxNumber" label="Box Number" color="teal" hint="e.g., BOX-001, Kitchen-3" />
-                <q-select dense v-model="boxType" :options="boxTypeOptions" label="Box Type" filled color="teal" />
+                <q-input dense v-model="boxNumber" label="Box number" color="primary" hint="e.g., BOX-001, Kitchen-3" />
+                <q-select dense v-model="boxType" :options="boxTypeOptions" label="Box type" filled color="primary" />
                 <q-select
                     dense
                     v-model="boxSize"
                     :options="boxSizeOptions"
-                    label="Standard Size"
+                    label="Standard size"
                     filled
-                    color="teal"
+                    color="primary"
                     emit-value
                     map-options
                 />
-                <q-input dense v-model="colorCode" label="Color Code" color="teal" hint="For room identification" />
-                <q-checkbox dense v-model="fragileContents" label="Contains Fragile Items" color="orange" />
-                <q-checkbox dense v-model="sealed" label="Box is Sealed" color="green" />
-                <q-input dense v-model.number="weightLbs" type="number" label="Weight (lbs)" color="teal" suffix="lbs" step="0.1" />
+                <q-input dense v-model="colorCode" label="Color code" color="primary" hint="For room identification" />
+                <q-checkbox dense v-model="fragileContents" label="Contains fragile items" color="warning" />
+                <q-checkbox dense v-model="sealed" label="Box is sealed" color="positive" />
+                <q-input dense v-model.number="weightLbs" type="number" label="Weight (lbs)" color="primary" suffix="lbs" step="0.1" />
                 <q-input
                     dense
                     v-model.number="maxWeightCapacity"
                     type="number"
-                    label="Max Weight Capacity (lbs)"
-                    color="teal"
+                    label="Max weight capacity (lbs)"
+                    color="primary"
                     suffix="lbs"
                     step="0.5"
                     :hint="boxSize !== 'custom' ? `Preset from ${selectedBoxPreset?.label || ''}` : 'Define your own limit'"
@@ -332,7 +332,7 @@
                             v-model.number="boxLength"
                             type="number"
                             label="Length (in)"
-                            color="teal"
+                            color="primary"
                             step="0.5"
                         />
                     </div>
@@ -342,7 +342,7 @@
                             v-model.number="boxWidth"
                             type="number"
                             label="Width (in)"
-                            color="teal"
+                            color="primary"
                             step="0.5"
                         />
                     </div>
@@ -352,15 +352,15 @@
                             v-model.number="boxHeight"
                             type="number"
                             label="Height (in)"
-                            color="teal"
+                            color="primary"
                             step="0.5"
                         />
                     </div>
                 </div>
-                <div class="text-caption text-grey-7">
+                <div class="text-caption text-grey-7 volume-readout">
                     Volume: {{ maxVolumeCapacity ? `${maxVolumeCapacity} cu ft` : 'Enter dimensions to calculate volume' }}
                 </div>
-                <q-input dense v-model="description" label="Container Description" color="teal" autogrow />
+                <q-input dense v-model="description" label="Container description" color="primary" autogrow />
             </template>
 
             <q-select
@@ -396,10 +396,10 @@
             
             <!-- REQUIRED FOR LOCATION -->
             <q-input dense v-if="(props.addType == 'Location')" v-model="address" label="Address" />
-            <q-input dense v-if="(props.addType == 'Location')" v-model="address_2" label="Unit / Apt Number" />
+            <q-input dense v-if="(props.addType == 'Location')" v-model="address_2" label="Unit / apt number" />
             <q-input dense v-if="(props.addType == 'Location')" v-model="city" label="City" />
             <q-input dense v-if="(props.addType == 'Location')" v-model="state" label="State" />
-            <q-input dense v-if="(props.addType == 'Location')" v-model="zip" label="Zip Code" />
+            <q-input dense v-if="(props.addType == 'Location')" v-model="zip" label="Zip code" />
         </q-card-section>
 
         <q-card-actions align="right" class="text-primary">
@@ -417,10 +417,19 @@
     max-width: 520px;
     max-height: calc(100vh - 96px);
     overflow-y: auto;
-    font-size: 0.92rem;
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    font-size: var(--fs-body);
 }
 
 .modal-card :deep(.q-field__label) {
-    font-size: 0.85rem;
+    font-size: var(--fs-label);
+}
+
+.volume-readout {
+    font-family: var(--font-mono);
+    font-size: var(--fs-label);
 }
 </style>

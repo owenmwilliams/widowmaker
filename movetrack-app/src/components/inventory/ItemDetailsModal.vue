@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import { useQuasar } from 'quasar';
+import { Package } from 'lucide-vue-next';
 import { inventoryStore } from '../../stores/InventoryStore'
 import QrCodeCard from './QrCodeCard.vue';
 
@@ -699,8 +700,8 @@ onBeforeUnmount(() => {
             class="item-image"
           />
           <div v-else class="item-image placeholder flex flex-center column">
-            <q-icon name="inventory_2" color="grey-5" size="64px" />
-            <div class="text-grey-6 q-mt-sm">No photo</div>
+            <Package :size="64" class="placeholder-icon" />
+            <div class="text-faint q-mt-sm">No photo</div>
           </div>
           <div
             v-if="isCreateMode || editMode"
@@ -717,7 +718,7 @@ onBeforeUnmount(() => {
               outline
               color="primary"
               icon="upload"
-              label="Upload Photo"
+              label="Upload photo"
               dense
               @click="triggerPhotoUpload"
             />
@@ -726,14 +727,14 @@ onBeforeUnmount(() => {
               outline
               color="negative"
               icon="delete"
-              label="Remove Photo"
+              label="Remove photo"
               dense
               @click="markRemovePhoto"
             />
             <q-btn
               v-if="newPhotoPreview || removePhoto"
               flat
-              color="grey-7"
+              class="btn-muted"
               icon="undo"
               label="Reset"
               dense
@@ -743,10 +744,10 @@ onBeforeUnmount(() => {
         </div>
         <div class="col-12 col-md-8">
           <div>
-            <div class="text-h5 text-primary">
-              {{ isCreateMode ? 'Add New Item' : form.name }}
+            <div class="modal-title">
+              {{ isCreateMode ? 'Add new item' : form.name }}
             </div>
-            <div v-if="!isCreateMode" class="text-subtitle2 text-grey-7">
+            <div v-if="!isCreateMode" class="text-subtitle2 text-muted">
               {{
                 store.collections.find((c) => c.value === selectedItem?.collection)
                   ?.label || 'Uncategorized'
@@ -755,37 +756,20 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="!isCreateMode" class="q-mt-sm row q-gutter-sm">
-            <q-chip
-              v-if="form.fragile"
-              color="red"
-              text-color="white"
-              square
-              dense
-            >
-              Fragile
-            </q-chip>
-            <q-chip
-              v-if="form.weightLbs"
-              color="grey-7"
-              text-color="white"
-              square
-              dense
-            >
+            <span v-if="form.fragile" class="pill pill--danger">Fragile</span>
+            <span v-if="form.weightLbs" class="pill pill--neutral pill--mono">
               {{ form.weightLbs }} lbs
-            </q-chip>
+            </span>
           </div>
 
-          <div v-if="tagList.length > 0 && !isCreateMode && !editMode" class="q-mt-sm">
-            <q-chip
+          <div v-if="tagList.length > 0 && !isCreateMode && !editMode" class="q-mt-sm tags-row">
+            <span
               v-for="tag in tagList"
               :key="tag"
-              size="sm"
-              color="secondary"
-              text-color="white"
-              class="q-mr-xs q-mb-xs"
+              class="pill pill--accent"
             >
               {{ tag }}
-            </q-chip>
+            </span>
           </div>
         </div>
       </q-card-section>
@@ -800,7 +784,7 @@ onBeforeUnmount(() => {
               <div class="detail-value">{{ form.quantity }}</div>
             </div>
             <div class="detail-card">
-              <div class="detail-label">Estimated Value</div>
+              <div class="detail-label">Estimated value</div>
               <div class="detail-value">
                 {{
                   form.estimatedValue !== null
@@ -816,7 +800,7 @@ onBeforeUnmount(() => {
                   store.locations.find((l) => l.value === store.collections.find((c) => c.value === form.collection)?.location)?.label ||
                   'Unassigned'
                 }}
-                <span class="text-caption text-grey-7" v-if="form.collection"> (inherited from collection)</span>
+                <span class="text-caption text-muted" v-if="form.collection"> (inherited from collection)</span>
               </div>
             </div>
             <div class="detail-card">
@@ -839,7 +823,7 @@ onBeforeUnmount(() => {
               <div class="detail-value">
                 <span v-if="form.lengthIn && form.widthIn && form.heightIn">
                   {{ form.lengthIn }}" × {{ form.widthIn }}" × {{ form.heightIn }}"
-                  <span class="text-caption text-grey-7">({{ ((form.lengthIn * form.widthIn * form.heightIn) / 1728).toFixed(2) }} cu ft)</span>
+                  <span class="text-caption text-muted">({{ ((form.lengthIn * form.widthIn * form.heightIn) / 1728).toFixed(2) }} cu ft)</span>
                 </span>
                 <span v-else>Not set</span>
               </div>
@@ -851,7 +835,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
             <div class="detail-card">
-              <div class="detail-label">Primary Color</div>
+              <div class="detail-label">Primary color</div>
               <div class="detail-value">
                 {{ form.primaryColor || 'Not specified' }}
               </div>
@@ -866,7 +850,7 @@ onBeforeUnmount(() => {
           <div class="q-mt-xl" v-if="selectedItem">
             <QrCodeCard
               v-if="canUseItemQr"
-              title="Item QR Code"
+              title="Item QR code"
               description="Print or place this code on the item to link helpers straight to its profile."
               :qr-url="itemQrUrl"
               :generating="qrGenerating"
@@ -877,7 +861,7 @@ onBeforeUnmount(() => {
               v-else
               dense
               rounded
-              class="bg-grey-2 text-grey-8"
+              class="info-banner"
             >
               QR codes can only be linked to loose items. Remove this item from its box to enable linking.
             </q-banner>
@@ -893,7 +877,7 @@ onBeforeUnmount(() => {
             <div class="section-title">Basics</div>
             <div class="row q-col-gutter-md">
               <div class="col-12 col-md-6">
-                <q-input dense v-model="form.name" label="Item Name" outlined />
+                <q-input dense v-model="form.name" label="Item name" outlined />
               </div>
               <div class="col-12 col-md-3">
                 <q-input
@@ -910,7 +894,7 @@ onBeforeUnmount(() => {
                   dense
                   v-model.number="form.estimatedValue"
                   type="number"
-                  label="Estimated Value ($)"
+                  label="Estimated value ($)"
                   outlined
                   prefix="$"
                 />
@@ -968,7 +952,7 @@ onBeforeUnmount(() => {
                 />
               </div>
               <div class="col-12">
-                <div class="text-caption text-grey-7 q-mb-xs">Dimensions (inches)</div>
+                <div class="text-caption text-muted q-mb-xs">Dimensions (inches)</div>
               </div>
               <div class="col-4 col-md-2">
                 <q-input
@@ -1011,14 +995,14 @@ onBeforeUnmount(() => {
                   dense
                   v-model="form.fragile"
                   label="Fragile"
-                  color="red"
+                  color="negative"
                 />
               </div>
               <div class="col-12" v-if="canRequestAiEstimate">
                 <q-card flat bordered class="ai-estimate-card">
                   <q-card-section class="q-pa-sm">
                     <div class="row items-center justify-between q-mb-xs">
-                      <div class="text-caption text-weight-medium text-primary">
+                      <div class="text-caption text-weight-medium ai-estimate-title">
                         AI estimate via Together.ai
                       </div>
                       <q-btn
@@ -1031,14 +1015,14 @@ onBeforeUnmount(() => {
                         @click="requestAiEstimate"
                       />
                     </div>
-                    <div class="text-caption text-grey-7">
+                    <div class="text-caption text-muted">
                       Generates a quick starting point. Review before applying.
                     </div>
                     <q-banner
                       v-if="aiEstimateError"
                       dense
                       rounded
-                      class="bg-negative text-white q-mt-sm"
+                      class="error-banner q-mt-sm"
                     >
                       {{ aiEstimateError }}
                     </q-banner>
@@ -1076,7 +1060,7 @@ onBeforeUnmount(() => {
                         </div>
                       </div>
                       <div
-                        class="text-caption text-grey-7 q-mt-xs"
+                        class="text-caption text-muted q-mt-xs"
                         v-if="aiEstimate.notes"
                       >
                         {{ aiEstimate.notes }}
@@ -1101,7 +1085,7 @@ onBeforeUnmount(() => {
                 <q-input
                   dense
                   v-model="form.primaryColor"
-                  label="Primary Color"
+                  label="Primary color"
                   outlined
                 />
               </div>
@@ -1133,19 +1117,19 @@ onBeforeUnmount(() => {
       <q-card-actions align="right">
         <q-btn
           flat
-          color="grey-7"
+          class="btn-muted"
           :label="isCreateMode ? 'Cancel' : 'Close'"
           @click="handleClose"
         />
         <template v-if="isCreateMode">
-          <q-btn color="primary" label="Save Item" @click="saveItem" />
+          <q-btn color="primary" label="Save item" @click="saveItem" />
         </template>
         <template v-else-if="editMode">
           <q-btn flat color="primary" label="Cancel" @click="cancelEdit" />
-          <q-btn color="primary" label="Save Changes" @click="saveItem" />
+          <q-btn color="primary" label="Save changes" @click="saveItem" />
         </template>
         <template v-else>
-          <q-btn color="primary" label="Edit Item" @click="startEdit" />
+          <q-btn color="primary" label="Edit item" @click="startEdit" />
         </template>
       </q-card-actions>
     </q-card>
@@ -1160,14 +1144,70 @@ onBeforeUnmount(() => {
   margin-top: 36px;
   display: flex;
   flex-direction: column;
-  font-size: 0.95rem;
+  font-size: var(--fs-body);
+  background: var(--surface-card);
+  border-radius: var(--r-lg);
+}
+
+.modal-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-title-m);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title);
+  line-height: var(--lh-tight);
+  color: var(--text-primary);
+}
+
+.text-muted {
+  color: var(--text-secondary);
+}
+
+.text-faint {
+  color: var(--text-tertiary);
+}
+
+.btn-muted {
+  color: var(--text-secondary);
+}
+
+.placeholder-icon {
+  color: var(--text-tertiary);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+}
+
+.pill--danger {
+  background: var(--danger-quiet);
+  color: var(--danger);
+}
+
+.pill--neutral {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+.pill--accent {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+.pill--mono {
+  font-family: var(--font-mono);
 }
 
 .item-image {
-  border-radius: 12px;
+  border-radius: var(--r-md);
   overflow: hidden;
   min-height: 280px;
-  background: #f5f5f5;
+  background: var(--surface-sunk);
 }
 
 @media (max-width: 600px) {
@@ -1192,7 +1232,7 @@ onBeforeUnmount(() => {
 }
 
 .item-image.placeholder {
-  border: 1px dashed #d0d0d0;
+  border: 1px dashed var(--border);
 }
 
 .photo-actions .q-btn {
@@ -1209,42 +1249,60 @@ onBeforeUnmount(() => {
 }
 
 .details-view {
-  padding-bottom: 8px;
+  padding-bottom: var(--sp-3);
+}
+
+.info-banner {
+  background: var(--surface-sunk);
+  color: var(--text-secondary);
+}
+
+.error-banner {
+  background: var(--danger-quiet);
+  color: var(--danger);
 }
 
 .ai-estimate-card {
-  background: #f8fafc;
+  background: var(--surface-sunk);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.ai-estimate-title {
+  color: var(--accent);
 }
 
 .ai-estimate-label {
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #64748b;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-tertiary);
 }
 
 .ai-estimate-value {
-  font-size: 16px;
-  font-weight: 600;
-  color: #0f172a;
+  font-family: var(--font-mono);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
 }
 
 .ai-estimate-conf {
-  font-size: 12px;
-  color: #94a3b8;
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
 }
 
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
+  gap: var(--sp-4);
 }
 
 .detail-card {
-  background: #fafafa;
-  border-radius: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--border-light);
+  background: var(--surface-sunk);
+  border-radius: var(--r-md);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--border);
 }
 
 .detail-card--wide {
@@ -1258,16 +1316,17 @@ onBeforeUnmount(() => {
 }
 
 .detail-label {
-  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
   text-transform: uppercase;
-  color: #8f8f8f;
-  margin-bottom: 4px;
-  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  margin-bottom: var(--sp-2);
+  letter-spacing: var(--ls-eyebrow);
 }
 
 .detail-value {
-  font-size: 0.95rem;
-  color: #1f1f1f;
+  font-size: var(--fs-body);
+  color: var(--text-primary);
 }
 
 .detail-value.multiline {
@@ -1275,28 +1334,29 @@ onBeforeUnmount(() => {
 }
 
 .form-section {
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  padding: 12px 14px;
-  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--surface-card);
 }
 
 .form-section + .form-section {
-  margin-top: 12px;
+  margin-top: var(--sp-4);
 }
 
 .section-title {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #787878;
-  margin-bottom: 10px;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-tertiary);
+  margin-bottom: var(--sp-3);
 }
 
 .tags-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--sp-3);
 }
 </style>
