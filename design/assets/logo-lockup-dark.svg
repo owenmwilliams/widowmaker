@@ -1,0 +1,15 @@
+<svg width="288" height="72" viewBox="0 0 288 72" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Nexus Moves">
+  <defs>
+    <radialGradient id="lkBeaconD" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFD8BF"></stop><stop offset="45%" stop-color="#F98D5B"></stop>
+      <stop offset="100%" stop-color="#F98D5B" stop-opacity="0"></stop>
+    </radialGradient>
+  </defs>
+  <g transform="translate(4,4) scale(0.5)">
+    <path d="M38 96 L38 42 L90 96 L90 48" stroke="#FFFFFF" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"></path>
+    <circle cx="90" cy="42" r="18" fill="url(#lkBeaconD)"></circle>
+    <circle cx="90" cy="42" r="9.5" fill="#F98D5B"></circle>
+    <circle cx="90" cy="42" r="4.4" fill="#FFE2D4"></circle>
+  </g>
+  <text x="76" y="47" font-family="Bricolage Grotesque, system-ui, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.5" fill="#F5F6FA">Nexus <tspan fill="#8CA0FF">Moves</tspan></text>
+</svg>

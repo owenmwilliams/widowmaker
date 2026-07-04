@@ -1,0 +1,39 @@
+<!-- @dsCard group="Components" viewport="700x260" name="Forms — composer, field, checklist" subtitle="Inputs & next-steps" -->
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;background:var(--bg);font-family:var(--font-ui);padding:22px;color:var(--text-primary)}
+  .col{display:flex;flex-direction:column;gap:18px;max-width:560px}
+  .steps{background:var(--surface-card);border-radius:var(--r-lg);padding:8px 18px}
+  h4{font-size:17px;margin:8px 0 2px}
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+</head><body>
+<div id="root"></div>
+<script type="text/plain" id="src">
+  function findComp(name){ if(typeof window[name]==="function")return window[name];
+    for(const k in window){try{const v=window[k];if(v&&typeof v==="object"&&v[name])return v[name];}catch(e){}} return null; }
+  const Input=findComp("Input"), ChecklistItem=findComp("ChecklistItem"), IconButton=findComp("IconButton");
+  const I=(p)=><svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{p}</svg>;
+  const Plus=<I><path d="M12 5v14M5 12h14"/></I>;
+  const Up=<I><path d="M12 19V5M5 12l7-7 7 7"/></I>;
+  function App(){const [a,setA]=React.useState(true),[b,setB]=React.useState(false);return (
+    <div className="col">
+      <Input variant="composer" placeholder="Message Nexus…"
+        leading={<IconButton tone="accent" size={38} aria-label="Add">{Plus}</IconButton>}
+        trailing={<IconButton tone="default" size={38} aria-label="Send">{Up}</IconButton>}/>
+      <Input variant="field" label="Where are you moving from?" placeholder="123 Main St"/>
+      <div className="steps">
+        <h4>Next steps</h4>
+        <ChecklistItem checked={a} onToggle={()=>setA(!a)}>Catalog items in empty rooms: Bedroom 3, Living Room</ChecklistItem>
+        <ChecklistItem checked={b} onToggle={()=>setB(!b)}>Keep adding items — 13 logged so far, most moves have 50+</ChecklistItem>
+      </div>
+    </div>
+  );}
+  ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>(function(){var c=document.getElementById("src").textContent;(0,eval)(Babel.transform(c,{presets:[["react",{runtime:"classic"}]],plugins:[]}).code);})();</script>
+</body></html>

@@ -1,0 +1,144 @@
+<!-- @dsCard group="Marketing" viewport="1280x860" name="Marketing — Landing hero" subtitle="Light hero, verified-inventory illustration" -->
+<!-- @startingPoint section="Marketing" subtitle="Landing page" viewport="1280x2200" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus Moves</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--l-bg);font-family:var(--font-ui);color:var(--l-text-1)}
+  .wrap{max-width:1160px;margin:0 auto;padding:0 32px}
+  h2{font-family:var(--font-display);font-size:38px;font-weight:800;letter-spacing:-.02em;margin:0 0 12px;color:var(--l-text-1)}
+  .eyebrow{font-family:var(--font-mono);font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+  .ph{background:repeating-linear-gradient(135deg,#eef1f7,#eef1f7 10px,#e6eaf3 10px,#e6eaf3 20px);border:1px solid var(--l-line);display:flex;align-items:center;justify-content:center;font-family:var(--font-mono);font-size:12px;color:var(--l-text-3);text-align:center}
+  .card{background:#fff;border:1px solid var(--l-line);border-radius:var(--r-lg);padding:28px;box-shadow:var(--shadow-sm)}
+</style>
+</head><body data-theme="light">
+<div id="root"></div>
+<template id="content">
+<!-- NAV -->
+<nav style="position:sticky;top:0;z-index:10;backdrop-filter:blur(12px);background:rgba(244,246,251,.8);border-bottom:1px solid var(--l-line)">
+  <div class="wrap" style="display:flex;align-items:center;gap:28px;height:76px">
+    <img src="../../assets/logo-lockup-light.svg" height="34" alt="Nexus Moves">
+    <div style="flex:1"></div>
+    <a style="color:var(--l-text-2);text-decoration:none;font-weight:700;font-size:15px;letter-spacing:.02em">LOGIN</a>
+    <button style="background:var(--accent);color:#fff;border:none;border-radius:var(--r-md);padding:12px 24px;font-weight:700;font-size:15px;cursor:pointer">Get started</button>
+  </div>
+</nav>
+
+<!-- HERO -->
+<header class="wrap" style="display:grid;grid-template-columns:1.02fr .98fr;gap:56px;align-items:center;padding-top:72px;padding-bottom:80px">
+  <div>
+    <span class="eyebrow">Verified inventory for your move</span>
+    <h1 style="font-family:var(--font-display);font-size:60px;font-weight:800;letter-spacing:-.03em;line-height:1.03;margin:18px 0 0">Build a verified inventory in minutes. Get quotes that match reality.</h1>
+    <p style="font-size:20px;line-height:1.5;color:var(--l-text-2);max-width:470px;margin:22px 0 30px">Capture photos, dimensions, and weights automatically. Share a verified inventory with movers for quotes you can trust.</p>
+    <button style="display:inline-flex;align-items:center;gap:12px;background:var(--accent);color:#fff;border:none;border-radius:var(--r-md);padding:16px 28px;font-weight:700;font-size:17px;cursor:pointer">Start your inventory
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+    <div id="bullets" style="margin-top:34px;display:flex;flex-direction:column;gap:14px"></div>
+  </div>
+  <div style="position:relative">
+    <img src="../../assets/hero-inventory.svg" width="100%" alt="Belongings being scanned into a verified inventory">
+    <div id="itemcards" style="position:absolute;top:6%;right:-2%;display:flex;flex-direction:column;gap:14px"></div>
+  </div>
+</header>
+
+<!-- HOW IT WORKS -->
+<section style="background:#fff;padding:84px 0;border-top:1px solid var(--l-line)">
+  <div class="wrap">
+    <span class="eyebrow">How it works</span>
+    <h2 style="margin-top:14px">Three steps to a move-ready inventory.</h2>
+    <div id="steps" style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:44px"></div>
+  </div>
+</section>
+
+<!-- FOR MOVERS -->
+<section style="padding:84px 0">
+  <div class="wrap" style="display:grid;grid-template-columns:.9fr 1.1fr;gap:56px;align-items:center">
+    <div class="ph" style="height:360px;border-radius:var(--r-xl)">mover dashboard preview<br>(inventory shared)</div>
+    <div>
+      <span class="eyebrow">For moving companies</span>
+      <h2 style="margin-top:14px">Quotes built on real inventory, not guesswork.</h2>
+      <p style="font-size:18px;line-height:1.55;color:var(--l-text-2);margin:0 0 24px">Every shared move arrives structured: items by room, weights, volumes, fragile flags, and room walkthrough videos. Estimate faster and win more jobs.</p>
+      <div id="movers"></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA (dark aurora for contrast) -->
+<section style="position:relative;overflow:hidden;background:var(--navy-800);padding:90px 0;text-align:center">
+  <div style="position:absolute;inset:0;background:var(--aurora)"></div>
+  <div class="wrap" style="position:relative">
+    <h2 style="font-size:46px;color:#fff">Moving soon? Let's make it calm.</h2>
+    <p style="font-size:19px;color:#B9C0D6;max-width:520px;margin:12px auto 30px">Download Nexus Moves and let your inventory build itself, one friendly message at a time.</p>
+    <button style="position:relative;overflow:hidden;background:var(--shimmer);color:#fff;border:none;border-radius:var(--r-md);padding:17px 36px;font-weight:800;font-size:18px;cursor:pointer">Get Nexus Moves — free</button>
+  </div>
+</section>
+<footer style="padding:36px 0;border-top:1px solid var(--l-line);background:#fff">
+  <div class="wrap" style="display:flex;align-items:center;justify-content:space-between">
+    <img src="../../assets/logo-lockup-light.svg" height="26" alt="Nexus Moves">
+    <span style="color:var(--l-text-3);font-size:13px">© 2026 Nexus Moves</span>
+  </div>
+</footer>
+</template>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script>
+  document.getElementById('root').innerHTML = document.getElementById('content').innerHTML;
+
+  // hero bullets
+  const bullets=["Photos, weight, and dimensions together","Private links you control","Export to PDF/CSV anytime"];
+  document.getElementById('bullets').innerHTML = bullets.map(b=>`
+    <div style="display:flex;align-items:center;gap:12px;font-size:17px;font-weight:600;color:var(--l-text-1)">
+      <span style="width:26px;height:26px;flex:none;border-radius:999px;background:var(--success-quiet);display:inline-flex;align-items:center;justify-content:center">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </span>${b}</div>`).join('');
+
+  // floating verified item cards (ItemCard component, inline)
+  const items=[
+    {n:"Box",m:"44 lb",icon:'<path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8"/>'},
+    {n:"Lamp",m:"7 lb",icon:'<path d="M9 3h6l2 6H7zM12 9v9M8 21h8"/>'},
+    {n:"Chair",m:"15 lb",icon:'<path d="M6 3v9h12V3M6 12l-1 9M18 12l1 9M5 16h14"/>'},
+  ];
+  document.getElementById('itemcards').innerHTML = items.map(it=>`
+    <div style="display:flex;align-items:center;gap:13px;background:#fff;border:1px solid var(--l-line);border-radius:var(--r-md);padding:12px 16px;box-shadow:var(--shadow-md);min-width:168px">
+      <span style="width:40px;height:40px;flex:none;border-radius:var(--r-sm);background:var(--l-card-2);color:var(--navy-600);display:inline-flex;align-items:center;justify-content:center">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${it.icon}</svg>
+      </span>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:16px;font-weight:700;color:var(--l-text-1)">${it.n}</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" fill="var(--success)"/><path d="M8.5 12.2l2.4 2.3 4.6-4.8" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div style="font-family:var(--font-mono);font-size:13px;font-weight:500;color:var(--l-text-3);margin-top:1px">${it.m}</div>
+      </div>
+    </div>`).join('');
+
+  // how it works
+  const steps=[
+    {n:"Capture",d:"Tell Nexus what's in each room and snap a photo. It logs the item and estimates weight and dimensions."},
+    {n:"Organize",d:"Everything sorts by room automatically, with fragile flags and duplicate checks along the way."},
+    {n:"Share",d:"Send a clean, verified inventory to any moving company through a private link you control."},
+  ];
+  document.getElementById('steps').innerHTML = steps.map((s,i)=>`
+    <div class="card">
+      <div style="font-family:var(--font-mono);font-size:15px;font-weight:600;color:var(--cyan-600)">0${i+1}</div>
+      <div style="font-size:21px;font-weight:800;letter-spacing:-.01em;margin:14px 0 8px">${s.n}</div>
+      <div style="font-size:16px;line-height:1.5;color:var(--l-text-2)">${s.d}</div>
+    </div>`).join('');
+
+  // for movers
+  const movers=[
+    "Room-by-room item lists with quantities",
+    "Estimated weight & volume per item",
+    "Fragile & special-handling flags",
+    "Room walkthrough videos and photos",
+  ];
+  document.getElementById('movers').innerHTML = movers.map(m=>`
+    <div style="display:flex;align-items:center;gap:12px;padding:9px 0;font-size:16px;font-weight:600">
+      <span style="width:24px;height:24px;flex:none;border-radius:999px;background:var(--success-quiet);display:inline-flex;align-items:center;justify-content:center">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+      </span>${m}</div>`).join('');
+</script>
+</body></html>

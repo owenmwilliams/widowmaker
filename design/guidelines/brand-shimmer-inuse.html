@@ -1,0 +1,17 @@
+<!-- @dsCard group="Brand" viewport="700x180" name="Shimmer in use" subtitle="Avatar, self-bubble, progress — intelligence only." -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  body{margin:0;background:var(--bg);font-family:var(--font-ui);padding:22px 24px;display:flex;align-items:center;gap:22px;color:var(--text-primary)}
+  .avatar{width:52px;height:52px;border-radius:var(--r-md);background:var(--shimmer);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;box-shadow:var(--glow-shimmer);flex:none}
+  .avatar svg{width:26px;height:26px;color:#fff}
+  .bubble{background:var(--shimmer);color:#fff;padding:12px 16px;border-radius:var(--r-xl);border-bottom-right-radius:6px;font-size:15px;font-weight:500;position:relative;overflow:hidden}
+  .sweep{position:absolute;inset:0;width:45%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.4),transparent);animation:nx-shimmer-sweep var(--shimmer-sweep) var(--ease-standard) infinite}
+  .prog{flex:1;height:12px;border-radius:var(--r-pill);background:var(--surface-hover);overflow:hidden}
+  .fill{width:70%;height:100%;background:var(--shimmer);border-radius:var(--r-pill)}
+</style></head><body>
+  <div class="avatar"><span class="sweep"></span>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.8L18 9.5l-4.1 1.7L12 16l-1.9-4.8L6 9.5l4.1-1.7z"/><path d="M19 14l.8 2 .2.2 2 .8-2 .8-.2.2-.8 2-.8-2-.2-.2-2-.8 2-.8.2-.2z"/></svg>
+  </div>
+  <div class="bubble"><span class="sweep"></span>Added 1 of the 1 items from the scan.</div>
+  <div class="prog"><div class="fill"></div></div>
+</body></html>

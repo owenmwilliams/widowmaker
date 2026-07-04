@@ -1,0 +1,162 @@
+/* ============================================================
+   NEXUS MOVES — COLOR TOKENS
+   Dark-first. Light theme under [data-theme="light"].
+   Base palette (raw) + semantic aliases (theme-driven).
+   ============================================================ */
+
+:root {
+  /* -------- BRAND: Nexus Blue (primary / action) --------
+     Bridges the mobile periwinkle, desktop shimmer-blue and
+     dashboard navy into one confident, calm blue family. */
+  --blue-50:  #EEF2FF;
+  --blue-100: #DEE6FF;
+  --blue-200: #C0CCFF;
+  --blue-300: #97A9FB;
+  --blue-400: #6E82F4;
+  --blue-500: #4F5BF0; /* primary action */
+  --blue-600: #3D45D9;
+  --blue-700: #2F35B4;
+  --blue-800: #232A82;
+  --blue-900: #172058;
+
+  /* -------- BRAND: Deep Navy (ink / wordmark on light) ---- */
+  --navy-500: #24346E;
+  --navy-600: #1C2A5C;
+  --navy-700: #152A5E;
+  --navy-800: #101F49;
+  --navy-900: #0B1533;
+
+  /* -------- SIGNATURE: Shimmer (intelligence gradient) ----
+     The blue→cyan sweep used on AI moments, hero CTAs,
+     progress fills and the assistant avatar. */
+  --shimmer-blue: #3B6FE0;
+  --shimmer-mid:  #2F8FE0;
+  --shimmer-cyan: #34C8E0;
+  --cyan-400: #4CD3E8;
+  --cyan-500: #2FBEDC;
+  --cyan-600: #1C9BB8;
+
+  /* -------- WARM: Beacon (the logo dot — "almost home") ----
+     The single warm accent. A calm coral-orange — warm & human,
+     not neon. Used sparingly: the logo dot, streaks, arrival
+     moments, the illustration rug + scan reticle. One warm spark. */
+  --beacon-300: #FFC7A0;
+  --beacon-400: #FBA575;
+  --beacon-500: #F98D5B;
+  --beacon-600: #EC7440;
+  --beacon-glow: #FFD8BF;
+
+  /* -------- SEMANTIC HUES -------- */
+  --green-400: #43D98A;
+  --green-500: #2FB878;
+  --green-600: #1F9A62;
+  --amber-400: #E8A54B;
+  --amber-500: #D98A2B;
+  --amber-cream: #FBF0D9;
+  --amber-ink: #7A5A1E;
+  --red-400: #F0666B;
+  --red-500: #E5484D;
+  --red-600: #C93B40;
+
+  /* -------- NEUTRALS — DARK (warm-cool near-black) -------- */
+  --d-bg:        #0B0B0F; /* app canvas / chat area */
+  --d-surface-1: #151519; /* header / raised canvas */
+  --d-surface-2: #1C1C22; /* sheets, panels */
+  --d-card:      #26262C; /* cards, assistant bubble */
+  --d-card-2:    #2E2E36; /* nested / hover card */
+  --d-line:      #33333D; /* hairline border */
+  --d-line-soft: #26262E;
+  --d-text-1:    #F5F6FA;
+  --d-text-2:    #A2A2AE;
+  --d-text-3:    #6E6E7A;
+  --d-text-inv:  #0B0B0F;
+
+  /* -------- NEUTRALS — LIGHT (cool whites) -------- */
+  --l-bg:        #F4F6FB; /* dashboard canvas */
+  --l-surface-1: #FFFFFF;
+  --l-surface-2: #FBFCFE;
+  --l-card:      #FFFFFF;
+  --l-card-2:    #F1F4FA;
+  --l-line:      #E4E8F1;
+  --l-line-soft: #EEF1F7;
+  --l-text-1:    #16204A; /* navy ink */
+  --l-text-2:    #5A6379;
+  --l-text-3:    #8A92A6;
+  --l-text-inv:  #FFFFFF;
+
+  /* ==========================================================
+     SEMANTIC ALIASES — default = DARK theme
+     ========================================================== */
+  --bg:            var(--d-bg);
+  --surface:       var(--d-surface-1);
+  --surface-sunk:  var(--d-surface-2);
+  --surface-card:  var(--d-card);
+  --surface-hover: var(--d-card-2);
+  --border:        var(--d-line);
+  --border-soft:   var(--d-line-soft);
+
+  --text-primary:   var(--d-text-1);
+  --text-secondary: var(--d-text-2);
+  --text-tertiary:  var(--d-text-3);
+  --text-on-accent: #FFFFFF;
+
+  --accent:         var(--blue-500);
+  --accent-hover:   var(--blue-400);
+  --accent-press:   var(--blue-600);
+  --accent-quiet:   color-mix(in oklab, var(--blue-500) 16%, transparent);
+  --accent-quiet-2: color-mix(in oklab, var(--blue-500) 26%, transparent);
+  --on-accent:      #FFFFFF;
+
+  --beacon:         var(--beacon-500);
+  --success:        var(--green-400);
+  --success-quiet:  color-mix(in oklab, var(--green-500) 18%, transparent);
+  --warning:        var(--amber-400);
+  --warning-surface: #2C2410;
+  --warning-ink:    #F2D79A;
+  --danger:         var(--red-400);
+  --danger-quiet:   color-mix(in oklab, var(--red-500) 18%, transparent);
+
+  /* User (self) chat bubble uses the shimmer on desktop,
+     solid accent on mobile — expose both. */
+  --bubble-self:      var(--blue-500);
+  --bubble-self-text: #FFFFFF;
+  --bubble-other:     var(--d-card);
+  --bubble-other-text: var(--d-text-1);
+}
+
+/* ============================================================
+   LIGHT THEME
+   ============================================================ */
+[data-theme="light"] {
+  --bg:            var(--l-bg);
+  --surface:       var(--l-surface-1);
+  --surface-sunk:  var(--l-surface-2);
+  --surface-card:  var(--l-card);
+  --surface-hover: var(--l-card-2);
+  --border:        var(--l-line);
+  --border-soft:   var(--l-line-soft);
+
+  --text-primary:   var(--l-text-1);
+  --text-secondary: var(--l-text-2);
+  --text-tertiary:  var(--l-text-3);
+  --text-on-accent: #FFFFFF;
+
+  --accent:         var(--blue-500);
+  --accent-hover:   var(--blue-600);
+  --accent-press:   var(--blue-700);
+  --accent-quiet:   color-mix(in oklab, var(--blue-500) 10%, white);
+  --accent-quiet-2: color-mix(in oklab, var(--blue-500) 18%, white);
+
+  --success:        var(--green-600);
+  --success-quiet:  #E4F7EE;
+  --warning:        var(--amber-500);
+  --warning-surface: var(--amber-cream);
+  --warning-ink:    var(--amber-ink);
+  --danger:         var(--red-500);
+  --danger-quiet:   #FBE7E8;
+
+  --bubble-self:      var(--blue-500);
+  --bubble-self-text: #FFFFFF;
+  --bubble-other:     var(--l-card-2);
+  --bubble-other-text: var(--l-text-1);
+}
