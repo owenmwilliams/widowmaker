@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand indigo (#5B5BD9) — the launcher-icon background behind the sparkle. -->
+    <color name="ic_launcher_background">#5B5BD9</color>
+</resources>

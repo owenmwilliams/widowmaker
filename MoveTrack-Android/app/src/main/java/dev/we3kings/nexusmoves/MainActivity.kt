@@ -1,5 +1,6 @@
 package dev.we3kings.nexusmoves
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -7,7 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import dev.we3kings.nexusmoves.data.Constants
+import dev.we3kings.nexusmoves.data.events.ClientEventLogger
 import dev.we3kings.nexusmoves.ui.auth.AuthViewModel
 import dev.we3kings.nexusmoves.ui.chat.ChatScreen
 import dev.we3kings.nexusmoves.ui.login.LoginScreen
@@ -34,6 +38,35 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        handleDeepLink(intent)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // Flush the client-event batch when we go to background — otherwise events
+        // queued in the 10s timer window are lost every time the user backgrounds
+        // mid-scan (a common moment for the failures this log exists to catch).
+        // Port of iOS MoveTrackApp's scenePhase == .background flush.
+        ClientEventLogger.flushBlocking()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    /**
+     * Handle an inbound magic-link deep link (movetrack://login?token=…) — port
+     * of iOS MoveTrackApp.handleDeepLink. The app's own login is OTP; this only
+     * fires when a user taps a magic-link email on a device with the app.
+     * Resolves the same Activity-scoped AuthViewModel the Compose gate observes.
+     */
+    private fun handleDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (data.scheme != Constants.urlScheme || data.host != "login") return
+        val token = data.getQueryParameter("token")?.takeIf { it.isNotBlank() } ?: return
+        ViewModelProvider(this)[AuthViewModel::class.java].handleMagicLink(token)
     }
 }
 

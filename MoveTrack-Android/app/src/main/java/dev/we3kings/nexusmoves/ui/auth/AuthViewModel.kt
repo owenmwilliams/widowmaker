@@ -48,6 +48,32 @@ class AuthViewModel : ViewModel() {
     /** Retry after an unreachable-server launch (the splash "Try Again"). */
     fun retryAuthCheck() = checkAuthStatus()
 
+    /**
+     * Handle an inbound magic-link deep link (movetrack://login?token=…). Shows
+     * the splash while verifying so the UI doesn't flash login mid-verify.
+     */
+    fun handleMagicLink(token: String) {
+        isCheckingAuth = true
+        authCheckFailed = false
+        viewModelScope.launch {
+            isLoading = true
+            errorMessage = null
+            try {
+                val response = AuthService.verifyMagicLink(token)
+                if (response.success && response.user != null) {
+                    currentUser = response.user
+                    isAuthenticated = true
+                } else {
+                    errorMessage = response.error ?: "That sign-in link is invalid or expired."
+                }
+            } catch (e: Exception) {
+                errorMessage = friendlyError(e)
+            }
+            isLoading = false
+            isCheckingAuth = false
+        }
+    }
+
     private suspend fun loadCurrentUser() {
         try {
             currentUser = AuthService.getCurrentUser()

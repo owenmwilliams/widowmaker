@@ -321,8 +321,19 @@ object NexusService {
 
     // MARK: - Inventory review (native review cards)
 
-    /** Outcome of a review-card commit. */
-    data class CommitOutcome(val added: Int, val skipped: Int, val failed: Int, val alreadyCommitted: Boolean)
+    /**
+     * Outcome of a review-card commit. [added] counts only true new items;
+     * [updated] counts photos attached to items already on the list (a photo of
+     * an existing item updates its picture instead of re-adding) — the server's
+     * addedCount already excludes these, so "Added N" must never fold updates in.
+     */
+    data class CommitOutcome(
+        val added: Int,
+        val updated: Int,
+        val skipped: Int,
+        val failed: Int,
+        val alreadyCommitted: Boolean,
+    )
 
     @Serializable
     private data class CommitBody(val items: List<ReviewedItemPayload>, val room: String?, val scanId: String?)
@@ -330,6 +341,7 @@ object NexusService {
     @Serializable
     private data class CommitResp(
         val addedCount: Int? = null,
+        val updatedCount: Int? = null,
         val skippedCount: Int? = null,
         val failedCount: Int? = null,
         val alreadyCommitted: Boolean? = null,
@@ -346,6 +358,7 @@ object NexusService {
         val resp = try { json.decodeFromString<CommitResp>(respBody) } catch (_: Exception) { null }
         return CommitOutcome(
             added = resp?.addedCount ?: items.size,
+            updated = resp?.updatedCount ?: 0,
             skipped = resp?.skippedCount ?: 0,
             failed = resp?.failedCount ?: 0,
             alreadyCommitted = resp?.alreadyCommitted ?: false,

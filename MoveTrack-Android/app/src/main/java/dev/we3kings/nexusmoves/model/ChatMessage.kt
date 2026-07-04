@@ -24,7 +24,7 @@ data class ChatMessage(
 
     sealed interface ScanReviewState {
         data class Pending(val count: Int) : ScanReviewState               // card up, undecided
-        data class Reviewed(val added: Int, val skipped: Int) : ScanReviewState  // committed
+        data class Reviewed(val added: Int, val updated: Int, val skipped: Int) : ScanReviewState  // committed
         data class Dismissed(val count: Int) : ScanReviewState             // closed without adding
         data class Record(val count: Int) : ScanReviewState               // reloaded from transcript
     }

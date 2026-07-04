@@ -40,6 +40,24 @@ object AuthService {
         return response
     }
 
+    /**
+     * GET /auth/verify-magic-link?token=… — the deep-link path (a user taps a
+     * magic-link email on their phone with the app installed). Persists the
+     * session token on success. The app's own login is OTP; this only handles an
+     * inbound magic link.
+     */
+    suspend fun verifyMagicLink(token: String): AuthResponse {
+        val encoded = java.net.URLEncoder.encode(token, "UTF-8")
+        val response: AuthResponse = ApiClient.get(
+            "${Constants.Endpoints.verifyMagicLink}?token=$encoded",
+            requiresAuth = false,
+        )
+        if (response.success && response.sessionToken != null) {
+            TokenStore.sessionToken = response.sessionToken
+        }
+        return response
+    }
+
     /** GET /auth/me — validate the stored token and load the user. */
     suspend fun getCurrentUser(): User {
         val response: MeResponse = ApiClient.get(Constants.Endpoints.me)

@@ -615,17 +615,25 @@ class NexusViewModel : ViewModel() {
             val payload = kept.map { ReviewedItemPayload.from(it, room) }
             val result = service.commitReviewedItems(payload, room, scanId)
             presentedReviewHandled = true
-            updatePill(pillId, ChatMessage.ScanReviewState.Reviewed(result.added, result.skipped))
+            updatePill(pillId, ChatMessage.ScanReviewState.Reviewed(result.added, result.updated, result.skipped))
             ClientEventLogger.log(
                 ClientEventLogger.Type.ReviewCardCommitted, sessionId,
-                mapOf("itemCount" to result.added.toString()),
+                mapOf("itemCount" to result.added.toString(), "updatedCount" to result.updated.toString()),
             )
-            if (!(result.alreadyCommitted || (result.added == 0 && result.skipped > 0))) {
+            // Build a conversational report. `added` is true new items only —
+            // `updated` (photos attached to existing items) is surfaced
+            // separately so nothing reads as an add that wasn't one. Skip the
+            // report only when nothing actually changed.
+            if (!result.alreadyCommitted && (result.added > 0 || result.updated > 0)) {
                 val fromScan = room?.let { " from the $it scan" } ?: " from the scan"
-                var t = "Added ${result.added} of the $totalDetected items$fromScan."
-                if (result.skipped > 0) t += " ${result.skipped} were already on the list."
-                if (result.failed > 0) t += " ${result.failed} couldn't be added."
-                report = t
+                val parts = mutableListOf<String>()
+                if (result.added > 0) parts.add("Added ${result.added} of the $totalDetected items$fromScan.")
+                if (result.updated > 0) {
+                    parts.add("Updated the photo on ${result.updated} item${if (result.updated == 1) "" else "s"} already on your list.")
+                }
+                if (result.skipped > 0) parts.add("${result.skipped} were already on the list.")
+                if (result.failed > 0) parts.add("${result.failed} couldn't be added.")
+                report = parts.joinToString(" ")
             }
         } catch (e: ApiError.Unauthorized) {
             sessionExpired = true

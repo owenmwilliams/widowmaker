@@ -2,6 +2,7 @@ package dev.we3kings.nexusmoves.ui.readiness
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,9 +38,8 @@ import dev.we3kings.nexusmoves.ui.theme.Theme
  * reasonableness warning, a Next Steps checklist (one bullet per gap), and the
  * primary Share action plus Estimate weights / Add a room.
  *
- * NOTE: iOS #59 made Next Steps a NON-tappable checklist. Issue #72 Phase 4 asks
- * for tappable steps that send the step as a chat message — iOS wins per the
- * brief, so the rows are plain here; the divergence is flagged in the PR.
+ * Each Next Steps row is tappable (iOS PR #70): tapping dismisses the sheet and
+ * sends the step text as the user's chat message, so the agent acts on it.
  */
 @Composable
 fun ReadinessSheet(
@@ -47,6 +47,7 @@ fun ReadinessSheet(
     onShare: () -> Unit,
     onEstimateWeights: () -> Unit,
     onAddVideo: () -> Unit,
+    onStep: (String) -> Unit,
 ) {
     val overall = readiness?.overall ?: 0
     val progress = readiness?.progress ?: 0f
@@ -107,9 +108,15 @@ fun ReadinessSheet(
                         style = MaterialTheme.typography.bodyMedium, color = Theme.good)
                 } else {
                     steps.forEach { step ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onStep(step) },
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.Top,
+                        ) {
                             Text("○", color = Theme.brand)
-                            Text(step, style = MaterialTheme.typography.bodyMedium)
+                            Text(step, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            Text("›", style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }

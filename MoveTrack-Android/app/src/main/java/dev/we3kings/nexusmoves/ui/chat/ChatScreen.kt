@@ -192,6 +192,7 @@ fun ChatScreen(
                     scope.launch { vm.send("Estimate the missing weights for my items.") }
                 },
                 onAddVideo = { showReadiness = false; cameraRequest = "" },
+                onStep = { step -> showReadiness = false; scope.launch { vm.send(step) } },
             )
         }
     }
@@ -462,8 +463,19 @@ private fun MessageBubble(message: ChatMessage, onButton: (AgentButton) -> Unit)
 private fun ScanReviewPill(state: ChatMessage.ScanReviewState) {
     val label = when (state) {
         is ChatMessage.ScanReviewState.Pending -> "${state.count} item${plural(state.count)} found — reviewing…"
-        is ChatMessage.ScanReviewState.Reviewed ->
-            "Items reviewed · ${state.added} added" + if (state.skipped > 0) ", ${state.skipped} skipped" else ""
+        is ChatMessage.ScanReviewState.Reviewed -> buildString {
+            append("Items reviewed")
+            // added is true new items only; updated = photos attached to existing
+            // items — never fold updates into the "added" count.
+            when {
+                state.added > 0 -> {
+                    append(" · ${state.added} added")
+                    if (state.updated > 0) append(", ${state.updated} photo${plural(state.updated)} updated")
+                }
+                state.updated > 0 -> append(" · ${state.updated} photo${plural(state.updated)} updated")
+            }
+            if (state.skipped > 0) append(", ${state.skipped} skipped")
+        }
         is ChatMessage.ScanReviewState.Dismissed -> "${state.count} item${plural(state.count)} found · not added"
         is ChatMessage.ScanReviewState.Record ->
             if (state.count > 0) "${state.count} item${plural(state.count)} found · reviewed" else "Items reviewed"
