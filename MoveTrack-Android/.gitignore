@@ -1,0 +1,18 @@
+# Android / Gradle build artifacts — the wrapper JAR IS committed (it's how CI
+# and a fresh clone bootstrap the pinned Gradle 8.11.1); everything below is
+# generated and must not be.
+.gradle/
+build/
+app/build/
+local.properties
+*.apk
+*.aab
+*.keystore
+*.jks
+captures/
+.cxx/
+
+# IDE
+.idea/
+*.iml
+.DS_Store

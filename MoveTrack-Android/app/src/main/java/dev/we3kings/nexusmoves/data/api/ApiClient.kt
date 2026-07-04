@@ -1,5 +1,6 @@
 package dev.we3kings.nexusmoves.data.api
 
+import dev.we3kings.nexusmoves.BuildConfig
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -30,8 +31,10 @@ import java.util.concurrent.TimeUnit
  * out; 5xx/network → retryable, NEVER a logout.
  */
 object ApiClient {
-    // TODO(android-port): BuildConfig field per build type (debug → local API).
-    const val BASE_URL = "https://movetrack-api-7hwn7ggbiq-uc.a.run.app"
+    // Base URL is per-build-type via BuildConfig (see app/build.gradle.kts) —
+    // the parity of iOS Constants.apiBaseURL. Debug and release both point at
+    // Cloud Run today; flip DEBUG_API_URL in the gradle file for local backend dev.
+    val BASE_URL: String = BuildConfig.API_BASE_URL
 
     val json = Json { ignoreUnknownKeys = true }
 
