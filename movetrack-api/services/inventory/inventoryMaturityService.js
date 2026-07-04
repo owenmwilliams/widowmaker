@@ -11,7 +11,7 @@ const conn = require('../infra/db');
 const db = conn.db;
 const { REFERENCE_ROOMS, TYPICAL_ITEMS } = require('./inventoryReferenceData');
 const { assessWeightPlausibility, flagWeightOutliers } = require('./inventoryBenchmarkService');
-const { isLargeImpactItem } = require('./itemSpecsReference');
+const { isLargeImpactItem, isLargeItemRecord } = require('./itemSpecsReference');
 const { listRoomVideos } = require('./roomVideoService');
 
 // ── Gap Analysis ──────────────────────────────────────────────────────────────
@@ -327,14 +327,15 @@ async function getMediaGaps(userId) {
     .map((c) => ({ room: c.name, itemCount: c.item_count }));
 
   const items = await db.any(
-    `SELECT i.name, i.picture_url, c.name AS room_name
+    `SELECT i.name, i.picture_url, i.weight_lbs, i.length_in, i.width_in, i.height_in,
+            c.name AS room_name
      FROM items i LEFT JOIN collections c ON i.collection_id = c.id
      WHERE i.user_id = $1`, [userId]
   );
   const byRoom = new Map();
   for (const it of items) {
     const hasPhoto = it.picture_url && String(it.picture_url).trim() !== '';
-    if (hasPhoto || !isLargeImpactItem(it.name)) continue;
+    if (hasPhoto || !isLargeItemRecord(it)) continue;
     const room = it.room_name || 'Unsorted';
     if (!byRoom.has(room)) byRoom.set(room, []);
     byRoom.get(room).push(it.name);

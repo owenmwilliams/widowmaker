@@ -271,7 +271,6 @@
 
           <div class="toolbar-actions">
             <ShareInventoryButton class="q-mr-sm" />
-            <q-btn unelevated color="primary" icon="add" label="Add Item" class="q-mr-sm" @click="openAddOptions" />
             <q-btn flat round dense icon="menu" class="admin-btn">
               <q-menu style="z-index: 9999;">
                 <q-list style="min-width: 200px;">

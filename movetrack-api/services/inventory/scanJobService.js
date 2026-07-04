@@ -64,6 +64,11 @@ function isAllowedMediaUrl(url, userId) {
  * "<room>"") and the review card's default room, which is what keeps scanned
  * items out of "Unsorted".
  */
+// A caption that DESCRIBES CONTENTS is not a room name. The beta turned the
+// reply "Everything in this closet" (to "what else should we add to the
+// Hallway?") into a room called "Everything In This Closet".
+const CONTENTS_PHRASE = /\b(?:everything|anything|all|stuff|things|items|boxes|contents|this|these|that|those|here|inside)\b/i;
+
 function roomFromCaption(caption) {
   const text = String(caption || '').trim();
   if (!text || text.length > 60) return null;
@@ -73,7 +78,40 @@ function roomFromCaption(caption) {
   const cleaned = inventoryMutation.cleanRoomPhrase(text);
   if (!cleaned || cleaned.length > 40) return null;
   if (cleaned.split(/\s+/).length > 4) return null;
+  if (CONTENTS_PHRASE.test(cleaned)) return null;
   return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * When neither the client nor the caption named a room, the room under
+ * discussion usually did: the agent just asked "What else should we add to
+ * the Hallway?". Use the most recent model message that mentions exactly ONE
+ * of the user's existing rooms; ambiguous or roomless messages defer to the
+ * vision model's own guess.
+ */
+async function roomFromRecentContext(userId, sessionId) {
+  if (!userId || !sessionId) return null;
+  try {
+    const rooms = await db.any(
+      `SELECT name FROM collections WHERE user_id = $1`, [userId]
+    );
+    if (rooms.length === 0) return null;
+    const msgs = await db.any(
+      `SELECT content FROM nexus_messages
+       WHERE session_id = $1 AND role = 'model' AND COALESCE(content, '') <> ''
+       ORDER BY created_at DESC, id DESC LIMIT 8`,
+      [sessionId]
+    );
+    for (const m of msgs) {
+      const text = String(m.content || '').toLowerCase();
+      const mentioned = rooms.filter((r) => r.name && text.includes(String(r.name).toLowerCase()));
+      if (mentioned.length === 1) return mentioned[0].name;
+      if (mentioned.length > 1) return null; // ambiguous — don't guess
+    }
+  } catch (err) {
+    console.error('[scanJobs] room-from-context lookup failed (non-fatal):', err.message);
+  }
+  return null;
 }
 
 /**
@@ -340,7 +378,8 @@ async function runClaimedJob(job) {
     await setStage(job.id, 'analyzing');
     // Caption flows into the analysis as the room hint when it's name-shaped
     // and no explicit hint was sent (#49 review finding 6).
-    const roomHint = job.room_hint || roomFromCaption(job.caption);
+    const roomHint = job.room_hint || roomFromCaption(job.caption)
+      || await roomFromRecentContext(job.user_id, job.session_id);
     const urls = Array.isArray(job.media_urls) && job.media_urls.length > 1 ? job.media_urls : [job.media_url];
     const args = { file_url: job.media_url, mime_type: job.mime_type, room_hint: roomHint };
     // Per-stage forensics parity with the chat path (issue #45): the job path
@@ -523,6 +562,7 @@ module.exports = {
   toDTO,
   toReviewResult,
   roomFromCaption,
+  roomFromRecentContext,
   isAllowedMediaUrl,
   processJob,
   recoverStaleJobs,

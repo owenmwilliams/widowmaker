@@ -14,6 +14,9 @@ struct ReadinessSheet: View {
     var onShare: () -> Void
     var onEstimateWeights: () -> Void
     var onAddVideo: () -> Void
+    /// Tapping a next-step row sends it to Nexus as the user's message so the
+    /// agent walks them through it.
+    var onStep: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -112,13 +115,26 @@ struct ReadinessSheet: View {
                     .foregroundStyle(Theme.good)
             } else {
                 ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "circle")
-                            .font(.body)
-                            .foregroundStyle(Theme.brand)
-                        Text(step).font(.subheadline)
-                        Spacer(minLength: 0)
+                    Button {
+                        dismiss()
+                        onStep(step)
+                    } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "circle")
+                                .font(.body)
+                                .foregroundStyle(Theme.brand)
+                            Text(step)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .multilineTextAlignment(.leading)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
             }
         }
