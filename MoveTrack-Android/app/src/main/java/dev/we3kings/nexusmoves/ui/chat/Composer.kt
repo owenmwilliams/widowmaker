@@ -102,14 +102,13 @@ fun Composer(
 
     // --- Activity-result launchers ---
 
-    val pickPhotos = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(5)
-    ) { uris ->
+    // Shared handler: decode each picked image to JPEG off the main thread, then
+    // attach in order. attach() enforces the ≤5 rule as a backstop.
+    val onPhotosPicked: (List<Uri>) -> Unit = { uris ->
         if (uris.isNotEmpty()) {
-            val slots = photoSlotsLeft()
             scope.launch {
                 val picked = withContext(Dispatchers.IO) {
-                    uris.take(slots).mapIndexedNotNull { i, uri ->
+                    uris.mapIndexedNotNull { i, uri ->
                         runCatching {
                             PickedMedia(uri, "image/jpeg", "photo${i + 1}.jpg", MediaUploader.loadImageJpeg(uri))
                         }.getOrNull()
@@ -117,6 +116,29 @@ fun Composer(
                 }
                 if (picked.isNotEmpty()) attach(picked)
             }
+        }
+    }
+
+    // PickMultipleVisualMedia's maxItems is fixed at construction and must be ≥ 2,
+    // so cap the picker UI itself to the remaining slots (5 − already-attached
+    // photos) by keeping one launcher per possible cap and a single-pick for the
+    // last slot — rather than letting the user over-select and silently dropping.
+    val pickSingle = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        onPhotosPicked(listOfNotNull(uri))
+    }
+    val pick2 = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(2)) { onPhotosPicked(it) }
+    val pick3 = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(3)) { onPhotosPicked(it) }
+    val pick4 = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(4)) { onPhotosPicked(it) }
+    val pick5 = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(5)) { onPhotosPicked(it) }
+
+    fun launchPhotoPicker() {
+        val req = PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+        when (photoSlotsLeft()) {
+            1 -> pickSingle.launch(req)
+            2 -> pick2.launch(req)
+            3 -> pick3.launch(req)
+            4 -> pick4.launch(req)
+            else -> pick5.launch(req)
         }
     }
 
@@ -281,9 +303,9 @@ fun Composer(
                 Spacer(Modifier.size(12.dp))
                 AttachOption("Take Photo") { showAttachSheet = false; withCamera { launchTakePhoto() } }
                 AttachOption("Record Video") { showAttachSheet = false; withCamera { launchRecordVideo() } }
-                AttachOption("Choose Photos (up to 5)") {
+                AttachOption("Choose Photos (up to ${photoSlotsLeft()})") {
                     showAttachSheet = false
-                    pickPhotos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    launchPhotoPicker()
                 }
                 AttachOption("Choose a Video") {
                     showAttachSheet = false
