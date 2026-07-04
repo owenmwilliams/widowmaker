@@ -9,9 +9,10 @@
   import router from '../router';
 
   import axios from 'axios';
+  import { API_BASE_URL } from '../config/api';
+  import { isMobileViewport } from '../utils/viewport';
 
-  // To adjust url based on whether in prod or not
-  const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
+  const core_url = API_BASE_URL;
 
   const username = ref('')
   const userId = ref('')
@@ -75,10 +76,7 @@
     }
   };
 
-  const isMobile = computed(() => {
-    const minWidth = 768; // Minimum width for desktop devices
-    return window.innerWidth < minWidth || screen.width < minWidth;
-  });
+  const isMobile = computed(() => isMobileViewport());
 
   // const consoleLog = () => {
   //   console.log('log here to debug')

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from 'vue';
+import { API_BASE_URL } from "../../../config/api";
 import { useQuasar } from 'quasar';
 import { inventoryStore } from '../../../stores/InventoryStore'
 import { storeToRefs } from 'pinia';
@@ -12,7 +13,7 @@ const props = defineProps<{
   user: string;
 }>();
 
-const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+const core_url = API_BASE_URL;
 
 const currentVisionProvider = ref<string>('gemini');
 const editingLocationId = ref<string | null>(null);
@@ -78,7 +79,7 @@ const getAuthHeaders = () => {
 const fetchTrucks = async () => {
   loadingTrucks.value = true;
   try {
-    const response = await axios.get(`${core_url}/api/move-day/trucks`, {
+    const response = await axios.get(`${core_url}/api/move/trucks`, {
       headers: getAuthHeaders()
     });
     trucks.value = response.data;
@@ -280,7 +281,7 @@ const saveTruck = async () => {
 
   try {
     $q.loading.show({ message: 'Updating truck...' });
-    await axios.put(`${core_url}/api/move-day/trucks/${editingTruckId.value}`, {
+    await axios.put(`${core_url}/api/move/trucks/${editingTruckId.value}`, {
       truck_identifier: truckForm.truck_identifier || null,
       truck_size: truckForm.truck_size || null
     }, {
@@ -325,7 +326,7 @@ const deleteTruck = async (truck: Truck) => {
   }).onOk(async () => {
     try {
       $q.loading.show({ message: 'Deleting truck...' });
-      await axios.delete(`${core_url}/api/move-day/trucks/${truck.id}`, {
+      await axios.delete(`${core_url}/api/move/trucks/${truck.id}`, {
         headers: getAuthHeaders()
       });
 

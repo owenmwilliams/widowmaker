@@ -17,9 +17,9 @@
   import ReloPrepLogo from '../../brand/ReloPrepLogo.vue';
   import ShareInventoryButton from '../ShareInventoryButton.vue';
   import { storeToRefs } from 'pinia';
-  import axios from 'axios';
   import { useQuasar } from 'quasar';
   import { logout as serverLogout } from '../../../utils/auth';
+  import { usePlan } from '../../../composables/usePlan';
 
   interface InventoryItem {
     id: number;
@@ -45,22 +45,10 @@
   const search = ref('')
   const showAddOptionsDialog = ref(false)
   const photoCaptureMode = ref<'single' | 'multi' | null>(null)
-  const userData = ref<any>({})
-  if (typeof window !== 'undefined') {
-    try {
-      userData.value = JSON.parse(localStorage.getItem('user_data') || '{}')
-    } catch (e) {
-      userData.value = {}
-    }
-  }
-
-  const basePlan = computed(() => (userData.value?.plan || 'basic').toLowerCase())
-  const isAdmin = computed(() => !!userData.value?.is_admin)
-  const planPreview = ref<'basic' | 'pro'>(basePlan.value === 'pro' ? 'pro' : 'basic')
-  const planPreviewToggle = ref(planPreview.value === 'pro')
-  const effectivePlan = computed(() => {
-    if (isAdmin.value) return planPreview.value
-    return basePlan.value
+  const { isAdmin, effectivePlan, setPlanPreview } = usePlan()
+  const planPreviewToggle = computed({
+    get: () => effectivePlan.value === 'pro',
+    set: (val: boolean) => setPlanPreview(val ? 'pro' : 'basic')
   })
 
 //ALL PROPS & EMITS
@@ -127,26 +115,6 @@
       changePage(target as typeof pageItem.value)
     }
   }
-
-  const applyPlanHeader = () => {
-    if (isAdmin.value) {
-      axios.defaults.headers.common['x-plan-preview'] = planPreview.value
-    } else {
-      delete axios.defaults.headers.common['x-plan-preview']
-    }
-  }
-
-  watch(planPreview, (val) => {
-    planPreviewToggle.value = val === 'pro'
-    applyPlanHeader()
-    localStorage.setItem('plan_preview', val)
-    window.dispatchEvent(new CustomEvent('plan-preview-change', { detail: val }))
-  })
-  watch(planPreviewToggle, (val) => {
-    planPreview.value = val ? 'pro' : 'basic'
-    localStorage.setItem('plan_preview', planPreview.value)
-  })
-  applyPlanHeader()
 
   onMounted(() => {
     if (props.user) {

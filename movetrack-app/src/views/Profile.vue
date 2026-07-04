@@ -4,6 +4,7 @@
   import axios from 'axios';
   import router from '../router';
   import { useQuasar } from 'quasar';
+  import { API_BASE_URL } from '../config/api';
 
   const emits = defineEmits<{
     (e: 'app:loading', id: boolean): void
@@ -46,8 +47,7 @@
     username.value = userData.username
   }
 
-  // To adjust url based on whether in prod or not
-  const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
+  const core_url = API_BASE_URL;
 
   const addUser = async () => {
     const sessionToken = localStorage.getItem('session_token');

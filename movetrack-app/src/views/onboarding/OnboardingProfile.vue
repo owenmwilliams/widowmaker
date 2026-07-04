@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
+import { API_BASE_URL } from "../../config/api";
 import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import axios from "axios";
@@ -12,10 +13,7 @@ const store = onboardingStore();
 const router = useRouter();
 const $q = useQuasar();
 const isMobile = $q.platform.is.mobile === true;
-const core_url =
-  import.meta.env.MODE === "development"
-    ? "http://localhost:3050"
-    : "https://movetrack-api-7hwn7ggbiq-uc.a.run.app";
+const core_url = API_BASE_URL;
 
 const name = ref(store.name);
 const goal = ref<OnboardingGoal>(store.goal);

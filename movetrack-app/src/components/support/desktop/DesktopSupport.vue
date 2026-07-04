@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { API_BASE_URL } from "../../../config/api";
 import { useQuasar } from 'quasar';
 import axios from 'axios';
 
-const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+const core_url = API_BASE_URL;
 
 const $q = useQuasar();
 

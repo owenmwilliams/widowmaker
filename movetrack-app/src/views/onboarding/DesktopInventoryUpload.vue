@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { API_BASE_URL } from "../../config/api";
 import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
 import { inventoryStore } from "../../stores/InventoryStore";
@@ -45,10 +46,7 @@ const store = inventoryStore();
 const onboarding = onboardingStore();
 const isMobile = $q.platform.is.mobile === true;
 
-const core_url =
-  import.meta.env.MODE === "development"
-    ? "http://localhost:3050"
-    : "https://movetrack-api-7hwn7ggbiq-uc.a.run.app";
+const core_url = API_BASE_URL;
 
 const step = ref(1);
 const dropActive = ref(false);

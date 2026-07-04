@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { API_BASE_URL } from "../config/api";
 
-const core_url = import.meta.env.VITE_API_BASE_URL;
+const core_url = API_BASE_URL;
 
 // Cache validation results to avoid repeated API calls
 let lastValidationTime = 0;

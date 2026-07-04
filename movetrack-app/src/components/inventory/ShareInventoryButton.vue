@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
+import { API_BASE_URL } from "../../config/api";
 import axios from 'axios'
 import { useQuasar } from 'quasar'
 
@@ -12,10 +13,7 @@ withDefaults(defineProps<{ label?: string; flat?: boolean; dense?: boolean }>(),
 })
 
 const $q = useQuasar()
-const core_url =
-  import.meta.env.MODE === 'development'
-    ? 'http://localhost:3050'
-    : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
+const core_url = API_BASE_URL;
 
 const loading = ref(false)
 const showDialog = ref(false)
