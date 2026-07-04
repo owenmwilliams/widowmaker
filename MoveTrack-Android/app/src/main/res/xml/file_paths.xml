@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider roots for camera capture output (photos + videos written to
+     the app cache, then handed to the system camera via a content:// URI). -->
+<paths>
+    <cache-path name="captures" path="captures/" />
+</paths>

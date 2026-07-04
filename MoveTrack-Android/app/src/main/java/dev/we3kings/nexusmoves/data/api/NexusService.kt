@@ -12,6 +12,8 @@ import dev.we3kings.nexusmoves.model.ScanJobDTO
 import dev.we3kings.nexusmoves.model.ScanJobListResponse
 import dev.we3kings.nexusmoves.model.ShareDTO
 import dev.we3kings.nexusmoves.model.ShareReadinessDTO
+import dev.we3kings.nexusmoves.model.SignedUpload
+import dev.we3kings.nexusmoves.model.UploadResponse
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -191,6 +193,79 @@ object NexusService {
                 done ?: throw ApiError.ServerError("The assistant stopped responding. Please try again.")
             }
         }
+
+    // MARK: - Upload (multipart photos + signed-URL video PUT)
+
+    /**
+     * Upload a photo via the multipart endpoint (small, well under the ~32MB cap).
+     * Port of iOS NexusService.uploadMedia.
+     */
+    suspend fun uploadMedia(data: ByteArray, mimeType: String, filename: String): UploadResponse =
+        withContext(Dispatchers.IO) {
+            val body = okhttp3.MultipartBody.Builder()
+                .setType(okhttp3.MultipartBody.FORM)
+                .addFormDataPart("file", filename, data.toRequestBody(mimeType.toMediaType()))
+                .build()
+            val request = Request.Builder()
+                .url(url("/api/agents/nexus/upload"))
+                .auth()
+                .post(body)
+                .build()
+            val response = try {
+                http.newCall(request).execute()
+            } catch (e: Exception) {
+                throw ApiError.NetworkError(e)
+            }
+            decode<UploadResponse>(response.use { validate(it) })
+        }
+
+    @Serializable
+    private data class SignedUrlBody(val mimeType: String, val filename: String, val byteLength: Int)
+
+    /**
+     * Upload media DIRECTLY to storage via a signed URL, bypassing the API's
+     * ~32MB request cap (used for videos). 1) mint a signed URL, 2) PUT the bytes
+     * to GCS with body-upload progress. Both legs get one retry (the URL is valid
+     * 15 min, so a transient cellular blip shouldn't force a re-record). Port of
+     * iOS NexusService.uploadMediaDirect.
+     */
+    suspend fun uploadMediaDirect(
+        data: ByteArray,
+        mimeType: String,
+        filename: String,
+        onProgress: (Float) -> Unit = {},
+    ): UploadResponse = withContext(Dispatchers.IO) {
+        // 1. Request a signed upload URL.
+        val mintBody = json.encodeToString(SignedUrlBody(mimeType, filename, data.size))
+        val info = withOneRetry {
+            decode<SignedUpload>(requestBody("POST", "/api/agents/nexus/upload-url", mintBody))
+        }
+
+        // 2. PUT the bytes straight to GCS. No auth header; Content-Type MUST match
+        //    what the signed URL was minted for.
+        val putBody = ProgressRequestBody(data, mimeType.toMediaType(), onProgress)
+        val response = withOneRetry {
+            val put = Request.Builder().url(info.uploadUrl).put(putBody).build()
+            try {
+                http.newCall(put).execute()
+            } catch (e: Exception) {
+                throw ApiError.NetworkError(e)
+            }
+        }
+        response.use {
+            if (it.code !in 200..299) {
+                throw ApiError.ServerError(errorMessage(it.body?.string() ?: "") ?: "Upload failed (${it.code})")
+            }
+        }
+        UploadResponse(url = info.url, mimeType = mimeType)
+    }
+
+    /** Run [operation] once more if it throws (safe within the 15-min URL window). */
+    private inline fun <T> withOneRetry(operation: () -> T): T = try {
+        operation()
+    } catch (e: Exception) {
+        operation()
+    }
 
     // MARK: - Scan jobs (durable async scans)
 

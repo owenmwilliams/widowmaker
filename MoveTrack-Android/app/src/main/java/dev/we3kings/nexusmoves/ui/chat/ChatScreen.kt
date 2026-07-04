@@ -68,6 +68,7 @@ fun ChatScreen(auth: AuthViewModel, vm: NexusViewModel = viewModel()) {
     val context = LocalContext.current
     var draft by remember { mutableStateOf("") }
     var shareWarningText by remember { mutableStateOf<String?>(null) }
+    var cameraRequest by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { vm.loadIfNeeded() }
     LaunchedEffect(vm.sessionExpired) { if (vm.sessionExpired) auth.logout() }
@@ -100,21 +101,18 @@ fun ChatScreen(auth: AuthViewModel, vm: NexusViewModel = viewModel()) {
                 when (button.primaryAction) {
                     AgentButtonAction.Send -> scope.launch { vm.send(button.message) }
                     AgentButtonAction.Prefill -> draft = button.message
-                    AgentButtonAction.Camera -> { /* capture: Phase 3 */ }
+                    AgentButtonAction.Camera -> cameraRequest = button.message
                 }
             })
 
         vm.errorMessage?.let { ErrorBar(it) { vm.errorMessage = null } }
 
-        InputBar(
+        Composer(
+            vm = vm,
             draft = draft,
             onDraftChange = { draft = it },
-            enabled = !vm.isBusy,
-            onSend = {
-                val text = draft
-                draft = ""
-                scope.launch { vm.send(text) }
-            },
+            cameraRequestCaption = cameraRequest,
+            onCameraHandled = { cameraRequest = null },
         )
     }
 
@@ -457,7 +455,7 @@ private fun UploadProgressRow(progress: Float, label: String) {
     }
 }
 
-// MARK: - Error + input
+// MARK: - Error bar
 
 @Composable
 private fun ErrorBar(message: String, onDismiss: () -> Unit) {
@@ -469,43 +467,5 @@ private fun ErrorBar(message: String, onDismiss: () -> Unit) {
         Text("⚠️  $message", color = Color.White, style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f))
         IconButton(onClick = onDismiss) { Text("✕", color = Color.White) }
-    }
-}
-
-@Composable
-private fun InputBar(
-    draft: String,
-    onDraftChange: (String) -> Unit,
-    enabled: Boolean,
-    onSend: () -> Unit,
-) {
-    val canSend = enabled && draft.trim().isNotEmpty()
-    Row(
-        Modifier.fillMaxWidth().background(Theme.card).padding(horizontal = 12.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.Bottom,
-    ) {
-        // Capture (+) — disabled until Phase 3 wires photo/video capture.
-        Box(
-            Modifier.size(36.dp).clip(CircleShape).background(Color.Gray.copy(alpha = 0.5f)),
-            contentAlignment = Alignment.Center,
-        ) { Text("+", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) }
-        Spacer(Modifier.width(10.dp))
-        OutlinedTextField(
-            value = draft,
-            onValueChange = onDraftChange,
-            placeholder = { Text("Message Nexus…") },
-            modifier = Modifier.weight(1f),
-            maxLines = 5,
-            keyboardOptions = KeyboardOptions.Default,
-        )
-        Spacer(Modifier.width(10.dp))
-        Box(
-            Modifier
-                .size(36.dp)
-                .clip(CircleShape)
-                .then(if (canSend) Modifier.background(Theme.brandGradient) else Modifier.background(Color.Gray.copy(alpha = 0.5f)))
-                .clickable(enabled = canSend) { onSend() },
-            contentAlignment = Alignment.Center,
-        ) { Text("↑", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) }
     }
 }

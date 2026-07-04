@@ -190,6 +190,243 @@ class NexusViewModel : ViewModel() {
         }
     }
 
+    // MARK: - Media (capture → upload → durable scan job)
+
+    private fun postProgress(p: Float) {
+        viewModelScope.launch { uploadProgress = p }
+    }
+
+    /**
+     * Upload one picked photo/video and run its scan. Returns true if the media
+     * uploaded and the scan finished; false on any failure so the composer can
+     * keep the attachment for a retry. Videos are transcoded to 720p first.
+     */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    suspend fun sendMedia(picked: dev.we3kings.nexusmoves.data.upload.PickedMedia, caption: String = "", roomHint: String? = null): Boolean {
+        if (isBusy) return false
+        errorMessage = null
+        val isVideo = picked.isVideo
+
+        // Resolve the bytes to upload. Videos are transcoded to H.264 720p first
+        // (iOS gets this free from the picker); photos already carry JPEG bytes.
+        val data: ByteArray
+        val mimeType: String
+        val filename: String
+        try {
+            if (isVideo) {
+                isLoading = true
+                phaseText = "Optimizing video…"
+                val transcoded = dev.we3kings.nexusmoves.data.media.MediaTranscoder
+                    .transcodeTo720p(picked.uri)
+                data = transcoded.readBytes()
+                transcoded.delete()
+                mimeType = "video/mp4"
+                filename = picked.filename.substringBeforeLast('.', "video") + ".mp4"
+                isLoading = false
+                phaseText = ""
+            } else {
+                data = picked.bytes ?: dev.we3kings.nexusmoves.data.upload.MediaUploader.loadImageJpeg(picked.uri)
+                mimeType = "image/jpeg"
+                filename = picked.filename
+            }
+        } catch (e: Exception) {
+            isLoading = false
+            phaseText = ""
+            errorMessage = friendlyError(e)
+            return false
+        }
+
+        // Photos over ~30MB would 413; guard those (videos go direct to storage).
+        if (!isVideo && data.size > 30 * 1024 * 1024) {
+            errorMessage = "That photo is too large to upload (${data.size / 1024 / 1024} MB)."
+            return false
+        }
+
+        val idempotencyKey = dev.we3kings.nexusmoves.data.upload.MediaUploader.sha256Hex(data)
+
+        val optimistic = ChatMessage(
+            role = ChatMessage.Role.User,
+            text = caption.ifEmpty { if (isVideo) "🎥 Video walkthrough" else "📷 Photo" },
+        )
+        messages = messages + optimistic
+
+        isUploading = true
+        uploadProgress = 0f
+        phaseText = if (isVideo) "Uploading video…" else "Uploading photo…"
+        val meta = mapOf("mediaKind" to if (isVideo) "video" else "photo", "bytes" to data.size.toString())
+        ClientEventLogger.log(ClientEventLogger.Type.UploadStarted, sessionId, meta)
+
+        val uploaded = try {
+            if (isVideo) {
+                service.uploadMediaDirect(data, mimeType, filename) { p -> postProgress(p) }
+            } else {
+                service.uploadMedia(data, mimeType, filename)
+            }
+        } catch (e: ApiError.Unauthorized) {
+            isUploading = false; phaseText = ""
+            messages = messages.filterNot { it.id == optimistic.id }
+            sessionExpired = true
+            ClientEventLogger.log(ClientEventLogger.Type.UploadFailed, sessionId, meta)
+            return false
+        } catch (e: Exception) {
+            isUploading = false; phaseText = ""
+            messages = messages.filterNot { it.id == optimistic.id }
+            errorMessage = friendlyError(e)
+            ClientEventLogger.log(ClientEventLogger.Type.UploadFailed, sessionId, meta + ("error" to (e.message ?: "").take(200)))
+            return false
+        }
+        isUploading = false
+        phaseText = ""
+        ClientEventLogger.log(ClientEventLogger.Type.UploadSucceeded, sessionId, meta)
+        lastScan = LastScan(listOf(uploaded.url), uploaded.mimeType, null)
+
+        return runScanJob(listOf(uploaded.url), uploaded.mimeType, caption, roomHint, idempotencyKey, isVideo, optimistic)
+    }
+
+    /**
+     * Send up to five photos as ONE scan: each uploads separately (and shows as
+     * its own attachment), then a single scan job analyzes them together — one
+     * review card, not five. Port of iOS sendMediaBatch (#67).
+     */
+    suspend fun sendMediaBatch(items: List<dev.we3kings.nexusmoves.data.upload.PickedMedia>, caption: String = "", roomHint: String? = null): Boolean {
+        if (isBusy) return false
+        if (items.size <= 1) {
+            return items.firstOrNull()?.let { sendMedia(it, caption, roomHint) } ?: false
+        }
+        errorMessage = null
+        if (items.size > 5 || items.any { it.isVideo }) {
+            errorMessage = "Up to 5 photos can be sent together — videos go one at a time."
+            return false
+        }
+        val byteLists = items.map { it.bytes ?: dev.we3kings.nexusmoves.data.upload.MediaUploader.loadImageJpeg(it.uri) }
+        byteLists.firstOrNull { it.size > 30 * 1024 * 1024 }?.let {
+            errorMessage = "One of those photos is too large to upload (${it.size / 1024 / 1024} MB)."
+            return false
+        }
+        val idempotencyKey = dev.we3kings.nexusmoves.data.upload.MediaUploader.sha256Hex(byteLists)
+
+        val optimistic = ChatMessage(
+            role = ChatMessage.Role.User,
+            text = caption,
+            attachments = items.map { NexusAttachment(null, it.mimeType) },
+        )
+        messages = messages + optimistic
+
+        isUploading = true
+        uploadProgress = 0f
+        val meta = mapOf(
+            "mediaKind" to "photo_batch",
+            "count" to items.size.toString(),
+            "bytes" to byteLists.sumOf { it.size }.toString(),
+        )
+        ClientEventLogger.log(ClientEventLogger.Type.UploadStarted, sessionId, meta)
+
+        val urls = mutableListOf<String>()
+        try {
+            byteLists.forEachIndexed { index, bytes ->
+                phaseText = "Uploading photo ${index + 1} of ${items.size}…"
+                val up = service.uploadMedia(bytes, "image/jpeg", items[index].filename)
+                urls.add(up.url)
+                uploadProgress = (index + 1).toFloat() / items.size
+            }
+        } catch (e: ApiError.Unauthorized) {
+            isUploading = false; phaseText = ""
+            messages = messages.filterNot { it.id == optimistic.id }
+            sessionExpired = true
+            ClientEventLogger.log(ClientEventLogger.Type.UploadFailed, sessionId, meta)
+            return false
+        } catch (e: Exception) {
+            isUploading = false; phaseText = ""
+            messages = messages.filterNot { it.id == optimistic.id }
+            errorMessage = friendlyError(e)
+            ClientEventLogger.log(ClientEventLogger.Type.UploadFailed, sessionId, meta + ("error" to (e.message ?: "").take(200)))
+            return false
+        }
+        isUploading = false
+        phaseText = ""
+        ClientEventLogger.log(ClientEventLogger.Type.UploadSucceeded, sessionId, meta)
+        lastScan = LastScan(urls, "image/jpeg", null)
+
+        return runScanJob(urls, "image/jpeg", caption, roomHint, idempotencyKey, false, optimistic)
+    }
+
+    /** Register uploaded media as a scan job, poll to terminal, materialize the card. */
+    private suspend fun runScanJob(
+        mediaUrls: List<String>,
+        mimeType: String,
+        caption: String,
+        roomHint: String?,
+        idempotencyKey: String,
+        isVideo: Boolean,
+        optimistic: ChatMessage,
+    ): Boolean {
+        quickStartChips = emptyList()
+        isLoading = true
+        phaseText = if (isVideo) "Scanning your video…" else "Scanning your photo…"
+        try {
+            val created = service.createScanJob(
+                mediaUrl = mediaUrls.firstOrNull() ?: "",
+                mediaUrls = if (mediaUrls.size > 1) mediaUrls else null,
+                mimeType = mimeType,
+                caption = caption.ifEmpty { null },
+                idempotencyKey = idempotencyKey,
+                sessionId = sessionId,
+                roomHint = roomHint,
+            )
+            val job = pollScanJob(created.id)
+            if (job.status == "completed") {
+                // NOT consumed here — the job is acknowledged when the user closes
+                // the review card, so killing the app with the card up re-surfaces it.
+                materializeReview(job)
+                refreshReadiness()
+                return true
+            }
+            messages = messages.filterNot { it.id == optimistic.id }
+            errorMessage = job.error ?: "The scan failed. Please try again."
+            runCatching { service.consumeScanJob(job.id) }
+            return false
+        } catch (e: ApiError.Unauthorized) {
+            messages = messages.filterNot { it.id == optimistic.id }
+            sessionExpired = true
+            return false
+        } catch (e: Exception) {
+            messages = messages.filterNot { it.id == optimistic.id }
+            errorMessage = friendlyError(e)
+            return false
+        } finally {
+            isLoading = false
+            phaseText = ""
+            detailText = ""
+        }
+    }
+
+    /**
+     * Poll a scan job to a terminal state. Transient poll failures are tolerated
+     * — the job keeps running server-side, so a network blip mid-poll must not
+     * abort the scan. 3s cadence, 15-min deadline; on timeout the job is left
+     * unconsumed so reload() surfaces it.
+     */
+    private suspend fun pollScanJob(id: String): ScanJobDTO {
+        val deadline = System.currentTimeMillis() + 15 * 60 * 1000
+        var consecutiveErrors = 0
+        while (System.currentTimeMillis() < deadline) {
+            try {
+                val job = service.scanJob(id)
+                consecutiveErrors = 0
+                if (job.isTerminal) return job
+            } catch (e: ApiError.Unauthorized) {
+                throw e
+            } catch (e: Exception) {
+                consecutiveErrors += 1
+                if (consecutiveErrors >= 10) throw e
+            }
+            kotlinx.coroutines.delay(3_000)
+        }
+        throw ApiError.NetworkError(
+            java.io.IOException("The scan is taking longer than expected. It keeps running in the background — pull to refresh in a bit to see the result.")
+        )
+    }
+
     // MARK: - Scan-job materialization (shared by reload + Phase-3 capture)
 
     private fun updatePill(id: String?, state: ChatMessage.ScanReviewState) {
