@@ -5,9 +5,11 @@
 // Movers' share links (/share/:token) and legal pages stay reachable on any
 // device; see the router guard.
 
-// Set VITE_IOS_APP_URL to the TestFlight invite link now, and the App Store
-// link after launch.
-const iosAppUrl = import.meta.env.VITE_IOS_APP_URL || 'https://testflight.apple.com/join/REPLACE_ME'
+// Set VITE_IOS_APP_URL to the TestFlight PUBLIC link during the beta
+// (App Store Connect → TestFlight → group → enable public link), then the
+// App Store link after launch. When unset, the page shows a private-beta
+// notice instead of a dead button.
+const iosAppUrl: string = import.meta.env.VITE_IOS_APP_URL || ''
 
 function continueToWeb () {
   // Escape hatch for tablets/edge cases — remembered for this tab only.
@@ -28,9 +30,15 @@ function continueToWeb () {
         talk through your stuff, and your moving inventory builds itself.
       </p>
 
-      <a :href="iosAppUrl" class="get-app__cta">
+      <a v-if="iosAppUrl" :href="iosAppUrl" class="get-app__cta">
         Get the iPhone app
       </a>
+      <div v-else class="get-app__beta">
+        <p class="get-app__beta-title">We're in private beta on iPhone.</p>
+        <p class="get-app__beta-body">
+          Have an invite? Open your TestFlight link on this phone to install.
+        </p>
+      </div>
 
       <p class="get-app__android">Android is on the way.</p>
 
@@ -92,6 +100,22 @@ function continueToWeb () {
   color: #fff;
   font-weight: 700;
   text-decoration: none;
+}
+.get-app__beta {
+  margin-top: 8px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  background: #ede9fe;
+}
+.get-app__beta-title {
+  font-weight: 700;
+  color: #4c1d95;
+  margin: 0 0 4px;
+}
+.get-app__beta-body {
+  color: #6b7280;
+  font-size: 0.9rem;
+  margin: 0;
 }
 .get-app__android {
   color: #6b7280;
