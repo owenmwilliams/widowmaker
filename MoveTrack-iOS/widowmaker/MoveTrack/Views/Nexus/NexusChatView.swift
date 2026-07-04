@@ -37,7 +37,7 @@ struct NexusChatView: View {
             }
             inputBar
         }
-        .background(Theme.canvas, ignoresSafeAreaEdges: .all)
+        .background(Theme.bg, ignoresSafeAreaEdges: .all)
         .task { await vm.loadIfNeeded() }
         .confirmationDialog("Add a room photo or video", isPresented: $showAttachDialog, titleVisibility: .visible) {
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -137,7 +137,7 @@ struct NexusChatView: View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Theme.brandGradient)
+                    .fill(Theme.accentGradient)
                     .frame(width: 34, height: 34)
                     .overlay(Image(systemName: "sparkles").font(.system(size: 15, weight: .bold)).foregroundStyle(.white))
                 VStack(alignment: .leading, spacing: 0) {
@@ -167,7 +167,7 @@ struct NexusChatView: View {
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, 12)
-        .background { Theme.card.ignoresSafeArea(edges: .top) }
+        .background { Theme.surfaceCard.ignoresSafeArea(edges: .top) }
         .overlay(alignment: .bottom) { Divider() }
     }
 
@@ -231,16 +231,16 @@ struct NexusChatView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .background(Theme.surfaceCard)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
         .padding(.top, 4)
     }
 
     private func stepRow(_ n: Int, _ icon: String, _ text: String) -> some View {
         HStack(spacing: 12) {
             ZStack {
-                Circle().fill(Theme.brandSoft).frame(width: 32, height: 32)
-                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.brand)
+                Circle().fill(Theme.accentQuiet).frame(width: 32, height: 32)
+                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent)
             }
             Text(text).font(.subheadline)
             Spacer(minLength: 0)
@@ -258,8 +258,8 @@ struct NexusChatView: View {
                         .font(.subheadline.weight(.medium))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
-                        .background(Theme.brandSoft)
-                        .foregroundStyle(Theme.brand)
+                        .background(Theme.accentQuiet)
+                        .foregroundStyle(Theme.accent)
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -299,7 +299,7 @@ struct NexusChatView: View {
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
-                        .background(vm.isBusy ? AnyShapeStyle(Color.gray) : AnyShapeStyle(Theme.brandGradient))
+                        .background(vm.isBusy ? AnyShapeStyle(Color.gray) : AnyShapeStyle(Theme.accentGradient))
                         .clipShape(Circle())
                 }
                 .disabled(vm.isBusy)
@@ -309,7 +309,7 @@ struct NexusChatView: View {
                     .focused($inputFocused)
                     .padding(.horizontal, 15)
                     .padding(.vertical, 9)
-                    .background(Theme.canvas)
+                    .background(Theme.bg)
                     .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.primary.opacity(0.08)))
 
@@ -318,7 +318,7 @@ struct NexusChatView: View {
                         .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 36, height: 36)
-                        .background(canSend ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(Color.gray.opacity(0.5)))
+                        .background(canSend ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Color.gray.opacity(0.5)))
                         .clipShape(Circle())
                 }
                 .disabled(!canSend)
@@ -326,7 +326,7 @@ struct NexusChatView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background { Theme.card.ignoresSafeArea(edges: .bottom) }
+        .background { Theme.surfaceCard.ignoresSafeArea(edges: .bottom) }
         .overlay(alignment: .top) { Divider() }
     }
 
@@ -335,7 +335,7 @@ struct NexusChatView: View {
             ForEach(Array(pendingMedia.enumerated()), id: \.element.id) { index, media in
                 HStack(spacing: 8) {
                     Image(systemName: media.isVideo ? "video.fill" : "photo.fill")
-                        .foregroundStyle(Theme.brand)
+                        .foregroundStyle(Theme.accent)
                     Text(media.isVideo
                          ? "Video attached"
                          : (pendingMedia.count == 1 ? "Photo attached" : "Photo \(index + 1) of \(pendingMedia.count)"))
@@ -347,7 +347,7 @@ struct NexusChatView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(Theme.brandSoft)
+                .background(Theme.accentQuiet)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
@@ -482,13 +482,13 @@ private struct ReadinessBanner: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
-                    ProgressView(value: readiness?.progress ?? 0).tint(Theme.brand)
+                    ProgressView(value: readiness?.progress ?? 0).tint(Theme.accent)
                     HStack(spacing: 3) {
                         Text("See what's left")
                         Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
                     }
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Theme.brand)
+                    .foregroundStyle(Theme.accent)
                 }
             }
             .buttonStyle(.plain)
@@ -499,7 +499,7 @@ private struct ReadinessBanner: View {
                     Text("Share").font(.caption2.weight(.bold))
                 }
                 .frame(width: 60, height: 56)
-                .background(Theme.brandGradient)
+                .background(Theme.accentGradient)
                 .foregroundStyle(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .opacity(isPreparing ? 0.6 : 1)
@@ -507,9 +507,9 @@ private struct ReadinessBanner: View {
             .disabled(isPreparing)
         }
         .padding(12)
-        .background(Theme.canvas)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).stroke(Color.primary.opacity(0.06)))
+        .background(Theme.bg)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.lg).stroke(Color.primary.opacity(0.06)))
     }
 }
 
@@ -534,8 +534,8 @@ private struct MessageBubble: View {
                             .font(.footnote.weight(.medium))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(isUser ? Color.white.opacity(0.25) : Theme.brandSoft)
-                            .foregroundStyle(isUser ? .white : Theme.brand)
+                            .background(isUser ? Color.white.opacity(0.25) : Theme.accentQuiet)
+                            .foregroundStyle(isUser ? .white : Theme.accent)
                             .clipShape(Capsule())
                     }
                     if !displayText.isEmpty {
@@ -543,9 +543,9 @@ private struct MessageBubble: View {
                             .textSelection(.enabled)
                             .padding(.horizontal, 15)
                             .padding(.vertical, 11)
-                            .background(isUser ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(Theme.modelBubble))
+                            .background(isUser ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.bubbleOther))
                             .foregroundStyle(isUser ? Color.white : Color.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
                     }
                 }
                 if !isUser { Spacer(minLength: 44) }
@@ -587,8 +587,8 @@ private struct AgentButtonRow: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.brandSoft)
-            .foregroundStyle(Theme.brand)
+            .background(Theme.accentQuiet)
+            .foregroundStyle(Theme.accent)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -617,14 +617,14 @@ private struct TypingIndicator: View {
                     ForEach(0..<3) { i in
                         Circle()
                             .frame(width: 7, height: 7)
-                            .foregroundStyle(Theme.brand.opacity(0.7))
+                            .foregroundStyle(Theme.accent.opacity(0.7))
                             .scaleEffect(0.7 + 0.3 * abs(CGFloat(sin(t * 4 + Double(i) * 0.7))))
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 13)
-                .background(Theme.modelBubble)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+                .background(Theme.bubbleOther)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(phase.isEmpty ? "Thinking…" : phase).font(.subheadline).foregroundStyle(.secondary)
@@ -703,7 +703,7 @@ private struct ScanReviewPill: View {
 
     private var tint: Color {
         switch state {
-        case .reviewed: return Theme.good
+        case .reviewed: return Theme.success
         default: return Color.secondary
         }
     }
@@ -733,7 +733,7 @@ private struct ScanReviewPill: View {
             .foregroundStyle(tint)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
-            .background(Theme.card)
+            .background(Theme.surfaceCard)
             .clipShape(Capsule())
             Spacer(minLength: 0)
         }

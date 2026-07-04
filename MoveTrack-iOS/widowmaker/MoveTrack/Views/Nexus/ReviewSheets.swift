@@ -101,7 +101,7 @@ private struct ReviewRow: View {
             Button { item.keep.toggle() } label: {
                 Image(systemName: item.keep ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(item.keep ? Theme.brand : Color.secondary)
+                    .foregroundStyle(item.keep ? Theme.accent : Color.secondary)
             }
             .buttonStyle(.plain)
             .padding(.top, 2)
@@ -123,10 +123,10 @@ private struct ReviewRow: View {
                     if item.fragile {
                         Text("Fragile")
                             .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Theme.warn)
+                            .foregroundStyle(Theme.warning)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Theme.warn.opacity(0.15))
+                            .background(Theme.warning.opacity(0.15))
                             .clipShape(Capsule())
                     }
                 }
@@ -166,8 +166,8 @@ private struct ReviewRow: View {
 
     private var placeholder: some View {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Theme.brandSoft)
-            .overlay(Image(systemName: "shippingbox.fill").font(.system(size: 15)).foregroundStyle(Theme.brand.opacity(0.6)))
+            .fill(Theme.accentQuiet)
+            .overlay(Image(systemName: "shippingbox.fill").font(.system(size: 15)).foregroundStyle(Theme.accent.opacity(0.6)))
     }
 }
 
@@ -255,7 +255,7 @@ private struct DuplicateRow: View {
             if let s = pair.similarity {
                 Text("\(Int(s))% match")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.brand)
+                    .foregroundStyle(Theme.accent)
             }
             itemLine("A", pair.itemA)
             itemLine("B", pair.itemB)
@@ -275,7 +275,7 @@ private struct DuplicateRow: View {
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.white)
                 .frame(width: 18, height: 18)
-                .background(Circle().fill(Theme.brand))
+                .background(Circle().fill(Theme.accent))
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.name ?? "Item").font(.subheadline.weight(.medium))
                 if let room = item.room, !room.isEmpty {

@@ -16,6 +16,11 @@ struct MoveTrackApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(authViewModel)
+                // Dark-first per design/briefs/ios.md §1: the app ships dark
+                // regardless of system appearance; the light theme stays
+                // fully wired in Theme.swift for later (a future in-app
+                // toggle, other surfaces, etc.) but isn't user-facing yet.
+                .preferredColorScheme(.dark)
                 .onOpenURL { url in
                     handleDeepLink(url)
                 }
