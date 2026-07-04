@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { API_BASE_URL } from "../../../config/api";
+import { usePlan } from '../../../composables/usePlan'
 import { inventoryStore } from '../../../stores/InventoryStore'
 import { storeToRefs } from 'pinia'
 import axios from 'axios'
@@ -22,9 +24,7 @@ const $q = useQuasar()
 const router = useRouter()
 const { locations, containers, collections } = storeToRefs(store)
 
-const core_url = import.meta.env.MODE == 'development'
-  ? 'http://localhost:3050'
-  : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
+const core_url = API_BASE_URL;
 
 // Tab management
 const moveDayTab = ref<'overview' | 'timeline' | 'checklist' | 'crew'>('overview')
@@ -62,36 +62,8 @@ const showDamageDialog = ref(false)
 const showCrewDialog = ref(false)
 const showLoadingPlanDialog = ref(false)
 
-const userData = ref<any>({})
-if (typeof window !== 'undefined') {
-  try {
-    userData.value = JSON.parse(localStorage.getItem('user_data') || '{}')
-  } catch (e) {
-    userData.value = {}
-  }
-}
-const planPreviewOverride = ref<'basic' | 'pro' | null>(localStorage.getItem('plan_preview') as 'basic' | 'pro' | null)
-const basePlan = computed(() => (userData.value?.plan || 'basic').toLowerCase())
-const effectivePlan = computed(() => (planPreviewOverride.value || basePlan.value) as 'basic' | 'pro')
-const isProPlan = computed(() => effectivePlan.value === 'pro')
+const { isPro: isProPlan } = usePlan()
 const goToPricing = () => router.push('/pricing')
-
-onMounted(() => {
-  const handleStorage = (event: StorageEvent) => {
-    if (event.key === 'plan_preview') {
-      planPreviewOverride.value = (event.newValue as 'basic' | 'pro' | null) || null
-    }
-  }
-  const handleCustom = (event: Event) => {
-    planPreviewOverride.value = ((event as CustomEvent).detail as 'basic' | 'pro' | null) || null
-  }
-  window.addEventListener('storage', handleStorage)
-  window.addEventListener('plan-preview-change', handleCustom as EventListener)
-  onBeforeUnmount(() => {
-    window.removeEventListener('storage', handleStorage)
-    window.removeEventListener('plan-preview-change', handleCustom as EventListener)
-  })
-})
 
 // Loose items and loading zones
 const looseItems = ref<any[]>([])
@@ -340,7 +312,7 @@ const fetchExistingTrucks = async () => {
     if (sessionToken) {
       headers.Authorization = 'Bearer ' + sessionToken
     }
-    const response = await axios.get(`${core_url}/api/move-day/moves/${props.currentSavedMoveId}/trucks`, { headers })
+    const response = await axios.get(`${core_url}/api/move/moves/${props.currentSavedMoveId}/trucks`, { headers })
     existingTrucks.value = response.data || []
   } catch (error) {
     console.error('Failed to fetch existing trucks:', error)

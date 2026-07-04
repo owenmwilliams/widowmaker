@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue';
+import { API_BASE_URL } from "../../config/api";
 import { useQuasar } from 'quasar';
 import axios from 'axios';
 
@@ -92,10 +93,7 @@ type StepState = 'idle' | 'in_progress' | 'completed' | 'error';
 
 const $q = useQuasar();
 
-const core_url =
-  import.meta.env.MODE === 'development'
-    ? 'http://localhost:3050'
-    : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+const core_url = API_BASE_URL;
 
 const sessionId = ref<string | null>(null);
 const promptInput = ref('');
@@ -389,7 +387,7 @@ const endSession = async () => {
   if (!sessionId.value) return;
   try {
     await axios.post(
-      `${core_url}/vision-lab-video/sessions/${sessionId.value}/end`,
+      `${core_url}/admin/vision-lab-video/sessions/${sessionId.value}/end`,
       {},
       { headers: buildHeaders() }
     );
@@ -609,7 +607,7 @@ const startFrameAnalysis = async () => {
   saveResult.value = null;
   try {
     await axios.patch(
-      `${core_url}/vision-lab-video/sessions/${sessionId.value}/prompt`,
+      `${core_url}/admin/vision-lab-video/sessions/${sessionId.value}/prompt`,
       { prompt },
       { headers: buildHeaders() }
     );
@@ -646,7 +644,7 @@ const analyzeFrame = async (frame: ScannedFrame): Promise<FrameAnalysis> => {
   formData.append('timestamp_ms', frame.timestamp.toString());
   try {
     const response = await axios.post(
-      `${core_url}/vision-lab-video/sessions/${sessionId.value}/frame`,
+      `${core_url}/admin/vision-lab-video/sessions/${sessionId.value}/frame`,
       formData,
       {
         headers: {
@@ -698,7 +696,7 @@ const runSamRefinement = async () => {
         }))
       };
       const response = await axios.post(
-        `${core_url}/vision-lab-video/sessions/${sessionId.value}/sam-refine`,
+        `${core_url}/admin/vision-lab-video/sessions/${sessionId.value}/sam-refine`,
         payload,
         { headers: buildHeaders() }
       );
@@ -848,7 +846,7 @@ const saveItemsToInventory = async () => {
   setStepState('saving', 'in_progress', 'Saving items...');
   try {
     const response = await axios.post(
-      `${core_url}/vision-lab-video/sessions/${sessionId.value}/save-items`,
+      `${core_url}/admin/vision-lab-video/sessions/${sessionId.value}/save-items`,
       {
         prompt: promptInput.value,
         items: attributedItems.value
