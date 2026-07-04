@@ -1,0 +1,21 @@
+<!-- @dsCard group="Spacing" viewport="700x170" name="Elevation — shadows & glows" subtitle="Light uses soft shadows; dark uses glow." -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  body{margin:0;background:#0B0B0F;font-family:var(--font-mono);padding:0;display:flex}
+  .half{flex:1;display:flex;gap:18px;align-items:center;justify-content:center;padding:22px}
+  .light{background:#F4F6FB}
+  .box{width:80px;height:66px;border-radius:var(--r-lg);display:flex;align-items:flex-end;justify-content:center;padding-bottom:6px;font-size:9px}
+  .lbox{background:#fff;color:#5A6379}
+  .dbox{color:#A2A2AE}
+</style></head><body>
+  <div class="half light">
+    <div class="box lbox" style="box-shadow:var(--shadow-sm)">sm</div>
+    <div class="box lbox" style="box-shadow:var(--shadow-md)">md</div>
+    <div class="box lbox" style="box-shadow:var(--shadow-lg)">lg</div>
+  </div>
+  <div class="half">
+    <div class="box dbox" style="background:#26262C;box-shadow:var(--shadow-dark-md)">lift</div>
+    <div class="box dbox" style="background:var(--blue-600);color:#fff;box-shadow:var(--glow-accent)">glow</div>
+    <div class="box dbox" style="background:var(--navy-800);box-shadow:var(--glow-beacon);color:var(--beacon-400)">beacon</div>
+  </div>
+</body></html>

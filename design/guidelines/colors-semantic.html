@@ -1,0 +1,22 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Semantic" subtitle="Success, warning, danger — plus warning surface." -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  body{margin:0;background:var(--bg);font-family:var(--font-ui);padding:20px}
+  .row{display:flex;gap:10px}
+  .sw{flex:1;height:104px;border-radius:var(--r-md);display:flex;flex-direction:column;justify-content:space-between;padding:10px 12px;box-sizing:border-box}
+  .t{font-size:12px;font-weight:700}
+  .n{font-family:var(--font-mono);font-size:10px;opacity:.9}
+  .warncard{flex:1.4;background:var(--amber-cream);border-radius:var(--r-md);padding:10px 12px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:4px}
+  .warncard .t{color:var(--amber-ink)}
+  .warncard .d{color:var(--amber-ink);font-size:11px;line-height:1.35;opacity:.9}
+</style></head><body>
+<div class="row">
+  <div class="sw" style="background:var(--green-500);color:#fff"><span class="t">Success</span><span class="n">green-500 #2FB878</span></div>
+  <div class="sw" style="background:var(--amber-400);color:#2a1e08"><span class="t">Warning</span><span class="n">amber-400 #E8A54B</span></div>
+  <div class="sw" style="background:var(--red-500);color:#fff"><span class="t">Danger</span><span class="n">red-500 #E5484D</span></div>
+  <div class="warncard">
+    <span class="t">Warning surface</span>
+    <span class="d">Cream card + amber ink (light). Kind, honest nudges — never alarm-red for missing data.</span>
+  </div>
+</div>
+</body></html>

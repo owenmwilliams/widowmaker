@@ -1,0 +1,9 @@
+/* ============================================================
+   NEXUS MOVES — FONTS
+   Display: Bricolage Grotesque (marketing, headlines, deck).
+   UI: system stack (SF Pro on iOS, Roboto on Android, system on web).
+   Mono: JetBrains Mono (eyebrows, data, technical labels).
+   Webfonts shipped via Google Fonts CDN.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;600&display=swap');

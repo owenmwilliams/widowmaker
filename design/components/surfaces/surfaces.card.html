@@ -1,0 +1,36 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Surfaces — cards & sheet" subtitle="Panels and bottom sheet" -->
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;background:var(--bg);font-family:var(--font-ui);padding:22px;color:var(--text-primary);display:flex;gap:18px;align-items:flex-start}
+  .col{flex:1}
+  h3{margin:0 0 8px;font-size:18px}
+  p{margin:0;color:var(--text-secondary);font-size:15px;line-height:1.4}
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+</head><body>
+<div id="root"></div>
+<script type="text/plain" id="src">
+  function findComp(name){ if(typeof window[name]==="function")return window[name];
+    for(const k in window){try{const v=window[k];if(v&&typeof v==="object"&&v[name])return v[name];}catch(e){}} return null; }
+  const Card=findComp("Card"), Sheet=findComp("Sheet");
+  function App(){return (
+    <>
+      <div className="col">
+        <Card style={{marginBottom:14}}><h3>Videos &amp; photos</h3><p>Every room has a walkthrough and the big items are photographed.</p></Card>
+        <Card interactive><h3>Storage</h3><p>14 items · tap to review</p></Card>
+      </div>
+      <div className="col">
+        <Sheet title="Get ready to share" onDone={()=>{}}>
+          <p>13 items across 9 rooms. 43 lbs, ~6 cu ft.</p>
+        </Sheet>
+      </div>
+    </>
+  );}
+  ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>(function(){var c=document.getElementById("src").textContent;(0,eval)(Babel.transform(c,{presets:[["react",{runtime:"classic"}]],plugins:[]}).code);})();</script>
+</body></html>

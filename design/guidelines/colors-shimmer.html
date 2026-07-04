@@ -1,0 +1,21 @@
+<!-- @dsCard group="Colors" viewport="700x180" name="Signature — Shimmer & Cyan" subtitle="Blue→cyan intelligence gradient. AI moments only." -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../styles.css">
+<style>
+  body{margin:0;background:var(--bg);font-family:var(--font-ui);padding:20px;color:#fff}
+  .wrap{display:flex;gap:14px;align-items:stretch}
+  .grad{flex:1.6;border-radius:var(--r-lg);background:var(--shimmer);position:relative;overflow:hidden;min-height:118px;display:flex;flex-direction:column;justify-content:flex-end;padding:12px 14px;box-sizing:border-box}
+  .grad .lab{font-family:var(--font-mono);font-size:11px;font-weight:600}
+  .grad .sub{font-size:12px;opacity:.9}
+  .sweep{position:absolute;top:0;left:0;width:40%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);animation:nx-shimmer-sweep var(--shimmer-sweep) var(--ease-standard) infinite}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1}
+  .sw{flex:1;border-radius:var(--r-sm);display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-family:var(--font-mono);font-size:10px;font-weight:600}
+</style></head><body>
+<div class="wrap">
+  <div class="grad"><div class="sweep"></div><span class="lab">--shimmer</span><span class="sub">linear-gradient(115deg, blue → cyan)</span></div>
+  <div class="col">
+    <div class="sw" style="background:var(--shimmer-blue)"><span>shimmer-blue</span><span>#3B6FE0</span></div>
+    <div class="sw" style="background:var(--cyan-500)"><span>cyan-500</span><span>#2FBEDC</span></div>
+    <div class="sw" style="background:var(--shimmer-cyan);color:#0B1533"><span>shimmer-cyan</span><span>#34C8E0</span></div>
+  </div>
+</div>
+</body></html>

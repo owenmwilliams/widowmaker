@@ -1,0 +1,37 @@
+<!-- @dsCard group="Components" viewport="700x420" name="Chat — bubbles, avatar, suggestions" subtitle="The assistant conversation" -->
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;background:var(--bg);font-family:var(--font-ui);padding:22px;color:var(--text-primary)}
+  .col{display:flex;flex-direction:column;gap:12px;max-width:560px}
+  .row{display:flex;gap:10px;align-items:flex-start}
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+</head><body>
+<div id="root"></div>
+<script type="text/plain" id="src">
+  function findComp(name){ if(typeof window[name]==="function")return window[name];
+    for(const k in window){try{const v=window[k];if(v&&typeof v==="object"&&v[name])return v[name];}catch(e){}} return null; }
+  const AssistantAvatar=findComp("AssistantAvatar"), ChatBubble=findComp("ChatBubble"), SuggestionButton=findComp("SuggestionButton");
+  const I=(p)=><svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{p}</svg>;
+  const Edit=<I><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></I>;
+  const Send=<I><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></I>;
+  function App(){return (
+    <div className="col">
+      <ChatBubble from="self">Everything in this closet</ChatBubble>
+      <div className="row">
+        <AssistantAvatar size={34} shape="circle"/>
+        <ChatBubble from="assistant">Great, those 7 items are added! What else should we add to the Hallway, Owen?</ChatBubble>
+      </div>
+      <SuggestionButton icon={Edit}>Catalog more Hallway items</SuggestionButton>
+      <SuggestionButton icon={Send}>Catalog Storage</SuggestionButton>
+      <ChatBubble from="self" shimmer time="2:32 PM">Added 8 of the 10 items from the scan.</ChatBubble>
+    </div>
+  );}
+  ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>(function(){var c=document.getElementById("src").textContent;(0,eval)(Babel.transform(c,{presets:[["react",{runtime:"classic"}]],plugins:[]}).code);})();</script>
+</body></html>

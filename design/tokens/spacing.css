@@ -1,0 +1,41 @@
+/* ============================================================
+   NEXUS MOVES — SPACING, RADII, LAYOUT TOKENS
+   4px base grid.
+   ============================================================ */
+
+:root {
+  /* -------- SPACING -------- */
+  --sp-0: 0;
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 8px;
+  --sp-4: 12px;
+  --sp-5: 16px;
+  --sp-6: 20px;
+  --sp-7: 24px;
+  --sp-8: 32px;
+  --sp-9: 40px;
+  --sp-10: 48px;
+  --sp-11: 64px;
+  --sp-12: 80px;
+  --sp-13: 96px;
+
+  /* -------- RADII --------
+     Mobile bubbles are big & soft; desktop cards a touch tighter. */
+  --r-xs: 8px;
+  --r-sm: 10px;
+  --r-md: 14px;   /* buttons, inputs */
+  --r-lg: 18px;   /* cards */
+  --r-xl: 22px;   /* chat bubbles, panels */
+  --r-2xl: 28px;  /* sheets, app-icon squircle */
+  --r-pill: 999px;
+
+  /* -------- LAYOUT -------- */
+  --app-max: 430px;      /* mobile design width */
+  --content-max: 1240px; /* web content column */
+  --gutter: 20px;
+
+  /* -------- FOCUS -------- */
+  --focus-ring: 0 0 0 3px color-mix(in oklab, var(--accent) 45%, transparent);
+  --tap-min: 44px; /* minimum hit target */
+}

@@ -1,0 +1,29 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Feedback — banners, progress, status" subtitle="Nudges, readiness & confirmations" -->
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<style>
+  body{margin:0;background:var(--bg);font-family:var(--font-ui);padding:22px;color:var(--text-primary)}
+  .col{display:flex;flex-direction:column;gap:16px;max-width:600px}
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+</head><body>
+<div id="root"></div>
+<script type="text/plain" id="src">
+  function findComp(name){ if(typeof window[name]==="function")return window[name];
+    for(const k in window){try{const v=window[k];if(v&&typeof v==="object"&&v[name])return v[name];}catch(e){}} return null; }
+  const Banner=findComp("Banner"), ProgressBar=findComp("ProgressBar"), StatusPill=findComp("StatusPill");
+  function App(){return (
+    <div className="col">
+      <ProgressBar value={94} label="Ready to share"/>
+      <Banner tone="warning">Only ~43 lbs logged for a 3-bedroom home, which usually totals around 8,000 lbs — worth a second pass before sharing.</Banner>
+      <Banner tone="success">Every room has a walkthrough and the big items are photographed.</Banner>
+      <div style={{display:"flex",justifyContent:"center"}}><StatusPill tone="success">Items reviewed · 8 added</StatusPill></div>
+    </div>
+  );}
+  ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>(function(){var c=document.getElementById("src").textContent;(0,eval)(Babel.transform(c,{presets:[["react",{runtime:"classic"}]],plugins:[]}).code);})();</script>
+</body></html>
