@@ -1,13 +1,11 @@
 import axios from "axios";
+import { API_BASE_URL } from "../config/api";
 import { defineStore } from "pinia";
 import { Ref, ref, computed } from "vue";
 import router from "../router";
 
 export const inventoryStore = defineStore("inventory", () => {
-  const core_url =
-    import.meta.env.MODE == "development"
-      ? "http://localhost:3050"
-      : "https://movetrack-api-7hwn7ggbiq-uc.a.run.app";
+  const core_url = API_BASE_URL;
   const url_suffix = import.meta.env.MODE == "development" ? "dev" : "demo";
   const qr_base_url =
     import.meta.env.VITE_QR_BASE_URL ||

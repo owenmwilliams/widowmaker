@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
+import { API_BASE_URL } from "../../config/api";
 import { useQuasar } from 'quasar';
 import axios, { type AxiosRequestHeaders } from 'axios';
 
 // API URL based on environment
-const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+const core_url = API_BASE_URL;
 
 // Get auth headers
 const getAuthHeaders = (): AxiosRequestHeaders | undefined => {

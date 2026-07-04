@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
+import { API_BASE_URL } from "../../config/api";
 import { useQuasar } from "quasar";
 import axios from "axios";
 import { inventoryStore } from "../../stores/InventoryStore"
@@ -20,11 +21,7 @@ interface InventoryItem {
 const $q = useQuasar();
 const store = inventoryStore();
 
-// To adjust url based on whether in prod or not
-const core_url =
-  import.meta.env.MODE == "development"
-    ? "http://localhost:3050"
-    : "https://movetrack-api-7hwn7ggbiq-uc.a.run.app";
+const core_url = API_BASE_URL;
 
 const emit = defineEmits<{
   (e: "item-added", item: InventoryItem, context?: { onboarding?: boolean }): void;

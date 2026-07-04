@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { API_BASE_URL } from "../config/api";
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 
 const route = useRoute()
-const core_url =
-  import.meta.env.MODE === 'development'
-    ? 'http://localhost:3050'
-    : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app'
+const core_url = API_BASE_URL;
 
 type ReportItem = {
   name: string; quantity: number; weightLbs: number | null

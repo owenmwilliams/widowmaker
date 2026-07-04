@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
+import { API_BASE_URL } from "../../config/api";
 import axios from "axios";
 import { useRouter } from "vue-router";
 import { useQuasar } from "quasar";
@@ -37,10 +38,7 @@ type Dataset = {
 const router = useRouter();
 const $q = useQuasar();
 
-const core_url =
-  import.meta.env.MODE === "development"
-    ? "http://localhost:3050"
-    : "https://movetrack-api-7hwn7ggbiq-uc.a.run.app";
+const core_url = API_BASE_URL;
 
 const pipelines = ref<VisionPipeline[]>([]);
 const datasets = ref<Dataset[]>([]);

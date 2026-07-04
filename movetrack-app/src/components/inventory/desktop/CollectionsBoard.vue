@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import { usePlan } from '../../../composables/usePlan';
 import { inventoryStore } from '../../../stores/InventoryStore'
 import { storeToRefs } from 'pinia';
 import { useQuasar } from 'quasar';
@@ -17,18 +18,7 @@ const { collections, containers, items } = storeToRefs(store);
 const $q = useQuasar();
 const router = useRouter();
 
-const userData = ref<any>({});
-if (typeof window !== 'undefined') {
-  try {
-    userData.value = JSON.parse(localStorage.getItem('user_data') || '{}');
-  } catch (e) {
-    userData.value = {};
-  }
-}
-const planPreviewOverride = ref<'basic' | 'pro' | null>(localStorage.getItem('plan_preview') as 'basic' | 'pro' | null);
-const basePlan = computed(() => (userData.value?.plan || 'basic').toLowerCase());
-const effectivePlan = computed(() => (planPreviewOverride.value || basePlan.value) as 'basic' | 'pro');
-const isProPlan = computed(() => effectivePlan.value === 'pro');
+const { isPro: isProPlan } = usePlan();
 
 // State
 const selectedCollection = ref<any>(null);
@@ -117,23 +107,6 @@ const showBoxGenerationDialog = ref(false);
 const goToPricing = () => {
   router.push('/pricing');
 };
-
-onMounted(() => {
-  const handleStorage = (event: StorageEvent) => {
-    if (event.key === 'plan_preview') {
-      planPreviewOverride.value = (event.newValue as 'basic' | 'pro' | null) || null;
-    }
-  };
-  const handleCustom = (event: Event) => {
-    planPreviewOverride.value = ((event as CustomEvent).detail as 'basic' | 'pro' | null) || null;
-  };
-  window.addEventListener('storage', handleStorage);
-  window.addEventListener('plan-preview-change', handleCustom as EventListener);
-  onBeforeUnmount(() => {
-    window.removeEventListener('storage', handleStorage);
-    window.removeEventListener('plan-preview-change', handleCustom as EventListener);
-  });
-});
 
 // Computed
 // Group collections by location

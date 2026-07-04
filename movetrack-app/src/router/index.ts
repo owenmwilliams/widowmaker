@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory, type NavigationGuardNext, type RouteLocationNormalized } from 'vue-router'
+import { isMobileViewport } from '../utils/viewport'
 
 import Home from '../views/Home.vue'
 import Profile from '../views/Profile.vue'
@@ -287,8 +288,7 @@ router.beforeEach(async (to, from, next) => {
 
   if (!completed && !isOnboardingRoute && !isNexusRoute) {
     console.log('[Router Guard] Onboarding not completed, redirecting to Nexus agent');
-    const isMobile = window.innerWidth < 768 || screen.width < 768;
-    return next(isMobile ? { name: 'mobile-nexus' } : { path: '/nexus' });
+    return next(isMobileViewport() ? { name: 'mobile-nexus' } : { path: '/nexus' });
   }
 
   if (completed && to.name === 'onboarding-welcome' && from.name && !from.path.startsWith('/onboarding')) {

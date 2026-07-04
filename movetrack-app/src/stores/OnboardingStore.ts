@@ -1,12 +1,10 @@
 import { defineStore } from "pinia";
+import { API_BASE_URL } from "../config/api";
 import axios from "axios";
 import { hasCompletedOnboarding, markOnboardingComplete } from "../utils/onboarding";
 import { inventoryStore } from "./InventoryStore";
 
-const core_url =
-  import.meta.env.MODE === "development"
-    ? "http://localhost:3050"
-    : "https://movetrack-api-7hwn7ggbiq-uc.a.run.app";
+const core_url = API_BASE_URL;
 
 export type OnboardingGoal =
   | "move"

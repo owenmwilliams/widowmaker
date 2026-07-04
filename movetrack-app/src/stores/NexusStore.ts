@@ -1,4 +1,5 @@
 import axios from "axios";
+import { API_BASE_URL } from "../config/api";
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import { inventoryStore } from "./InventoryStore";
@@ -44,10 +45,7 @@ export interface NexusSession {
 }
 
 export const nexusStore = defineStore("nexus", () => {
-  const core_url =
-    import.meta.env.MODE == "development"
-      ? "http://localhost:3050"
-      : "https://movetrack-api-7hwn7ggbiq-uc.a.run.app";
+  const core_url = API_BASE_URL;
 
   function getHeaders(): Record<string, string> {
     const sessionToken = localStorage.getItem("session_token");

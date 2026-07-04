@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from 'vue';
+import { API_BASE_URL } from "../../config/api";
 import { useQuasar } from 'quasar';
 import axios from 'axios';
 import { inventoryStore } from '../../stores/InventoryStore'
@@ -18,10 +19,7 @@ const emit = defineEmits<{
 const $q = useQuasar();
 const store = inventoryStore();
 
-const API_BASE =
-  import.meta.env.MODE === 'development'
-    ? 'http://localhost:3050'
-    : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+const API_BASE = API_BASE_URL;
 
 const buildHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('session_token');

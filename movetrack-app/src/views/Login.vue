@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, computed, defineEmits } from 'vue';
+import { API_BASE_URL } from "../config/api";
+import { isMobileViewport } from '../utils/viewport';
 import { useRoute, useRouter } from 'vue-router';
 import axios from 'axios';
 import ReloPrepLogo from '../components/brand/ReloPrepLogo.vue';
@@ -14,8 +16,7 @@ const emits = defineEmits<{
   (e: 'app:loading', value: boolean): void
 }>();
 
-// To adjust url based on whether in prod or not
-const core_url = import.meta.env.MODE == 'development' ? 'http://localhost:3050' : 'https://movetrack-api-7hwn7ggbiq-uc.a.run.app';
+const core_url = API_BASE_URL;
 
 const email = ref('');
 const emailError = ref(false);
@@ -234,8 +235,7 @@ const tryAgain = () => {
 };
 
 const redirectAfterLogin = (_user: any) => {
-  const isMobile = window.innerWidth < 768 || screen.width < 768;
-  router.push(isMobile ? '/mobile/nexus' : '/nexus');
+  router.push(isMobileViewport() ? '/mobile/nexus' : '/nexus');
 };
 </script>
 
