@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -18,7 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.we3kings.nexusmoves.ui.theme.BrandLogo
-import dev.we3kings.nexusmoves.ui.theme.Theme
+import dev.we3kings.nexusmoves.ui.theme.nexus
 
 /**
  * Launch gate — port of iOS ContentView.LaunchSplashView. Shown while the stored
@@ -28,6 +29,7 @@ import dev.we3kings.nexusmoves.ui.theme.Theme
  */
 @Composable
 fun SplashScreen(failed: Boolean, onRetry: () -> Unit) {
+    val c = nexus
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -55,13 +57,14 @@ fun SplashScreen(failed: Boolean, onRetry: () -> Unit) {
             Spacer(Modifier.padding(8.dp))
             Button(
                 onClick = onRetry,
-                colors = ButtonDefaults.buttonColors(containerColor = Theme.brand),
+                colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = c.onAccent),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.widthIn(min = 220.dp),
             ) {
                 Text("Try Again", fontWeight = FontWeight.SemiBold)
             }
         } else {
-            CircularProgressIndicator(color = Theme.brand)
+            CircularProgressIndicator(color = c.accent)
         }
     }
 }

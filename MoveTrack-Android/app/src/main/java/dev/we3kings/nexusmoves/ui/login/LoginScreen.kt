@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.we3kings.nexusmoves.ui.auth.AuthViewModel
 import dev.we3kings.nexusmoves.ui.theme.BrandLogo
-import dev.we3kings.nexusmoves.ui.theme.Theme
+import dev.we3kings.nexusmoves.ui.theme.nexus
 import kotlinx.coroutines.launch
 
 /**
@@ -48,6 +48,7 @@ import kotlinx.coroutines.launch
  */
 @Composable
 fun LoginScreen(vm: AuthViewModel) {
+    val c = nexus
     var email by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var codeSent by remember { mutableStateOf(false) }
@@ -90,7 +91,8 @@ fun LoginScreen(vm: AuthViewModel) {
             Button(
                 onClick = { scope.launch { if (vm.requestCode(email.trim())) codeSent = true } },
                 enabled = email.isNotEmpty() && !vm.isLoading,
-                colors = ButtonDefaults.buttonColors(containerColor = Theme.brand),
+                colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = c.onAccent),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 if (vm.isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.height(22.dp))
@@ -112,7 +114,8 @@ fun LoginScreen(vm: AuthViewModel) {
             Button(
                 onClick = { scope.launch { vm.verifyCode(email.trim(), code.trim()) } },
                 enabled = code.length >= 6 && !vm.isLoading,
-                colors = ButtonDefaults.buttonColors(containerColor = Theme.good),
+                colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = c.onAccent),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
                 if (vm.isLoading) CircularProgressIndicator(color = Color.White, modifier = Modifier.height(22.dp))
@@ -129,7 +132,7 @@ fun LoginScreen(vm: AuthViewModel) {
 
         vm.errorMessage?.let { error ->
             Spacer(Modifier.height(8.dp))
-            Text(error, color = Theme.danger, style = MaterialTheme.typography.bodySmall)
+            Text(error, color = c.danger, style = MaterialTheme.typography.bodySmall)
         }
 
         Spacer(Modifier.weight(1f))
@@ -156,6 +159,7 @@ private fun CodeBoxesField(
     onComplete: () -> Unit,
     count: Int = 6,
 ) {
+    val c = nexus
     Box(Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -168,15 +172,15 @@ private fun CodeBoxesField(
                     modifier = Modifier
                         .weight(1f)
                         .height(56.dp)
-                        .background(Color(0xFFEFEFF4), RoundedCornerShape(12.dp))
+                        .background(c.surfaceCard, RoundedCornerShape(14.dp))
                         .border(
                             width = if (isCurrent) 2.dp else 1.dp,
-                            color = if (isCurrent) Theme.brand else Color(0xFFD1D1D6),
-                            shape = RoundedCornerShape(12.dp),
+                            color = if (isCurrent) c.accent else c.border,
+                            shape = RoundedCornerShape(14.dp),
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(ch, fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+                    Text(ch, fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = c.textPrimary)
                 }
             }
         }
