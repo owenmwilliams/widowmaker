@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug-only design QA harness. Never merged into release builds — it exists
+     so the restyled chat surfaces + sheets can be screenshotted without a live
+     session on the emulator. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".DesignGalleryActivity"
+            android:exported="true"
+            android:label="Nexus Design Gallery"
+            android:theme="@style/Theme.NexusMoves" />
+    </application>
+</manifest>
