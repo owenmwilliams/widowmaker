@@ -69,7 +69,14 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(auth: AuthViewModel, vm: NexusViewModel = viewModel()) {
+fun ChatScreen(
+    auth: AuthViewModel,
+    // Key the chat VM to the signed-in user so a logout → login as a different
+    // tester (each golden-set tester uses their own +goldenset email) gets a
+    // fresh session rather than the Activity-retained previous one. iOS gets this
+    // free from @StateObject being recreated with the view.
+    vm: NexusViewModel = viewModel(key = "nexus-${auth.currentUser?.id ?: "anon"}"),
+) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var draft by remember { mutableStateOf("") }
