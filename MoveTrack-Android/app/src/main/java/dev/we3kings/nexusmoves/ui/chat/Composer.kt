@@ -15,16 +15,23 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -38,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,7 +53,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import dev.we3kings.nexusmoves.data.upload.MediaUploader
 import dev.we3kings.nexusmoves.data.upload.PickedMedia
-import dev.we3kings.nexusmoves.ui.theme.Theme
+import dev.we3kings.nexusmoves.ui.components.NexusIconButton
+import dev.we3kings.nexusmoves.ui.theme.NexusRadii
+import dev.we3kings.nexusmoves.ui.theme.NexusType
+import dev.we3kings.nexusmoves.ui.theme.nexus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -239,41 +250,69 @@ fun Composer(
         }
     }
 
+    val c = nexus
     val canSend = !vm.isBusy && (pendingMedia.isNotEmpty() || draft.trim().isNotEmpty())
 
-    Column(Modifier.fillMaxWidth().background(Theme.card).padding(horizontal = 12.dp, vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().background(c.bg).padding(horizontal = 12.dp, vertical = 10.dp)) {
         if (pendingMedia.isNotEmpty()) {
             PendingMediaChips(pendingMedia, onRemove = { id -> pendingMedia = pendingMedia.filterNot { it.id == id } })
-            Spacer(Modifier.size(6.dp))
+            Spacer(Modifier.size(8.dp))
         }
         Row(verticalAlignment = Alignment.Bottom) {
-            Box(
-                Modifier.size(36.dp).clip(CircleShape)
-                    .background(if (vm.isBusy) Color.Gray.copy(alpha = 0.5f) else Theme.brand)
-                    .clickable(enabled = !vm.isBusy) { beginCapture("") },
-                contentAlignment = Alignment.Center,
-            ) { Text("+", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) }
-            Spacer(Modifier.width(10.dp))
-            OutlinedTextField(
-                value = draft,
-                onValueChange = onDraftChange,
-                placeholder = { Text(if (pendingMedia.isEmpty()) "Message Nexus…" else "Add a note (optional)…") },
-                modifier = Modifier.weight(1f),
-                maxLines = 5,
+            // Capture (+) — accent circle.
+            NexusIconButton(
+                icon = Icons.Outlined.Add,
+                contentDescription = "Add a photo or video",
+                onClick = { beginCapture("") },
+                size = 44,
+                background = if (vm.isBusy) c.surfaceHover else c.accent,
+                tint = if (vm.isBusy) c.textTertiary else Color.White,
+                enabled = !vm.isBusy,
             )
             Spacer(Modifier.width(10.dp))
+            // Composer field — the rounded chat message bar (Input `composer`).
             Box(
-                Modifier.size(36.dp).clip(CircleShape)
-                    .then(if (canSend) Modifier.background(Theme.brandGradient) else Modifier.background(Color.Gray.copy(alpha = 0.5f)))
-                    .clickable(enabled = canSend) { doSend() },
-                contentAlignment = Alignment.Center,
-            ) { Text("↑", color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) }
+                Modifier
+                    .weight(1f)
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(NexusRadii.bubble.dp))
+                    .background(c.surfaceCard)
+                    .padding(horizontal = 18.dp, vertical = 13.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (draft.isEmpty()) {
+                    Text(
+                        if (pendingMedia.isEmpty()) "Message Nexus…" else "Add a note (optional)…",
+                        color = c.textTertiary, style = NexusType.typography.bodyLarge,
+                    )
+                }
+                BasicTextField(
+                    value = draft,
+                    onValueChange = onDraftChange,
+                    textStyle = NexusType.typography.bodyLarge.copy(color = c.textPrimary),
+                    cursorBrush = SolidColor(c.accent),
+                    maxLines = 5,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            // Send — accent when there's something to send, quiet otherwise.
+            NexusIconButton(
+                icon = Icons.AutoMirrored.Outlined.ArrowForward,
+                contentDescription = "Send",
+                onClick = { doSend() },
+                size = 44,
+                background = if (canSend) c.accent else c.surfaceHover,
+                tint = if (canSend) Color.White else c.textTertiary,
+                enabled = canSend,
+            )
         }
     }
 
     if (showAINotice) {
         AlertDialog(
             onDismissRequest = { showAINotice = false },
+            containerColor = c.surfaceCard,
             title = { Text("Photos & videos use AI") },
             text = { Text("To build your inventory, the photos and videos you add are sent to AI services to identify your items and estimate their size and weight.") },
             confirmButton = {
@@ -289,16 +328,16 @@ fun Composer(
     }
 
     if (showAttachSheet) {
-        ModalBottomSheet(onDismissRequest = { showAttachSheet = false }) {
+        ModalBottomSheet(onDismissRequest = { showAttachSheet = false }, containerColor = c.surfaceSunk) {
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                Text("Add a room photo or video", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text("Add a room photo or video", style = NexusType.typography.titleMedium, color = c.textPrimary)
                 Spacer(Modifier.size(8.dp))
                 Text(
                     "Recording a room? For best results: talk through your items out loud, " +
                         "open closets & drawers, and pan slowly across the whole room (phone " +
                         "sideways, lights on). For big items, add a straight-on close-up photo.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = NexusType.typography.bodyMedium,
+                    color = c.textSecondary,
                 )
                 Spacer(Modifier.size(12.dp))
                 AttachOption("Take Photo") { showAttachSheet = false; withCamera { launchTakePhoto() } }
@@ -319,35 +358,45 @@ fun Composer(
 
 @Composable
 private fun AttachOption(label: String, onClick: () -> Unit) {
+    val c = nexus
     Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Theme.brandSoft)
-            .clickable { onClick() }.padding(horizontal = 16.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(NexusRadii.button.dp)).background(c.accentQuiet)
+            .clickable { onClick() }.padding(horizontal = 16.dp, vertical = 15.dp),
     ) {
-        Text(label, color = Theme.brand, fontWeight = FontWeight.SemiBold)
+        Text(label, color = c.accent, style = NexusType.typography.labelLarge, fontWeight = FontWeight.SemiBold)
     }
     Spacer(Modifier.size(8.dp))
 }
 
 @Composable
 private fun PendingMediaChips(items: List<PickedMedia>, onRemove: (String) -> Unit) {
+    val c = nexus
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         items.forEachIndexed { index, media ->
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Theme.brandSoft)
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(NexusRadii.button.dp)).background(c.surfaceCard)
+                    .padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(if (media.isVideo) "🎥" else "📷", color = Theme.brand)
+                Icon(
+                    if (media.isVideo) Icons.Outlined.Videocam else Icons.Outlined.PhotoCamera,
+                    null, tint = c.accent, modifier = Modifier.size(20.dp),
+                )
                 Spacer(Modifier.width(8.dp))
                 Text(
                     if (media.isVideo) "Video attached"
                     else if (items.size == 1) "Photo attached"
                     else "Photo ${index + 1} of ${items.size}",
-                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f),
+                    style = NexusType.typography.bodyMedium, fontWeight = FontWeight.Medium,
+                    color = c.textPrimary, modifier = Modifier.weight(1f),
                 )
-                Text("✕", color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.clickable { onRemove(media.id) }.padding(4.dp))
+                NexusIconButton(
+                    icon = Icons.Outlined.Close,
+                    contentDescription = "Remove attachment",
+                    onClick = { onRemove(media.id) },
+                    size = 32,
+                    tint = c.textSecondary,
+                )
             }
         }
     }

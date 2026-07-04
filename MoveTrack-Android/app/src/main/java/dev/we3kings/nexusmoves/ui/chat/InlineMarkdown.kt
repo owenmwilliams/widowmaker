@@ -7,7 +7,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
-import dev.we3kings.nexusmoves.ui.theme.Theme
+import dev.we3kings.nexusmoves.ui.theme.NexusDarkColors
 
 /**
  * Minimal inline-markdown → AnnotatedString, matching what iOS renders with
@@ -52,7 +52,7 @@ object InlineMarkdown {
                         val text = match.groupValues[1]
                         val url = match.groupValues[2]
                         pushStringAnnotation("URL", url)
-                        withStyle(SpanStyle(color = Theme.brand, fontWeight = FontWeight.Medium)) { append(text) }
+                        withStyle(SpanStyle(color = NexusDarkColors.accent, fontWeight = FontWeight.Medium)) { append(text) }
                         pop()
                         i = match.range.last + 1
                     } else { append(s[i]); i++ }

@@ -1,64 +1,105 @@
 package dev.we3kings.nexusmoves.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 
 /**
- * Port of MoveTrack-iOS Theme.swift — one brand color, a few semantic colors,
- * spacing/radii, and the brand gradient. Values are copied exactly from the iOS
- * RGB literals so the two apps read as the same product.
+ * The Nexus Moves Android theme — the generated layer over
+ * design/tokens/tokens.json. Dark is the default (the app ships dark); the light
+ * theme is fully wired for parity. M3 roles are mapped from the [NexusColors]
+ * semantic aliases; non-M3 tokens (beacon, bubbleSelf, shimmer, warn cream) ride
+ * on [LocalNexusColors]. Radii come from the token shape scale.
  */
-object Theme {
-    // Brand
-    val brand = Color(0xFF5B5BD9)      // 0.357, 0.357, 0.851 indigo
-    val brandDeep = Color(0xFF4946C4)  // 0.286, 0.275, 0.769 gradient end / pressed
-    val brandSoft = brand.copy(alpha = 0.12f)
 
-    // Surfaces (iOS systemGroupedBackground / secondarySystemGroupedBackground,
-    // light appearance — the app is used in light mode).
-    val canvas = Color(0xFFF2F2F7)
-    val card = Color(0xFFFFFFFF)
-    val modelBubble = Color(0xFFFFFFFF)
-
-    // Semantic
-    val warn = Color(0xFFD48500)       // 0.83, 0.52, 0.0
-    val warnSoft = Color(0xFFFFF7EB)   // 1.0, 0.97, 0.92
-    val danger = Color(0xFFC72229)     // 0.78, 0.13, 0.16
-    val good = Color(0xFF219E66)       // 0.13, 0.62, 0.40
-
-    // The fixed dark text used on warnSoft (iOS ReadinessSheet.warnText) so a
-    // warning card never renders white-on-cream.
-    val warnText = Color(0xFF6B4505)   // 0.42, 0.27, 0.02
-
-    // Geometry (dp)
-    const val bubbleRadius = 20
-    const val cardRadius = 18
-    const val controlRadius = 14
-
-    /** brand → brandDeep, topLeading → bottomTrailing (matches iOS). */
-    val brandGradient: Brush
-        get() = Brush.linearGradient(
-            colors = listOf(brand, brandDeep),
-            start = Offset(0f, 0f),
-            end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY),
-        )
-}
-
-private val LightColors = lightColorScheme(
-    primary = Theme.brand,
-    onPrimary = Color.White,
-    secondaryContainer = Theme.brandSoft,
-    background = Theme.canvas,
-    surface = Theme.card,
+// Shape scale — tokens.json --r-* : buttons/inputs 14, cards 18, bubbles/panels
+// 22, sheets/app-icon 28, pills fully rounded.
+val NexusShapes = Shapes(
+    extraSmall = RoundedCornerShape(NexusRadii.button.dp),
+    small = RoundedCornerShape(NexusRadii.button.dp),
+    medium = RoundedCornerShape(NexusRadii.card.dp),
+    large = RoundedCornerShape(NexusRadii.bubble.dp),
+    extraLarge = RoundedCornerShape(NexusRadii.sheet.dp),
 )
 
+private fun schemeFrom(c: NexusColors) = if (c.isDark) {
+    darkColorScheme(
+        primary = c.accent,
+        onPrimary = c.onAccent,
+        primaryContainer = c.surfaceHover,
+        onPrimaryContainer = c.textPrimary,
+        secondary = c.accent,
+        onSecondary = c.onAccent,
+        secondaryContainer = c.accentQuiet2,
+        onSecondaryContainer = c.accent,
+        background = c.bg,
+        onBackground = c.textPrimary,
+        surface = c.surface,
+        onSurface = c.textPrimary,
+        surfaceVariant = c.surfaceCard,
+        onSurfaceVariant = c.textSecondary,
+        surfaceContainerLowest = c.bg,
+        surfaceContainerLow = c.surface,
+        surfaceContainer = c.surfaceSunk,
+        surfaceContainerHigh = c.surfaceCard,
+        surfaceContainerHighest = c.surfaceHover,
+        outline = c.border,
+        outlineVariant = c.borderSoft,
+        error = c.danger,
+        onError = Color.White,
+        errorContainer = c.dangerQuiet,
+        onErrorContainer = c.danger,
+        scrim = Color.Black,
+    )
+} else {
+    lightColorScheme(
+        primary = c.accent,
+        onPrimary = c.onAccent,
+        primaryContainer = c.accentQuiet,
+        onPrimaryContainer = c.accentPress,
+        secondary = c.accent,
+        onSecondary = c.onAccent,
+        secondaryContainer = c.accentQuiet,
+        onSecondaryContainer = c.accentPress,
+        background = c.bg,
+        onBackground = c.textPrimary,
+        surface = c.surface,
+        onSurface = c.textPrimary,
+        surfaceVariant = c.surfaceHover,
+        onSurfaceVariant = c.textSecondary,
+        surfaceContainerLowest = Color.White,
+        surfaceContainerLow = c.surface,
+        surfaceContainer = c.surfaceSunk,
+        surfaceContainerHigh = c.surfaceHover,
+        surfaceContainerHighest = c.surfaceHover,
+        outline = c.border,
+        outlineVariant = c.borderSoft,
+        error = c.danger,
+        onError = Color.White,
+        errorContainer = c.dangerQuiet,
+        onErrorContainer = c.danger,
+        scrim = Color.Black,
+    )
+}
+
 @Composable
-fun NexusTheme(content: @Composable () -> Unit) {
-    // The iOS app is effectively light; force the light scheme for surface parity
-    // rather than letting Material recolor the brand surfaces.
-    MaterialTheme(colorScheme = LightColors, content = content)
+fun NexusTheme(
+    darkTheme: Boolean = true, // app ships dark; light is wired for parity
+    content: @Composable () -> Unit,
+) {
+    val colors = if (darkTheme) NexusDarkColors else NexusLightColors
+    CompositionLocalProvider(LocalNexusColors provides colors) {
+        MaterialTheme(
+            colorScheme = schemeFrom(colors),
+            typography = NexusType.typography,
+            shapes = NexusShapes,
+            content = content,
+        )
+    }
 }
