@@ -7,9 +7,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 
 /**
@@ -104,33 +102,4 @@ fun NexusTheme(
             content = content,
         )
     }
-}
-
-/**
- * MIGRATION SHIM — the old brand-named accessors, repointed at the new dark
- * tokens so screens keep compiling (and immediately read the new palette) while
- * they're migrated to the semantic [nexus] aliases screen-by-screen. Removed in
- * the final restyle commit. Do NOT reference this in new code — use `nexus.*`.
- */
-@Deprecated("Migration shim — use the `nexus` semantic aliases instead.")
-object Theme {
-    val brand = NexusDarkColors.accent
-    val brandDeep = NexusDarkColors.accentPress
-    val brandSoft = NexusDarkColors.accentQuiet
-    val canvas = NexusDarkColors.bg
-    val card = NexusDarkColors.surfaceCard
-    val modelBubble = NexusDarkColors.bubbleOther
-    val warn = NexusDarkColors.warning
-    val warnSoft = NexusDarkColors.warningSurface
-    val warnText = NexusDarkColors.warningInk
-    val danger = NexusDarkColors.danger
-    val good = NexusDarkColors.success
-
-    // User bubbles / primary buttons were a gradient in v1; the design says solid
-    // accent (shimmer is reserved). Map the old gradient to a solid accent fill.
-    val brandGradient: Brush = SolidColor(NexusDarkColors.accent)
-
-    const val bubbleRadius = NexusRadii.bubble
-    const val cardRadius = NexusRadii.card
-    const val controlRadius = NexusRadii.button
 }

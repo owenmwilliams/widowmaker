@@ -222,8 +222,7 @@ fun NexusButton(
         NexusButtonVariant.Secondary -> c.accent
         else -> Color.White
     }
-    val base = Modifier
-        .fillMaxWidth()
+    val base = modifier
         .height(height.dp)
         .scale(scale)
         .clip(RoundedCornerShape(NexusRadii.card.dp))

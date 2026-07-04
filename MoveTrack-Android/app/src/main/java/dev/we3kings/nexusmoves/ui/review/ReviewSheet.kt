@@ -16,7 +16,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Remove
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -39,8 +46,11 @@ import coil.compose.AsyncImage
 import dev.we3kings.nexusmoves.model.DetectedItem
 import dev.we3kings.nexusmoves.model.DetectedItemsReview
 import dev.we3kings.nexusmoves.model.EditableItem
-import dev.we3kings.nexusmoves.ui.theme.PrimaryButton
-import dev.we3kings.nexusmoves.ui.theme.Theme
+import dev.we3kings.nexusmoves.ui.components.NexusButton
+import dev.we3kings.nexusmoves.ui.components.NexusButtonVariant
+import dev.we3kings.nexusmoves.ui.theme.NexusRadii
+import dev.we3kings.nexusmoves.ui.theme.NexusType
+import dev.we3kings.nexusmoves.ui.theme.nexus
 
 /**
  * Scan review card — port of iOS ReviewItemsSheet. The modal IS the response to
@@ -78,29 +88,32 @@ fun ReviewItemsSheet(
         derivedKeptCount(rows)
     }
 
+    val c = nexus
     Column(Modifier.fillMaxWidth().fillMaxHeight(0.92f)) {
         // Top bar
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = onCancel) { Text("Cancel") }
+            TextButton(onClick = onCancel) { Text("Cancel", color = c.accent) }
             Spacer(Modifier.weight(1f))
             if (onRescan != null) {
-                TextButton(onClick = onRescan) { Text("↻ Rescan", color = Theme.brand) }
+                TextButton(onClick = onRescan) {
+                    Icon(Icons.Outlined.Refresh, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Rescan", color = c.accent)
+                }
             }
         }
         val roomBit = review.room?.let { " in the $it" } ?: ""
         Text(
             "${rows.size} item${if (rows.size == 1) "" else "s"} found$roomBit",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
+            style = NexusType.typography.titleMedium, color = c.textPrimary,
             modifier = Modifier.padding(horizontal = 16.dp),
         )
         Text(
             "Tap the circle to drop anything that's wrong. Edit names and quantities inline.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = NexusType.typography.bodySmall, color = c.textSecondary,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         )
 
@@ -113,10 +126,12 @@ fun ReviewItemsSheet(
         }
 
         Box(Modifier.fillMaxWidth().padding(16.dp)) {
-            PrimaryButton(
-                text = if (keptCount == 0) "Select at least one" else "Add $keptCount item${if (keptCount == 1) "" else "s"}",
+            NexusButton(
+                label = if (keptCount == 0) "Select at least one" else "Add $keptCount item${if (keptCount == 1) "" else "s"}",
                 enabled = keptCount > 0,
+                variant = NexusButtonVariant.Primary,
                 onClick = { onCommit(rows.map { it.toEditable() }) },
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -124,26 +139,27 @@ fun ReviewItemsSheet(
 
 @Composable
 private fun ReviewRowView(row: ReviewRow) {
+    val c = nexus
     Row(
         Modifier.fillMaxWidth().alpha(if (row.keep) 1f else 0.4f),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            if (row.keep) "☑" else "☐",
-            color = if (row.keep) Theme.brand else MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.clickable { row.keep = !row.keep }.padding(top = 2.dp),
+        Icon(
+            if (row.keep) Icons.Outlined.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+            contentDescription = if (row.keep) "Keep item" else "Drop item",
+            tint = if (row.keep) c.accent else c.textTertiary,
+            modifier = Modifier.size(24.dp).clickable { row.keep = !row.keep }.padding(top = 1.dp),
         )
         // Thumbnail
         val url = row.base.pictureUrl
         Box(
-            Modifier.size(44.dp).clip(RoundedCornerShape(8.dp)).background(Theme.brandSoft),
+            Modifier.size(44.dp).clip(RoundedCornerShape(NexusRadii.button.dp)).background(c.accentQuiet),
             contentAlignment = Alignment.Center,
         ) {
             if (url != null) {
                 AsyncImage(model = url, contentDescription = null, modifier = Modifier.fillMaxWidth())
             } else {
-                Text("📦")
+                Icon(Icons.Outlined.Inventory2, null, tint = c.accent, modifier = Modifier.size(20.dp))
             }
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -151,29 +167,30 @@ private fun ReviewRowView(row: ReviewRow) {
                 value = row.name,
                 onValueChange = { row.name = it },
                 singleLine = true,
+                textStyle = NexusType.typography.bodyLarge,
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 row.base.specLine?.let {
-                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(it, style = NexusType.dataReadout, color = c.textSecondary)
                 }
                 if (row.base.fragile) {
                     Text(
                         "Fragile",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Theme.warn,
-                        modifier = Modifier.clip(CircleShape).background(Theme.warn.copy(alpha = 0.15f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = NexusType.typography.labelSmall,
+                        color = c.warning,
+                        modifier = Modifier.clip(CircleShape).background(c.warning.copy(alpha = 0.15f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
                     )
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Qty", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("×${row.quantity}", fontWeight = FontWeight.SemiBold)
-                Text("−", style = MaterialTheme.typography.titleLarge, color = Theme.brand,
-                    modifier = Modifier.clickable { if (row.quantity > 1) row.quantity-- }.padding(horizontal = 8.dp))
-                Text("+", style = MaterialTheme.typography.titleLarge, color = Theme.brand,
-                    modifier = Modifier.clickable { if (row.quantity < 99) row.quantity++ }.padding(horizontal = 8.dp))
+                Text("Qty", style = NexusType.typography.bodySmall, color = c.textSecondary)
+                Text("×${row.quantity}", style = NexusType.dataReadout, color = c.textPrimary, fontWeight = FontWeight.SemiBold)
+                Icon(Icons.Outlined.Remove, "Decrease quantity", tint = c.accent,
+                    modifier = Modifier.size(26.dp).clickable { if (row.quantity > 1) row.quantity-- })
+                Icon(Icons.Outlined.Add, "Increase quantity", tint = c.accent,
+                    modifier = Modifier.size(26.dp).clickable { if (row.quantity < 99) row.quantity++ })
             }
         }
     }

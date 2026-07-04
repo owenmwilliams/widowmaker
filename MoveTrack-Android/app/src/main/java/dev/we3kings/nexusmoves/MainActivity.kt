@@ -17,7 +17,7 @@ import dev.we3kings.nexusmoves.ui.chat.ChatScreen
 import dev.we3kings.nexusmoves.ui.login.LoginScreen
 import dev.we3kings.nexusmoves.ui.splash.SplashScreen
 import dev.we3kings.nexusmoves.ui.theme.NexusTheme
-import dev.we3kings.nexusmoves.ui.theme.Theme
+import androidx.compose.material3.MaterialTheme
 
 /**
  * Nexus Moves — Android. A 1:1 port of the iOS app: the whole post-login
@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             NexusTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Theme.canvas) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     NexusRoot()
                 }
             }

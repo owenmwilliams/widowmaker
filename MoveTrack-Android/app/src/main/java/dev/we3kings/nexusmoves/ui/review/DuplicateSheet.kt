@@ -29,8 +29,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.we3kings.nexusmoves.model.DuplicatePair
 import dev.we3kings.nexusmoves.model.DuplicateReview
-import dev.we3kings.nexusmoves.ui.theme.PrimaryButton
-import dev.we3kings.nexusmoves.ui.theme.Theme
+import dev.we3kings.nexusmoves.ui.components.NexusButton
+import dev.we3kings.nexusmoves.ui.components.NexusButtonVariant
+import dev.we3kings.nexusmoves.ui.theme.NexusType
+import dev.we3kings.nexusmoves.ui.theme.nexus
 
 /**
  * Duplicate review — port of iOS DuplicateReviewSheet. Resolve each pair by
@@ -59,19 +61,20 @@ fun DuplicateReviewSheet(
         }
     }.filter { it > 0 }
 
+    val c = nexus
     Column(Modifier.fillMaxWidth().fillMaxHeight(0.9f)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onCancel) { Text("Skip") }
+            TextButton(onClick = onCancel) { Text("Skip", color = c.accent) }
             Spacer(Modifier.weight(1f))
         }
         Text(
             "${review.pairs.size} possible duplicate${if (review.pairs.size == 1) "" else "s"}",
-            style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+            style = NexusType.typography.titleMedium, color = c.textPrimary,
             modifier = Modifier.padding(horizontal = 16.dp),
         )
         Text(
             "These look similar. Keep one, the other, or both.",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = NexusType.typography.bodySmall, color = c.textSecondary,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         )
 
@@ -87,9 +90,11 @@ fun DuplicateReviewSheet(
 
         Box(Modifier.fillMaxWidth().padding(16.dp)) {
             val ids = removeItemIds()
-            PrimaryButton(
-                text = if (ids.isEmpty()) "Keep everything" else "Remove ${ids.size}",
+            NexusButton(
+                label = if (ids.isEmpty()) "Keep everything" else "Remove ${ids.size}",
+                variant = NexusButtonVariant.Primary,
                 onClick = { onApply(removeItemIds()) },
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
@@ -97,10 +102,11 @@ fun DuplicateReviewSheet(
 
 @Composable
 private fun DuplicateRow(pair: DuplicatePair, choice: DupChoice, onChoice: (DupChoice) -> Unit) {
+    val c = nexus
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         pair.similarity?.let {
-            Text("${it.toInt()}% match", style = MaterialTheme.typography.labelMedium,
-                color = Theme.brand, fontWeight = FontWeight.SemiBold)
+            Text("${it.toInt()}% match", style = NexusType.dataReadout,
+                color = c.accent, fontWeight = FontWeight.SemiBold)
         }
         ItemLine("A", pair.itemA)
         ItemLine("B", pair.itemB)
@@ -119,33 +125,35 @@ private fun androidx.compose.foundation.layout.RowScope.SegmentButton(
     modifier: Modifier,
     onClick: () -> Unit,
 ) {
+    val c = nexus
     Box(
         modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) Theme.brand else Theme.brandSoft)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) c.accent else c.accentQuiet)
             .clickable { onClick() }
-            .padding(vertical = 8.dp),
+            .padding(vertical = 9.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = if (selected) Color.White else Theme.brand,
-            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+        Text(label, color = if (selected) Color.White else c.accent,
+            style = NexusType.typography.labelMedium, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @Composable
 private fun ItemLine(tag: String, item: DuplicatePair.DupItem) {
+    val c = nexus
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box(Modifier.size(18.dp).clip(CircleShape).background(Theme.brand), contentAlignment = Alignment.Center) {
-            Text(tag, color = Color.White, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+        Box(Modifier.size(18.dp).clip(CircleShape).background(c.accent), contentAlignment = Alignment.Center) {
+            Text(tag, color = Color.White, style = NexusType.typography.labelSmall, fontWeight = FontWeight.Bold)
         }
         Column(Modifier.weight(1f)) {
-            Text(item.name ?: "Item", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(item.name ?: "Item", style = NexusType.typography.bodyMedium, color = c.textPrimary, fontWeight = FontWeight.Medium)
             item.room?.takeIf { it.isNotEmpty() }?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(it, style = NexusType.typography.bodySmall, color = c.textSecondary)
             }
         }
         item.quantity?.takeIf { it > 1 }?.let {
-            Text("×$it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("×$it", style = NexusType.dataReadout, color = c.textSecondary)
         }
     }
 }
