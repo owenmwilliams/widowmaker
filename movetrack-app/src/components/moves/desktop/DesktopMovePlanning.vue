@@ -1231,37 +1231,26 @@ const anchorDateDisplay = computed(() => {
   return formatDateLabel(anchorDate.value);
 });
 
-const calculateDistance = async () => {
-  if (!originLocation.value || !destinationLocation.value) {
-    estimatedDistance.value = null;
-    routeData.value = null;
-    return;
-  }
+const buildRouteRequest = () => {
+  if (!originLocation.value || !destinationLocation.value) return null;
 
-  const originLoc = store.locations.find(l => l.value === originLocation.value);
-  const destLoc = store.locations.find(l => l.value === destinationLocation.value);
+  // Location ids may arrive as numbers from saved moves; store values are strings
+  const originLoc = store.locations.find(l => String(l.value) === String(originLocation.value));
+  const destLoc = store.locations.find(l => String(l.value) === String(destinationLocation.value));
 
-  if (!originLoc || !destLoc) {
-    estimatedDistance.value = null;
-    routeData.value = null;
-    return;
-  }
+  if (!originLoc || !destLoc) return null;
 
   const originAddress = formatAddress(originLoc);
   const destAddress = formatAddress(destLoc);
 
-  if (!originAddress || !destAddress) {
-    estimatedDistance.value = null;
-    routeData.value = null;
-    return;
-  }
+  if (!originAddress || !destAddress) return null;
 
   // Get intermediate/drop-off locations from moveLocations
   const waypointAddresses: string[] = [];
   moveLocations.value
     .filter(loc => loc.role === 'intermediate' && loc.location)
     .forEach(loc => {
-      const locationData = store.locations.find(l => l.value === loc.location);
+      const locationData = store.locations.find(l => String(l.value) === String(loc.location));
       if (locationData) {
         const address = formatAddress(locationData);
         if (address) {
@@ -1270,9 +1259,42 @@ const calculateDistance = async () => {
       }
     });
 
-  // Check cache first (include routing preferences and waypoints in cache key)
+  // Cache key includes routing preferences and waypoints
   const waypointsKey = waypointAddresses.join('|');
   const cacheKey = `${originAddress}|${waypointsKey}|${destAddress}|${useTruckRoute.value}|${avoidTolls.value}`;
+
+  return { originAddress, destAddress, waypointAddresses, cacheKey };
+};
+
+const applyDistanceFailure = (cacheKey: string) => {
+  const cached = distanceCache.value[cacheKey];
+  if (cached) {
+    // Keep the last known distance for this exact route (e.g. restored from a
+    // saved move) so a transient failure doesn't wipe the Costs tab
+    estimatedDistance.value = cached;
+  } else {
+    estimatedDistance.value = null;
+    routeData.value = null;
+  }
+  Notify.create({
+    type: 'negative',
+    message: "Couldn't calculate the route distance",
+    caption: cached
+      ? 'Showing previously saved estimates'
+      : 'Cost estimates are unavailable until the route can be calculated'
+  });
+};
+
+const calculateDistance = async () => {
+  const request = buildRouteRequest();
+  if (!request) {
+    estimatedDistance.value = null;
+    routeData.value = null;
+    return;
+  }
+
+  const { originAddress, destAddress, waypointAddresses, cacheKey } = request;
+
   if (distanceCache.value[cacheKey]) {
     estimatedDistance.value = distanceCache.value[cacheKey];
     // Note: We're not caching full route data, only distance for now
@@ -1289,7 +1311,7 @@ const calculateDistance = async () => {
     }
 
     // Call backend API to calculate distance with route geometry
-    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/calculate-distance`, {
+    const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/move/distance`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -1314,13 +1336,11 @@ const calculateDistance = async () => {
       routeData.value = data; // Store full route data including polyline
     } else {
       console.warn('Distance calculation failed:', data);
-      estimatedDistance.value = null;
-      routeData.value = null;
+      applyDistanceFailure(cacheKey);
     }
   } catch (error) {
     console.error('Error calculating distance:', error);
-    estimatedDistance.value = null;
-    routeData.value = null;
+    applyDistanceFailure(cacheKey);
   } finally {
     isCalculatingDistance.value = false;
   }
@@ -2894,9 +2914,9 @@ const loadMove = async (moveId: number) => {
         }
       });
     } else {
-      // Set legacy refs from move data
-      originLocation.value = move.origin_location_id;
-      destinationLocation.value = move.destination_location_id;
+      // Set legacy refs from move data (store location values are strings)
+      originLocation.value = move.origin_location_id != null ? String(move.origin_location_id) : null;
+      destinationLocation.value = move.destination_location_id != null ? String(move.destination_location_id) : null;
       // Fallback to legacy origin/destination fields for backward compatibility
       // Add origin location
       if (move.origin_location_id) {
@@ -2990,9 +3010,16 @@ const loadMove = async (moveId: number) => {
       });
       // Distance calculation will trigger automatically via watchers
     } else {
-      // Use cached values
+      // Use cached values, and seed the distance cache so the watcher-triggered
+      // recalculation can't wipe them if the request fails
       estimatedDistance.value = move.estimated_distance_miles;
       routeData.value = move.route_data;
+      if (move.estimated_distance_miles) {
+        const request = buildRouteRequest();
+        if (request) {
+          distanceCache.value[request.cacheKey] = move.estimated_distance_miles;
+        }
+      }
     }
 
     showLoadMoveDialog.value = false;
