@@ -1,0 +1,55 @@
+/* ============================================================
+   QUASAR ⟶ NEXUS TOKENS
+   The one place Quasar's runtime brand variables are bound to
+   the design system. Quasar components read var(--q-*), so
+   pointing them at the semantic aliases makes q-btn, q-badge,
+   notifications, spinners, etc. inherit the brand without
+   per-component overrides. (Compile-time SASS twins live in
+   quasar-variables.sass.)
+   ============================================================ */
+
+:root,
+body {
+  --q-primary: var(--accent);
+  --q-secondary: var(--cyan-500);
+  --q-accent: var(--accent);
+  --q-dark: var(--d-surface-1);
+  --q-dark-page: var(--d-bg);
+  --q-positive: var(--success);
+  --q-negative: var(--danger);
+  --q-info: var(--cyan-500);
+  --q-warning: var(--warning);
+}
+
+/* Quasar strips focus outlines on many controls; restore the
+   token ring globally (COMMON.md §5 / desktop brief §3). */
+.q-btn:focus-visible,
+.q-field--focused .q-field__control,
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Interaction states per readme "Interaction states". */
+.q-btn {
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+.q-btn:active {
+  transform: scale(0.97);
+}
+.q-btn.disabled,
+.q-btn[disabled] {
+  opacity: 0.45 !important;
+}
+
+/* Reduced motion: kill the signature loops when the OS asks. */
+@media (prefers-reduced-motion: reduce) {
+  .nx-shimmer-sweep,
+  .nx-beacon-pulse,
+  *[class*="nx-shimmer"],
+  *[class*="nx-beacon"] {
+    animation: none !important;
+  }
+}

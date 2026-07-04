@@ -1,0 +1,74 @@
+/* ============================================================
+   NEXUS MOVES — ELEVATION, EFFECTS & THE SHIMMER
+   ============================================================ */
+
+:root {
+  /* -------- SHADOWS — LIGHT theme (soft, cool-tinted) -------- */
+  --shadow-xs: 0 1px 2px rgba(22, 32, 74, 0.06);
+  --shadow-sm: 0 2px 8px rgba(22, 32, 74, 0.07);
+  --shadow-md: 0 8px 24px rgba(22, 32, 74, 0.09);
+  --shadow-lg: 0 18px 48px rgba(22, 32, 74, 0.14);
+  --shadow-xl: 0 30px 80px rgba(22, 32, 74, 0.20);
+
+  /* -------- SHADOWS — DARK theme (mostly glow / lift) -------- */
+  --shadow-dark-sm: 0 2px 10px rgba(0, 0, 0, 0.45);
+  --shadow-dark-md: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --shadow-sheet:   0 -12px 48px rgba(0, 0, 0, 0.55);
+
+  /* -------- GLOWS -------- */
+  --glow-accent: 0 6px 22px color-mix(in oklab, var(--blue-500) 45%, transparent);
+  --glow-beacon: 0 0 20px color-mix(in oklab, var(--beacon-500) 65%, transparent);
+  --glow-shimmer: 0 8px 28px color-mix(in oklab, var(--shimmer-cyan) 40%, transparent);
+
+  /* ==========================================================
+     THE SHIMMER — Nexus's signature intelligence gradient.
+     Blue → mid → cyan, drawn diagonally. Use on: the assistant
+     avatar, primary hero CTAs, progress fills, self bubbles
+     (desktop), streak bars, and any "AI is working" moment.
+     ========================================================== */
+  --shimmer: linear-gradient(115deg,
+      var(--shimmer-blue) 0%,
+      var(--shimmer-mid) 48%,
+      var(--shimmer-cyan) 100%);
+
+  --shimmer-soft: linear-gradient(115deg,
+      color-mix(in oklab, var(--shimmer-blue) 90%, black) 0%,
+      var(--shimmer-cyan) 130%);
+
+  /* Vertical variant for streak bars / tall fills */
+  --shimmer-v: linear-gradient(180deg,
+      var(--shimmer-cyan) 0%,
+      var(--shimmer-blue) 60%,
+      var(--blue-700) 100%);
+
+  /* The brand "aurora" backdrop wash for hero sections */
+  --aurora: radial-gradient(120% 120% at 80% 0%,
+      color-mix(in oklab, var(--shimmer-cyan) 22%, transparent) 0%,
+      transparent 45%),
+    radial-gradient(120% 120% at 0% 100%,
+      color-mix(in oklab, var(--blue-600) 28%, transparent) 0%,
+      transparent 50%);
+
+  /* -------- MOTION -------- */
+  --ease-standard: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-emphasis: cubic-bezier(0.34, 1.32, 0.64, 1); /* gentle overshoot */
+  --dur-fast: 120ms;
+  --dur-base: 220ms;
+  --dur-slow: 380ms;
+  --shimmer-sweep: 2200ms; /* looping highlight sweep */
+}
+
+/* Looping highlight that travels across a shimmer surface.
+   Apply `.nx-shimmer-sweep` to an element with position:relative;
+   overflow:hidden and a shimmer background. */
+@keyframes nx-shimmer-sweep {
+  0%   { transform: translateX(-120%) skewX(-18deg); }
+  60%  { transform: translateX(220%) skewX(-18deg); }
+  100% { transform: translateX(220%) skewX(-18deg); }
+}
+
+/* Beacon pulse — the "you're almost home" heartbeat. */
+@keyframes nx-beacon-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.08); }
+}
