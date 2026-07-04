@@ -172,11 +172,11 @@ const onSubmit = async () => {
 .support-container {
   max-width: 900px;
   margin: 0 auto;
-  padding: 24px;
+  padding: var(--sp-7);
 }
 
 .support-header {
-  margin-bottom: 32px;
+  margin-bottom: var(--sp-8);
 }
 
 .support-content {
@@ -185,9 +185,10 @@ const onSubmit = async () => {
 }
 
 .support-card {
-  border-radius: 12px;
+  background: var(--surface-card);
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm);
-  border: 1px solid var(--border-light);
+  border: 1px solid var(--border);
 }
 
 .section-header {

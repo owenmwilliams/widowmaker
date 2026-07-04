@@ -471,8 +471,7 @@ const getPackingStatus = (containerValue: number) => {
 const getCapacityColor = (pct: number | null) => {
   if (pct === null) return 'grey';
   if (pct >= 0.95) return 'negative';
-  if (pct >= 0.80) return 'warning';
-  if (pct >= 0.60) return 'orange';
+  if (pct >= 0.60) return 'warning';
   return 'positive';
 };
 
@@ -1072,9 +1071,9 @@ onMounted(() => {
     <!-- Empty state -->
     <div v-if="collections.length === 0" class="empty-state">
       <q-icon name="inventory_2" size="80px" color="grey-5" />
-      <div class="text-h5 q-mt-md text-grey-7">No Collections Yet</div>
+      <div class="text-h5 q-mt-md text-grey-7">No collections yet</div>
       <div class="text-body2 text-grey-6 q-mt-sm">Create your first collection to start organizing items</div>
-      <q-btn unelevated color="primary" icon="add" label="Create Collection" class="q-mt-lg" @click="showCreateDialog = true" />
+      <q-btn unelevated color="primary" icon="add" label="Create collection" class="q-mt-lg" @click="showCreateDialog = true" />
     </div>
 
     <!-- Main layout with collections -->
@@ -1091,11 +1090,11 @@ onMounted(() => {
             size="sm"
             @click="collectionsCollapsed = !collectionsCollapsed"
           >
-            <q-tooltip>{{ collectionsCollapsed ? 'Expand' : 'Collapse' }} Collections</q-tooltip>
+            <q-tooltip>{{ collectionsCollapsed ? 'Expand' : 'Collapse' }} collections</q-tooltip>
           </q-btn>
           <div v-if="!collectionsCollapsed" class="text-h6 text-primary">Collections</div>
           <q-btn v-if="!collectionsCollapsed" flat dense round icon="add" color="primary" size="sm" @click="showCreateDialog = true">
-            <q-tooltip>Add Collection</q-tooltip>
+            <q-tooltip>Add collection</q-tooltip>
           </q-btn>
         </div>
 
@@ -1146,7 +1145,7 @@ onMounted(() => {
                   outline
                   color="secondary"
                   icon="auto_awesome"
-                  label="Smart Pack"
+                  label="Smart pack"
                   @click="showBoxGenerationDialog = true"
                 />
               </template>
@@ -1156,10 +1155,10 @@ onMounted(() => {
                   color="grey-5"
                   text-color="grey-8"
                   icon="lock"
-                  label="Smart Pack (Pro)"
+                  label="Smart pack (Pro)"
                   @click="goToPricing"
                 >
-                  <q-tooltip>Upgrade to Pro to unlock Smart Pack</q-tooltip>
+                  <q-tooltip>Upgrade to Pro to unlock Smart pack</q-tooltip>
                 </q-btn>
               </template>
             </div>
@@ -1177,7 +1176,7 @@ onMounted(() => {
             <div class="pills-header">
               <span class="text-subtitle2 text-weight-medium">
                 <q-icon name="category" size="18px" class="q-mr-xs" />
-                Unpacked Items
+                Unpacked items
               </span>
               <q-chip dense size="sm" color="warning" text-color="white">
                 {{ unassignedItems.length }}
@@ -1212,14 +1211,14 @@ onMounted(() => {
               {{ containersInCollection.length }}
             </q-chip>
             <q-btn flat dense round icon="add" color="primary" size="sm" @click="showCreateContainerDialog = true" class="q-ml-sm">
-              <q-tooltip>Add Container</q-tooltip>
+              <q-tooltip>Add container</q-tooltip>
             </q-btn>
           </div>
 
           <div v-if="containersInCollection.length === 0" class="no-containers">
             <q-icon name="inventory_2" size="48px" color="grey-5" />
             <div class="text-body1 text-grey-6 q-mt-sm">No containers in this collection</div>
-            <q-btn unelevated color="secondary" icon="add" label="Add First Container" class="q-mt-sm" @click="showCreateContainerDialog = true" />
+            <q-btn unelevated color="secondary" icon="add" label="Add first container" class="q-mt-sm" @click="showCreateContainerDialog = true" />
           </div>
 
           <div v-else class="containers-grid">
@@ -1383,7 +1382,7 @@ onMounted(() => {
                           size="sm"
                           @click="openContainerDetails(container)"
                         >
-                          <q-tooltip>View Details</q-tooltip>
+                          <q-tooltip>View details</q-tooltip>
                         </q-btn>
                       </div>
                     </div>
@@ -1466,13 +1465,13 @@ onMounted(() => {
     <q-dialog v-model="showCreateDialog" persistent>
       <q-card style="min-width: 450px;">
         <q-card-section>
-          <div class="text-h6">Create Collection</div>
+          <div class="text-h6">Create collection</div>
         </q-card-section>
 
         <q-card-section class="q-pt-none">
           <q-input
             v-model="newCollectionName"
-            label="Collection Name *"
+            label="Collection name *"
             outlined
             autofocus
             class="q-mb-md"
@@ -1509,13 +1508,13 @@ onMounted(() => {
     <q-dialog v-model="showCreateContainerDialog" persistent>
       <q-card style="min-width: 500px;">
         <q-card-section>
-          <div class="text-h6">Create Container</div>
+          <div class="text-h6">Create container</div>
         </q-card-section>
 
         <q-card-section class="q-pt-none">
           <q-input
             v-model="newContainerName"
-            label="Container Name *"
+            label="Container name *"
             outlined
             autofocus
             class="q-mb-md"
@@ -1524,19 +1523,19 @@ onMounted(() => {
           />
 
           <div class="text-caption text-grey-7 q-mb-xs">Location</div>
-          <div class="text-body2 q-mb-md q-pa-sm" style="background: #F5F5F5; border-radius: 4px;">
+          <div class="text-body2 q-mb-md q-pa-sm" style="background: var(--surface-sunk); border-radius: var(--r-xs);">
             {{ selectedCollection ? store.locations.find(loc => loc.value === selectedCollection.location)?.label : 'No collection selected' }}
           </div>
 
           <q-select
             v-model="newContainerBoxSize"
-            label="Container Size"
+            label="Container size"
             outlined
             class="q-mb-md"
             :options="[
-              { label: 'Small Box (16×12.5×12.5 in)', value: 'Small' },
-              { label: 'Medium Box (18×18×16 in)', value: 'Medium' },
-              { label: 'Large Box (18×18×24 in)', value: 'Large' },
+              { label: 'Small box (16×12.5×12.5 in)', value: 'Small' },
+              { label: 'Medium box (18×18×16 in)', value: 'Medium' },
+              { label: 'Large box (18×18×24 in)', value: 'Large' },
               { label: 'Custom', value: 'Custom' }
             ]"
             emit-value
@@ -1548,7 +1547,7 @@ onMounted(() => {
             <div class="col-6">
               <q-input
                 v-model.number="newContainerMaxWeight"
-                label="Max Weight (lbs)"
+                label="Max weight (lbs)"
                 type="number"
                 outlined
                 dense
@@ -1558,7 +1557,7 @@ onMounted(() => {
             <div class="col-6">
               <q-input
                 v-model.number="newContainerMaxVolume"
-                label="Max Volume (cu ft)"
+                label="Max volume (cu ft)"
                 type="number"
                 outlined
                 dense
@@ -1602,27 +1601,27 @@ onMounted(() => {
         <q-card-section class="q-pt-none">
           <div v-if="detailsContainer" class="row q-col-gutter-md q-mb-md">
             <div class="col-12 col-sm-6">
-              <div class="text-caption text-grey-7">Standard Size</div>
+              <div class="text-caption text-grey-7">Standard size</div>
               <div class="text-subtitle2">
                 {{ detailsContainer.box_size ? detailsContainer.box_size : 'Custom' }}
               </div>
             </div>
             <div class="col-12 col-sm-6" v-if="detailsContainer.max_weight_lbs">
-              <div class="text-caption text-grey-7">Max Weight</div>
+              <div class="text-caption text-grey-7">Max weight</div>
               <div class="text-subtitle2">{{ detailsContainer.max_weight_lbs }} lbs</div>
             </div>
             <div class="col-12 col-sm-6" v-if="detailsContainer.max_volume_cuft">
-              <div class="text-caption text-grey-7">Max Volume</div>
+              <div class="text-caption text-grey-7">Max volume</div>
               <div class="text-subtitle2">{{ detailsContainer.max_volume_cuft }} cu ft</div>
             </div>
             <div class="col-12 col-sm-6" v-if="detailsContainer.weight_lbs">
-              <div class="text-caption text-grey-7">Current Weight</div>
+              <div class="text-caption text-grey-7">Current weight</div>
               <div class="text-subtitle2">{{ detailsContainer.weight_lbs }} lbs</div>
             </div>
           </div>
           <div v-if="detailsContainer" class="q-mb-lg">
             <QrCodeCard
-              title="Container QR Code"
+              title="Container QR code"
               description="Print or label this QR so crews can scan boxes as they load."
               :qr-url="containerQrUrl"
               :generating="containerQrLoading"
@@ -1648,7 +1647,7 @@ onMounted(() => {
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="Close" color="grey-7" v-close-popup />
-          <q-btn unelevated label="Edit Container" color="primary" @click="openContainerEdit(detailsContainer); showContainerDetailsDialog = false" />
+          <q-btn unelevated label="Edit container" color="primary" @click="openContainerEdit(detailsContainer); showContainerDetailsDialog = false" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1661,7 +1660,7 @@ onMounted(() => {
     <q-dialog v-model="showBoxGenerationDialog" persistent>
       <q-card style="min-width: 500px;">
         <q-card-section>
-          <div class="text-h6">Smart Pack for {{ selectedCollection?.label }}</div>
+          <div class="text-h6">Smart pack for {{ selectedCollection?.label }}</div>
           <div class="text-body2 text-grey-7 q-mt-sm">
             Analyzing {{ unassignedItems.length }} unpacked item(s)
             <span v-if="collectionBoxEstimates.nonBoxableCount > 0">
@@ -1672,11 +1671,11 @@ onMounted(() => {
 
         <q-card-section class="q-pt-none">
           <div v-if="collectionBoxEstimates.total > 0" class="box-estimates">
-            <q-banner class="bg-blue-1 text-primary q-mb-md">
+            <q-banner class="smart-pack-banner text-primary q-mb-md">
               <template v-slot:avatar>
                 <q-icon name="lightbulb" color="primary" />
               </template>
-              <div class="text-subtitle2">Density-Based Packing Algorithm</div>
+              <div class="text-subtitle2">Density-based packing algorithm</div>
               <div class="text-caption">
                 Heavy items (>{{ collectionBoxEstimates.details.smallDensity }} lbs/cu ft) → Small boxes<br>
                 Medium items ({{ collectionBoxEstimates.details.mediumDensity.toFixed(1) }}-{{ collectionBoxEstimates.details.smallDensity }} lbs/cu ft) → Medium boxes<br>
@@ -1688,7 +1687,7 @@ onMounted(() => {
               <div v-if="collectionBoxEstimates.small > 0" class="box-row">
                 <q-icon name="inventory_2" size="sm" color="primary" />
                 <div class="box-info">
-                  <span class="text-weight-medium">{{ collectionBoxEstimates.small }} Small Boxes</span>
+                  <span class="text-weight-medium">{{ collectionBoxEstimates.small }} small boxes</span>
                   <span class="text-caption text-grey-7">
                     ({{ collectionBoxEstimates.details.smallCapacity }} cu ft, max {{ collectionBoxEstimates.details.smallMaxWeight }} lbs)
                   </span>
@@ -1698,7 +1697,7 @@ onMounted(() => {
               <div v-if="collectionBoxEstimates.medium > 0" class="box-row">
                 <q-icon name="inventory_2" size="sm" color="secondary" />
                 <div class="box-info">
-                  <span class="text-weight-medium">{{ collectionBoxEstimates.medium }} Medium Boxes</span>
+                  <span class="text-weight-medium">{{ collectionBoxEstimates.medium }} medium boxes</span>
                   <span class="text-caption text-grey-7">
                     ({{ collectionBoxEstimates.details.mediumCapacity }} cu ft, max {{ collectionBoxEstimates.details.mediumMaxWeight }} lbs)
                   </span>
@@ -1708,7 +1707,7 @@ onMounted(() => {
               <div v-if="collectionBoxEstimates.large > 0" class="box-row">
                 <q-icon name="inventory_2" size="sm" color="accent" />
                 <div class="box-info">
-                  <span class="text-weight-medium">{{ collectionBoxEstimates.large }} Large Boxes</span>
+                  <span class="text-weight-medium">{{ collectionBoxEstimates.large }} large boxes</span>
                   <span class="text-caption text-grey-7">
                     ({{ collectionBoxEstimates.details.largeCapacity }} cu ft, max {{ collectionBoxEstimates.details.largeMaxWeight }} lbs)
                   </span>
@@ -1729,9 +1728,9 @@ onMounted(() => {
                 dense
                 expand-separator
                 icon="weekend"
-                :label="`${collectionBoxEstimates.nonBoxableCount} Furniture/Large Items (no boxes needed)`"
+                :label="`${collectionBoxEstimates.nonBoxableCount} furniture/large items (no boxes needed)`"
                 caption="These items will be moved as-is"
-                header-class="bg-grey-2"
+                header-class="smart-pack-expansion-header"
               >
                 <q-card>
                   <q-card-section class="q-pa-sm">
@@ -1768,7 +1767,7 @@ onMounted(() => {
           <q-btn
             v-if="collectionBoxEstimates.total > 0"
             unelevated
-            label="Smart Pack"
+            label="Smart pack"
             color="primary"
             icon="auto_awesome"
             @click="generateBoxesForCollection"
@@ -1782,7 +1781,7 @@ onMounted(() => {
 <style scoped>
 .collections-container {
   height: calc(100vh - 50px - 48px); /* 50px for header, 48px for subnav */
-  background: var(--bg-secondary);
+  background: var(--surface-sunk);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -1790,8 +1789,14 @@ onMounted(() => {
 
 .collections-header {
   flex-shrink: 0;
-  background: white;
-  border-bottom: 1px solid #E0E0E0;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border);
+}
+
+.collections-header .text-h5,
+.content-header .text-h5 {
+  font-family: var(--font-display);
+  letter-spacing: var(--ls-title);
 }
 
 .empty-state {
@@ -1812,12 +1817,12 @@ onMounted(() => {
 /* Collections Sidebar */
 .collections-sidebar {
   width: 280px;
-  background: white;
-  border-right: 1px solid var(--border-light);
+  background: var(--surface-card);
+  border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width 0.3s ease;
+  transition: width var(--dur-slow) var(--ease-standard);
 }
 
 .collections-sidebar.collapsed {
@@ -1825,7 +1830,7 @@ onMounted(() => {
 }
 
 .sidebar-header {
-  padding: 16px;
+  padding: var(--sp-5);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1834,50 +1839,51 @@ onMounted(() => {
 .collections-list {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: var(--sp-3);
 }
 
 .location-group {
-  margin-bottom: 16px;
+  margin-bottom: var(--sp-5);
 }
 
 .location-header {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
-  font-size: 0.75rem;
-  font-weight: 700;
+  padding: var(--sp-3) var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: var(--ls-eyebrow);
   color: var(--text-secondary);
-  background: #F5F5F5;
-  border-radius: 6px;
-  margin-bottom: 4px;
+  background: var(--surface-hover);
+  border-radius: var(--r-xs);
+  margin-bottom: var(--sp-2);
 }
 
 .collection-item {
   display: flex;
   align-items: center;
-  padding: 12px;
-  margin-bottom: 4px;
-  border-radius: 8px;
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-2);
+  border-radius: var(--r-xs);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--dur-base) var(--ease-standard);
   border: 2px solid transparent;
 }
 
 .collection-item:hover {
-  background: var(--bg-secondary);
+  background: var(--surface-hover);
 }
 
 .collection-item.active {
-  background: var(--primary-subtle);
-  border-color: var(--primary);
+  background: var(--accent-quiet);
+  border-color: var(--accent);
 }
 
 .collection-icon {
-  color: var(--primary);
-  margin-right: 12px;
+  color: var(--accent);
+  margin-right: var(--sp-4);
 }
 
 .collection-info {
@@ -1885,13 +1891,13 @@ onMounted(() => {
 }
 
 .collection-name {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
-  margin-bottom: 2px;
+  margin-bottom: var(--sp-1);
 }
 
 .collection-count {
-  font-size: 12px;
+  font-size: var(--fs-label);
   color: var(--text-secondary);
 }
 
@@ -1899,7 +1905,7 @@ onMounted(() => {
 .content-area {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: var(--sp-7);
 }
 
 .select-prompt {
@@ -1919,18 +1925,18 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 32px;
+  margin-bottom: var(--sp-8);
 }
 
 .section-title {
   display: flex;
   align-items: center;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--fs-body-l);
+  font-weight: var(--fw-semibold);
   color: var(--text-primary);
-  margin: 40px 0 24px 0;
-  padding-top: 24px;
-  border-top: 1px solid var(--border-light);
+  margin: var(--sp-9) 0 var(--sp-7) 0;
+  padding-top: var(--sp-7);
+  border-top: 1px solid var(--border);
 }
 
 /* Containers Grid */
@@ -1938,29 +1944,45 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 48px;
-  background: white;
-  border-radius: 12px;
-  border: 2px dashed var(--border-light);
+  padding: var(--sp-10);
+  background: var(--surface-card);
+  border-radius: var(--r-lg);
+  border: 2px dashed var(--border);
 }
 
 .containers-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px;
-  margin-bottom: 24px;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-7);
 }
 
 .container-card {
-  transition: all 0.2s;
+  transition: transform var(--dur-base) var(--ease-standard);
 }
 
 .container-card .q-card {
   max-height: 300px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  transition:
+    box-shadow var(--dur-base) var(--ease-standard),
+    border-color var(--dur-base) var(--ease-standard),
+    background var(--dur-base) var(--ease-standard);
 }
 
 .container-card .q-card-section {
-  padding: 12px;
+  padding: var(--sp-4);
+}
+
+.container-card:hover {
+  transform: translateY(-2px);
+}
+
+.container-card:hover .q-card {
+  box-shadow: var(--shadow-md);
 }
 
 .container-card.drag-over {
@@ -1968,13 +1990,13 @@ onMounted(() => {
 }
 
 .container-card.drag-over .q-card {
-  border-color: var(--primary);
-  background: var(--primary-subtle);
-  box-shadow: 0 4px 12px rgba(139, 115, 85, 0.2);
+  border-color: var(--accent);
+  background: var(--accent-quiet);
+  box-shadow: var(--shadow-md);
 }
 
 .container-card.expanded .q-card {
-  border-color: var(--primary);
+  border-color: var(--accent);
 }
 
 .container-card-header {
@@ -1988,22 +2010,22 @@ onMounted(() => {
 .item-thumbnails {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
 }
 
 .item-thumb {
   aspect-ratio: 1;
-  border-radius: 6px;
+  border-radius: var(--r-xs);
   overflow: hidden;
-  background: var(--bg-tertiary);
+  background: var(--surface-hover);
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease-standard), box-shadow var(--dur-fast) var(--ease-standard);
 }
 
 .item-thumb:hover {
   transform: scale(1.03);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-sm);
 }
 
 .item-thumb:active {
@@ -2022,43 +2044,43 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .thumb-text {
-  font-size: 0.7rem;
+  font-size: var(--fs-micro);
   color: var(--text-secondary);
   text-align: center;
-  padding: 0 4px;
+  padding: 0 var(--sp-2);
 }
 
 .more-items {
   width: 100%;
   height: 100%;
   aspect-ratio: 1;
-  background: var(--primary);
-  color: white;
+  background: var(--accent);
+  color: var(--on-accent);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-  border-radius: 6px;
+  font-weight: var(--fw-semibold);
+  border-radius: var(--r-xs);
 }
 
 .empty-container {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 24px;
-  border: 2px dashed var(--border-light);
-  border-radius: 8px;
-  margin-top: 12px;
+  padding: var(--sp-7);
+  border: 2px dashed var(--border);
+  border-radius: var(--r-xs);
+  margin-top: var(--sp-4);
 }
 
 .container-items-list {
-  margin-top: 16px;
-  border-top: 1px solid var(--border-light);
-  padding-top: 12px;
+  margin-top: var(--sp-5);
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-4);
 }
 
 .container-items-empty {
@@ -2066,35 +2088,35 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 24px 12px;
-  border: 2px dashed var(--border-light);
-  border-radius: 8px;
+  padding: var(--sp-7) var(--sp-4);
+  border: 2px dashed var(--border);
+  border-radius: var(--r-xs);
 }
 
 .container-items-scroll {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-3);
   max-height: 240px;
   overflow-y: auto;
-  padding-right: 4px;
+  padding-right: var(--sp-2);
 }
 
 .container-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px;
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
-  background: var(--bg-secondary);
+  gap: var(--sp-4);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
+  background: var(--surface-sunk);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
 }
 
 .container-item:hover {
-  background: var(--bg-tertiary, #f0f0f0);
-  border-color: var(--primary, #1976d2);
+  background: var(--surface-hover);
+  border-color: var(--accent);
 }
 
 .container-item:active {
@@ -2104,9 +2126,9 @@ onMounted(() => {
 .container-item-image {
   width: 48px;
   height: 48px;
-  border-radius: 6px;
+  border-radius: var(--r-xs);
   overflow: hidden;
-  background: var(--bg-tertiary);
+  background: var(--surface-hover);
   flex-shrink: 0;
 }
 
@@ -2122,35 +2144,35 @@ onMounted(() => {
 
 /* Unpacked Items Pills */
 .unpacked-pills-section {
-  background: white;
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
-  border: 2px dashed #E0E0E0;
-  transition: border-color 0.2s, background 0.2s;
+  background: var(--surface-card);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4) var(--sp-5);
+  margin-bottom: var(--sp-5);
+  border: 2px dashed var(--border);
+  transition: border-color var(--dur-base) var(--ease-standard), background var(--dur-base) var(--ease-standard);
 }
 
 .unpacked-pills-section.drag-over {
-  border-color: var(--primary);
-  background: var(--primary-subtle);
+  border-color: var(--accent);
+  background: var(--accent-quiet);
 }
 
 .pills-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
 }
 
 .pills-container {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .item-pill {
   cursor: grab !important;
-  transition: transform 0.1s ease;
+  transition: transform var(--dur-fast) var(--ease-standard);
 }
 
 .item-pill:hover {
@@ -2164,39 +2186,39 @@ onMounted(() => {
 .draggable-item {
   display: flex;
   align-items: center;
-  padding: 12px;
-  background: white;
-  border: 2px solid var(--border-light);
-  border-radius: 8px;
+  padding: var(--sp-4);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
   cursor: grab;
-  transition: all 0.2s;
+  transition: all var(--dur-base) var(--ease-standard);
 }
 
 .draggable-item:hover {
-  background: var(--bg-secondary);
-  border-color: var(--primary);
+  background: var(--surface-hover);
+  border-color: var(--accent);
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
 
 .draggable-item:active {
   cursor: grabbing;
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
 
 .drag-handle {
-  color: var(--text-hint);
-  margin-right: 8px;
+  color: var(--text-tertiary);
+  margin-right: var(--sp-3);
 }
 
 .item-image {
   width: 60px;
   height: 60px;
-  border-radius: 6px;
+  border-radius: var(--r-xs);
   overflow: hidden;
-  background: var(--bg-tertiary);
+  background: var(--surface-hover);
   flex-shrink: 0;
-  margin-right: 12px;
+  margin-right: var(--sp-4);
 }
 
 .item-img {
@@ -2224,26 +2246,26 @@ onMounted(() => {
 }
 .container-actions-row {
   display: flex;
-  gap: 12px;
+  gap: var(--sp-4);
   align-items: center;
   justify-content: center;
-  padding: 12px 8px;
-  background: #F5F5F5;
-  border-radius: 6px;
+  padding: var(--sp-4) var(--sp-3);
+  background: var(--surface-sunk);
+  border-radius: var(--r-xs);
 }
 
 .capacity-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  background: var(--bg-secondary);
-  border-radius: 6px;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--surface-sunk);
+  border-radius: var(--r-xs);
 }
 
 .capacity-circles {
   display: flex;
-  gap: 8px;
+  gap: var(--sp-3);
   align-items: center;
   justify-content: center;
 }
@@ -2286,7 +2308,7 @@ onMounted(() => {
 .capacity-row {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--sp-2);
 }
 
 .capacity-label {
@@ -2296,78 +2318,89 @@ onMounted(() => {
 }
 
 .capacity-bar {
-  transition: all 0.3s ease;
+  transition: all var(--dur-slow) var(--ease-standard);
 }
 
 .dimension-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 8px;
-  background: white;
-  border: 1px solid var(--border-light);
-  border-radius: 4px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
   color: var(--text-secondary);
-  font-size: 0.75rem;
+  font-size: var(--fs-label);
   width: fit-content;
 }
 
 .constraint-warning {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
-  background: rgba(244, 67, 54, 0.1);
-  border-left: 3px solid var(--negative);
-  border-radius: 4px;
-  color: var(--negative);
-  font-weight: 500;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--danger-quiet);
+  border-radius: var(--r-sm);
+  color: var(--danger);
+  font-weight: var(--fw-medium);
 }
 
 .constraint-info {
   display: flex;
   align-items: center;
-  padding: 6px 8px;
-  background: rgba(33, 150, 243, 0.1);
-  border-left: 3px solid #2196f3;
-  border-radius: 4px;
-  color: #1976d2;
-  font-weight: 400;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--accent-quiet);
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  font-weight: var(--fw-regular);
 }
 
 /* Box Generation Dialog */
 .box-estimates {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--sp-5);
 }
 
 .box-summary {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-4);
 }
 
 .box-row {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
-  padding: 12px;
-  background: var(--bg-secondary);
-  border-radius: 8px;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--surface-sunk);
+  border-radius: var(--r-xs);
 }
 
 .box-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .box-total {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-4);
   justify-content: center;
-  padding: 16px;
-  background: var(--primary-subtle);
-  border-radius: 8px;
+  padding: var(--sp-5);
+  background: var(--accent-quiet);
+  border-radius: var(--r-xs);
+}
+
+.smart-pack-banner {
+  background: var(--accent-quiet);
+  border-radius: var(--r-sm);
+}
+
+:deep(.smart-pack-expansion-header) {
+  background: var(--surface-hover);
+}
+
+.q-btn:active {
+  transform: scale(0.97);
 }
 </style>
