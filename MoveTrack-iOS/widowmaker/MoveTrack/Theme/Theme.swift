@@ -76,6 +76,11 @@ enum Theme {
         static let ink900 = Color(hex: "#0B1533")
     }
 
+    /// Always-light neutral fill (`--l-card-2`), theme-invariant by design —
+    /// `ItemCard`'s icon badge stays light in both themes (a consistent
+    /// "tag/sticker" look), unlike everything else which flips with scheme.
+    static let lightChipFill = Color(hex: Ramp.lCard2)
+
     // MARK: - Semantic colors — surfaces
 
     static let bg = Color(dark: Ramp.dBg, light: Ramp.lBg)
