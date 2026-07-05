@@ -525,6 +525,41 @@ const selectCollection = (collection: any) => {
   expandedContainerIds.value = [];
 };
 
+// Room (collection) rename / delete
+const showEditRoomDialog = ref(false);
+const showDeleteRoomDialog = ref(false);
+const editRoomName = ref('');
+const editRoomDescription = ref('');
+
+const openEditRoom = () => {
+  if (!selectedCollection.value) return;
+  editRoomName.value = selectedCollection.value.label || '';
+  editRoomDescription.value = selectedCollection.value.description || '';
+  showEditRoomDialog.value = true;
+};
+
+const saveRoomEdits = async () => {
+  if (!selectedCollection.value) return;
+  const name = editRoomName.value.trim();
+  if (!name) {
+    $q.notify({ type: 'warning', message: 'Please enter a room name' });
+    return;
+  }
+  const description = editRoomDescription.value.trim();
+  await store.updateCollection(selectedCollection.value.value, props.user, name, description);
+  selectedCollection.value = { ...selectedCollection.value, label: name, description };
+  showEditRoomDialog.value = false;
+  $q.notify({ type: 'positive', message: 'Room updated' });
+};
+
+const confirmDeleteRoom = async () => {
+  if (!selectedCollection.value) return;
+  await store.deleteCollection(selectedCollection.value.value, props.user);
+  showDeleteRoomDialog.value = false;
+  $q.notify({ type: 'positive', message: `Deleted "${selectedCollection.value.label}"` });
+  selectedCollection.value = null;
+};
+
 const createCollection = async () => {
   if (!newCollectionName.value.trim()) {
     $q.notify({
@@ -1126,6 +1161,40 @@ onMounted(() => {
 
       <!-- Right Content - Containers and Items -->
       <div class="content-area">
+        <q-dialog v-model="showEditRoomDialog">
+          <q-card class="room-edit-card">
+            <q-card-section>
+              <div class="text-h6">Rename room</div>
+            </q-card-section>
+            <q-card-section class="q-pt-none q-gutter-md">
+              <q-input v-model="editRoomName" label="Room name" dense outlined autofocus @keyup.enter="saveRoomEdits" />
+              <q-input v-model="editRoomDescription" label="Description (optional)" dense outlined @keyup.enter="saveRoomEdits" />
+            </q-card-section>
+            <q-card-actions align="right">
+              <q-btn flat no-caps label="Cancel" color="grey-7" v-close-popup />
+              <q-btn unelevated no-caps label="Save" color="primary" @click="saveRoomEdits" />
+            </q-card-actions>
+          </q-card>
+        </q-dialog>
+
+        <q-dialog v-model="showDeleteRoomDialog">
+          <q-card class="room-edit-card">
+            <q-card-section class="row items-center">
+              <q-avatar icon="warning" color="negative" text-color="white" />
+              <span class="q-ml-sm text-h6">Delete this room?</span>
+            </q-card-section>
+            <q-card-section class="q-pt-none" v-if="selectedCollection">
+              Deleting "{{ selectedCollection.label }}" also deletes its
+              {{ getItemCount(selectedCollection.value) }} item(s) and any boxes inside it.
+              This cannot be undone.
+            </q-card-section>
+            <q-card-actions align="right">
+              <q-btn flat no-caps label="Cancel" color="grey-7" v-close-popup />
+              <q-btn unelevated no-caps label="Delete room" color="negative" @click="confirmDeleteRoom" />
+            </q-card-actions>
+          </q-card>
+        </q-dialog>
+
         <div v-if="!selectedCollection" class="select-prompt">
           <q-icon name="arrow_back" size="48px" color="grey-5" />
           <div class="text-h6 text-grey-6 q-mt-md">Select a collection to view containers</div>
@@ -1134,9 +1203,25 @@ onMounted(() => {
         <div v-else class="collection-content">
           <!-- Header -->
           <div class="content-header">
-            <div>
-              <div class="text-h5 text-primary">{{ selectedCollection.label }}</div>
-              <div class="text-body2 text-grey-7">{{ selectedCollection.description }}</div>
+            <div class="row items-center q-gutter-xs">
+              <div>
+                <div class="text-h5 text-primary">{{ selectedCollection.label }}</div>
+                <div class="text-body2 text-grey-7">{{ selectedCollection.description }}</div>
+              </div>
+              <q-btn
+                flat dense round size="sm" icon="edit" color="grey-7"
+                aria-label="Rename room"
+                @click="openEditRoom"
+              >
+                <q-tooltip>Rename room</q-tooltip>
+              </q-btn>
+              <q-btn
+                flat dense round size="sm" icon="delete_outline" color="grey-7"
+                aria-label="Delete room"
+                @click="showDeleteRoomDialog = true"
+              >
+                <q-tooltip>Delete room</q-tooltip>
+              </q-btn>
             </div>
             <div class="q-gutter-sm">
               <template v-if="isProPlan">
@@ -1914,6 +1999,13 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   height: 100%;
+}
+
+.room-edit-card {
+  min-width: 380px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
 
 .collection-content {

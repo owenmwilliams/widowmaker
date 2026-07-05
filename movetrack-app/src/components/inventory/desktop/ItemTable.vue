@@ -155,11 +155,19 @@
                 undefined,
                 payload
             );
+            // The row now has the values — retire the suggestion pill.
+            ensureRowState(itemId).estimate = null;
             $q.notify({ type: 'positive', message: 'Estimate applied' });
         } catch (error) {
             console.error('[DesktopItemTable] failed to apply estimate', error);
             $q.notify({ type: 'negative', message: 'Unable to apply estimate' });
         }
+    };
+
+    const dismissAiEstimateForTableRow = (itemId: number) => {
+        const state = ensureRowState(itemId);
+        state.estimate = null;
+        state.error = null;
     };
 
     const props = defineProps({
@@ -190,7 +198,41 @@
 
     // Tag filters
     const filterFragile = ref(false)
+    const filterOversized = ref(false)
     const showFiltersMenu = ref(false)
+
+    // Any dimension over 48" (4 ft) counts as oversized — same threshold
+    // the move planner uses for special-items flagging.
+    const OVERSIZED_THRESHOLD_IN = 48
+    const isOversized = (item: any) =>
+        [item.length_in, item.width_in, item.height_in]
+            .some((dim: any) => Number(dim) > OVERSIZED_THRESHOLD_IN)
+
+    // Number of filter dimensions currently narrowing the table, shown as a
+    // badge on the Filters button so an empty-looking table explains itself.
+    const activeFilterCount = computed(() => {
+        let count = 0
+        if (collectionValues.value.length < store.collections.length) count++
+        if (containerValues.value.length < store.containers.length) count++
+        if (locationValues.value.length < store.locations.length) count++
+        if (filterFragile.value) count++
+        if (filterOversized.value) count++
+        return count
+    })
+
+    const tablePagination = ref({
+        sortBy: null as string | null,
+        descending: false,
+        page: 1,
+        rowsPerPage: 25
+    })
+
+    const rowsPerPageChoices = [
+        { label: '25', value: 25 },
+        { label: '50', value: 50 },
+        { label: '100', value: 100 },
+        { label: 'All', value: 0 }
+    ]
 
     const toggleFilterValue = (list: Ref<Array<number>>, value: number) => {
         const idx = list.value.indexOf(value)
@@ -215,6 +257,7 @@
         containerValues.value = store.containers.map(i => i.value)
         locationValues.value = store.locations.map(i => i.value)
         filterFragile.value = false
+        filterOversized.value = false
     }
 
     const getSelectedString = () => {
@@ -232,6 +275,7 @@
 
                 // Tag filters
                 if (filterFragile.value && !i.fragile) return false
+                if (filterOversized.value && !isOversized(i)) return false
 
                 return true
             })
@@ -294,7 +338,9 @@
         { name: 'description', align: 'left', label: 'Description', field: 'description', required: false, style: 'max-width: 250px; word-wrap: break-word; overflow: hidden; white-space: nowrap;', headerStyle: 'max-width: 200px;' },
         { name: 'quantity', align: 'center', label: 'Quantity', field: 'quantity', sortable: true, required: false, sort: (a, b) => parseInt(a, 10) - parseInt(b, 10) },
         { name: 'fragile', align: 'center', label: 'Fragile', field: 'fragile', sortable: true, required: false },
-        { name: 'weight_lbs', align: 'center', label: 'Weight (lbs)', field: 'weight_lbs', sortable: true, required: false },
+        // Weights arrive as strings/nulls from the API — compare numerically
+        // (default string compare puts "40" before "15"); missing counts as 0.
+        { name: 'weight_lbs', align: 'center', label: 'Weight (lbs)', field: 'weight_lbs', sortable: true, required: false, sort: (a, b) => (Number(a) || 0) - (Number(b) || 0) },
         { name: 'dimensions', align: 'center', label: 'Dimensions', field: 'dimensions', sortable: false, required: false },
         { name: 'collection_name', align: 'right', label: 'Collection', field: 'collection_name', sortable: true, required: false },
         { name: 'container_name', align: 'right', label: 'Container', field: 'container_name', sortable: true, required: false },
@@ -372,7 +418,8 @@
         <div class="table-wrapper">
             <q-table
         class="my-sticky-header-column-table full-height-table"
-        :rows-per-page-options="[0]"
+        v-model:pagination="tablePagination"
+        :rows-per-page-options="[25, 50, 100, 0]"
         :rows="itemRows"
         :columns="columns"
         separator="horizontal"
@@ -385,7 +432,7 @@
         >
 
         <template v-slot:top>
-                <q-input dense filled debounce="300" class="search-input" color="primary" bg-color="transparent" v-model="search">
+                <q-input dense borderless debounce="300" class="search-input" placeholder="Search items" v-model="search">
                     <template v-slot:prepend>
                         <Search :size="18" class="search-icon" />
                     </template>
@@ -393,7 +440,19 @@
 
                 <q-space />
 
-                <q-btn flat color="primary" label="Filters" icon="filter_list" @click.stop="showFiltersMenu = true" />
+                <q-btn
+                    unelevated
+                    no-caps
+                    color="primary"
+                    label="Add item"
+                    icon="add"
+                    class="q-mr-sm"
+                    @click.stop="emit('addAction')"
+                />
+
+                <q-btn flat no-caps color="primary" label="Filters" icon="filter_list" @click.stop="showFiltersMenu = true">
+                    <q-badge v-if="activeFilterCount > 0" color="primary" floating>{{ activeFilterCount }}</q-badge>
+                </q-btn>
 
                 <q-dialog v-model="showFiltersMenu">
                     <q-card class="filters-menu">
@@ -465,6 +524,15 @@
                                 >
                                     Fragile
                                 </q-chip>
+                                <q-chip
+                                    dense
+                                    clickable
+                                    class="filter-chip"
+                                    :class="{ 'filter-chip--active': filterOversized }"
+                                    @click="filterOversized = !filterOversized"
+                                >
+                                    Oversized (&gt;4 ft)
+                                </q-chip>
                             </div>
                         </div>
 
@@ -518,10 +586,12 @@
                     <span class="text-caption q-mr-sm">Records per page:</span>
                     <q-select
                         v-model="props.pagination.rowsPerPage"
-                        :options="[25, 50, 100]"
+                        :options="rowsPerPageChoices"
+                        emit-value
+                        map-options
                         dense
                         outlined
-                        style="width: 70px"
+                        style="width: 82px"
                         @update:model-value="(val) => props.pagination.rowsPerPage = val"
                     />
                 </div>
@@ -549,9 +619,6 @@
             </q-th>
             <q-th key="fragile" :props="props">
                 Fragile
-            </q-th>
-            <q-th key="priority" :props="props">
-                Priority
             </q-th>
             <q-th key="weight_lbs" :props="props">
                 Weight (lbs)
@@ -632,16 +699,29 @@
                         <span class="text-grey-5">•</span>
                         {{ formatEstimateDimensions(getRowEstimateState(props.row.value).estimate) }}
                     </div>
-                    <q-btn
-                        flat
-                        dense
-                        size="sm"
-                        color="primary"
-                        data-ignore-row-click
-                        icon="playlist_add"
-                        label="Apply"
-                        @click.stop="applyAiEstimateForTableRow(props.row.value)"
-                    />
+                    <div class="row items-center no-wrap">
+                        <q-btn
+                            flat
+                            dense
+                            size="sm"
+                            color="primary"
+                            data-ignore-row-click
+                            icon="playlist_add"
+                            label="Apply"
+                            @click.stop="applyAiEstimateForTableRow(props.row.value)"
+                        />
+                        <q-btn
+                            flat
+                            dense
+                            round
+                            size="sm"
+                            color="grey-7"
+                            icon="close"
+                            aria-label="Dismiss suggestion"
+                            data-ignore-row-click
+                            @click.stop="dismissAiEstimateForTableRow(props.row.value)"
+                        />
+                    </div>
                 </div>
                 <div
                     v-else-if="getRowEstimateState(props.row.value).error"
@@ -847,9 +927,24 @@
 }
 
 .search-input {
-  padding: 3px;
   width: 25vw;
   min-width: 220px;
+}
+
+/* Single clean field: sunk surface + hairline, one focus ring (the global
+   bridge adds a second ring to .q-field--focused — suppress it here so the
+   field doesn't render a double outline). */
+.search-input :deep(.q-field__control) {
+  background: var(--surface-sunk);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 0 var(--sp-4);
+  transition: border-color var(--dur-fast) var(--ease-standard);
+}
+
+.search-input.q-field--focused :deep(.q-field__control) {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
 }
 
 .search-icon {
