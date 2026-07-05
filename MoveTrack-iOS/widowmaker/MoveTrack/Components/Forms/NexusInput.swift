@@ -28,8 +28,12 @@ struct NexusInput: View {
     /// real control here (the trailing send `NexusIconButton`), not just an Image.
     var leading: AnyView? = nil
     var trailing: AnyView? = nil
+    /// Owned by the caller, not this view — several call sites (the
+    /// composer especially) programmatically dismiss/re-focus the keyboard
+    /// from elsewhere (opening the camera sheet, tapping an agent button),
+    /// which an internal `@FocusState` here couldn't be reached from outside.
+    var focused: FocusState<Bool>.Binding
 
-    @FocusState private var focused: Bool
     private var isComposer: Bool { variant == .composer }
 
     var body: some View {
@@ -42,7 +46,7 @@ struct NexusInput: View {
             HStack(spacing: 10) {
                 leading?.foregroundStyle(Theme.textTertiary).frame(width: 20, height: 20)
                 field
-                    .focused($focused)
+                    .focused(focused)
                     .font(isComposer ? Theme.Typography.chatBody() : Theme.Typography.body())
                     .foregroundStyle(Theme.textPrimary)
                     .disabled(disabled)
@@ -54,7 +58,7 @@ struct NexusInput: View {
             .clipShape(shape)
             .overlay {
                 if !isComposer {
-                    shape.stroke(focused ? Theme.accent : Theme.border, lineWidth: 1.5)
+                    shape.stroke(focused.wrappedValue ? Theme.accent : Theme.border, lineWidth: 1.5)
                 }
             }
             .opacity(disabled ? 0.5 : 1)

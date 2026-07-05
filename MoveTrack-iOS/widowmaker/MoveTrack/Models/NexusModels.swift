@@ -27,7 +27,9 @@ struct NexusAttachment: Codable, Hashable {
     let mimeType: String?
 
     var isVideo: Bool { (mimeType ?? "").hasPrefix("video") }
-    var displayLabel: String { isVideo ? "🎥 Video" : "📷 Photo" }
+    /// No emoji per design/briefs/ios.md §2 — render with `isVideo` to pick
+    /// an icon (`video.fill`/`photo.fill`) alongside this text instead.
+    var displayLabel: String { isVideo ? "Video" : "Photo" }
 }
 
 /// An attachment we send up with a message (both fields required).
