@@ -320,7 +320,11 @@ struct NexusChatView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background { Theme.surfaceCard.ignoresSafeArea(edges: .bottom) }
+        // The kit's Composer bar sits on --d-bg specifically so the pill
+        // (--surface-card, same token NexusInput's composer variant uses)
+        // reads as a distinct control — same token on both meant the pill
+        // had zero contrast against its own bar and effectively disappeared.
+        .background { Theme.bg.ignoresSafeArea(edges: .bottom) }
         .overlay(alignment: .top) { Divider() }
     }
 
