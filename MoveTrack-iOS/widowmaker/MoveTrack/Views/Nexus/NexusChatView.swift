@@ -37,7 +37,7 @@ struct NexusChatView: View {
             }
             inputBar
         }
-        .background(Theme.canvas, ignoresSafeAreaEdges: .all)
+        .background(Theme.bg, ignoresSafeAreaEdges: .all)
         .task { await vm.loadIfNeeded() }
         .confirmationDialog("Add a room photo or video", isPresented: $showAttachDialog, titleVisibility: .visible) {
             if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -136,10 +136,7 @@ struct NexusChatView: View {
     private var header: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Theme.brandGradient)
-                    .frame(width: 34, height: 34)
-                    .overlay(Image(systemName: "sparkles").font(.system(size: 15, weight: .bold)).foregroundStyle(.white))
+                AssistantAvatar(size: 34, shape: .square)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Nexus Moves").font(.headline)
                     Text("Your moving assistant").font(.caption2).foregroundStyle(.secondary)
@@ -167,7 +164,7 @@ struct NexusChatView: View {
         .padding(.horizontal, 16)
         .padding(.top, 6)
         .padding(.bottom, 12)
-        .background { Theme.card.ignoresSafeArea(edges: .top) }
+        .background { Theme.surfaceCard.ignoresSafeArea(edges: .top) }
         .overlay(alignment: .bottom) { Divider() }
     }
 
@@ -231,16 +228,16 @@ struct NexusChatView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .background(Theme.surfaceCard)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
         .padding(.top, 4)
     }
 
     private func stepRow(_ n: Int, _ icon: String, _ text: String) -> some View {
         HStack(spacing: 12) {
             ZStack {
-                Circle().fill(Theme.brandSoft).frame(width: 32, height: 32)
-                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.brand)
+                Circle().fill(Theme.accentQuiet).frame(width: 32, height: 32)
+                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent)
             }
             Text(text).font(.subheadline)
             Spacer(minLength: 0)
@@ -258,8 +255,8 @@ struct NexusChatView: View {
                         .font(.subheadline.weight(.medium))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 9)
-                        .background(Theme.brandSoft)
-                        .foregroundStyle(Theme.brand)
+                        .background(Theme.accentQuiet)
+                        .foregroundStyle(Theme.accent)
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -271,17 +268,23 @@ struct NexusChatView: View {
 
     // MARK: - Error
 
+    /// The "honest nudge" tone (warning, not danger) per ios.md — even a
+    /// failed request reads as calm/kind rather than alarming, matching the
+    /// brand voice ("frames gaps as gentle suggestions, never failures").
     private func errorBar(_ message: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-            Text(message).font(.footnote)
-            Spacer(minLength: 0)
-            Button { vm.errorMessage = nil } label: { Image(systemName: "xmark") }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .foregroundStyle(.white)
-        .background(Theme.danger.opacity(0.92))
+        NexusBanner(tone: .warning, text: message)
+            .overlay(alignment: .topTrailing) {
+                Button {
+                    vm.errorMessage = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Theme.warningInk)
+                        .padding(10)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
     }
 
     // MARK: - Input
@@ -292,41 +295,36 @@ struct NexusChatView: View {
                 pendingMediaChips
             }
             HStack(alignment: .bottom, spacing: 10) {
-                Button {
-                    beginCapture(caption: "")
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .background(vm.isBusy ? AnyShapeStyle(Color.gray) : AnyShapeStyle(Theme.brandGradient))
-                        .clipShape(Circle())
-                }
-                .disabled(vm.isBusy)
+                NexusIconButton(
+                    tone: .accent, size: Theme.tapMin, disabled: vm.isBusy,
+                    accessibilityLabel: "Add a photo or video",
+                    icon: Image(systemName: "plus"),
+                    action: { beginCapture(caption: "") }
+                )
 
-                TextField(pendingMedia.isEmpty ? "Message Nexus…" : "Add a note (optional)…", text: $draft, axis: .vertical)
-                    .lineLimit(1...5)
-                    .focused($inputFocused)
-                    .padding(.horizontal, 15)
-                    .padding(.vertical, 9)
-                    .background(Theme.canvas)
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 20).stroke(Color.primary.opacity(0.08)))
+                NexusInput(
+                    variant: .composer,
+                    placeholder: pendingMedia.isEmpty ? "Message Nexus…" : "Add a note (optional)…",
+                    text: $draft,
+                    lineLimit: 1...5,
+                    focused: $inputFocused
+                )
 
-                Button(action: sendDraft) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .background(canSend ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(Color.gray.opacity(0.5)))
-                        .clipShape(Circle())
-                }
-                .disabled(!canSend)
+                NexusIconButton(
+                    tone: .accent, size: Theme.tapMin, disabled: !canSend,
+                    accessibilityLabel: "Send",
+                    icon: Image(systemName: "arrow.up"),
+                    action: sendDraft
+                )
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background { Theme.card.ignoresSafeArea(edges: .bottom) }
+        // The kit's Composer bar sits on --d-bg specifically so the pill
+        // (--surface-card, same token NexusInput's composer variant uses)
+        // reads as a distinct control — same token on both meant the pill
+        // had zero contrast against its own bar and effectively disappeared.
+        .background { Theme.bg.ignoresSafeArea(edges: .bottom) }
         .overlay(alignment: .top) { Divider() }
     }
 
@@ -335,7 +333,7 @@ struct NexusChatView: View {
             ForEach(Array(pendingMedia.enumerated()), id: \.element.id) { index, media in
                 HStack(spacing: 8) {
                     Image(systemName: media.isVideo ? "video.fill" : "photo.fill")
-                        .foregroundStyle(Theme.brand)
+                        .foregroundStyle(Theme.accent)
                     Text(media.isVideo
                          ? "Video attached"
                          : (pendingMedia.count == 1 ? "Photo attached" : "Photo \(index + 1) of \(pendingMedia.count)"))
@@ -347,7 +345,7 @@ struct NexusChatView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(Theme.brandSoft)
+                .background(Theme.accentQuiet)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
         }
@@ -473,22 +471,17 @@ private struct ReadinessBanner: View {
         HStack(spacing: 12) {
             Button(action: onTap) {
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(readiness?.statusLabel ?? "Building your inventory")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                        Spacer()
-                        Text("\(readiness?.overall ?? 0)%")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    ProgressView(value: readiness?.progress ?? 0).tint(Theme.brand)
+                    NexusProgressBar(
+                        value: Double(readiness?.overall ?? 0),
+                        label: readiness?.statusLabel ?? "Building your inventory",
+                        height: 9
+                    )
                     HStack(spacing: 3) {
                         Text("See what's left")
                         Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
                     }
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Theme.brand)
+                    .foregroundStyle(Theme.accent)
                 }
             }
             .buttonStyle(.plain)
@@ -499,7 +492,10 @@ private struct ReadinessBanner: View {
                     Text("Share").font(.caption2.weight(.bold))
                 }
                 .frame(width: 60, height: 56)
-                .background(Theme.brandGradient)
+                // Solid accent, NOT shimmer — the kit reserves shimmer for
+                // ReadinessSheet's full "Share inventory" CTA; two shimmer
+                // buttons for the same action on one screen is a hard fail.
+                .background(Theme.accent)
                 .foregroundStyle(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .opacity(isPreparing ? 0.6 : 1)
@@ -507,9 +503,9 @@ private struct ReadinessBanner: View {
             .disabled(isPreparing)
         }
         .padding(12)
-        .background(Theme.canvas)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).stroke(Color.primary.opacity(0.06)))
+        .background(Theme.bg)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.lg).stroke(Color.primary.opacity(0.06)))
     }
 }
 
@@ -530,22 +526,25 @@ private struct MessageBubble: View {
                 if isUser { Spacer(minLength: 44) }
                 VStack(alignment: isUser ? .trailing : .leading, spacing: 6) {
                     ForEach(Array(message.attachments.enumerated()), id: \.offset) { _, attachment in
-                        Text(attachment.displayLabel)
-                            .font(.footnote.weight(.medium))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(isUser ? Color.white.opacity(0.25) : Theme.brandSoft)
-                            .foregroundStyle(isUser ? .white : Theme.brand)
-                            .clipShape(Capsule())
+                        HStack(spacing: 6) {
+                            Image(systemName: attachment.isVideo ? "video.fill" : "photo.fill")
+                            Text(attachment.displayLabel)
+                        }
+                        .font(.footnote.weight(.medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(isUser ? Color.white.opacity(0.25) : Theme.accentQuiet)
+                        .foregroundStyle(isUser ? .white : Theme.accent)
+                        .clipShape(Capsule())
                     }
                     if !displayText.isEmpty {
                         Text(styled(displayText))
                             .textSelection(.enabled)
                             .padding(.horizontal, 15)
                             .padding(.vertical, 11)
-                            .background(isUser ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(Theme.modelBubble))
+                            .background(isUser ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.bubbleOther))
                             .foregroundStyle(isUser ? Color.white : Color.primary)
-                            .clipShape(RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
                     }
                 }
                 if !isUser { Spacer(minLength: 44) }
@@ -587,8 +586,8 @@ private struct AgentButtonRow: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.brandSoft)
-            .foregroundStyle(Theme.brand)
+            .background(Theme.accentQuiet)
+            .foregroundStyle(Theme.accent)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -617,14 +616,14 @@ private struct TypingIndicator: View {
                     ForEach(0..<3) { i in
                         Circle()
                             .frame(width: 7, height: 7)
-                            .foregroundStyle(Theme.brand.opacity(0.7))
+                            .foregroundStyle(Theme.accent.opacity(0.7))
                             .scaleEffect(0.7 + 0.3 * abs(CGFloat(sin(t * 4 + Double(i) * 0.7))))
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 13)
-                .background(Theme.modelBubble)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.bubbleRadius, style: .continuous))
+                .background(Theme.bubbleOther)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.xl, style: .continuous))
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(phase.isEmpty ? "Thinking…" : phase).font(.subheadline).foregroundStyle(.secondary)
@@ -667,8 +666,7 @@ private struct UploadProgressRow: View {
     var body: some View {
         HStack(spacing: 10) {
             if progress > 0 {
-                ProgressView(value: min(progress, 1))
-                    .progressViewStyle(.linear)
+                NexusProgressBar(value: min(progress, 1) * 100, showPercent: false, height: 6)
                     .frame(maxWidth: 180)
                 Text("\(Int(min(progress, 1) * 100))%")
                     .font(.caption.monospacedDigit())
@@ -692,19 +690,21 @@ private struct UploadProgressRow: View {
 private struct ScanReviewPill: View {
     let state: ChatMessage.ScanReviewState
 
+    // Plain (non-circular) glyphs — StatusPill already wraps the icon in its
+    // own ring, so a circular SF Symbol here would read as a double ring.
     private var icon: String {
         switch state {
-        case .pending: return "sparkle.magnifyingglass"
-        case .reviewed: return "checkmark.circle.fill"
-        case .dismissed: return "minus.circle"
+        case .pending: return "sparkles"
+        case .reviewed: return "checkmark"
+        case .dismissed: return "minus"
         case .record: return "checkmark.seal"
         }
     }
 
-    private var tint: Color {
+    private var tone: NexusStatusPillTone {
         switch state {
-        case .reviewed: return Theme.good
-        default: return Color.secondary
+        case .reviewed: return .success
+        default: return .neutral
         }
     }
 
@@ -726,15 +726,7 @@ private struct ScanReviewPill: View {
     var body: some View {
         HStack {
             Spacer(minLength: 0)
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.caption)
-                Text(label).font(.caption.weight(.medium))
-            }
-            .foregroundStyle(tint)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Theme.card)
-            .clipShape(Capsule())
+            NexusStatusPill(tone: tone, icon: Image(systemName: icon), text: label)
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)

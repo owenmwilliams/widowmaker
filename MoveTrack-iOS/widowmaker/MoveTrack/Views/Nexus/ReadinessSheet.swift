@@ -36,7 +36,7 @@ struct ReadinessSheet: View {
                 }
                 .padding(20)
             }
-            .background(Theme.canvas)
+            .background(Theme.bg)
             .safeAreaInset(edge: .bottom) { ctaBar }
             .navigationTitle("Get ready to share")
             .navigationBarTitleDisplayMode(.inline)
@@ -55,10 +55,10 @@ struct ReadinessSheet: View {
     private var header: some View {
         VStack(spacing: 14) {
             ZStack {
-                Circle().stroke(Theme.brandSoft, lineWidth: 14)
+                Circle().stroke(Theme.accentQuiet, lineWidth: 14)
                 Circle()
                     .trim(from: 0, to: progress)
-                    .stroke(Theme.brandGradient, style: StrokeStyle(lineWidth: 14, lineCap: .round))
+                    .stroke(Theme.accentGradient, style: StrokeStyle(lineWidth: 14, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .animation(.easeOut(duration: 0.5), value: progress)
                 VStack(spacing: 0) {
@@ -83,22 +83,22 @@ struct ReadinessSheet: View {
 
     // MARK: - Warning
 
-    // warnSoft is a fixed light cream, so the text needs a fixed DARK color — the
+    // warningSurface is a fixed light cream, so the text needs a fixed DARK color — the
     // default (.primary) is white in dark mode → the "white on white" bug.
     private let warnText = Color(red: 0.42, green: 0.27, blue: 0.02)
 
     private func warningCard(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.warning)
             Text(text).font(.subheadline).foregroundStyle(warnText)
             Spacer(minLength: 0)
         }
         .padding(14)
-        .background(Theme.warnSoft)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .background(Theme.warningSurface)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: Theme.cardRadius)
-                .stroke(Theme.warn.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: Theme.Radius.lg)
+                .stroke(Theme.warning.opacity(0.3), lineWidth: 1)
         )
     }
 
@@ -112,7 +112,7 @@ struct ReadinessSheet: View {
             if steps.isEmpty {
                 Label("Your inventory looks ready to share.", systemImage: "checkmark.seal.fill")
                     .font(.subheadline)
-                    .foregroundStyle(Theme.good)
+                    .foregroundStyle(Theme.success)
             } else {
                 ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
                     Button {
@@ -122,7 +122,7 @@ struct ReadinessSheet: View {
                         HStack(alignment: .top, spacing: 12) {
                             Image(systemName: "circle")
                                 .font(.body)
-                                .foregroundStyle(Theme.brand)
+                                .foregroundStyle(Theme.accent)
                             Text(step)
                                 .font(.subheadline)
                                 .foregroundStyle(.primary)
@@ -140,8 +140,8 @@ struct ReadinessSheet: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Theme.card)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+        .background(Theme.surfaceCard)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
     }
 
 

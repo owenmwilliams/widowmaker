@@ -40,5 +40,14 @@
 	     Store builds don't need an export-compliance review each upload. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<!-- Bundled OFL font (design/assets/fonts/README.md) — MoveTrack/Fonts/*.ttf.
+	     A filename missing here fails silently: Font.custom falls back to the
+	     system face instead of erroring, so this list must stay in sync by hand. -->
+	<key>UIAppFonts</key>
+	<array>
+		<string>JetBrainsMono-Regular.ttf</string>
+		<string>JetBrainsMono-Medium.ttf</string>
+		<string>JetBrainsMono-Bold.ttf</string>
+	</array>
 </dict>
 </plist>
