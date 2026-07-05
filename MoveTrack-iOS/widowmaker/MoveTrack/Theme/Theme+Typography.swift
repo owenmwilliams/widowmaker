@@ -36,19 +36,31 @@ extension Theme {
         static func micro(weight: Font.Weight = .semibold) -> Font { scaled(11, weight, .caption2) }
 
         /// JetBrains Mono — eyebrows and data readouts (weights/volumes).
-        /// NOT YET BUNDLED: no .ttf ships in this repo (only a Google Fonts
-        /// CDN `@import` in design/tokens/fonts.css, which doesn't help a
-        /// native binary). Falls back to the system monospaced face — close
-        /// enough (tabular figures) until the OFL font file is added to the
-        /// asset catalog + `UIAppFonts` by the owner; swap the body below to
-        /// `Font.custom("JetBrainsMono-...", size:)` at that point.
+        /// Bundled as `MoveTrack/Fonts/*.ttf` + `UIAppFonts` (design/assets/fonts,
+        /// merged #82). Falls back to the system monospaced face if the
+        /// PostScript name doesn't resolve — e.g. a `UIAppFonts` entry drops
+        /// out of sync with the bundled filenames, which fails SILENTLY
+        /// (no crash, no console error), so this must be confirmed by eye,
+        /// not just by compiling.
         static func mono(size: CGFloat, weight: Font.Weight = .regular) -> Font {
-            .system(size: size, weight: weight, design: .monospaced)
+            let postscriptName: String
+            switch weight {
+            case .medium, .semibold: postscriptName = "JetBrainsMono-Medium"
+            case .bold, .heavy, .black: postscriptName = "JetBrainsMono-Bold"
+            default: postscriptName = "JetBrainsMono-Regular"
+            }
+            guard let custom = UIFont(name: postscriptName, size: size) else {
+                return .system(size: size, weight: weight, design: .monospaced)
+            }
+            return scaledFont(custom, relativeTo: .body)
         }
 
         private static func scaled(_ size: CGFloat, _ weight: Font.Weight, _ style: UIFont.TextStyle) -> Font {
-            let base = UIFont.systemFont(ofSize: size, weight: weight.uiWeight)
-            return Font(UIFontMetrics(forTextStyle: style).scaledFont(for: base))
+            scaledFont(UIFont.systemFont(ofSize: size, weight: weight.uiWeight), relativeTo: style)
+        }
+
+        private static func scaledFont(_ base: UIFont, relativeTo style: UIFont.TextStyle) -> Font {
+            Font(UIFontMetrics(forTextStyle: style).scaledFont(for: base))
         }
     }
 
