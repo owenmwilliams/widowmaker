@@ -158,7 +158,7 @@ function normalizeVideoItem(it) {
  * @param {string} [roomHint]   - when set, items default to this room
  * @returns {{ rawText: string, items: Array, parseError: string|null }}
  */
-async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt = null, roomHint = null, userId = null) {
+async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt = null, roomHint = null, userId = null, userNote = null) {
   if (!geminiClient) {
     throw new Error('GOOGLE_AI_API_KEY is not configured');
   }
@@ -167,6 +167,10 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
   let prompt = customPrompt || INVENTORY_PROMPT;
   if (!customPrompt && roomHint) {
     prompt += `\n\nThis video is a walkthrough of the "${roomHint}". Set "room" to "${roomHint}" for every item unless an item is clearly in a different room.`;
+  }
+  if (!customPrompt) {
+    // Targeted scans: '' when no note — the no-note prompt is byte-identical.
+    prompt += buildScanNoteSection(userNote);
   }
   const base64Video = videoBuffer.toString('base64');
 
@@ -240,7 +244,7 @@ async function analyzeVideo(videoBuffer, mimeType, plan = 'basic', customPrompt 
  * @param {string} [roomHint]
  * @returns {{ rawText: string, items: Array, parseError: string|null }}
  */
-async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = null, userId = null) {
+async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = null, userId = null, opts = {}) {
   if (!geminiClient) throw new Error('GOOGLE_AI_API_KEY is not configured');
   if (!frames || frames.length === 0) {
     return { rawText: '', items: [], narrationNotes: null, parseError: 'no frames' };
@@ -251,6 +255,8 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = nu
   if (roomHint) {
     prompt += `\n\nThese frames are the "${roomHint}". Set "room" to "${roomHint}" for every item unless an item is clearly in a different room.`;
   }
+  // Targeted scans: '' when no note — the no-note prompt is byte-identical.
+  prompt += buildScanNoteSection(opts && opts.userNote);
   if (audio) {
     prompt += `\n\nAUDIO: The room's audio is included — the owner is narrating the walkthrough. Use what they say to correct item names, materials, weights, and fragility, and to catch items the frames missed. Return a JSON OBJECT (not a bare array): {"narration_notes": "<= 3 short sentences capturing anything the owner said that a mover should know (special handling, what an item is, access); empty string if nothing useful", "items": [ ...the item objects exactly as specified above... ]}.`;
   }
@@ -306,7 +312,7 @@ async function analyzeFrames(frames, plan = 'basic', roomHint = null, audio = nu
 // EXACTLY the end-of-video items. Chunking gives every ~14-frame window its
 // own full budget and full attention.
 
-const { partitionFixtures, dedupeScanItems } = require('./scanItemFilters');
+const { partitionFixtures, dedupeScanItems, buildScanNoteSection } = require('./scanItemFilters');
 
 const CHUNK_FRAME_LIMIT = Number(process.env.SCAN_CHUNK_FRAMES || 14);
 const CHUNK_SINGLE_CALL_MAX = Number(process.env.SCAN_SINGLE_CALL_FRAMES || 28);
@@ -387,9 +393,13 @@ function mergeChunkResults(chunkResults, chunks) {
  */
 async function analyzeFramesChunked(frames, plan = 'basic', roomHint = null, audio = null, userId = null, opts = {}) {
   const analyze = opts._analyzeFn || analyzeFrames; // injectable for tests
+  // Targeted scans: the user's note goes to EVERY chunk (unlike narration
+  // audio) — each window must know the ask to honor it.
+  const userNote = (opts && opts.userNote) || null;
+  const noteOpts = userNote ? { userNote } : undefined;
   if (!frames || frames.length <= CHUNK_SINGLE_CALL_MAX) {
-    const single = await analyze(frames, plan, roomHint, audio, userId);
-    return { ...single, ...refineItems(single.items), chunkCount: 1 };
+    const single = await analyze(frames, plan, roomHint, audio, userId, noteOpts);
+    return { ...single, ...refineItems(single.items, userNote), chunkCount: 1 };
   }
   const chunks = chunkFrames(frames);
   log.info('Chunked frame analysis', { totalFrames: frames.length, chunks: chunks.length, perChunk: CHUNK_FRAME_LIMIT });
@@ -400,7 +410,7 @@ async function analyzeFramesChunked(frames, plan = 'basic', roomHint = null, aud
     while (next < chunks.length) {
       const i = next++;
       try {
-        results[i] = await analyze(chunks[i].frames, plan, roomHint, i === 0 ? audio : null, userId);
+        results[i] = await analyze(chunks[i].frames, plan, roomHint, i === 0 ? audio : null, userId, noteOpts);
       } catch (err) {
         log.warn('Chunk analysis failed', { chunk: i + 1, of: chunks.length, error: err.message });
         results[i] = null; // partial coverage beats a dead scan; merge notes the gap
@@ -411,16 +421,17 @@ async function analyzeFramesChunked(frames, plan = 'basic', roomHint = null, aud
 
   const merged = mergeChunkResults(results, chunks);
   if (results.some(r => r === null)) merged.truncated = true; // a failed window = incomplete list
-  return { ...merged, ...refineItems(merged.items) };
+  return { ...merged, ...refineItems(merged.items, userNote) };
 }
 
 /**
  * Precision pass over a scan's items: drop house fixtures (prompt backstop)
  * and collapse same-item-different-name duplicates. Returns the replacement
- * fields to spread onto the result.
+ * fields to spread onto the result. `userNote` (optional) is the targeted-scan
+ * keep-list: an item the note explicitly names is never dropped as a fixture.
  */
-function refineItems(items) {
-  const { kept, fixtures } = partitionFixtures(items || []);
+function refineItems(items, userNote = null) {
+  const { kept, fixtures } = partitionFixtures(items || [], userNote);
   const deduped = dedupeScanItems(kept);
   if (fixtures.length > 0 || deduped.length !== (items || []).length) {
     log.info('Scan items refined', {
