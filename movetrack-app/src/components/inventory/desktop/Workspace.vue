@@ -38,7 +38,7 @@
 
   const pageItem = ref<'dashboard' | 'inventory' | 'move' | 'settings' | 'support'>('dashboard')
   const dashboardTab = ref<'overview' | 'attributes' | 'duplicates'>('overview')
-  const inventoryTab = ref<'items' | 'collections'>('collections')
+  const inventoryTab = ref<'items' | 'collections'>('items')
   const showPhotoCapture = ref(false)
   const showVideoScan = ref(false)
   const showVisionSettings = ref(false)
@@ -353,19 +353,19 @@
                   flat
                   dense
                   no-caps
-                  :class="{ 'pill-tab-active': inventoryTab === 'collections' }"
+                  :class="{ 'pill-tab-active': inventoryTab === 'items' }"
                   class="pill-tab"
-                  label="Packing"
-                  @click="inventoryTab = 'collections'"
+                  label="Items"
+                  @click="inventoryTab = 'items'"
                 />
                 <q-btn
                   flat
                   dense
                   no-caps
-                  :class="{ 'pill-tab-active': inventoryTab === 'items' }"
+                  :class="{ 'pill-tab-active': inventoryTab === 'collections' }"
                   class="pill-tab"
-                  label="Items"
-                  @click="inventoryTab = 'items'"
+                  label="Packing"
+                  @click="inventoryTab = 'collections'"
                 />
               </q-btn-group>
             </div>
