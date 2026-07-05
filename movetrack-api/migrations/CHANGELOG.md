@@ -77,3 +77,4 @@ replaying from empty.
 | `036_add_scan_events` | `scan_events` table — one row per analyze_photo/analyze_video with per-stage status, error_stage, latency, token usage (Pathway F observability) |
 | `037_add_client_events` | `client_events` table — batched iOS client event log (upload/SSE/turn/review-card lifecycle) (Pathway F observability) |
 | `038_add_scan_jobs` | `scan_jobs` table — durable async scan records; review card materialized from `result` (#42 Phase 2) |
+| `040_drop_orphaned_move_tables` | **Destructive.** Drop 5 orphaned tables no code reads/writes: `move_projects`, `move_tasks`, `storage_units`, `move_vehicles`, `move_team_members` (#86 M1) |

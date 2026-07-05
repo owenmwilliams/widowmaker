@@ -40,9 +40,6 @@ async function cleanDatabase() {
   await testDb.raw('TRUNCATE TABLE items CASCADE');
   await testDb.raw('TRUNCATE TABLE containers CASCADE');
   await testDb.raw('TRUNCATE TABLE collections CASCADE');
-  await testDb.raw('TRUNCATE TABLE storage_units CASCADE');
-  await testDb.raw('TRUNCATE TABLE move_tasks CASCADE');
-  await testDb.raw('TRUNCATE TABLE move_projects CASCADE');
   await testDb.raw('TRUNCATE TABLE locations CASCADE');
   await testDb.raw('TRUNCATE TABLE users CASCADE');
 }
