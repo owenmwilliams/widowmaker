@@ -9,7 +9,14 @@
  *   1. partitionFixtures — drop items that stay with the house.
  *   2. dedupeScanItems  — collapse the same physical item reported under
  *      different names (within one scan / across chunk windows).
+ *
+ * Plus the targeted-scan primitives (captions become instructions): a caption
+ * intent classifier, the prompt section that carries the user's note to the
+ * vision model, and a note-aware keep-list so an explicitly asked-for item
+ * (a "murphy bed") is never dropped as a fixture.
  */
+
+const { sanitizeForPrompt } = require('../promptSafety');
 
 // Fixtures stay with the house. Patterns are deliberately CONSERVATIVE —
 // only unambiguous fixtures. Notably NOT filtered: mirrors (framed ones move),
@@ -59,12 +66,21 @@ function isFixture(name) {
   return FIXTURE_PATTERNS.some((re) => re.test(n));
 }
 
-/** Split items into movable goods vs house fixtures. */
-function partitionFixtures(items) {
+/**
+ * Split items into movable goods vs house fixtures.
+ *
+ * `keepNote` (optional): the user's caption/note for a targeted scan. An item
+ * whose name matches something the note explicitly names is NEVER dropped as
+ * a fixture — a user who says "add this murphy bed" beats the built-in
+ * pattern (e.g. a "Built-in murphy bed" would otherwise be filtered).
+ */
+function partitionFixtures(items, keepNote = null) {
   const kept = [];
   const fixtures = [];
   for (const it of (Array.isArray(items) ? items : [])) {
-    (isFixture(it && it.name) ? fixtures : kept).push(it);
+    const drop = isFixture(it && it.name)
+      && !(keepNote && noteNamesItem(keepNote, it && it.name));
+    (drop ? fixtures : kept).push(it);
   }
   return { kept, fixtures };
 }
@@ -121,4 +137,81 @@ function dedupeScanItems(items) {
   return out;
 }
 
-module.exports = { isFixture, partitionFixtures, dedupeScanItems, sameItemName };
+// ── Targeted scans — captions become instructions ────────────────────────────
+
+// Captions that talk about the whole space / everything in view are FULL
+// scans, whatever verbs they use ("add everything in this room").
+const BROAD_CAPTION = /\b(?:everything|anything|all|entire|whole|rooms?|house|apartment|stuff|things?|items?|contents|inventory|scans?|scanning)\b/i;
+
+// "just the X" / "only the X" — an explicit narrowing is a targeted ask.
+const JUST_ONLY_RE = /\b(?:just|only)\s+(?:the|this|these|that|those|my|our|a|an)\s+\S+/i;
+
+// An add-style verb followed by a named object ("add this queen sized murphy
+// bed", "include the piano", "add murphy bed"). Leading politeness/articles
+// are consumed so the captured word is the first content word after the verb.
+const TARGET_VERB_RE = /\b(add|include|log|record)\b[\s,]+(?:(?:please|also|the|this|these|that|those|my|our|a|an)\s+)*([a-z][a-z0-9'-]*)/i;
+
+// Captures that are NOT a named object — prepositions, pronouns, leftovers of
+// the article group. "add to bedroom 2" names no item.
+const NON_OBJECT_WORDS = new Set([
+  'to', 'into', 'in', 'on', 'at', 'for', 'of', 'and', 'it', 'them', 'me', 'us', 'up',
+  'more', 'some', 'another', 'what', 'whatever',
+  'this', 'these', 'that', 'those', 'the', 'my', 'our', 'a', 'an',
+]);
+
+/**
+ * Classify a scan caption: does it ask us to add SPECIFIC item(s) ('targeted'),
+ * or is it a room label / narration / empty ('full')? Conservative by design —
+ * anything ambiguous stays a full scan, which is today's behavior.
+ */
+function captionIntent(caption) {
+  const text = String(caption || '').trim();
+  if (!text) return 'full';
+  if (BROAD_CAPTION.test(text)) return 'full';
+  if (JUST_ONLY_RE.test(text)) return 'targeted';
+  const m = text.match(TARGET_VERB_RE);
+  if (m && !NON_OBJECT_WORDS.has(m[2].toLowerCase())) return 'targeted';
+  return 'full';
+}
+
+const NOTE_MAX_CHARS = 500;
+
+/**
+ * Prompt section carrying the user's note to the vision model. Returns '' when
+ * there is no note, so `PROMPT + buildScanNoteSection(null)` is byte-identical
+ * to the bare prompt (the golden-set invariant). The note is sanitized
+ * (promptSafety) and quote/backtick/brace-neutralized before templating.
+ */
+function buildScanNoteSection(note) {
+  const safe = sanitizeForPrompt(String(note || '').trim(), NOTE_MAX_CHARS)
+    .replace(/["“”]/g, "'")
+    .replace(/[`{}]/g, '');
+  if (!safe) return '';
+  return `\n\nThe customer sent this media with a note: "${safe}". If the note names specific item(s) to add, THIS IS A TARGETED REQUEST: return ONLY the named item(s) — measure them from the media; ALSO include items the note attests are present but not visible (e.g. "a queen mattress inside"), with typical specs and low confidence. If other items are visible, do not list them. If the note names no specific items, catalog everything as usual.`;
+}
+
+/**
+ * Does the note explicitly name this item? True when some contiguous phrase of
+ * the note sameItemName-matches the item ("...this queen sized murphy bed..."
+ * names "Built-in Murphy Bed"). Used as the fixture-filter keep-list.
+ */
+function noteNamesItem(note, itemName) {
+  const nt = tokens(note).map(singular);
+  if (nt.length === 0 || !itemName) return false;
+  for (let len = 1; len <= 4; len++) {
+    for (let i = 0; i + len <= nt.length; i++) {
+      if (sameItemName(nt.slice(i, i + len).join(' '), itemName)) return true;
+    }
+  }
+  return false;
+}
+
+module.exports = {
+  isFixture,
+  partitionFixtures,
+  dedupeScanItems,
+  sameItemName,
+  captionIntent,
+  buildScanNoteSection,
+  noteNamesItem,
+};

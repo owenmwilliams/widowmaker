@@ -33,6 +33,8 @@ const workflow = require('./mediaInventoryWorkflowService');
 const metrics = require('../infra/metricsService');
 const inventoryMutation = require('./inventoryMutationService');
 const { createScanRecorder } = require('../infra/scanEventsService');
+// Targeted scans: classifies a caption as a specific-item ask vs a full scan.
+const { captionIntent } = require('../infra/vision/scanItemFilters');
 
 const MAX_ATTEMPTS = 2;
 const LEASE_SECONDS = 300;        // silence this long = the attempt is dead
@@ -119,7 +121,7 @@ async function roomFromRecentContext(userId, sessionId) {
  * mapping censusAgent uses for its `detected_items` SSE event, so the client
  * decodes a job result and a live event identically.
  */
-function toReviewResult(rawItems, mediaKind, roomHint) {
+function toReviewResult(rawItems, mediaKind, roomHint, scanMode = 'full', userNote = null) {
   const items = (Array.isArray(rawItems) ? rawItems : []).map((it) => ({
     name: it.name || 'Item',
     quantity: Number.isFinite(it.quantity) && it.quantity > 0 ? Math.floor(it.quantity) : 1,
@@ -133,7 +135,16 @@ function toReviewResult(rawItems, mediaKind, roomHint) {
     fragile: !!it.fragile,
     confidence: numOrNull(it.confidence),
   }));
-  return { mediaKind, room: roomHint || null, items };
+  // scanMode/userNote surface the targeted-scan ask to clients and telemetry
+  // ("targeted" = the caption asked for specific items and the vision prompt
+  // honored it; userNote is included only then).
+  return {
+    mediaKind,
+    room: roomHint || null,
+    items,
+    scanMode: scanMode === 'targeted' ? 'targeted' : 'full',
+    ...(scanMode === 'targeted' && userNote ? { userNote } : {}),
+  };
 }
 
 /** The subset of a job row the client sees. */
@@ -381,7 +392,13 @@ async function runClaimedJob(job) {
     const roomHint = job.room_hint || roomFromCaption(job.caption)
       || await roomFromRecentContext(job.user_id, job.session_id);
     const urls = Array.isArray(job.media_urls) && job.media_urls.length > 1 ? job.media_urls : [job.media_url];
-    const args = { file_url: job.media_url, mime_type: job.mime_type, room_hint: roomHint };
+    // Targeted scans: the caption is a first-class instruction to the vision
+    // model, not just a room hint. When present it rides along as user_note
+    // (+ its classified scan_mode); with no caption the args carry NO extra
+    // keys — the golden-set invariant (byte-identical analyze args/prompts).
+    const scanMode = captionIntent(job.caption);
+    const noteArgs = job.caption ? { user_note: job.caption, scan_mode: scanMode } : {};
+    const args = { file_url: job.media_url, mime_type: job.mime_type, room_hint: roomHint, ...noteArgs };
     // Per-stage forensics parity with the chat path (issue #45): the job path
     // is the primary iOS flow, so it must leave the same scan_events trail.
     const recorder = createScanRecorder({
@@ -397,7 +414,7 @@ async function runClaimedJob(job) {
         ? await workflow.analyzeVideoForInventory(args, job.user_id, job.plan, { onStage: recorder.onStage })
         : await workflow.analyzePhotoForInventory(
             urls.length > 1
-              ? { files: urls.map(u => ({ file_url: u, mime_type: job.mime_type })), mode: 'multi_item', room_hint: roomHint }
+              ? { files: urls.map(u => ({ file_url: u, mime_type: job.mime_type })), mode: 'multi_item', room_hint: roomHint, ...noteArgs }
               : { ...args, mode: 'multi_item' },
             job.user_id, job.plan, { onStage: recorder.onStage });
     } finally {
@@ -416,7 +433,7 @@ async function runClaimedJob(job) {
       throw new Error(`Scan output could not be parsed: ${analysis.parseError}`);
     }
 
-    const result = toReviewResult(rawItems, job.media_kind, roomHint);
+    const result = toReviewResult(rawItems, job.media_kind, roomHint, scanMode, job.caption || null);
     const updated = await db.result(
       `UPDATE scan_jobs SET status = 'completed', stage = 'done', result = $2,
          error = NULL, finished_at = NOW(), updated_at = NOW()
@@ -561,6 +578,7 @@ module.exports = {
   markConsumed,
   toDTO,
   toReviewResult,
+  captionIntent,
   roomFromCaption,
   roomFromRecentContext,
   isAllowedMediaUrl,

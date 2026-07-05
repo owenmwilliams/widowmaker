@@ -461,6 +461,13 @@ router.post('/rescan', rateLimits.rescanLimiter, express.json(), async (req, res
   const room = (typeof req.body?.room === 'string' && req.body.room.trim())
     ? req.body.room.trim().slice(0, 120)
     : null;
+  // Optional targeted-scan note ("add this murphy bed") — threads into the
+  // vision prompt exactly like a scan-job caption. Absent → today's behavior.
+  const note = (typeof req.body?.note === 'string' && req.body.note.trim())
+    ? req.body.note.trim().slice(0, 500)
+    : null;
+  const scanMode = note ? scanJobs.captionIntent(note) : 'full';
+  const noteArgs = note ? { user_note: note, scan_mode: scanMode } : {};
   // Optional multi-photo rescan — same batch the original scan job carried.
   const rawUrls = Array.isArray(req.body?.urls)
     ? req.body.urls.map(u => String(u || '').trim()).filter(Boolean)
@@ -503,11 +510,11 @@ router.post('/rescan', rateLimits.rescanLimiter, express.json(), async (req, res
   try {
     try {
       result = isVideo
-        ? await media.analyzeVideoForInventory({ file_url: urls[0], mime_type: mimeType, room_hint: room }, userId, plan, { onStage: recorder.onStage })
+        ? await media.analyzeVideoForInventory({ file_url: urls[0], mime_type: mimeType, room_hint: room, ...noteArgs }, userId, plan, { onStage: recorder.onStage })
         : await media.analyzePhotoForInventory(
             urls.length > 1
-              ? { files: urls.map(u => ({ file_url: u, mime_type: mimeType })), mode: 'multi_item', room_hint: room }
-              : { file_url: urls[0], mime_type: mimeType, mode: 'multi_item', room_hint: room },
+              ? { files: urls.map(u => ({ file_url: u, mime_type: mimeType })), mode: 'multi_item', room_hint: room, ...noteArgs }
+              : { file_url: urls[0], mime_type: mimeType, mode: 'multi_item', room_hint: room, ...noteArgs },
             userId, plan, { onStage: recorder.onStage });
     } finally {
       recorder.finish(result);
@@ -540,7 +547,11 @@ router.post('/rescan', rateLimits.rescanLimiter, express.json(), async (req, res
       console.error('[nexus] rescan visibility record failed (non-fatal):', err.message);
     }
 
-    res.json({ success: true, scanId, mediaKind: isVideo ? 'video' : 'photo', room, items, itemCount: items.length });
+    res.json({
+      success: true, scanId, mediaKind: isVideo ? 'video' : 'photo', room, items, itemCount: items.length,
+      scanMode,
+      ...(scanMode === 'targeted' ? { userNote: note } : {}),
+    });
   } catch (err) {
     console.error('[nexus] rescan failed:', err.message);
     res.status(500).json({ error: 'Rescan failed. Please try again.' });

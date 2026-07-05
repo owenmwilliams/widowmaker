@@ -127,6 +127,12 @@ async function extractFramesWithRetry(tmpPath) {
 async function analyzePhotoForInventory(args, userId, plan, opts = {}) {
   const emitStage = makeStageEmitter(opts.onStage);
   const attachments = opts.attachments || [];
+  // Targeted scans (captions become instructions): the caller passes the
+  // user's caption as args.user_note (+ args.scan_mode for telemetry). It is
+  // forwarded into the vision prompts; absent → today's behavior, unchanged.
+  const userNote = (typeof args.user_note === 'string' && args.user_note.trim())
+    ? args.user_note.trim()
+    : null;
   try {
     // ── Normalize inputs ──
     let files = args.files || [];
@@ -211,14 +217,14 @@ async function analyzePhotoForInventory(args, userId, plan, opts = {}) {
     let result;
     if (imageBuffers.length === 1) {
       const base64 = imageBuffers[0].buffer.toString('base64');
-      result = await analyzeMultiItemPhoto(base64, imageBuffers[0].mimeType, 'gemini', {}, plan, userId);
+      result = await analyzeMultiItemPhoto(base64, imageBuffers[0].mimeType, 'gemini', userNote ? { userNote } : {}, plan, userId);
     } else {
       console.log(`[census] Analyzing ${imageBuffers.length} photos holistically`);
       const imageSources = imageBuffers.map(ib => ({
         base64: ib.buffer.toString('base64'),
         mimeType: ib.mimeType,
       }));
-      result = await analyzeMultiImagePhoto(imageSources, 'gemini', plan, userId);
+      result = await analyzeMultiImagePhoto(imageSources, 'gemini', plan, userId, userNote ? { userNote } : undefined);
     }
     const visionElapsed = Date.now() - visionStart;
 
@@ -231,8 +237,9 @@ async function analyzePhotoForInventory(args, userId, plan, opts = {}) {
 
     let items = result.data?.items || result.items || [];
     // Precision backstop (same as the video path): fixtures never move, and
-    // one photo set can report the same item under two names.
-    const { kept } = partitionFixtures(items);
+    // one photo set can report the same item under two names. The user's note
+    // is the keep-list — an explicitly asked-for item beats the fixture filter.
+    const { kept } = partitionFixtures(items, userNote);
     items = dedupeScanItems(kept);
     let itemCount = items.length;
     // A MAX_TOKENS cut means the item list is incomplete — surface it as a
@@ -310,7 +317,7 @@ async function inlineVideoFallback({ args, userId, plan, url, videoBuffer, emitS
   // Timer starts immediately before the model call — excludes the two failed
   // ffmpeg extraction attempts that preceded this fallback.
   const analyzeStart = Date.now();
-  const result = await analyzeVideo(videoBuffer, args.mime_type, plan, null, args.room_hint || null, userId);
+  const result = await analyzeVideo(videoBuffer, args.mime_type, plan, null, args.room_hint || null, userId, args.user_note || null);
   const items = result.items || [];
   const parseError = result.parseError;
   const analyzeMs = Date.now() - analyzeStart;
@@ -357,6 +364,11 @@ async function inlineVideoFallback({ args, userId, plan, url, videoBuffer, emitS
 async function analyzeVideoForInventory(args, userId, plan, opts = {}) {
   const emitStage = makeStageEmitter(opts.onStage);
   const attachments = opts.attachments || [];
+  // Targeted scans: the user's caption travels as args.user_note (+
+  // args.scan_mode) and reaches every analysis chunk; absent → unchanged.
+  const userNote = (typeof args.user_note === 'string' && args.user_note.trim())
+    ? args.user_note.trim()
+    : null;
   let tmpPath = null;
   try {
     const url = args.file_url;
@@ -440,7 +452,7 @@ async function analyzeVideoForInventory(args, userId, plan, opts = {}) {
     // guard able to fire, and keeps the latency F persists honest.)
     emitStage(SCAN_STAGES.ANALYZE, SCAN_STATUS.START, { frameCount: frames.length });
     const analyzeStart = Date.now();
-    const result = await analyzeFramesChunked(frames, plan, args.room_hint || null, audio, userId);
+    const result = await analyzeFramesChunked(frames, plan, args.room_hint || null, audio, userId, userNote ? { userNote } : undefined);
     const items = result.items || [];
     const parseError = result.parseError;
     const truncated = !!result.truncated;

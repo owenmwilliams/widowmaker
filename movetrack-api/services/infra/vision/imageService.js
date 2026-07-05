@@ -15,6 +15,9 @@ const {
   singleItemSchema,
   wasTruncated,
 } = require('./visionSchemas');
+// Targeted scans: renders the user's note into the prompt (returns '' when no
+// note, so the no-note prompt stays byte-identical to the bare constant).
+const { buildScanNoteSection } = require('./scanItemFilters');
 
 // Initialize GCS client for fetching images from URLs
 const isLocalEnvironment = process.env.NODE_ENV !== 'production';
@@ -815,7 +818,7 @@ async function analyzeWithNemotron(base64Image, mimeType, prompt = VISION_PROMPT
  * @param {string} imageSource - Base64 string or URL
  * @param {string} mimeType - MIME type of the image
  */
-async function analyzeMultiItemWithClaude(imageSource, mimeType) {
+async function analyzeMultiItemWithClaude(imageSource, mimeType, userNote = null) {
     if (!anthropicClient) {
         throw new Error('Anthropic API key not configured');
     }
@@ -847,7 +850,7 @@ async function analyzeMultiItemWithClaude(imageSource, mimeType) {
                     },
                     {
                         type: "text",
-                        text: MULTI_ITEM_VISION_PROMPT
+                        text: MULTI_ITEM_VISION_PROMPT + buildScanNoteSection(userNote)
                     }
                 ]
             }]
@@ -911,7 +914,7 @@ async function analyzeMultiItemWithClaude(imageSource, mimeType) {
  * @param {string} imageSource - Base64 string or URL
  * @param {string} mimeType - MIME type of the image
  */
-async function analyzeMultiItemWithGPT4(imageSource, mimeType) {
+async function analyzeMultiItemWithGPT4(imageSource, mimeType, userNote = null) {
     if (!openaiClient) {
         throw new Error('OpenAI API key not configured');
     }
@@ -933,7 +936,7 @@ async function analyzeMultiItemWithGPT4(imageSource, mimeType) {
                 content: [
                     {
                         type: "text",
-                        text: MULTI_ITEM_VISION_PROMPT
+                        text: MULTI_ITEM_VISION_PROMPT + buildScanNoteSection(userNote)
                     },
                     {
                         type: "image_url",
@@ -998,10 +1001,12 @@ async function analyzeMultiItemWithGPT4(imageSource, mimeType) {
  * @param {string} imageSource - Base64 string or URL
  * @param {string} mimeType - MIME type of the image
  */
-async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemini-2.5-flash', userId = null) {
+async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemini-2.5-flash', userId = null, userNote = null) {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
+    // '' when no note — the no-note prompt is byte-identical to the constant.
+    const multiItemPrompt = MULTI_ITEM_VISION_PROMPT + buildScanNoteSection(userNote);
 
     try {
         // Convert URL to base64 if needed
@@ -1033,7 +1038,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
 
         const contentParts = [
             { inlineData: { data: base64Image, mimeType: actualMimeType } },
-            { text: MULTI_ITEM_VISION_PROMPT }
+            { text: multiItemPrompt }
         ];
         let result;
         try {
@@ -1096,7 +1101,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
             try {
                 retryResult = await model.generateContent([
                     { inlineData: { data: base64Image, mimeType: actualMimeType } },
-                    { text: MULTI_ITEM_VISION_PROMPT }
+                    { text: multiItemPrompt }
                 ]);
             } catch (retryError) {
                 throw new Error(`Gemini API error on retry: ${retryError.message}`);
@@ -1158,7 +1163,7 @@ async function analyzeMultiItemWithGemini(imageSource, mimeType, modelId = 'gemi
  * @param {Array<{base64: string, mimeType: string}>} imageSources
  * @param {string} modelId
  */
-async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-flash', userId = null) {
+async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-flash', userId = null, userNote = null) {
     if (!geminiClient) {
         throw new Error('Google AI API key not configured');
     }
@@ -1188,7 +1193,7 @@ async function analyzeMultiImageWithGemini(imageSources, modelId = 'gemini-2.5-f
             parts.push({ text: `[Image ${i + 1} of ${imageSources.length}]` });
             parts.push({ inlineData: { data: base64, mimeType } });
         }
-        parts.push({ text: MULTI_IMAGE_VISION_PROMPT });
+        parts.push({ text: MULTI_IMAGE_VISION_PROMPT + buildScanNoteSection(userNote) });
 
         let result;
         try {
@@ -1383,20 +1388,22 @@ async function analyzeItemPhoto(base64Image, mimeType, provider = null, prompt =
 async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, options = {}, plan = 'basic', userId = null) {
     const providerToUse = provider || currentProvider;
     const promptOverride = options.prompt;
+    // Targeted scans: the user's note rides into the vision prompt (null = today's behavior).
+    const userNote = options.userNote || null;
 
     const geminiModel = plan === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
 
     const dispatch = (p) => {
         switch (p) {
             case 'claude':
-                return analyzeMultiItemWithClaude(base64Image, mimeType);
+                return analyzeMultiItemWithClaude(base64Image, mimeType, userNote);
             case 'gpt4':
             case 'openai':
-                return analyzeMultiItemWithGPT4(base64Image, mimeType);
+                return analyzeMultiItemWithGPT4(base64Image, mimeType, userNote);
             case 'gemini':
             case 'google':
             case 'gemini-3-pro':
-                return analyzeMultiItemWithGemini(base64Image, mimeType, geminiModel, userId);
+                return analyzeMultiItemWithGemini(base64Image, mimeType, geminiModel, userId, userNote);
             case 'together':
             case 'scout':
                 return analyzeMultiItemWithTogetherScout(base64Image, mimeType, promptOverride);
@@ -1421,19 +1428,21 @@ async function analyzeMultiItemPhoto(base64Image, mimeType, provider = null, opt
  * @param {Array<{base64: string, mimeType: string}>} imageSources
  * @param {string} provider
  */
-async function analyzeMultiImagePhoto(imageSources, provider = null, plan = 'basic', userId = null) {
+async function analyzeMultiImagePhoto(imageSources, provider = null, plan = 'basic', userId = null, options = {}) {
     const providerToUse = provider || currentProvider;
     const geminiModel = plan === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+    // Targeted scans: the user's note rides into the vision prompt (null = today's behavior).
+    const userNote = (options && options.userNote) || null;
     console.log(`Analyzing ${imageSources.length} photos holistically with provider: ${providerToUse} (model: ${geminiModel})`);
 
     switch (providerToUse.toLowerCase()) {
         case 'gemini':
         case 'google':
-            return await analyzeMultiImageWithGemini(imageSources, geminiModel, userId);
+            return await analyzeMultiImageWithGemini(imageSources, geminiModel, userId, userNote);
         default:
             // Fallback: analyze first image only with multi-item
             console.warn(`[Multi-Image] Provider ${providerToUse} does not support multi-image; falling back to first image only`);
-            return await analyzeMultiItemPhoto(imageSources[0].base64, imageSources[0].mimeType, providerToUse, {}, plan, userId);
+            return await analyzeMultiItemPhoto(imageSources[0].base64, imageSources[0].mimeType, providerToUse, userNote ? { userNote } : {}, plan, userId);
     }
 }
 
