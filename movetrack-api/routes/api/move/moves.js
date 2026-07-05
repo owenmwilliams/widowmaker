@@ -3,6 +3,8 @@ const router = express.Router();
 const { authenticate } = require('../../../services/infra/authService');
 const { calculateDrivingDistance } = require('../../../services/move/distanceService');
 const trucks = require('../../../services/move/trucksService');
+const { estimateMoveCost } = require('../../../services/move/moveCostService');
+const { estimateLabor } = require('../../../services/move/laborEstimationService');
 const moveQuery = require('../../../services/move/moveQueryService');
 const moveMutation = require('../../../services/move/moveMutationService');
 
@@ -88,6 +90,95 @@ router.post('/distance', async (req, res) => {
   } catch (err) {
     console.error('[move] distance calculation failed:', err.message);
     res.status(500).json({ error: 'Failed to calculate distance', details: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Combined move estimate  (mounted at /move/estimate)
+//
+// The single server-side cost engine (issue #86). Wraps the same services the
+// Vector agent uses — trucksService.recommendTruckSize, moveCostService
+// .estimateMoveCost and laborEstimationService.estimateLabor — so the web app
+// and the agent can never disagree on pricing.
+// ---------------------------------------------------------------------------
+
+// Absurdity ceilings for inputs (the largest interstate moves are well inside these).
+const ESTIMATE_LIMITS = {
+  distanceMiles: 15000,   // > any driveable US route
+  totalWeightLbs: 500000, // 250 tons
+  totalVolumeCuFt: 100000,
+  itemCount: 100000,
+};
+
+router.post('/estimate', (req, res) => {
+  const body = req.body || {};
+  const { originCity, destinationCity } = body;
+
+  const parseFinite = (v) => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+    return null;
+  };
+
+  const errors = [];
+  const requireInRange = (name) => {
+    const value = parseFinite(body[name]);
+    if (value === null) {
+      errors.push(`${name} is required and must be a finite number`);
+      return null;
+    }
+    if (value < 0 || value > ESTIMATE_LIMITS[name]) {
+      errors.push(`${name} must be between 0 and ${ESTIMATE_LIMITS[name]}`);
+      return null;
+    }
+    return value;
+  };
+
+  const distanceMiles = requireInRange('distanceMiles');
+  const totalWeightLbs = requireInRange('totalWeightLbs');
+  const totalVolumeCuFt = requireInRange('totalVolumeCuFt');
+
+  let itemCount = 0;
+  if (body.itemCount !== undefined && body.itemCount !== null) {
+    const parsed = parseFinite(body.itemCount);
+    if (parsed === null || parsed < 0 || parsed > ESTIMATE_LIMITS.itemCount) {
+      errors.push(`itemCount must be a number between 0 and ${ESTIMATE_LIMITS.itemCount}`);
+    } else {
+      itemCount = Math.round(parsed);
+    }
+  }
+
+  if (errors.length > 0) {
+    return res.status(400).json({ error: 'Invalid estimate request', details: errors });
+  }
+
+  try {
+    // Shape shared by the three services (see getInventoryTotals): here the
+    // client sends pre-aggregated totals, so nothing is missing by definition.
+    const totals = {
+      totalVolumeCuFt,
+      totalWeight: totalWeightLbs,
+      totalItems: itemCount,
+      missingWeight: 0,
+      missingDimensions: 0,
+    };
+
+    res.json({
+      inputs: {
+        distanceMiles,
+        totalWeightLbs,
+        totalVolumeCuFt,
+        itemCount,
+        originCity: typeof originCity === 'string' && originCity.trim() ? originCity.trim() : null,
+        destinationCity: typeof destinationCity === 'string' && destinationCity.trim() ? destinationCity.trim() : null,
+      },
+      truck: trucks.recommendTruckSize(totals),
+      cost: estimateMoveCost(totals, { distance_miles: distanceMiles }),
+      labor: estimateLabor(totals, {}),
+    });
+  } catch (err) {
+    console.error('[move] estimate failed:', err.message);
+    res.status(500).json({ error: 'Failed to compute move estimate' });
   }
 });
 

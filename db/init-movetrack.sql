@@ -175,26 +175,8 @@ CREATE TABLE items (
 -- MOVE PLANNING AND EXECUTION TABLES
 -- ============================================================================
 
--- Move Projects: Track entire move operations (legacy - being replaced by saved_moves)
-CREATE TABLE move_projects (
-    id BIGSERIAL PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL,
-    description TEXT,
-    source_location_id BIGINT REFERENCES locations(id) ON DELETE SET NULL,
-    destination_location_id BIGINT REFERENCES locations(id) ON DELETE SET NULL,
-    move_date DATE,
-    status VARCHAR(50) DEFAULT 'planning',
-    budget DECIMAL(10, 2),
-    actual_cost DECIMAL(10, 2),
-    moving_company VARCHAR(255),
-    moving_company_phone VARCHAR(50),
-    confirmation_number VARCHAR(100),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    completed_at TIMESTAMPTZ,
-    notes TEXT
-);
+-- (move_projects was dropped in 040_drop_orphaned_move_tables — legacy,
+-- replaced by saved_moves)
 
 -- Saved Moves: Comprehensive move planning (from migration 008)
 CREATE TABLE saved_moves (
@@ -401,38 +383,8 @@ CREATE TABLE move_crew (
 -- SUPPORTING TABLES
 -- ============================================================================
 
--- Move Tasks: Checklist items for move projects
-CREATE TABLE move_tasks (
-    id BIGSERIAL PRIMARY KEY,
-    move_project_id BIGINT NOT NULL REFERENCES move_projects(id) ON DELETE CASCADE,
-    title VARCHAR(255) NOT NULL,
-    description TEXT,
-    status VARCHAR(50) DEFAULT 'pending',
-    priority VARCHAR(50) DEFAULT 'normal',
-    due_date DATE,
-    assigned_to VARCHAR(255),
-    completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Storage Units: Track storage unit details and costs
-CREATE TABLE storage_units (
-    id BIGSERIAL PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    location_id BIGINT REFERENCES locations(id) ON DELETE SET NULL,
-    unit_size VARCHAR(50),
-    monthly_cost DECIMAL(10, 2),
-    rental_start_date DATE,
-    rental_end_date DATE,
-    auto_renew BOOLEAN DEFAULT true,
-    climate_controlled BOOLEAN DEFAULT false,
-    access_hours VARCHAR(100),
-    insurance_amount DECIMAL(10, 2),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    notes TEXT
-);
+-- (move_tasks and storage_units were dropped in 040_drop_orphaned_move_tables
+-- — never wired to any route or service)
 
 -- ============================================================================
 -- AUTHENTICATION AND SECURITY TABLES
@@ -487,7 +439,7 @@ CREATE TABLE item_history (
     to_location_id BIGINT REFERENCES locations(id) ON DELETE SET NULL,
     from_container_id BIGINT REFERENCES containers(id) ON DELETE SET NULL,
     to_container_id BIGINT REFERENCES containers(id) ON DELETE SET NULL,
-    move_project_id BIGINT REFERENCES move_projects(id) ON DELETE SET NULL,
+    move_project_id BIGINT, -- legacy column; move_projects dropped in 040
     performed_by_id UUID NOT NULL REFERENCES users(user_id),
     performed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     notes TEXT
@@ -646,11 +598,6 @@ CREATE INDEX idx_items_tags ON items USING GIN (tags);
 CREATE INDEX idx_items_material ON items(material);
 CREATE INDEX idx_items_primary_color ON items(primary_color);
 
--- Move project indexes
-CREATE INDEX idx_move_projects_user_id ON move_projects(user_id);
-CREATE INDEX idx_move_projects_status ON move_projects(status);
-CREATE INDEX idx_move_tasks_project ON move_tasks(move_project_id);
-
 -- Saved moves indexes
 CREATE INDEX idx_saved_moves_user_id ON saved_moves(user_id);
 CREATE INDEX idx_saved_moves_move_date ON saved_moves(move_date);
@@ -691,9 +638,6 @@ CREATE INDEX idx_move_crew_session ON move_crew(move_session_id);
 -- Item history indexes
 CREATE INDEX idx_item_history_item ON item_history(item_id);
 CREATE INDEX idx_item_history_project ON item_history(move_project_id);
-
--- Storage units indexes
-CREATE INDEX idx_storage_units_user_id ON storage_units(user_id);
 
 -- Permission indexes
 CREATE INDEX idx_permissions_user ON permissions(user_id);
@@ -888,46 +832,8 @@ CREATE TABLE IF NOT EXISTS move_waypoints (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- move_vehicles (014_move_architecture_v2)
-CREATE TABLE IF NOT EXISTS move_vehicles (
-  id SERIAL PRIMARY KEY,
-  move_id INTEGER NOT NULL REFERENCES saved_moves(id) ON DELETE CASCADE,
-  vehicle_type VARCHAR(50) NOT NULL DEFAULT 'truck',
-  name VARCHAR(100),
-  license_plate VARCHAR(20),
-  capacity_cu_ft INTEGER,
-  max_weight_lbs INTEGER,
-  is_rental BOOLEAN DEFAULT false,
-  rental_company VARCHAR(100),
-  rental_confirmation VARCHAR(100),
-  pickup_date DATE,
-  return_date DATE,
-  pickup_location TEXT,
-  return_location TEXT,
-  status VARCHAR(20) DEFAULT 'available',
-  current_load_cu_ft INTEGER DEFAULT 0,
-  current_load_weight_lbs INTEGER DEFAULT 0,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- move_team_members (014_move_architecture_v2)
-CREATE TABLE IF NOT EXISTS move_team_members (
-  id SERIAL PRIMARY KEY,
-  move_id INTEGER NOT NULL REFERENCES saved_moves(id) ON DELETE CASCADE,
-  name VARCHAR(255) NOT NULL,
-  phone VARCHAR(50) NOT NULL,
-  email VARCHAR(255),
-  role VARCHAR(50) DEFAULT 'helper',
-  can_drive BOOLEAN DEFAULT false,
-  available_dates JSONB DEFAULT '[]',
-  invitation_status VARCHAR(20) DEFAULT 'pending',
-  invitation_sent_at TIMESTAMP,
-  invitation_accepted_at TIMESTAMP,
-  share_token VARCHAR(100),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- (move_vehicles and move_team_members from 014_move_architecture_v2 were
+-- dropped in 040_drop_orphaned_move_tables — never wired to any endpoint)
 
 -- move_locations (014_move_architecture_v2)
 CREATE TABLE IF NOT EXISTS move_locations (
@@ -985,7 +891,8 @@ ALTER TABLE move_sessions ADD COLUMN IF NOT EXISTS session_type VARCHAR(20) DEFA
 ALTER TABLE move_sessions ADD COLUMN IF NOT EXISTS start_waypoint_id BIGINT REFERENCES move_waypoints(id);
 ALTER TABLE move_sessions ADD COLUMN IF NOT EXISTS end_waypoint_id BIGINT REFERENCES move_waypoints(id);
 ALTER TABLE move_sessions ADD COLUMN IF NOT EXISTS current_truck_waypoint_id BIGINT REFERENCES move_waypoints(id);
-ALTER TABLE move_sessions ADD COLUMN IF NOT EXISTS vehicle_id INTEGER REFERENCES move_vehicles(id) ON DELETE SET NULL;
+-- vehicle_id kept as a bare column: its FK target move_vehicles was dropped in 040
+ALTER TABLE move_sessions ADD COLUMN IF NOT EXISTS vehicle_id INTEGER;
 
 -- move_waypoints: optional location ref for work stops (014)
 ALTER TABLE move_waypoints ADD COLUMN IF NOT EXISTS location_id BIGINT REFERENCES locations(id) ON DELETE SET NULL;
@@ -1026,10 +933,7 @@ CREATE INDEX IF NOT EXISTS idx_move_waypoints_user ON move_waypoints(user_id);
 CREATE INDEX IF NOT EXISTS idx_move_waypoints_sequence ON move_waypoints(saved_move_id, sequence_order);
 CREATE INDEX IF NOT EXISTS idx_move_waypoints_location_id ON move_waypoints(location_id);
 
--- move_vehicles / move_team_members / move_locations indexes (014)
-CREATE INDEX IF NOT EXISTS idx_move_vehicles_move_id ON move_vehicles(move_id);
-CREATE INDEX IF NOT EXISTS idx_move_team_members_move_id ON move_team_members(move_id);
-CREATE INDEX IF NOT EXISTS idx_move_team_members_share_token ON move_team_members(share_token);
+-- move_locations indexes (014)
 CREATE INDEX IF NOT EXISTS idx_move_locations_move_id ON move_locations(move_id);
 CREATE INDEX IF NOT EXISTS idx_move_locations_location_id ON move_locations(location_id);
 

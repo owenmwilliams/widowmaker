@@ -2,7 +2,6 @@
 import { computed, ref, watch, nextTick } from 'vue';
 import { usePlan } from '../../../composables/usePlan';
 import { API_BASE_URL } from "../../../config/api";
-import { calculateDedicatedMoversCost, calculateVanLineCost, colMultiplierForName, recommendTruck } from '../../../utils/moveCostMath';
 import { inventoryStore } from '../../../stores/InventoryStore'
 import { storeToRefs } from 'pinia';
 import { useQuasar, Notify } from 'quasar';
@@ -565,8 +564,79 @@ const looseItemsCount = computed(() => {
   return itemsInOriginLocation.value.filter(i => !i.container || i.container === null).length;
 });
 
-// Truck size recommendation
-const truckRecommendation = computed(() => recommendTruck(totalVolumeCuFt.value));
+// ---------------------------------------------------------------------------
+// Server-side move estimate (POST /api/move/estimate)
+//
+// All cost/truck/labor math lives in movetrack-api (the same engine the
+// Vector agent uses). The client only sends inventory totals and renders
+// whatever the server returns — no rate tables or pricing formulas here.
+// ---------------------------------------------------------------------------
+
+interface ApiMoveEstimate {
+  truck: {
+    rawVolumeCuFt: number;
+    bufferedVolumeCuFt: number;
+    bufferPct: number;
+    totalWeightLbs: number;
+    recommendation: {
+      size: string;
+      code: string;
+      capacityCuFt: number;
+      maxWeightLbs: number;
+      volumeUtilization: number;
+      weightUtilization: number;
+    };
+    needsMultipleLoads: boolean;
+    multipleLoads: { truckSize: string; trips: number; reason: string } | null;
+  };
+  cost: {
+    moveType: string;
+    distanceMiles: number;
+    diy: { low: number; high: number; truckSize: string; notes: string };
+    professional: { low: number; high: number; movers: number; notes: string };
+    caveat: string;
+  };
+  labor: {
+    numMovers: number;
+    loadingHours: number;
+    unloadingHours: number;
+    totalLaborHours: number;
+    laborCostEstimate: number;
+    recommendedMovers: number;
+  };
+}
+
+const moveEstimate = ref<ApiMoveEstimate | null>(null);
+const isFetchingEstimate = ref(false);
+const estimateError = ref<string | null>(null);
+
+// Display copy for the truck card (view labels only — sizing itself comes
+// from the server's recommendation).
+const truckDisplayDetails: Record<string, { description: string; suitable: string }> = {
+  van: { description: 'Cargo van', suitable: 'A few boxes or a dorm room' },
+  '10ft': { description: 'Small moving truck', suitable: 'Studio or small 1-bedroom apartment' },
+  '12ft': { description: 'Small moving truck', suitable: 'Studio or 1-bedroom apartment' },
+  '15ft': { description: 'Medium moving truck', suitable: '1-2 bedroom apartment' },
+  '17ft': { description: 'Medium moving truck', suitable: '2 bedroom apartment or small home' },
+  '20ft': { description: 'Large moving truck', suitable: '2-3 bedroom home' },
+  '22ft': { description: 'Large moving truck', suitable: '3 bedroom home' },
+  '26ft': { description: 'Extra large moving truck', suitable: '3-5 bedroom home' }
+};
+
+// Truck size recommendation (mapped from the server estimate)
+const truckRecommendation = computed(() => {
+  const truck = moveEstimate.value?.truck;
+  if (!truck) return null;
+  const details = truckDisplayDetails[truck.recommendation.code] ||
+    { description: 'Moving truck', suitable: '' };
+  return {
+    size: truck.recommendation.size,
+    capacity: truck.recommendation.capacityCuFt,
+    description: details.description,
+    suitable: details.suitable,
+    utilization: truck.recommendation.volumeUtilization
+  };
+});
 
 // Density-based box estimates for LOOSE items only (in origin location)
 const boxEstimates = computed(() => {
@@ -929,26 +999,6 @@ const getUtilizationColor = (pct: number) => {
   return 'positive';
 };
 
-// Cost of Living multipliers by major metro areas
-// Helper to get CoL multiplier from location name
-const getColMultiplier = (locationValue: string | null): number => {
-  if (!locationValue) return 1.0;
-
-  const location = store.locations.find(l => l.value === locationValue);
-  if (!location) return 1.0;
-
-  return colMultiplierForName(location.label);
-};
-
-// Calculate average CoL multiplier for origin and destination
-const colAdjustment = computed(() => {
-  const originCol = getColMultiplier(originLocation.value);
-  const destCol = getColMultiplier(destinationLocation.value);
-
-  // Average of origin and destination CoL
-  return (originCol + destCol) / 2;
-});
-
 // Helper to format address for geocoding
 const formatAddress = (location: InventoryLocation | undefined): string | null => {
   if (!location) return null;
@@ -1268,10 +1318,74 @@ watch([useTruckRoute, avoidTolls], () => {
   }
 });
 
-// Cost estimates
+// Fetch the combined truck/cost/labor estimate from the server engine.
+const fetchMoveEstimate = async () => {
+  if (!originLocation.value) {
+    moveEstimate.value = null;
+    estimateError.value = null;
+    return;
+  }
+
+  const originDetails = locationsWithDetails.value.find(l => l.value === originLocation.value);
+  const destDetails = locationsWithDetails.value.find(l => l.value === destinationLocation.value);
+
+  try {
+    isFetchingEstimate.value = true;
+    const sessionToken = localStorage.getItem('session_token');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (sessionToken) {
+      headers.Authorization = `Bearer ${sessionToken}`;
+    }
+
+    const response = await fetch(`${core_url}/api/move/estimate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        distanceMiles: estimatedDistance.value || 0,
+        totalWeightLbs: totalWeightLbs.value,
+        totalVolumeCuFt: totalVolumeCuFt.value,
+        itemCount: totalItems.value,
+        originCity: originDetails?.city || undefined,
+        destinationCity: destDetails?.city || undefined
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Estimate request failed (${response.status})`);
+    }
+
+    moveEstimate.value = await response.json();
+    estimateError.value = null;
+  } catch (error) {
+    console.error('Error fetching move estimate:', error);
+    // Keep the last known estimate (if any) so a transient failure doesn't
+    // blank the dashboard; surface a quiet error state instead.
+    estimateError.value = moveEstimate.value
+      ? 'Estimates may be out of date — the estimate service is unreachable'
+      : 'Estimates are unavailable right now — the estimate service is unreachable';
+  } finally {
+    isFetchingEstimate.value = false;
+  }
+};
+
+// Debounced re-estimate whenever the inputs the server needs change.
+let estimateDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  [originLocation, destinationLocation, estimatedDistance, totalVolumeCuFt, totalWeightLbs, totalItems],
+  () => {
+    if (estimateDebounceTimer) clearTimeout(estimateDebounceTimer);
+    estimateDebounceTimer = setTimeout(() => { fetchMoveEstimate(); }, 400);
+  },
+  { immediate: true }
+);
+
+// Cost estimates — professional pricing comes from the server estimate
+// (POST /api/move/estimate); only display aggregation happens here.
 const costEstimates = computed(() => {
-  // Return empty estimates if we have a blocking error
-  if (hasBlockingError.value) {
+  // Return empty estimates if we have a blocking error or no server estimate yet
+  if (hasBlockingError.value || !moveEstimate.value) {
     return {
       diy: { total: 0, breakdown: {} },
       professional: {
@@ -1292,11 +1406,7 @@ const costEstimates = computed(() => {
     };
   }
 
-  const weight = totalWeightLbs.value;
-  const volume = totalVolumeCuFt.value;
   const distance = estimatedDistance.value || 0;
-  const helpers = numHelpers.value;
-  const totalHours = timeEstimates.value.total;
   const totalBoxes = boxEstimates.value.total;
 
   // Packing materials cost (including boxes)
@@ -1347,12 +1457,6 @@ const costEstimates = computed(() => {
   const furnitureBreakdownTime = furniturePadsCount * (15 / 60); // hours
 
   const totalPackingHours = smallBoxTime + mediumBoxTime + largeBoxTime + furnitureBreakdownTime;
-
-  // Professional Move Costs (more realistic for 2024)
-  const colMultiplier = colAdjustment.value;
-
-  // Professional movers upcharge 110% on materials
-  const professionalMaterialsCost = packingMaterialsCost * 1.10;
 
   // Calculate difficulty premiums based on access details
   // Research: Stairs: $50-70 per flight beyond first, Elevator out: $75, Long carry: $90-120 per 75ft
@@ -1411,61 +1515,31 @@ const costEstimates = computed(() => {
   const intermediateStops = moveLocations.value.filter(loc => loc.role === 'intermediate' && loc.location).length;
   const multiStopPremium = intermediateStops * 175;
 
-  // Calculate dedicated movers pricing using separate function
-  const dedicatedPricing = calculateDedicatedMoversCost({
-    distance,
-    totalHours,
-    weight,
-    volume,
-    colMultiplier,
-    totalPackingHours,
-    professionalMaterialsCost,
-    furnitureBreakdownTime,
-    furniturePadsCost,
-    shrinkWrapCost,
-    cornerProtectorsCost,
-    packingServicesRequired: packingServicesRequired.value
-  });
+  // Professional pricing comes straight from the server cost engine — the
+  // same one the Vector agent uses (moveCostService.estimateMoveCost).
+  const serverCost = moveEstimate.value.cost;
+  const serverLabor = moveEstimate.value.labor;
+  const professionalLow = serverCost.professional.low;
+  const professionalHigh = serverCost.professional.high;
 
-  const { professionalLow, professionalHigh, packingCostLow, packingCostHigh, adjustedPackingCostLow, adjustedPackingCostHigh, partialPackingMaterials } = dedicatedPricing;
+  // Packing service pricing is no longer estimated client-side; it is part of
+  // the quote your moving partner confirms. Keep the shape, zero the values.
+  const adjustedPackingCostLow = 0;
+  const adjustedPackingCostHigh = 0;
 
-  // Market average (moving + packing based on selection + tolls/hotels + difficulty + multi-stop)
+  // Market average (moving + tolls/hotels + difficulty + multi-stop)
   const marketMovingAverage = (professionalLow + professionalHigh) / 2;
   const marketPackingAverage = (adjustedPackingCostLow + adjustedPackingCostHigh) / 2;
   const miscCosts = estimatedTolls + hotelCosts;
   const marketTotalAverage = marketMovingAverage + marketPackingAverage + miscCosts + totalDifficultyPremium + multiStopPremium;
 
-  // Calculate van line pricing using separate function
-  const vanLinePricing = calculateVanLineCost({
-    distance,
-    weight,
-    volume,
-    colMultiplier,
-    adjustedPackingCostLow,
-    adjustedPackingCostHigh,
-    totalDifficultyPremium,
-    professionalLow,
-    professionalHigh,
-    miscCosts,
-    multiStopPremium,
-    isFlexible: isFlexible.value,
-    intermediateStops
-  });
+  // Van line pricing was retired with the client-side rate tables; the server
+  // engine does not price shared-load moves yet, so the section stays hidden.
+  const vanLineAvailable = false;
 
-  const { adjustedVanLineLow, adjustedVanLineHigh, chargeableWeight, deliveryWindow: deliveryWindowStr, breakdown: vanLineBreakdown } = vanLinePricing;
-
-  // Nexus Moves estimate: Range from 80%-95% based on CoL adjustment
-  // Lower CoL (colMultiplier < 1) = better savings (closer to 80%)
-  // Higher CoL (colMultiplier > 1) = less savings (closer to 95%)
-  const reloprepDiscountLow = 0.80 + (colMultiplier - 1) * 0.10; // 80% in low CoL, 95% in high CoL
-  const reloprepDiscountHigh = 0.85 + (colMultiplier - 1) * 0.10; // 85% in low CoL, 100% in high CoL
-
-  // Clamp to reasonable bounds
-  const effectiveDiscountLow = Math.max(0.80, Math.min(0.95, reloprepDiscountLow));
-  const effectiveDiscountHigh = Math.max(0.85, Math.min(1.00, reloprepDiscountHigh));
-
-  const reloprepLow = marketTotalAverage * effectiveDiscountLow;
-  const reloprepHigh = marketTotalAverage * effectiveDiscountHigh;
+  // Nexus Moves estimate: 80%-85% of the market average
+  const reloprepLow = marketTotalAverage * 0.80;
+  const reloprepHigh = marketTotalAverage * 0.85;
   const reloprepAverage = (reloprepLow + reloprepHigh) / 2;
 
   return {
@@ -1492,19 +1566,19 @@ const costEstimates = computed(() => {
         average: marketMovingAverage
       },
       packing: {
+        // Packing services are quoted by the moving partner, not estimated
+        // client-side anymore. Zeroed values keep the saved-move shape stable.
         low: adjustedPackingCostLow,
         high: adjustedPackingCostHigh,
         average: marketPackingAverage,
         hours: packingServicesRequired.value === 'full' ? totalPackingHours :
                packingServicesRequired.value === 'partial' ? furnitureBreakdownTime : 0,
         breakdown: {
-          labor: marketPackingAverage - (packingServicesRequired.value === 'full' ? professionalMaterialsCost :
-                 packingServicesRequired.value === 'partial' ? partialPackingMaterials : 0),
-          materials: packingServicesRequired.value === 'full' ? professionalMaterialsCost :
-                    packingServicesRequired.value === 'partial' ? partialPackingMaterials : 0,
-          boxes: packingServicesRequired.value === 'full' ? boxCost * 1.10 : 0,
-          furnitureProtection: (furniturePadsCost + shrinkWrapCost + cornerProtectorsCost) * 1.10,
-          supplies: packingServicesRequired.value === 'full' ? (tapeCost + bubbleWrapCost + paperCost + markersCost) * 1.10 : 0
+          labor: 0,
+          materials: 0,
+          boxes: 0,
+          furnitureProtection: 0,
+          supplies: 0
         }
       },
       misc: {
@@ -1541,12 +1615,21 @@ const costEstimates = computed(() => {
         high: professionalHigh + adjustedPackingCostHigh + miscCosts + totalDifficultyPremium + multiStopPremium
       },
       vanLine: {
-        available: distance >= 250 && intermediateStops === 0 && (distance < 500 || isFlexible.value),
-        low: distance >= 250 && intermediateStops === 0 && (distance < 500 || isFlexible.value) ? adjustedVanLineLow : 0,
-        high: distance >= 250 && intermediateStops === 0 && (distance < 500 || isFlexible.value) ? adjustedVanLineHigh : 0,
-        chargeableWeight: chargeableWeight,
-        deliveryWindow: deliveryWindowStr,
-        breakdown: vanLineBreakdown
+        available: vanLineAvailable,
+        low: 0,
+        high: 0,
+        chargeableWeight: 0,
+        deliveryWindow: '',
+        breakdown: { linehaul: 0, fuelSurcharge: 0, destinationLabor: 0, shuttleFee: 0 }
+      },
+      // Raw server engine output (moveCostService/laborEstimationService)
+      server: {
+        moveType: serverCost.moveType,
+        movers: serverCost.professional.movers,
+        laborHours: serverLabor.totalLaborHours,
+        laborCostEstimate: serverLabor.laborCostEstimate,
+        recommendedMovers: serverLabor.recommendedMovers,
+        caveat: serverCost.caveat
       }
     },
     reloprep: {
@@ -3070,7 +3153,7 @@ const downloadPdfEstimate = async () => {
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(25, 118, 210);
-    doc.text('All-In Quote (Binding Not-to-Exceed)', 20, yPos + 10);
+    doc.text('All-In Estimate (Partner Confirms Final Price)', 20, yPos + 10);
     doc.setFontSize(20);
     doc.text(`$${Math.round(costs.reloprep?.high || 0).toLocaleString()}`, 20, yPos + 22);
     doc.setFontSize(8);
@@ -3113,9 +3196,8 @@ const downloadPdfEstimate = async () => {
       if (distanceMiles < 100) {
         // Local move: show crew size, hours, and hourly rate
         serviceLabel = 'Moving Services';
-        // Calculate CoL-adjusted hourly rate and round to nearest $5
-        const baseHourlyRate = 150;
-        const adjustedHourlyRate = Math.round((baseHourlyRate * colAdjustment.value) / 5) * 5;
+        // Typical 2-person crew hourly rate — display assumption only
+        const adjustedHourlyRate = 150;
         const totalHours = Math.round(costs.professional?.movingOnly?.average / adjustedHourlyRate);
         const crewSize = numHelpers.value;
         const daysNeeded = Math.ceil(totalHours / 8); // 8-hour workday
@@ -3219,14 +3301,14 @@ const downloadPdfEstimate = async () => {
     doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(25, 118, 210);
-    doc.text('Your Nexus Moves Quote (Binding)', 60, yPos);
+    doc.text('Your Nexus Moves Estimated Quote', 60, yPos);
     doc.text(`$${Math.round(reloprepQuote).toLocaleString()}`, 180, yPos, { align: 'right' });
     yPos += 10;
 
     doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(100, 100, 100);
-    doc.text('All-inclusive, binding not-to-exceed price', 60, yPos);
+    doc.text('All-inclusive estimate — your moving partner will confirm final pricing', 60, yPos);
     yPos += 15;
 
     // Quote Validity Disclaimer
@@ -3842,7 +3924,14 @@ const initiateQuoteShoppingCheckout = async () => {
             Add length/width/height to improve accuracy.
           </q-banner>
 
-          <div class="truck-details">
+          <q-banner v-if="estimateError" dense rounded class="bg-grey-2 text-grey-8 q-mb-md">
+            <template v-slot:avatar>
+              <q-icon name="cloud_off" color="grey-7" />
+            </template>
+            {{ estimateError }}
+          </q-banner>
+
+          <div v-if="truckRecommendation" class="truck-details">
             <div class="text-h4 text-weight-bold text-primary q-mb-xs">{{ truckRecommendation.size }}</div>
             <div class="text-subtitle1 text-grey-8 q-mb-sm">{{ truckRecommendation.description }}</div>
             <div class="text-body2 text-grey-7 q-mb-md">
@@ -3876,6 +3965,11 @@ const initiateQuoteShoppingCheckout = async () => {
               </template>
               Very tight fit - consider a larger truck or multiple trips
             </q-banner>
+          </div>
+
+          <div v-else-if="!estimateError" class="truck-details text-grey-6">
+            <q-spinner-dots v-if="isFetchingEstimate" size="24px" class="q-mb-sm" />
+            <div class="text-body2">Calculating truck recommendation…</div>
           </div>
         </q-card-section>
       </q-card>
@@ -4069,6 +4163,17 @@ const initiateQuoteShoppingCheckout = async () => {
     <!-- Costs & Route Tab -->
     <!-- Costs Tab -->
     <div v-else-if="movePlanningTab === 'costs'">
+      <div v-if="estimatedDistance && estimateError" class="q-px-md q-pt-md">
+        <q-banner dense rounded class="bg-grey-2 text-grey-8">
+          <template v-slot:avatar>
+            <q-icon name="cloud_off" color="grey-7" />
+          </template>
+          {{ estimateError }}
+          <template v-slot:action>
+            <q-btn flat dense no-caps color="primary" label="Retry" @click="fetchMoveEstimate" />
+          </template>
+        </q-banner>
+      </div>
       <div v-if="estimatedDistance" class="costs-grid q-pa-md">
         <!-- Left Column: Cost Breakouts -->
         <div class="costs-breakouts">
@@ -4303,15 +4408,15 @@ const initiateQuoteShoppingCheckout = async () => {
 
               <!-- Quote Validity Note -->
               <div class="text-caption text-grey-6 q-mt-md text-left">
-                <strong>Price Guarantee:</strong> Nexus Moves connects you with a 
-                licensed, vetted moving partner. With White Glove Service, this quoted price is guaranteed 
-                based exclusively on the inventory detailed in your PDF and the 
-                access conditions you described. Your deposit secures this 
-                service and is Nexus Moves' non-refundable brokerage fee. The 
-                remaining balance for the move and any additional 
-                charges—resulting from changes to inventory or access 
-                conditions—are paid directly to the licensed moving partner 
-                at the time of service.
+                <strong>About this estimate:</strong> Nexus Moves connects you with a
+                licensed, vetted moving partner. This figure is an estimate based
+                on the inventory detailed in your PDF and the access conditions
+                you described — your moving partner will confirm final pricing
+                before your move. Your deposit secures this service and is
+                Nexus Moves' non-refundable brokerage fee. The remaining balance
+                for the move and any additional charges—resulting from changes
+                to inventory or access conditions—are paid directly to the
+                licensed moving partner at the time of service.
               </div>
 
               
@@ -4565,7 +4670,7 @@ const initiateQuoteShoppingCheckout = async () => {
           :destination-location="destinationLocation"
           :move-date="moveDate"
           :move-date-end="moveEndDate"
-          :recommended-truck-size="truckRecommendation.size"
+          :recommended-truck-size="truckRecommendation?.size || ''"
         />
       </div>
       <div v-else class="moveday-locked q-pa-lg">
