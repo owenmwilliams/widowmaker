@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { useDialogPluginComponent } from 'quasar';
+import { API_BASE_URL } from '../../config/api';
 
 interface Props {
   isPro: boolean;
+  moveSummary?: Record<string, unknown> | null;
 }
 
 const props = defineProps<Props>();
@@ -161,11 +163,46 @@ const serviceTiers = computed(() => [
   }
 ]);
 
-const selectTier = (tier: any) => {
-  onDialogOK({
-    tier: tier.name.toLowerCase(),
-    price: tier.price
-  });
+// Lead submission state (#90) — choosing a tier submits a real quote lead.
+const submitting = ref(false);
+const submitted = ref(false);
+const submitError = ref<string | null>(null);
+
+const selectTier = async (tier: any) => {
+  if (submitting.value || submitted.value) return;
+  submitError.value = null;
+  submitting.value = true;
+  selectedTier.value = { tier: tier.name.toLowerCase(), price: tier.price };
+
+  try {
+    const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
+    const sessionToken = localStorage.getItem('session_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (sessionToken) {
+      headers.Authorization = `Bearer ${sessionToken}`;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/move/quote-leads`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        tier: tier.name.toLowerCase(),
+        contact_email: userData.email || '',
+        move_summary: props.moveSummary || null
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Quote lead request failed (${response.status})`);
+    }
+
+    submitted.value = true;
+  } catch (error) {
+    console.error('Error submitting quote lead:', error);
+    submitError.value = "We couldn't send your request just now — please try again.";
+  } finally {
+    submitting.value = false;
+  }
 };
 </script>
 
@@ -178,7 +215,21 @@ const selectTier = (tier: any) => {
         <q-btn icon="close" flat round dense @click="onDialogCancel" />
       </q-card-section> -->
 
-      <q-card-section class="q-pt-sm" style="flex: 1; overflow-y: auto;">
+      <!-- Success state (#90): the lead landed — no payment, brokered manually -->
+      <q-card-section v-if="submitted" class="lead-success">
+        <q-icon name="check_circle" color="positive" size="48px" />
+        <div class="lead-success-title">Request received — we'll be in touch within 1 business day.</div>
+        <div class="lead-success-caption">
+          Your {{ selectedTier?.tier }} quote request has been submitted. This service is free while we're in launch — no payment required.
+        </div>
+        <q-btn unelevated color="primary" label="Done" class="q-mt-md" @click="onDialogCancel" />
+      </q-card-section>
+
+      <q-card-section v-else class="q-pt-sm" style="flex: 1; overflow-y: auto;">
+
+        <div v-if="submitError" class="lead-error">
+          {{ submitError }}
+        </div>
 
         <div class="pricing-tiers">
           <div
@@ -267,6 +318,8 @@ const selectTier = (tier: any) => {
                 unelevated
                 :color="tier.theme.buttonBackground ? undefined : tier.theme.buttonColor"
                 :label="`Choose ${tier.name}`"
+                :loading="submitting && selectedTier?.tier === tier.name.toLowerCase()"
+                :disable="submitting"
                 class="tier-cta-button"
                 :style="tier.theme.buttonBackground ? {
                   background: tier.theme.buttonBackground + ' !important',
@@ -460,5 +513,39 @@ const selectTier = (tier: any) => {
 .tier-cta-button {
   width: 100%;
   border-radius: 12px;
+}
+
+/* Lead submission states (#90) */
+.lead-success {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 32px;
+}
+
+.lead-success-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 16px;
+}
+
+.lead-success-caption {
+  font-size: 0.875rem;
+  color: #6b7280;
+  margin-top: 8px;
+}
+
+.lead-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 4px 10px 8px;
+  font-size: 0.875rem;
+  text-align: center;
 }
 </style>

@@ -1058,3 +1058,23 @@ CREATE INDEX IF NOT EXISTS idx_scan_jobs_user
     ON scan_jobs(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scan_jobs_pending
     ON scan_jobs(created_at) WHERE status IN ('queued', 'processing');
+
+-- ============================================================================
+-- QUOTE LEADS (migration 041) — quote-shopping lead-gen (#90). A tier confirm
+-- in QuoteShoppingModal persists a lead here; the owner is notified by email
+-- and brokers quotes manually. saved_move_id is BIGINT: saved_moves.id is
+-- BIGSERIAL.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS quote_leads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    saved_move_id BIGINT REFERENCES saved_moves(id) ON DELETE SET NULL,
+    tier VARCHAR(40) NOT NULL,
+    contact_email VARCHAR(255) NOT NULL,
+    contact_phone VARCHAR(40),
+    move_summary JSONB,
+    status VARCHAR(20) NOT NULL DEFAULT 'new',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_quote_leads_status_created
+    ON quote_leads(status, created_at);
