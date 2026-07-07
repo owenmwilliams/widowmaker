@@ -13,6 +13,18 @@ import DesktopMoveDay from './DesktopMoveDay.vue';
 import WaypointManager from '../WaypointManager.vue';
 import LocationEditorDialog from '../../locations/LocationEditorDialog.vue';
 import QuoteShoppingModal from '../QuoteShoppingModal.vue';
+import {
+  Dumbbell,
+  FolderOpen,
+  Map as MapIcon,
+  MapPinOff,
+  PiggyBank,
+  Scaling,
+  Star,
+  Thermometer,
+  TriangleAlert,
+  Wrench
+} from 'lucide-vue-next';
 
 // TypeScript interfaces for store items
 interface InventoryItem {
@@ -321,8 +333,8 @@ const selectTab = (tab: 'planning' | 'costs' | 'route' | 'moveday') => {
   if (tab === 'moveday' && !isPro.value) {
     Notify.create({
       type: 'warning',
-      message: 'Move Day Mode is available on Pro plans',
-      caption: 'Upgrade to unlock Move Day Mode'
+      message: 'Move day mode is available on Pro plans',
+      caption: 'Upgrade to unlock Move day mode'
     });
     return;
   }
@@ -333,15 +345,15 @@ const selectTab = (tab: 'planning' | 'costs' | 'route' | 'moveday') => {
 const pageTitle = computed(() => {
   switch (movePlanningTab.value) {
     case 'planning':
-      return 'Move Planning';
+      return 'Move planning';
     case 'costs':
-      return 'Cost Estimates';
+      return 'Cost estimates';
     case 'route':
-      return 'Route Planning';
+      return 'Route planning';
     case 'moveday':
-      return 'Move Day Mode';
+      return 'Move day';
     default:
-      return 'Move Planning';
+      return 'Move planning';
   }
 });
 
@@ -1107,7 +1119,7 @@ const generateMoveSchedule = async (clearExisting: boolean = false) => {
   if (!anchorDate.value) {
     $q.notify({
       type: 'warning',
-      message: 'Please set a move-out or move-in date in Move Details first'
+      message: 'Please set a move-out or move-in date in Move details first'
     });
     return;
   }
@@ -1172,7 +1184,7 @@ const promptGenerateSchedule = () => {
   if (!hasScheduleAnchorDate.value) {
     $q.notify({
       type: 'warning',
-      message: 'Set your move-out or move-in date in the Move Details section before generating a schedule.'
+      message: 'Set your move-out or move-in date in the Move details section before generating a schedule.'
     });
     return;
   }
@@ -3409,14 +3421,14 @@ const initiateQuoteShoppingCheckout = async () => {
   }).onOk(({ tier, price }: { tier: string; price: number }) => {
     // Show confirmation dialog
     $q.dialog({
-      title: 'Confirm Your Order',
+      title: 'Confirm your order',
       message: `
         <div class="q-mb-md" style="font-size: 1.05rem;">
           <div style="margin-bottom: 12px;">
-            <strong style="color: #3b82f6;">${tier.charAt(0).toUpperCase() + tier.slice(1)} Quote Shopping</strong>
+            <strong style="color: var(--accent);">${tier.charAt(0).toUpperCase() + tier.slice(1)} quote shopping</strong>
           </div>
           <div style="margin-bottom: 8px;">
-            <strong>Price:</strong> $${price}${isPro.value ? ' <span style="color: #10b981; font-weight: 600;">(Pro discount)</span>' : ''}
+            <strong>Price:</strong> $${price}${isPro.value ? ' <span style="color: var(--success); font-weight: 600;">(Pro discount)</span>' : ''}
           </div>
           <div style="margin-bottom: 8px;">
             <strong>Move:</strong> ${originLocation.value?.nickname || 'Origin'} → ${destinationLocation.value?.nickname || 'Destination'}
@@ -3436,11 +3448,11 @@ const initiateQuoteShoppingCheckout = async () => {
       `,
       html: true,
       ok: {
-        label: 'Request Quotes',
+        label: 'Request quotes',
         color: 'primary'
       },
       cancel: {
-        label: 'Go Back',
+        label: 'Go back',
         flat: true
       }
     }).onOk(async () => {
@@ -3455,7 +3467,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
       Notify.create({
         type: 'positive',
-        message: 'Quote Shopping Service Activated!',
+        message: 'Quote shopping service activated!',
         caption: `We'll start shopping for quotes immediately. Expect ${tierInfo.quotes} quotes within ${tierInfo.turnaround}.`,
         timeout: 5000
       });
@@ -3514,7 +3526,7 @@ const initiateQuoteShoppingCheckout = async () => {
           no-caps
           :class="{ 'pill-tab-active': movePlanningTab === 'moveday' }"
           class="pill-tab"
-          label="Move Day"
+          label="Move day"
           @click="selectTab('moveday')"
         />
       </q-btn-group>
@@ -3523,7 +3535,7 @@ const initiateQuoteShoppingCheckout = async () => {
     <div class="move-planning-header q-pa-md">
       <div class="row items-center justify-between">
         <div>
-          <h5 class="text-h5 text-primary q-my-none">{{ pageTitle }}</h5>
+          <h5 class="text-h5 text-primary page-title q-my-none">{{ pageTitle }}</h5>
           <p class="text-caption text-grey-7 q-mt-xs">{{ pageSubtitle }}</p>
         </div>
         <div class="row q-gutter-sm">
@@ -3532,7 +3544,7 @@ const initiateQuoteShoppingCheckout = async () => {
             dense
             color="primary"
             icon="add"
-            label="New Move"
+            label="New move"
             @click="resetMoveForm"
           >
             <q-tooltip>Start a new move</q-tooltip>
@@ -3542,7 +3554,7 @@ const initiateQuoteShoppingCheckout = async () => {
             dense
             color="primary"
             icon="folder_open"
-            label="Load Move"
+            label="Load move"
             @click="showLoadMoveDialog = true"
           >
             <q-badge v-if="savedMoves.length > 0" color="positive" floating>{{ savedMoves.length }}</q-badge>
@@ -3553,7 +3565,7 @@ const initiateQuoteShoppingCheckout = async () => {
             dense
             color="primary"
             icon="save"
-            label="Save Move"
+            label="Save move"
             @click="showSaveMoveDialog = true"
             :disable="!originLocation || !destinationLocation"
           >
@@ -3567,14 +3579,14 @@ const initiateQuoteShoppingCheckout = async () => {
     <div v-if="movePlanningTab === 'planning'">
     <!-- Row 1: Move Details Card -->
     <div class="q-pa-md q-pb-none">
-      <q-card flat bordered>
+      <q-card flat bordered class="content-card">
         <q-card-section>
-          <div class="text-h6 text-primary q-mb-md">Move Details</div>
+          <div class="card-title q-mb-md">Move details</div>
           <div class="row q-col-gutter-md">
             <div class="col-12 col-md-3">
               <q-input
                 v-model="moveDate"
-                label="Desired Start Date"
+                label="Desired start date"
                 outlined
                 dense
                 readonly
@@ -3597,7 +3609,7 @@ const initiateQuoteShoppingCheckout = async () => {
             <div class="col-12 col-md-3">
               <q-input
                 v-model="moveEndDate"
-                label="Desired End Date"
+                label="Desired end date"
                 outlined
                 dense
                 readonly
@@ -3629,7 +3641,7 @@ const initiateQuoteShoppingCheckout = async () => {
                 option-value="value"
                 emit-value
                 map-options
-                label="Date Flexibility"
+                label="Date flexibility"
                 outlined
                 dense
                 hint="Flexibility can reduce costs for long-distance moves"
@@ -3658,15 +3670,15 @@ const initiateQuoteShoppingCheckout = async () => {
               <q-select
                 v-model="packingServicesRequired"
                 :options="[
-                  { label: 'No Packing Services', value: 'none' },
-                  { label: 'Partial Packing', value: 'partial' },
-                  { label: 'Full Service', value: 'full' }
+                  { label: 'No packing services', value: 'none' },
+                  { label: 'Partial packing', value: 'partial' },
+                  { label: 'Full service', value: 'full' }
                 ]"
                 option-label="label"
                 option-value="value"
                 emit-value
                 map-options
-                label="Packing Services"
+                label="Packing services"
                 outlined
                 dense
               >
@@ -3678,7 +3690,7 @@ const initiateQuoteShoppingCheckout = async () => {
             <div class="col-12">
               <q-input
                 v-model="specialRequirements"
-                label="Notes & Special Requirements"
+                label="Notes & special requirements"
                 outlined
                 dense
                 type="textarea"
@@ -3700,9 +3712,9 @@ const initiateQuoteShoppingCheckout = async () => {
           v-for="(warning, index) in moveWarnings"
           :key="index"
           :class="{
-            'bg-red-1 text-red-9': warning.severity === 'error',
-            'bg-orange-1 text-orange-9': warning.severity === 'warning',
-            'bg-blue-1 text-blue-9': warning.severity === 'info'
+            'banner-danger': warning.severity === 'error',
+            'banner-warning': warning.severity === 'warning',
+            'banner-info': warning.severity === 'info'
           }"
           dense
           rounded
@@ -3711,7 +3723,6 @@ const initiateQuoteShoppingCheckout = async () => {
           <template v-slot:avatar>
             <q-icon
               :name="warning.severity === 'error' ? 'error' : warning.severity === 'warning' ? 'warning' : 'info'"
-              :color="warning.severity === 'error' ? 'red' : warning.severity === 'warning' ? 'orange' : 'blue'"
             />
           </template>
           {{ warning.message }}
@@ -3722,13 +3733,13 @@ const initiateQuoteShoppingCheckout = async () => {
     <!-- Row 2: Locations Cards -->
     <div class="q-pa-md">
       <div class="row items-center justify-between q-mb-sm">
-        <div class="text-h6 text-primary">Locations</div>
+        <div class="card-title">Locations</div>
         <q-btn
           unelevated
           dense
           color="primary"
           icon="add_location_alt"
-          label="Add Drop-Off"
+          label="Add drop-off"
           :disable="moveLocations.length >= 5"
           @click="addMoveLocation('intermediate')"
         >
@@ -3804,7 +3815,7 @@ const initiateQuoteShoppingCheckout = async () => {
             <q-expansion-item
               dense
               dense-toggle
-              label="Access Details"
+              label="Access details"
               header-class="text-caption text-grey-7"
               default-opened
             >
@@ -3814,7 +3825,7 @@ const initiateQuoteShoppingCheckout = async () => {
                     <q-select
                       v-model="loc.entryType"
                       :options="['House', 'Apartment', 'Office', 'Storage', 'Other']"
-                      label="Entry Type"
+                      label="Entry type"
                       outlined
                       dense
                       clearable
@@ -3824,7 +3835,7 @@ const initiateQuoteShoppingCheckout = async () => {
                     <q-input
                       v-model.number="loc.numberOfFlights"
                       type="number"
-                      label="Stair Flights"
+                      label="Stair flights"
                       outlined
                       dense
                       :min="0"
@@ -3843,7 +3854,7 @@ const initiateQuoteShoppingCheckout = async () => {
                       <q-select
                         v-model="loc.elevatorType"
                         :options="['Passenger', 'Freight', 'Service']"
-                        label="Elevator Type"
+                        label="Elevator type"
                         outlined
                         dense
                         clearable
@@ -3871,7 +3882,7 @@ const initiateQuoteShoppingCheckout = async () => {
                     <q-input
                       v-model.number="loc.parkingDistance"
                       type="number"
-                      label="Walk Distance (ft)"
+                      label="Walk distance (ft)"
                       outlined
                       dense
                       :min="0"
@@ -3891,7 +3902,7 @@ const initiateQuoteShoppingCheckout = async () => {
                   <div class="col-12">
                     <q-input
                       v-model="loc.accessNotes"
-                      label="Access Notes"
+                      label="Access notes"
                       outlined
                       dense
                       type="textarea"
@@ -3908,9 +3919,9 @@ const initiateQuoteShoppingCheckout = async () => {
 
     <!-- Prompt to add locations -->
     <div v-if="moveLocations.length === 0" class="q-pa-md">
-      <q-banner rounded class="bg-blue-1 text-primary">
+      <q-banner rounded class="banner-info">
         <template v-slot:avatar>
-          <q-icon name="info" color="primary" size="lg" />
+          <q-icon name="info" size="lg" />
         </template>
         <div class="text-body1 text-weight-medium q-mb-xs">Get started with your move planning</div>
         <div class="text-body2">Add locations above to see truck recommendations, time estimates, and packing requirements for your move. You need at least an origin and destination.</div>
@@ -3925,21 +3936,21 @@ const initiateQuoteShoppingCheckout = async () => {
       <!-- Truck Sizing -->
       <q-card flat bordered class="content-card">
         <q-card-section>
-          <div class="text-h6 text-primary q-mb-md">Truck Recommendation</div>
+          <div class="card-title q-mb-md">Truck recommendation</div>
           <q-banner
             v-if="containerVolumeWarnings.length"
             dense
             rounded
-            class="bg-warning text-white q-mb-md"
+            class="banner-warning q-mb-md"
           >
             Missing box dimensions for:
             {{ containerVolumeWarnings.join(', ') }}.
             Add length/width/height to improve accuracy.
           </q-banner>
 
-          <q-banner v-if="estimateError" dense rounded class="bg-grey-2 text-grey-8 q-mb-md">
+          <q-banner v-if="estimateError" dense rounded class="banner-neutral q-mb-md">
             <template v-slot:avatar>
-              <q-icon name="cloud_off" color="grey-7" />
+              <q-icon name="cloud_off" />
             </template>
             {{ estimateError }}
           </q-banner>
@@ -3954,8 +3965,8 @@ const initiateQuoteShoppingCheckout = async () => {
 
             <div class="q-mb-sm">
               <div class="row items-center justify-between q-mb-xs">
-                <span class="text-caption text-grey-7">Capacity Utilization</span>
-                <span class="text-caption text-weight-bold">{{ truckRecommendation.utilization.toFixed(0) }}%</span>
+                <span class="text-caption text-grey-7">Capacity utilization</span>
+                <span class="text-caption text-weight-bold mono-readout">{{ truckRecommendation.utilization.toFixed(0) }}%</span>
               </div>
               <q-linear-progress
                 :value="truckRecommendation.utilization / 100"
@@ -3965,14 +3976,14 @@ const initiateQuoteShoppingCheckout = async () => {
               />
             </div>
 
-            <q-banner v-if="truckRecommendation.utilization < 60" rounded class="bg-warning text-white q-mt-md">
+            <q-banner v-if="truckRecommendation.utilization < 60" rounded class="banner-warning q-mt-md">
               <template v-slot:avatar>
                 <q-icon name="info" />
               </template>
               Low utilization - consider a smaller truck to save costs
             </q-banner>
 
-            <q-banner v-else-if="truckRecommendation.utilization > 95" rounded class="bg-negative text-white q-mt-md">
+            <q-banner v-else-if="truckRecommendation.utilization > 95" rounded class="banner-danger q-mt-md">
               <template v-slot:avatar>
                 <q-icon name="warning" />
               </template>
@@ -3990,16 +4001,16 @@ const initiateQuoteShoppingCheckout = async () => {
       <!-- Time Estimates -->
       <q-card flat bordered class="content-card">
         <q-card-section>
-          <div class="text-h6 text-primary q-mb-md">Time Estimates</div>
+          <div class="card-title q-mb-md">Time estimates</div>
           <div class="text-caption text-grey-6 q-mb-sm">Based on {{ numHelpers }} helper{{ numHelpers > 1 ? 's' : '' }}</div>
-          <div v-if="fullTimeEstimates.intermediateStops > 0" class="text-caption text-orange q-mb-md">
+          <div v-if="fullTimeEstimates.intermediateStops > 0" class="text-caption note-warning q-mb-md">
             +{{ fullTimeEstimates.overheadPercent }}% overhead for {{ fullTimeEstimates.intermediateStops }} drop-off{{ fullTimeEstimates.intermediateStops > 1 ? 's' : '' }}
           </div>
 
           <div class="time-breakdown-horizontal">
             <div class="time-item-horizontal">
               <q-icon name="inventory" size="sm" color="primary" class="q-mb-xs" />
-              <div class="text-body1 text-weight-medium">{{ fullTimeEstimates.packing }} hrs</div>
+              <div class="text-body1 text-weight-medium mono-readout">{{ fullTimeEstimates.packing }} hrs</div>
               <div class="text-caption text-grey-7">Packing</div>
             </div>
 
@@ -4007,7 +4018,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
             <div class="time-item-horizontal">
               <q-icon name="publish" size="sm" color="secondary" class="q-mb-xs" />
-              <div class="text-body1 text-weight-medium">{{ fullTimeEstimates.loading }} hrs</div>
+              <div class="text-body1 text-weight-medium mono-readout">{{ fullTimeEstimates.loading }} hrs</div>
               <div class="text-caption text-grey-7">Loading</div>
             </div>
 
@@ -4015,7 +4026,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
             <div v-if="fullTimeEstimates.driving > 0" class="time-item-horizontal">
               <q-icon name="directions_car" size="sm" color="info" class="q-mb-xs" />
-              <div class="text-body1 text-weight-medium">{{ fullTimeEstimates.driving }} hrs</div>
+              <div class="text-body1 text-weight-medium mono-readout">{{ fullTimeEstimates.driving }} hrs</div>
               <div class="text-caption text-grey-7">Driving</div>
             </div>
 
@@ -4023,7 +4034,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
             <div class="time-item-horizontal">
               <q-icon name="get_app" size="sm" color="accent" class="q-mb-xs" />
-              <div class="text-body1 text-weight-medium">{{ fullTimeEstimates.unloading }} hrs</div>
+              <div class="text-body1 text-weight-medium mono-readout">{{ fullTimeEstimates.unloading }} hrs</div>
               <div class="text-caption text-grey-7">Unloading</div>
             </div>
 
@@ -4031,7 +4042,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
             <div class="time-item-horizontal total-time-horizontal">
               <q-icon name="schedule" size="sm" color="positive" class="q-mb-xs" />
-              <div class="text-h6 text-positive">{{ fullTimeEstimates.total }} hrs</div>
+              <div class="text-h6 text-positive mono-readout">{{ fullTimeEstimates.total }} hrs</div>
               <div class="text-caption text-grey-7">Total</div>
             </div>
           </div>
@@ -4044,11 +4055,11 @@ const initiateQuoteShoppingCheckout = async () => {
       <!-- Box Requirements Summary -->
       <q-card flat bordered class="content-card">
         <q-card-section>
-          <div class="text-h6 text-primary q-mb-md">Packing Status</div>
+          <div class="card-title q-mb-md">Packing status</div>
 
-          <q-banner class="bg-blue-1 text-primary q-mb-md">
+          <q-banner class="banner-info q-mb-md">
             <template v-slot:avatar>
-              <q-icon name="info" color="primary" />
+              <q-icon name="info" />
             </template>
             <div class="text-body2">
               Generate boxes at the collection level for better organization by room.
@@ -4059,10 +4070,10 @@ const initiateQuoteShoppingCheckout = async () => {
             <div class="box-item">
               <div class="row items-center justify-between">
                 <div>
-                  <div class="text-body1 text-weight-medium">Current Boxes</div>
+                  <div class="text-body1 text-weight-medium">Current boxes</div>
                   <div class="text-caption text-grey-6">Boxes already in inventory</div>
                 </div>
-                <div class="text-h6 text-primary">{{ currentBoxCount }}</div>
+                <div class="text-h6 text-primary mono-readout">{{ currentBoxCount }}</div>
               </div>
             </div>
 
@@ -4071,10 +4082,10 @@ const initiateQuoteShoppingCheckout = async () => {
             <div class="box-item">
               <div class="row items-center justify-between">
                 <div>
-                  <div class="text-body1 text-weight-medium">Loose Items</div>
+                  <div class="text-body1 text-weight-medium">Loose items</div>
                   <div class="text-caption text-grey-6">Items not yet in containers</div>
                 </div>
-                <div class="text-h6 text-warning">{{ looseItemsCount }}</div>
+                <div class="text-h6 text-warning mono-readout">{{ looseItemsCount }}</div>
               </div>
             </div>
 
@@ -4083,10 +4094,10 @@ const initiateQuoteShoppingCheckout = async () => {
             <div class="box-item">
               <div class="row items-center justify-between">
                 <div>
-                  <div class="text-body1 text-weight-medium">Estimated Additional Boxes</div>
+                  <div class="text-body1 text-weight-medium">Estimated additional boxes</div>
                   <div class="text-caption text-grey-6">For remaining loose items</div>
                 </div>
-                <div class="text-h6 text-secondary">{{ boxEstimates.total }}</div>
+                <div class="text-h6 text-secondary mono-readout">{{ boxEstimates.total }}</div>
               </div>
             </div>
 
@@ -4094,8 +4105,8 @@ const initiateQuoteShoppingCheckout = async () => {
 
             <div class="box-item total-boxes">
               <div class="row items-center justify-between">
-                <div class="text-subtitle1 text-weight-bold">Anticipated Total Boxes</div>
-                <div class="text-h5 text-positive">{{ currentBoxCount + boxEstimates.total }}</div>
+                <div class="text-subtitle1 text-weight-bold">Anticipated total boxes</div>
+                <div class="text-h5 text-positive mono-readout">{{ currentBoxCount + boxEstimates.total }}</div>
               </div>
             </div>
           </div>
@@ -4105,7 +4116,7 @@ const initiateQuoteShoppingCheckout = async () => {
       <!-- Packing Materials -->
       <q-card flat bordered class="content-card packing-materials-card">
         <q-card-section class="packing-materials-section">
-          <div class="text-h6 text-primary q-mb-md">Packing Materials</div>
+          <div class="card-title q-mb-md">Packing materials</div>
 
           <q-list dense>
             <q-item v-for="(material, key) in packingMaterials" :key="key" class="q-px-none">
@@ -4127,43 +4138,43 @@ const initiateQuoteShoppingCheckout = async () => {
       <!-- Special Handling -->
       <q-card flat bordered class="content-card special-handling-card">
         <q-card-section>
-          <div class="text-h6 text-primary q-mb-md">Special Handling</div>
+          <div class="card-title q-mb-md">Special handling</div>
 
           <div class="special-items-grid">
             <div class="special-item">
-              <q-icon name="warning" size="lg" color="orange" />
-              <div class="text-h6 q-mt-sm">{{ specialItems.fragile }}</div>
-              <div class="text-caption text-grey-7">Fragile Items</div>
+              <span class="special-item-icon tone-warning"><TriangleAlert :size="22" /></span>
+              <div class="text-h6 q-mt-sm mono-readout">{{ specialItems.fragile }}</div>
+              <div class="text-caption text-grey-7">Fragile items</div>
             </div>
 
             <div class="special-item">
-              <q-icon name="fitness_center" size="lg" color="negative" />
-              <div class="text-h6 q-mt-sm">{{ specialItems.heavy }}</div>
-              <div class="text-caption text-grey-7">Heavy Items (50+ lbs)</div>
+              <span class="special-item-icon tone-danger"><Dumbbell :size="22" /></span>
+              <div class="text-h6 q-mt-sm mono-readout">{{ specialItems.heavy }}</div>
+              <div class="text-caption text-grey-7">Heavy items (50+ lbs)</div>
             </div>
 
             <div class="special-item">
-              <q-icon name="photo_size_select_large" size="lg" color="secondary" />
-              <div class="text-h6 q-mt-sm">{{ specialItems.oversized }}</div>
-              <div class="text-caption text-grey-7">Oversized Items</div>
+              <span class="special-item-icon tone-cyan"><Scaling :size="22" /></span>
+              <div class="text-h6 q-mt-sm mono-readout">{{ specialItems.oversized }}</div>
+              <div class="text-caption text-grey-7">Oversized items</div>
             </div>
 
             <div class="special-item">
-              <q-icon name="star" size="lg" color="positive" />
-              <div class="text-h6 q-mt-sm">{{ specialItems.highValue }}</div>
-              <div class="text-caption text-grey-7">High Value ($500+)</div>
+              <span class="special-item-icon tone-success"><Star :size="22" /></span>
+              <div class="text-h6 q-mt-sm mono-readout">{{ specialItems.highValue }}</div>
+              <div class="text-caption text-grey-7">High value ($500+)</div>
             </div>
 
             <div class="special-item">
-              <q-icon name="build" size="lg" color="info" />
-              <div class="text-h6 q-mt-sm">{{ specialItems.disassemblyRequired }}</div>
-              <div class="text-caption text-grey-7">Disassembly Required</div>
+              <span class="special-item-icon tone-accent"><Wrench :size="22" /></span>
+              <div class="text-h6 q-mt-sm mono-readout">{{ specialItems.disassemblyRequired }}</div>
+              <div class="text-caption text-grey-7">Disassembly required</div>
             </div>
 
             <div class="special-item">
-              <q-icon name="thermostat" size="lg" color="accent" />
-              <div class="text-h6 q-mt-sm">{{ specialItems.climateSensitive }}</div>
-              <div class="text-caption text-grey-7">Climate Sensitive</div>
+              <span class="special-item-icon tone-cyan"><Thermometer :size="22" /></span>
+              <div class="text-h6 q-mt-sm mono-readout">{{ specialItems.climateSensitive }}</div>
+              <div class="text-caption text-grey-7">Climate sensitive</div>
             </div>
           </div>
         </q-card-section>
@@ -4177,9 +4188,9 @@ const initiateQuoteShoppingCheckout = async () => {
     <!-- Costs Tab -->
     <div v-else-if="movePlanningTab === 'costs'">
       <div v-if="estimatedDistance && estimateError" class="q-px-md q-pt-md">
-        <q-banner dense rounded class="bg-grey-2 text-grey-8">
+        <q-banner dense rounded class="banner-neutral">
           <template v-slot:avatar>
-            <q-icon name="cloud_off" color="grey-7" />
+            <q-icon name="cloud_off" />
           </template>
           {{ estimateError }}
           <template v-slot:action>
@@ -4192,12 +4203,12 @@ const initiateQuoteShoppingCheckout = async () => {
         <div class="costs-breakouts">
           <!-- DIY Move -->
           <div class="cost-section cost-section-diy">
-            <div class="text-overline text-black text-weight-bold" style="margin-bottom: 5px;">DIY MOVE</div>
+            <div class="cost-eyebrow q-mb-xs">DIY move</div>
             <div class="text-caption text-grey-6 q-mb-sm">
               For the most cost-effective option, you handle everything: renting equipment from providers like U-Haul or PODS, driving the truck, and doing all the packing, loading, and unloading yourself.
               <q-btn flat dense no-caps size="sm" color="primary" @click="showDiyDetails = !showDiyDetails" :label="showDiyDetails ? 'Hide details' : 'Show details'" class="q-ml-xs" />
             </div>
-            <div class="cost-total" style="margin-bottom: 15px;">
+            <div class="cost-total q-mb-md">
               ${{ costEstimates.diy.total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
             </div>
             <q-slide-transition>
@@ -4236,8 +4247,8 @@ const initiateQuoteShoppingCheckout = async () => {
 
           <!-- Professional Movers (Dedicated) -->
           <div class="cost-section cost-section-professional">
-            <div class="row items-center justify-between" style="margin-bottom: 5px;">
-              <div class="text-overline text-black text-weight-bold">DEDICATED MOVERS</div>
+            <div class="row items-center justify-between q-mb-xs">
+              <div class="cost-eyebrow">Dedicated movers</div>
             </div>
 
             <div class="text-caption text-grey-6 q-mb-sm">
@@ -4247,20 +4258,20 @@ const initiateQuoteShoppingCheckout = async () => {
 
             <!-- Dedicated Movers -->
             <div class="professional-tier">
-              <div class="cost-total" style="margin-bottom: 15px;">
+              <div class="cost-total q-mb-md">
                 ${{ costEstimates.professional.dedicated.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
                 ${{ costEstimates.professional.dedicated.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
               </div>
               <q-slide-transition>
                 <div v-show="showDedicatedDetails" class="cost-breakdown">
                   <div class="cost-line-item">
-                    <span>Labor & Transport</span>
+                    <span>Labor & transport</span>
                     <span class="cost-value">${{ costEstimates.professional.movingOnly.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
                     ${{ costEstimates.professional.movingOnly.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span>
                   </div>
 
                   <div v-if="costEstimates.professional.packing.low > 0" class="cost-line-item">
-                    <span>Packing Services</span>
+                    <span>Packing services</span>
                     <span class="cost-value">${{ costEstimates.professional.packing.low.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }} -
                     ${{ costEstimates.professional.packing.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}</span>
                   </div>
@@ -4319,7 +4330,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
           <!-- Van Lines -->
           <div v-if="costEstimates.professional.vanLine.available" class="cost-section cost-section-vanline">
-            <div class="text-overline text-black text-weight-bold" style="margin-bottom: 5px;">VAN LINES</div>
+            <div class="cost-eyebrow q-mb-xs">Van lines</div>
 
             <div class="text-caption text-grey-6 q-mb-sm">
               Your items are transported on a large, shared truck with other moves. This is a budget-friendly option for long-distance moves if you have a flexible delivery window.
@@ -4335,23 +4346,23 @@ const initiateQuoteShoppingCheckout = async () => {
               <q-slide-transition>
                 <div v-show="showVanLineDetails" class="cost-breakdown q-mt-sm">
                   <div class="cost-line-item">
-                    <span>Chargeable Weight <q-icon name="help" size="xs" color="grey-6"><q-tooltip>Greater of actual weight or 7 lbs/cu ft</q-tooltip></q-icon></span>
+                    <span>Chargeable weight <q-icon name="help" size="xs" color="grey-6"><q-tooltip>Greater of actual weight or 7 lbs/cu ft</q-tooltip></q-icon></span>
                     <span class="cost-value">{{ Math.round(costEstimates.professional.vanLine.chargeableWeight).toLocaleString() }} lbs</span>
                   </div>
                   <div class="cost-line-item">
-                    <span>Delivery Window</span>
+                    <span>Delivery window</span>
                     <span class="cost-value">{{ costEstimates.professional.vanLine.deliveryWindow }}</span>
                   </div>
                   <div class="cost-line-item text-grey-7">
-                    <span>Includes Fuel Surcharge</span>
+                    <span>Includes fuel surcharge</span>
                     <span class="cost-value">${{ Math.round(costEstimates.professional.vanLine.breakdown.fuelSurcharge).toLocaleString() }}</span>
                   </div>
                   <div class="cost-line-item text-grey-7">
-                    <span>Includes Destination Labor</span>
+                    <span>Includes destination labor</span>
                     <span class="cost-value">${{ Math.round(costEstimates.professional.vanLine.breakdown.destinationLabor).toLocaleString() }}</span>
                   </div>
                   <div v-if="costEstimates.professional.vanLine.breakdown.shuttleFee > 0" class="cost-line-item text-grey-7">
-                    <span>Includes Shuttle/Access Fee</span>
+                    <span>Includes shuttle/access fee</span>
                     <span class="cost-value">${{ Math.round(costEstimates.professional.vanLine.breakdown.shuttleFee).toLocaleString() }}</span>
                   </div>
                 </div>
@@ -4366,7 +4377,7 @@ const initiateQuoteShoppingCheckout = async () => {
               flat
               color="primary"
               icon="download"
-              label="Share your inventory with movers (Download PDF)"
+              label="Share your inventory with movers (download PDF)"
               class="full-width"
               @click="downloadInventoryPdf"
             />
@@ -4375,7 +4386,7 @@ const initiateQuoteShoppingCheckout = async () => {
               flat
               disable
               icon="lock"
-              label="Share your inventory with movers (Download PDF)"
+              label="Share your inventory with movers (download PDF)"
               class="full-width"
               color="grey-7"
             >
@@ -4388,18 +4399,18 @@ const initiateQuoteShoppingCheckout = async () => {
         <div class="reloprep-quote-container">
           <q-card flat bordered class="reloprep-quote-card">
             <q-card-section class="text-center">
-              <div class="text-h5 text-weight-bold text-primary q-mb-md">
-                Nexus Moves Estimated Quote
+              <div class="card-title q-mb-md">
+                Nexus Moves estimated quote
               </div>
 
-              <div class="text-h3 text-weight-bold text-primary q-mb-md">
+              <div class="quote-amount q-mb-md">
                 ${{ costEstimates.reloprep.high.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
               </div>
 
               <!-- Savings Badge -->
               <div class="savings-badge q-mb-lg">
-                <q-icon name="savings" size="sm" class="q-mr-xs" />
-                <span class="text-weight-bold">
+                <PiggyBank :size="16" class="q-mr-xs" />
+                <span class="text-weight-bold mono-readout">
                   Save ${{ costEstimates.reloprep.savings.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }}
                 </span>
                 <span class="text-caption q-ml-xs">vs. market average</span>
@@ -4411,7 +4422,7 @@ const initiateQuoteShoppingCheckout = async () => {
               <q-btn
                 unelevated
                 icon="search"
-                label="Get Quotes ASAP"
+                label="Get quotes ASAP"
                 class="full-width q-mb-md download-quote-btn"
                 size="lg"
                 @click="initiateQuoteShoppingCheckout"
@@ -4440,7 +4451,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
       <!-- Static Disclaimer -->
       <div v-if="estimatedDistance" class="q-pa-md">
-        <q-card flat bordered class="bg-grey-1">
+        <q-card flat bordered class="disclaimer-card">
           <q-card-section class="q-pa-md">
             <div class="text-caption text-grey-8">
               <strong>Important:</strong> These prices are estimates for standard residential moves within the continental U.S. Final quotes may differ based on your exact inventory, building access (stairs, elevators, long walks), parking/permits, specialty items (pianos, safes, etc.), and any storage needed between homes.
@@ -4454,7 +4465,7 @@ const initiateQuoteShoppingCheckout = async () => {
         <div class="text-h6 text-grey-8 q-mb-md">Looking to save more? DIY options</div>
         <div class="row q-col-gutter-md">
           <div v-for="option in diyOptions" :key="option.provider" class="col-12 col-md-6">
-            <q-card flat bordered class="cursor-pointer" @click="window.open(option.url, '_blank')">
+            <q-card flat bordered class="content-card diy-option-card cursor-pointer" @click="window.open(option.url, '_blank')">
               <q-card-section>
                 <div class="text-subtitle1 text-weight-bold text-primary q-mb-xs">
                   {{ option.label }}
@@ -4474,7 +4485,7 @@ const initiateQuoteShoppingCheckout = async () => {
       <!-- Placeholder when no locations selected -->
       <div v-else class="q-pa-md">
         <div class="text-center text-grey-5 q-py-lg">
-          <q-icon name="location_off" size="xl" />
+          <MapPinOff :size="48" />
           <div class="text-body2 q-mt-md">Select origin and destination locations</div>
           <div class="text-caption">to see cost estimates</div>
         </div>
@@ -4486,8 +4497,8 @@ const initiateQuoteShoppingCheckout = async () => {
       <div class="q-pa-md">
       <q-card flat bordered class="content-card">
         <q-card-section class="q-pb-none">
-          <div class="text-h5 text-weight-bold q-mb-md">
-            Distance & Route
+          <div class="card-title q-mb-md">
+            Distance & route
           </div>
         </q-card-section>
 
@@ -4507,9 +4518,9 @@ const initiateQuoteShoppingCheckout = async () => {
               />
 
               <!-- Fallback Estimate Warning (when no polyline) -->
-              <q-banner v-else-if="routeData.source === 'estimated'" dense class="bg-orange-1 text-warning">
+              <q-banner v-else-if="routeData.source === 'estimated'" dense class="banner-warning">
                 <template v-slot:avatar>
-                  <q-icon name="warning" color="warning" />
+                  <q-icon name="warning" />
                 </template>
                 <div v-for="(warning, idx) in routeData.warnings" :key="idx" class="text-caption">
                   {{ warning }}
@@ -4558,9 +4569,9 @@ const initiateQuoteShoppingCheckout = async () => {
 
           <!-- Warnings -->
           <div v-if="routeData.warnings && routeData.warnings.length > 0" class="q-mt-md">
-            <q-banner dense class="bg-orange-1 text-orange-9">
+            <q-banner dense class="banner-warning">
               <template v-slot:avatar>
-                <q-icon name="warning" color="orange" />
+                <q-icon name="warning" />
               </template>
               <div v-for="(warning, idx) in routeData.warnings" :key="idx" class="text-caption">
                 {{ warning }}
@@ -4575,7 +4586,7 @@ const initiateQuoteShoppingCheckout = async () => {
               unelevated
               color="positive"
               icon="event_note"
-              label="Generate Move Schedule"
+              label="Generate move schedule"
               :loading="generatingSchedule"
               :disable="!canGenerateSchedule"
               @click="promptGenerateSchedule"
@@ -4585,7 +4596,7 @@ const initiateQuoteShoppingCheckout = async () => {
                 Add waypoints and calculate route first
               </q-tooltip>
               <q-tooltip v-else-if="!hasScheduleAnchorDate">
-                Add a move-out or move-in date in the Move Details card to enable scheduling
+                Add a move-out or move-in date in the Move details card to enable scheduling
               </q-tooltip>
               <q-tooltip v-else>
                 Create loading, driving, and unloading sessions from your planned route
@@ -4593,7 +4604,7 @@ const initiateQuoteShoppingCheckout = async () => {
             </q-btn>
             <div class="text-caption text-grey-7 q-mt-xs">
               Use the Waypoint Manager (on the map) to add stops, suggest waypoints, and calculate your optimized route.
-              Then click "Generate Move Schedule" to create sessions.
+              Then click "Generate move schedule" to create sessions.
             </div>
           </div>
         </q-card-section>
@@ -4602,7 +4613,7 @@ const initiateQuoteShoppingCheckout = async () => {
         <q-dialog v-model="showScheduleDialog">
           <q-card style="min-width: 500px">
             <q-card-section>
-              <div class="text-h6">Generate Move Schedule</div>
+              <div class="text-h6 dialog-title">Generate move schedule</div>
               <div class="text-caption text-grey-7 q-mt-xs">
                 Sessions will auto-schedule based on your route and move dates.
               </div>
@@ -4618,9 +4629,9 @@ const initiateQuoteShoppingCheckout = async () => {
 
               <div class="q-mt-md">
                 <div class="text-subtitle2 q-mb-sm">Scheduling anchor</div>
-                <q-banner dense class="bg-blue-1 text-primary">
+                <q-banner dense class="banner-info">
                   <template v-slot:avatar>
-                    <q-icon name="calendar_month" color="primary" />
+                    <q-icon name="calendar_month" />
                   </template>
                   Sessions will be anchored to your
                   {{ anchorDateType === 'move-out' ? 'move-out' : 'move-in' }} date
@@ -4648,7 +4659,7 @@ const initiateQuoteShoppingCheckout = async () => {
               <q-btn flat label="Cancel" color="grey" @click="showScheduleDialog = false" />
               <q-btn
                 flat
-                label="Generate Schedule"
+                label="Generate schedule"
                 color="positive"
                 :loading="generatingSchedule"
                 :disable="generatingSchedule"
@@ -4663,7 +4674,7 @@ const initiateQuoteShoppingCheckout = async () => {
           v-if="!originLocation || !destinationLocation"
           class="text-center text-grey-5 q-py-lg"
         >
-          <q-icon name="map" size="xl" />
+          <MapIcon :size="48" />
           <div class="text-body2 q-mt-md">Select origin and destination locations</div>
           <div class="text-caption">to view route and distance</div>
         </q-card-section>
@@ -4687,12 +4698,12 @@ const initiateQuoteShoppingCheckout = async () => {
         />
       </div>
       <div v-else class="moveday-locked q-pa-lg">
-        <q-card flat bordered class="bg-blue-1">
+        <q-card flat bordered class="pro-locked-card">
           <q-card-section>
             <div class="row items-center q-gutter-md">
               <q-icon name="lock" color="primary" size="md" />
               <div>
-                <div class="text-subtitle1 text-primary">Move Day Mode is a Pro feature</div>
+                <div class="text-subtitle1 text-primary">Move day mode is a Pro feature</div>
                 <div class="text-caption text-grey-7">Upgrade to unlock live scanning and tracking—or use admin preview to test.</div>
               </div>
             </div>
@@ -4711,7 +4722,7 @@ const initiateQuoteShoppingCheckout = async () => {
     <q-dialog v-model="showNewMoveDialog">
       <q-card style="min-width: 480px; max-width: 620px">
         <q-card-section>
-          <div class="text-h6">Start a New Move</div>
+          <div class="text-h6 dialog-title">Start a new move</div>
           <div class="text-caption text-grey-7 q-mt-xs">
             Choose your starting/ending locations and key dates to begin planning.
           </div>
@@ -4810,7 +4821,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
           <q-banner
             v-if="locationsWithDetails.length === 0"
-            class="bg-orange-1 text-orange-8 q-mt-md"
+            class="banner-warning q-mt-md"
             rounded
             dense
           >
@@ -4820,7 +4831,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
           <q-banner
             v-if="!newMoveFormReady"
-            class="bg-orange-1 text-orange-8 q-mt-md"
+            class="banner-warning q-mt-md"
             rounded
             dense
           >
@@ -4831,7 +4842,7 @@ const initiateQuoteShoppingCheckout = async () => {
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" color="grey-7" v-close-popup />
-          <q-btn flat label="Start Planning" color="primary" @click="confirmNewMove" :disable="!newMoveFormReady" />
+          <q-btn flat label="Start planning" color="primary" @click="confirmNewMove" :disable="!newMoveFormReady" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -4840,13 +4851,13 @@ const initiateQuoteShoppingCheckout = async () => {
     <q-dialog v-model="showSaveMoveDialog">
       <q-card style="min-width: 400px">
         <q-card-section>
-          <div class="text-h6">Save Move</div>
+          <div class="text-h6 dialog-title">Save move</div>
         </q-card-section>
 
         <q-card-section class="q-pt-none">
           <q-input
             v-model="saveMoveFormModel.name"
-            label="Move Name"
+            label="Move name"
             hint="e.g., 'Philadelphia to San Francisco - June 2025'"
             outlined
             dense
@@ -4869,12 +4880,12 @@ const initiateQuoteShoppingCheckout = async () => {
     <q-dialog v-model="showLoadMoveDialog">
       <q-card style="min-width: 500px; max-width: 600px">
         <q-card-section>
-          <div class="text-h6">Load Move</div>
+          <div class="text-h6 dialog-title">Load move</div>
         </q-card-section>
 
         <q-card-section class="q-pt-none" style="max-height: 400px; overflow-y: auto">
           <div v-if="savedMoves.length === 0" class="text-center text-grey-6 q-pa-lg">
-            <q-icon name="folder_open" size="48px" color="grey-5" />
+            <FolderOpen :size="48" />
             <div class="q-mt-md">No saved moves yet</div>
             <div class="text-caption">Save your first move to see it here</div>
           </div>
@@ -4935,52 +4946,116 @@ const initiateQuoteShoppingCheckout = async () => {
 <style scoped>
 .move-planning-container {
   max-width: 100%;
-  background: #F7F8FA;
+  background: var(--bg);
   min-height: 100vh;
 }
 
 .move-planning-header {
-  background: white;
-  border-bottom: 1px solid #E0E0E0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-title {
+  font-family: var(--font-display);
+  letter-spacing: var(--ls-title);
+}
+
+/* Section titles inside cards (phase-1 recipe) */
+.card-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-title-s);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-title);
+  line-height: var(--lh-snug);
+  color: var(--accent);
+}
+
+.dialog-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-title-s);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title);
+  color: var(--text-primary);
+}
+
+/* Data readouts (costs, distances, weights, hours) */
+.mono-readout {
+  font-family: var(--font-mono);
+  letter-spacing: var(--ls-title);
+}
+
+/* Banner semantics (token recipes) */
+.banner-info {
+  background: var(--accent-quiet);
+  color: var(--accent);
+  border-radius: var(--r-md);
+}
+
+.banner-warning {
+  background: var(--warning-surface);
+  color: var(--warning-ink);
+  border-radius: var(--r-md);
+}
+
+.banner-danger {
+  background: var(--danger-quiet);
+  color: var(--danger);
+  border-radius: var(--r-md);
+}
+
+.banner-neutral {
+  background: var(--surface-sunk);
+  color: var(--text-secondary);
+  border-radius: var(--r-md);
+}
+
+/* Inline cautionary note (no raw amber) */
+.note-warning {
+  color: var(--warning-ink);
 }
 
 .subnav {
-  padding: 12px 24px;
-  background: white;
+  padding: var(--sp-4) var(--sp-7);
+  background: var(--surface);
 }
 
 .pill-tabs {
-  background: #F0F2F5;
-  border-radius: 8px;
-  padding: 4px;
+  background: var(--surface-sunk);
+  border-radius: var(--r-sm);
+  padding: var(--sp-2);
   display: inline-flex;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .pill-tab {
-  border-radius: 6px;
-  padding: 6px 16px;
-  transition: all 0.2s;
-  color: #5F6368;
-  font-weight: 500;
+  border-radius: var(--r-xs);
+  padding: var(--sp-2) var(--sp-5);
+  transition: background var(--dur-fast) var(--ease-standard), color var(--dur-fast) var(--ease-standard);
+  color: var(--text-secondary);
+  font-weight: var(--fw-medium);
 }
 
 .pill-tab:hover {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--surface-hover);
+}
+
+.pill-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .pill-tab-active {
-  background: white !important;
-  color: #1976D2 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  background: var(--surface-card) !important;
+  color: var(--accent) !important;
+  box-shadow: var(--shadow-xs);
 }
 
 /* Row 2: Truck & Time Grid */
 .truck-time-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin-top: -8px;
+  gap: var(--sp-5);
+  margin-top: calc(-1 * var(--sp-3));
   align-items: stretch;
 }
 
@@ -5000,8 +5075,8 @@ const initiateQuoteShoppingCheckout = async () => {
 .packing-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-  margin-top: -8px;
+  gap: var(--sp-5);
+  margin-top: calc(-1 * var(--sp-3));
   align-items: stretch;
 }
 
@@ -5009,53 +5084,65 @@ const initiateQuoteShoppingCheckout = async () => {
 .costs-grid {
   display: grid;
   grid-template-columns: 1fr 30vw;
-  gap: 30px;
+  gap: var(--sp-8);
   align-items: start;
 }
 
 .costs-breakouts {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .cost-section {
-  padding: 4px 0;
+  padding: var(--sp-2) 0;
 }
 
 .cost-section-diy,
 .cost-section-professional,
 .cost-section-vanline {
-  padding-left: 32px;
+  padding-left: var(--sp-8);
+}
+
+/* Mono uppercase eyebrows (DIY move / Dedicated movers / Van lines) */
+.cost-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
 }
 
 .cost-separator {
-  border-top: 2px dotted #BDBDBD;
-  margin: 4px 0;
-  margin-left: 32px;
+  border-top: 1px dashed var(--border);
+  margin: var(--sp-2) 0;
+  margin-left: var(--sp-8);
 }
 
 .cost-total {
-  font-size: 22px;
-  font-weight: 700;
-  color: #212121;
-  line-height: 1.0;
+  font-family: var(--font-display);
+  font-size: var(--fs-title-m);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-display);
+  color: var(--text-primary);
+  line-height: var(--lh-tight);
 }
 
 .cost-breakdown {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--sp-1);
 }
 
 .cost-line-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: #616161;
-  font-size: 14px;
-  line-height: 1.2;
-  padding: 3px;
+  color: var(--text-secondary);
+  font-size: var(--fs-label);
+  line-height: var(--lh-snug);
+  padding: var(--sp-1);
 }
 
 .cost-line-item > span:first-child {
@@ -5063,63 +5150,24 @@ const initiateQuoteShoppingCheckout = async () => {
 }
 
 .cost-value {
-  font-weight: 600;
-  color: #424242;
+  font-family: var(--font-mono);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
   white-space: nowrap;
-  margin-left: 16px;
-  font-size: 12px;
+  margin-left: var(--sp-5);
+  font-size: var(--fs-label);
 }
 
 .cost-line-subtext {
-  font-size: 10px;
-  color: #9E9E9E;
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
   margin-top: -1px;
   margin-left: 0;
   margin-bottom: 0;
 }
 
 .professional-tier {
-  margin-bottom: 6px;
-}
-
-.tier-label {
-  font-size: 11px;
-  font-weight: 600;
-  color: #757575;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.cost-premium-item {
-  background: #FFF3E0;
-  padding: 10px;
-  border-radius: 6px;
-  border-left: 3px solid #FF9800;
-}
-
-.premium-label {
-  color: #E65100;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-}
-
-.premium-value {
-  color: #E65100;
-  font-weight: 700;
-  font-size: 13px;
-}
-
-.premium-feature-notice {
-  display: inline-flex;
-  align-items: center;
-  padding: 8px 12px;
-  background: #F5F5F5;
-  border-radius: 6px;
-  border: 1px solid #E0E0E0;
-  font-size: 12px;
+  margin-bottom: var(--sp-3);
 }
 
 .reloprep-quote-container {
@@ -5128,105 +5176,61 @@ const initiateQuoteShoppingCheckout = async () => {
 }
 
 .reloprep-quote-card {
-  background: linear-gradient(135deg, #E3F2FD 0%, #FFFFFF 100%);
-  border: 2px solid #1976D2 !important;
-  box-shadow: 0 8px 24px rgba(25, 118, 210, 0.15) !important;
-  border-radius: 12px !important;
+  background: var(--surface-card);
+  border: 1px solid var(--accent-quiet-2) !important;
+  box-shadow: var(--shadow-md) !important;
+  border-radius: var(--r-lg) !important;
   overflow: hidden;
 }
 
 .reloprep-quote-card .q-card__section {
-  padding: 20px !important;
+  padding: var(--sp-6) !important;
+}
+
+.quote-amount {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-m);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-display);
+  line-height: var(--lh-tight);
+  color: var(--accent);
 }
 
 .savings-badge {
-  background: linear-gradient(135deg, #4CAF50 0%, #45A049 100%);
-  color: white;
-  padding: 10px 16px;
-  border-radius: 20px;
+  background: var(--success-quiet);
+  color: var(--success);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--r-pill);
   display: inline-flex;
   align-items: center;
-  box-shadow: 0 3px 10px rgba(76, 175, 80, 0.3);
-  font-size: 0.9em;
+  font-size: var(--fs-label);
 }
 
-/* Shimmer button effect (from onboarding) */
+/* Hero CTA — solid accent (shimmer buttons are banned here) */
 .download-quote-btn {
-  box-shadow: 0 10px 24px rgba(39, 70, 144, 0.28);
+  background: var(--accent) !important;
+  color: var(--text-on-accent) !important;
+  font-weight: var(--fw-bold);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm);
   transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
-  background: linear-gradient(135deg, #274690, #1ca1c1, #7dd3fc) !important;
-  background-size: 240% 240%;
-  animation: fabShimmer 2.8s ease-in-out infinite;
-  position: relative;
-  overflow: hidden;
-  color: white !important;
-  font-weight: 700;
-  letter-spacing: 0.5px;
+    transform var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
 }
 
 .download-quote-btn:hover {
-  transform: scale(1.05);
-  box-shadow: 0 12px 28px rgba(39, 70, 144, 0.32);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
 }
 
 .download-quote-btn:active {
-  transform: scale(0.96);
-  box-shadow: 0 8px 18px rgba(39, 70, 144, 0.25);
+  transform: scale(0.97);
+  box-shadow: var(--shadow-sm);
 }
 
-@keyframes fabShimmer {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-    box-shadow: 0 12px 28px rgba(39, 70, 144, 0.34);
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
-.download-quote-btn::after {
-  content: "";
-  position: absolute;
-  inset: -12%;
-  background:
-    radial-gradient(
-      10px 10px at 20% 30%,
-      rgba(255, 255, 255, 0.6),
-      transparent
-    ),
-    radial-gradient(
-      6px 6px at 60% 40%,
-      rgba(255, 255, 255, 0.4),
-      transparent
-    );
-  opacity: 0.6;
-  pointer-events: none;
-}
-
-/* Costs & Route Grid (2 columns) - Legacy */
-.costs-route-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
-  margin-top: -8px;
-  align-items: stretch;
-}
-
-.costs-route-grid > .content-card {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.costs-route-grid > .content-card > .q-card__section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.download-quote-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .packing-grid > .content-card {
@@ -5242,13 +5246,35 @@ const initiateQuoteShoppingCheckout = async () => {
 }
 
 .content-card {
-  background: white;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Interactive DIY option cards */
+.diy-option-card {
+  transition: transform var(--dur-base) var(--ease-standard), box-shadow var(--dur-base) var(--ease-standard);
+}
+
+.diy-option-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.diy-option-card:active {
+  transform: scale(0.97);
+}
+
+.diy-option-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .truck-details {
-  padding: 12px;
-  background: #F7F8FA;
-  border-radius: 8px;
+  padding: var(--sp-4);
+  background: var(--surface-sunk);
+  border-radius: var(--r-sm);
 }
 
 /* Horizontal time breakdown */
@@ -5256,8 +5282,8 @@ const initiateQuoteShoppingCheckout = async () => {
   display: flex;
   align-items: stretch;
   justify-content: space-around;
-  padding: 16px 8px;
-  gap: 16px;
+  padding: var(--sp-5) var(--sp-3);
+  gap: var(--sp-5);
 }
 
 .time-item-horizontal {
@@ -5266,7 +5292,7 @@ const initiateQuoteShoppingCheckout = async () => {
   align-items: center;
   text-align: center;
   flex: 1;
-  padding: 8px;
+  padding: var(--sp-3);
 }
 
 .time-separator {
@@ -5275,27 +5301,12 @@ const initiateQuoteShoppingCheckout = async () => {
 }
 
 .total-time-horizontal {
-  background: rgba(76, 175, 80, 0.05);
-  border-radius: 8px;
-}
-
-/* Old vertical time breakdown (keeping for backwards compatibility) */
-.time-breakdown {
-  padding: 8px;
-}
-
-.time-item {
-  padding: 8px 0;
-}
-
-.total-time {
-  background: rgba(76, 175, 80, 0.05);
-  padding: 12px;
-  border-radius: 8px;
+  background: var(--success-quiet);
+  border-radius: var(--r-sm);
 }
 
 .box-list {
-  padding: 8px 0;
+  padding: var(--sp-3) 0;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -5303,28 +5314,63 @@ const initiateQuoteShoppingCheckout = async () => {
 }
 
 .box-item {
-  padding: 12px 0;
+  padding: var(--sp-4) 0;
 }
 
 .total-boxes {
-  background: rgba(76, 175, 80, 0.05);
-  padding: 12px;
-  border-radius: 8px;
+  background: var(--success-quiet);
+  padding: var(--sp-4);
+  border-radius: var(--r-sm);
 }
 
 .special-items-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 16px;
+  gap: var(--sp-5);
   flex: 1;
   align-content: space-evenly;
 }
 
 .special-item {
   text-align: center;
-  padding: 16px;
-  background: #F7F8FA;
-  border-radius: 8px;
+  padding: var(--sp-5);
+  background: var(--surface-sunk);
+  border-radius: var(--r-sm);
+}
+
+/* Tinted icon chips for special handling tiles (StatCard recipe) */
+.special-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+}
+
+.tone-accent {
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
+
+.tone-cyan {
+  color: var(--cyan-500);
+  background: color-mix(in oklab, var(--cyan-500) 14%, transparent);
+}
+
+.tone-success {
+  color: var(--success);
+  background: color-mix(in oklab, var(--success) 14%, transparent);
+}
+
+.tone-warning {
+  color: var(--warning);
+  background: color-mix(in oklab, var(--warning) 14%, transparent);
+}
+
+.tone-danger {
+  color: var(--danger);
+  background: color-mix(in oklab, var(--danger) 14%, transparent);
 }
 
 /* Packing Materials Card - Match Packing Status Height */
@@ -5335,21 +5381,8 @@ const initiateQuoteShoppingCheckout = async () => {
 }
 
 .packing-materials-card .q-item {
-  padding: 12px 0;
+  padding: var(--sp-4) 0;
   min-height: 56px;
-}
-
-.placeholder-card {
-  opacity: 0.7;
-}
-
-.placeholder-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  text-align: center;
 }
 
 /* Responsive Grid Layouts */
@@ -5387,41 +5420,14 @@ const initiateQuoteShoppingCheckout = async () => {
 
 }
 
-/* Form Section Styling */
-.form-section {
-  margin-bottom: 8px;
-}
-
-.section-header {
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-size: 0.75rem;
-  color: #274690;
-  padding-bottom: 4px;
-  border-bottom: 2px solid #E8EAF6;
-}
-
-/* Route Stats Styling */
-.route-stats .stat-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  background: #F7F8FA;
-  border-radius: 8px;
-  border: 1px solid #E0E0E0;
-}
-
 .route-map-wrapper {
   position: relative;
 }
 
-
 .route-map-container {
-  border-radius: 8px;
+  border-radius: var(--r-md);
   overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 .waypoints-overlay {
@@ -5432,18 +5438,18 @@ const initiateQuoteShoppingCheckout = async () => {
   max-width: 360px;
   max-height: calc(100% - 24px);
   overflow-y: auto;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  background: color-mix(in oklab, var(--surface-card) 95%, transparent);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-md);
 }
 
 .waypoints-overlay :deep(.waypoint-manager) {
-  padding: 12px;
+  padding: var(--sp-4);
   background: transparent;
 }
 
 .waypoints-overlay :deep(.text-subtitle1) {
-  font-size: 14px;
+  font-size: var(--fs-label);
 }
 
 .waypoints-overlay :deep(.waypoint-list) {
@@ -5454,32 +5460,35 @@ const initiateQuoteShoppingCheckout = async () => {
 /* Compact stat cards row below map */
 .route-stats-row {
   display: flex;
-  gap: 12px;
+  gap: var(--sp-4);
   flex-wrap: wrap;
 }
 
 .stat-card {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  background: #F7F8FA;
-  border-radius: 8px;
-  border: 1px solid #E0E0E0;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-5);
+  background: var(--surface-card);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
   flex: 1;
   min-width: 120px;
 }
 
 .stat-card .stat-value {
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.2;
+  font-family: var(--font-mono);
+  font-size: var(--fs-title-s);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: var(--lh-snug);
 }
 
 .stat-card .stat-label {
-  font-size: 11px;
-  color: #666;
-  line-height: 1.2;
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
+  line-height: var(--lh-snug);
 }
 
 @media (max-width: 768px) {
@@ -5488,7 +5497,7 @@ const initiateQuoteShoppingCheckout = async () => {
     top: auto;
     right: auto;
     max-width: 100%;
-    margin-top: 12px;
+    margin-top: var(--sp-4);
   }
 
   .stat-card {
@@ -5501,7 +5510,7 @@ const initiateQuoteShoppingCheckout = async () => {
 .locations-row {
   display: flex;
   flex-direction: row;
-  gap: 12px;
+  gap: var(--sp-4);
   width: 100%;
 }
 
@@ -5521,38 +5530,57 @@ const initiateQuoteShoppingCheckout = async () => {
 
 /* Location card styles */
 .location-card {
-  transition: border-color 0.2s, box-shadow 0.2s;
-  border: 2px solid #e0e0e0;
+  transition: border-color var(--dur-base) var(--ease-standard), box-shadow var(--dur-base) var(--ease-standard);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-sm);
   height: 100%;
 }
 
 .location-card.location-start {
-  border-color: #4CAF50;
-  background: linear-gradient(to bottom, #E8F5E9 0%, #fff 15%);
+  border-color: var(--success);
+  background: linear-gradient(to bottom, var(--success-quiet) 0%, var(--surface-card) 15%);
 }
 
 .location-card.location-dropoff {
-  border-color: #FF9800;
-  background: linear-gradient(to bottom, #FFF3E0 0%, #fff 15%);
+  border-color: var(--warning);
+  background: linear-gradient(to bottom, var(--warning-surface) 0%, var(--surface-card) 15%);
 }
 
 .location-card.location-end {
-  border-color: #F44336;
-  background: linear-gradient(to bottom, #FFEBEE 0%, #fff 15%);
+  border-color: var(--danger);
+  background: linear-gradient(to bottom, var(--danger-quiet) 0%, var(--surface-card) 15%);
 }
 
 .location-role-toggle {
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xs);
   overflow: hidden;
 }
 
 .location-role-toggle .q-btn {
-  font-size: 11px;
-  padding: 4px 8px;
+  font-size: var(--fs-micro);
+  padding: var(--sp-2) var(--sp-3);
+}
+
+.location-role-toggle .q-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .location-role-toggle .q-btn--active {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
+}
+
+/* Quiet sunk surfaces for notes */
+.disclaimer-card {
+  background: var(--surface-sunk) !important;
+  border-radius: var(--r-md);
+}
+
+.pro-locked-card {
+  background: var(--accent-quiet) !important;
+  border-radius: var(--r-md);
 }
 </style>
