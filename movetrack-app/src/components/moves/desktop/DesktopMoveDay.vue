@@ -7,6 +7,28 @@ import { storeToRefs } from 'pinia'
 import axios from 'axios'
 import { useQuasar } from 'quasar'
 import { useRouter } from 'vue-router'
+import {
+  Package,
+  PackageOpen,
+  PackageCheck,
+  Boxes,
+  Truck,
+  ArrowLeftRight,
+  ArrowDownToLine,
+  Calendar,
+  Plus,
+  Pencil,
+  Inbox,
+  Info,
+  Circle,
+  MapPin,
+  CircleCheck,
+  TriangleAlert,
+  Users,
+  User,
+  Dumbbell,
+  Feather
+} from 'lucide-vue-next'
 
 const props = defineProps<{
   user?: string
@@ -201,12 +223,12 @@ const isSmartLoading = ref(false)
 
 const truckZoneOrder = ['Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E', 'Zone F']
 const truckSizeOptionList = [
-  { label: 'Cargo Van / Sprinter', value: 'van' },
-  { label: '10 ft Truck', value: '10ft' },
-  { label: '15 ft Truck', value: '15ft' },
-  { label: '17 ft Truck', value: '17ft' },
-  { label: '20 ft Truck', value: '20ft' },
-  { label: '26 ft Truck', value: '26ft' }
+  { label: 'Cargo van / sprinter', value: 'van' },
+  { label: '10 ft truck', value: '10ft' },
+  { label: '15 ft truck', value: '15ft' },
+  { label: '17 ft truck', value: '17ft' },
+  { label: '20 ft truck', value: '20ft' },
+  { label: '26 ft truck', value: '26ft' }
 ]
 const truckZoneCountMap: Record<string, number> = {
   van: 2,
@@ -420,12 +442,12 @@ const showEndModeToggle = computed(() => !forceTruckDestination.value && !forceL
 
 const startSelectLabel = computed(() => {
   if (isLoadingSession.value) {
-    return 'Transfer From (Move Origin)'
+    return 'Transfer from (move origin)'
   }
   if (isUnloadingSession.value || isTransferSession.value) {
-    return 'Transfer From Truck'
+    return 'Transfer from truck'
   }
-  return 'Transfer From'
+  return 'Transfer from'
 })
 
 const startSelectHint = computed(() => {
@@ -501,11 +523,11 @@ const canScan = computed(() => sessionStage.value !== 'planning')
 const stageChip = computed(() => {
   switch (sessionStage.value) {
     case 'action':
-      return { color: 'primary', label: 'Action Stage' }
+      return { color: 'primary', label: 'Action stage' }
     case 'complete':
       return { color: 'positive', label: 'Complete' }
     default:
-      return { color: 'grey-6', label: 'Planning Stage' }
+      return { color: 'grey-6', label: 'Planning stage' }
   }
 })
 
@@ -636,19 +658,19 @@ const selectSession = async (session: any) => {
   }
 }
 
-// Helper function to get icon for session type
+// Helper function to get icon for session type (Lucide component, presentational only)
 const getSessionIcon = (sessionType: string) => {
   switch (sessionType) {
     case 'loading':
-      return 'inventory_2' // Box icon
+      return Package // Box icon
     case 'unloading':
-      return 'unarchive' // Box open icon
+      return PackageOpen // Box open icon
     case 'driving':
-      return 'local_shipping' // Truck icon
+      return Truck // Truck icon
     case 'transfer':
-      return 'swap_horiz' // Transfer icon
+      return ArrowLeftRight // Transfer icon
     default:
-      return 'event' // Default calendar icon
+      return Calendar // Default calendar icon
   }
 }
 
@@ -1277,15 +1299,6 @@ const formatDateTime = (dateString: string) => {
 }
 
 
-const getSeverityColor = (severity: string) => {
-  const colors: Record<string, string> = {
-    minor: 'warning',
-    moderate: 'orange',
-    severe: 'negative'
-  }
-  return colors[severity] || 'grey'
-}
-
 // Drag and drop handlers for loading zones
 const handleDragStart = (item: any, type: 'container' | 'item') => {
   if (!allowPlanningEdits.value) return
@@ -1445,19 +1458,19 @@ defineExpose({
 <template>
   <div class="moveday-container">
     <!-- Session Selector (always visible when move is loaded) -->
-    <div v-if="props.currentSavedMoveId" class="q-pa-md q-mb-md bg-grey-2 rounded-borders">
+    <div v-if="props.currentSavedMoveId" class="q-pa-md q-mb-md moveday-shell">
       <!-- Breadcrumb Header (only show when session is active) -->
-      <div v-if="activeSession" class="q-mb-md q-pa-md bg-grey-2 rounded-borders">
+      <div v-if="activeSession" class="q-mb-md q-pa-md session-header-card">
         <div class="row items-center justify-between">
           <div class="col-auto">
-            <div class="text-h5">
+            <div class="text-h5 session-header-title">
               {{ currentMoveName || sessionDetails?.session?.move_name || 'Move' }}
-              <span class="text-grey-6">/</span>
+              <span class="crumb-divider">/</span>
               {{ activeSession.session_name || 'Session' }}
             </div>
-            <q-badge class="q-mt-xs" :color="stageChip.color" text-color="white">
+            <span class="status-pill q-mt-xs" :class="'stage-pill--' + sessionStage">
               {{ stageChip.label }}
-            </q-badge>
+            </span>
           </div>
           <div class="col-auto row items-center q-gutter-sm">
             <q-select
@@ -1490,7 +1503,7 @@ defineExpose({
 
       <!-- Session Selector Pills - Progress Line Design (always visible) -->
       <div class="q-mt-md">
-        <div class="text-caption text-grey-7 q-mb-sm">Sessions</div>
+        <div class="section-eyebrow q-mb-sm">Sessions</div>
         <div class="session-progress-wrapper">
           <div class="session-progress-container">
             <div
@@ -1509,7 +1522,7 @@ defineExpose({
               >
                 <!-- Icon Circle (for session type) -->
                 <div class="session-icon-circle" :class="getSessionColorClass(session.session_type)">
-                  <q-icon :name="getSessionIcon(session.session_type)" size="18px" />
+                  <component :is="getSessionIcon(session.session_type)" :size="18" />
                 </div>
 
                 <!-- Session Info - Full details when selected -->
@@ -1541,7 +1554,7 @@ defineExpose({
                       </template>
                     </q-popup-edit>
                     {{ formatSessionDate(session.session_date || session.move_date) }}
-                    <q-icon name="edit" size="12px" class="q-ml-xs" />
+                    <Pencil :size="12" class="q-ml-xs" />
                   </div>
                 </div>
                 <!-- Compact view when not selected - just date -->
@@ -1571,10 +1584,10 @@ defineExpose({
                 @click="showCreateSession = true"
               >
                 <div class="session-number-circle session-add-circle">
-                  <q-icon name="add" size="20px" />
+                  <Plus :size="20" />
                 </div>
                 <div class="session-pill-content">
-                  <div class="session-name text-weight-medium">Add Session</div>
+                  <div class="session-name text-weight-medium">Add session</div>
                 </div>
               </div>
             </div>
@@ -1626,47 +1639,80 @@ defineExpose({
 
       <!-- Overview Tab -->
       <div v-if="moveDayTab === 'overview'">
-        <div class="row q-col-gutter-md">
-          <!-- Progress Cards -->
-          <div class="col-12 col-md-4">
-            <q-card flat bordered>
-              <q-card-section>
-                <div class="text-h4 text-primary">{{ progressStats.boxes_loaded }} / {{ progressStats.total_containers }}</div>
-                <div class="text-caption text-grey-7">Boxes Loaded</div>
-                <q-linear-progress :value="progressPercentage / 100" color="primary" class="q-mt-sm" />
-              </q-card-section>
-            </q-card>
+        <!-- Session progress StatCard tiles -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon tone-accent"><Package :size="22" /></span>
+              <span class="stat-eyebrow">Boxes loaded</span>
+            </div>
+            <div class="stat-value stat-value--data">{{ progressStats.boxes_loaded }}<span class="stat-denominator"> / {{ progressStats.total_containers }}</span></div>
+            <div class="stat-progress">
+              <div class="stat-progress-fill" :style="{ width: progressPercentage + '%' }"></div>
+            </div>
+            <div class="stat-sub">{{ progressPercentage }}% of boxes on the truck</div>
           </div>
-          <div class="col-12 col-md-4">
-            <q-card flat bordered>
-              <q-card-section>
-                <div class="text-h4 text-cyan">{{ progressStats.boxes_unloaded }} / {{ progressStats.boxes_loaded }}</div>
-                <div class="text-caption text-grey-7">Boxes Unloaded</div>
-                <q-linear-progress :value="unloadProgressPercentage / 100" color="cyan" class="q-mt-sm" />
-              </q-card-section>
-            </q-card>
+
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon tone-cyan"><PackageOpen :size="22" /></span>
+              <span class="stat-eyebrow">Boxes unloaded</span>
+            </div>
+            <div class="stat-value stat-value--data">{{ progressStats.boxes_unloaded }}<span class="stat-denominator"> / {{ progressStats.boxes_loaded }}</span></div>
+            <div class="stat-progress">
+              <div class="stat-progress-fill" :style="{ width: unloadProgressPercentage + '%' }"></div>
+            </div>
+            <div class="stat-sub">{{ unloadProgressPercentage }}% of loaded boxes off the truck</div>
           </div>
-          <div class="col-12 col-md-4">
-            <q-card flat bordered>
-              <q-card-section>
-                <div class="text-h4 text-orange">{{ progressStats.damage_reports_count }}</div>
-                <div class="text-caption text-grey-7">Damage Reports</div>
-              </q-card-section>
-            </q-card>
+
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon tone-success"><PackageCheck :size="22" /></span>
+              <span class="stat-eyebrow">Boxes unpacked</span>
+            </div>
+            <div class="stat-value stat-value--data">{{ progressStats.boxes_unpacked }}</div>
+            <div class="stat-sub">Out of the box at the destination</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon tone-accent"><Boxes :size="22" /></span>
+              <span class="stat-eyebrow">Total boxes</span>
+            </div>
+            <div class="stat-value stat-value--data">{{ progressStats.total_containers }}</div>
+            <div class="stat-sub">In this session's plan</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon tone-warning"><TriangleAlert :size="22" /></span>
+              <span class="stat-eyebrow">Damage reports</span>
+            </div>
+            <div class="stat-value stat-value--data">{{ progressStats.damage_reports_count }}</div>
+            <div class="stat-sub">Logged this session</div>
+          </div>
+
+          <div class="stat-card">
+            <div class="stat-card-top">
+              <span class="stat-icon tone-beacon"><Users :size="22" /></span>
+              <span class="stat-eyebrow">Crew</span>
+            </div>
+            <div class="stat-value stat-value--data">{{ progressStats.crew_count }}</div>
+            <div class="stat-sub">People on this session</div>
           </div>
         </div>
 
         <!-- Truck Configuration -->
         <div class="q-mt-md">
-          <q-card flat bordered>
+          <q-card flat bordered class="content-card">
             <q-card-section>
-            <div class="text-h6 q-mb-md">Truck & Transfer Configuration</div>
+            <div class="card-title q-mb-md">Truck and transfer configuration</div>
               <div class="row q-col-gutter-md">
                 <div class="col-12 col-md-6">
                   <q-select
                     v-model="truckSize"
                     :options="['van', '10ft', '15ft', '17ft', '20ft', '26ft']"
-                    label="Truck Size"
+                    label="Truck size"
                     outlined
                     dense
                     @update:model-value="setTruckSize"
@@ -1681,8 +1727,8 @@ defineExpose({
                     unelevated
                     color="primary"
                     icon="view_in_ar"
-                    label="Assign Transfer Zones"
-                    class="full-width"
+                    label="Assign transfer zones"
+                    class="full-width action-btn"
                     :disable="!truckSize || !allowPlanningEdits"
                     @click="openLoadingPlan"
                   />
@@ -1694,15 +1740,15 @@ defineExpose({
 
         <!-- Quick Actions -->
         <div class="q-mt-md">
-          <div class="text-h6 q-mb-md">Quick Actions</div>
+          <div class="section-eyebrow q-mb-md">Quick actions</div>
           <div class="row q-col-gutter-sm">
             <div class="col-12 col-md-3">
               <q-btn
                 unelevated
                 color="primary"
                 icon="qr_code_scanner"
-                label="Scan Box"
-                class="full-width"
+                label="Scan box"
+                class="full-width action-btn"
                 @click="showScanDialog = true"
                 :disable="!canScan"
               />
@@ -1712,8 +1758,8 @@ defineExpose({
                 unelevated
                 color="warning"
                 icon="report_problem"
-                label="Report Damage"
-                class="full-width"
+                label="Report damage"
+                class="full-width action-btn"
                 @click="showDamageDialog = true"
                 :disable="!canScan"
               />
@@ -1723,18 +1769,17 @@ defineExpose({
                 unelevated
                 color="secondary"
                 icon="group_add"
-                label="Add Crew"
-                class="full-width"
+                label="Add crew"
+                class="full-width action-btn"
                 @click="showCrewDialog = true"
               />
             </div>
             <div class="col-12 col-md-3">
               <q-btn
                 unelevated
-                color="grey-7"
                 icon="print"
-                label="Print Labels"
-                class="full-width"
+                label="Print labels"
+                class="full-width action-btn action-btn--quiet"
                 disable
               />
             </div>
@@ -1744,10 +1789,10 @@ defineExpose({
 
       <!-- Timeline Tab -->
       <div v-else-if="moveDayTab === 'timeline'">
-        <q-card flat bordered>
+        <q-card flat bordered class="content-card">
           <q-card-section>
-            <div class="text-h6 q-mb-md">Activity Timeline</div>
-            <q-timeline color="primary" v-if="sessionDetails?.timeline?.length > 0">
+            <div class="card-title q-mb-md">Activity timeline</div>
+            <q-timeline color="primary" v-if="sessionDetails?.timeline?.length > 0" class="moveday-timeline">
               <q-timeline-entry
                 v-for="event in sessionDetails.timeline"
                 :key="event.id"
@@ -1758,7 +1803,7 @@ defineExpose({
                 <div v-if="event.created_by">By: {{ event.created_by }}</div>
               </q-timeline-entry>
             </q-timeline>
-            <div v-else class="text-center text-grey-6 q-pa-lg">
+            <div v-else class="empty-state q-pa-lg">
               No activity yet
             </div>
           </q-card-section>
@@ -1767,41 +1812,43 @@ defineExpose({
 
       <!-- Progress Tab -->
       <div v-else-if="moveDayTab === 'checklist'">
-        <q-card flat bordered>
+        <q-card flat bordered class="content-card">
           <q-card-section>
-            <div class="text-h6 q-mb-md">Recent Scans</div>
+            <div class="card-title q-mb-md">Recent scans</div>
             <q-list v-if="sessionDetails?.scans?.length > 0" separator>
-              <q-item v-for="scan in sessionDetails.scans" :key="scan.id">
+              <q-item v-for="scan in sessionDetails.scans" :key="scan.id" class="scan-row">
                 <q-item-section avatar>
-                  <q-avatar :color="scan.scan_type === 'loaded' ? 'primary' : 'cyan'" text-color="white" icon="inventory_2" />
+                  <span class="scan-icon" :class="scan.scan_type === 'loaded' ? 'tone-accent' : 'tone-cyan'">
+                    <Package :size="20" />
+                  </span>
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>{{ scan.container_name }}</q-item-label>
-                  <q-item-label caption>{{ scan.scan_type }} - {{ formatDateTime(scan.scanned_at) }}</q-item-label>
+                  <q-item-label class="scan-name">{{ scan.container_name }}</q-item-label>
+                  <q-item-label caption class="scan-meta">{{ scan.scan_type }} - {{ formatDateTime(scan.scanned_at) }}</q-item-label>
                 </q-item-section>
                 <q-item-section side>
-                  <q-badge :label="scan.scan_type" />
+                  <span class="status-pill" :class="'scan-pill--' + scan.scan_type">{{ scan.scan_type }}</span>
                 </q-item-section>
               </q-item>
             </q-list>
-            <div v-else class="text-center text-grey-6 q-pa-lg">
+            <div v-else class="empty-state q-pa-lg">
               No scans recorded yet
             </div>
           </q-card-section>
         </q-card>
 
         <!-- Damage Reports -->
-        <q-card flat bordered class="q-mt-md" v-if="sessionDetails?.damage_reports?.length > 0">
+        <q-card flat bordered class="q-mt-md content-card" v-if="sessionDetails?.damage_reports?.length > 0">
           <q-card-section>
-            <div class="text-h6 q-mb-md">Damage Reports</div>
+            <div class="card-title q-mb-md">Damage reports</div>
             <q-list separator>
-              <q-item v-for="report in sessionDetails.damage_reports" :key="report.id">
+              <q-item v-for="report in sessionDetails.damage_reports" :key="report.id" class="scan-row">
                 <q-item-section>
-                  <q-item-label>{{ report.description }}</q-item-label>
-                  <q-item-label caption>{{ report.container_name || report.item_name }} - {{ formatDateTime(report.reported_at) }}</q-item-label>
+                  <q-item-label class="scan-name">{{ report.description }}</q-item-label>
+                  <q-item-label caption class="scan-meta">{{ report.container_name || report.item_name }} - {{ formatDateTime(report.reported_at) }}</q-item-label>
                 </q-item-section>
                 <q-item-section side>
-                  <q-badge :color="getSeverityColor(report.severity)" :label="report.severity" />
+                  <span class="status-pill" :class="'severity-pill--' + report.severity">{{ report.severity }}</span>
                 </q-item-section>
               </q-item>
             </q-list>
@@ -1811,25 +1858,27 @@ defineExpose({
 
       <!-- Crew Tab -->
       <div v-else-if="moveDayTab === 'crew'">
-        <q-card flat bordered>
+        <q-card flat bordered class="content-card">
           <q-card-section>
             <div class="row items-center justify-between q-mb-md">
-              <div class="text-h6">Move Crew</div>
-              <q-btn color="primary" icon="add" label="Add Member" @click="showCrewDialog = true" unelevated dense />
+              <div class="card-title">Move crew</div>
+              <q-btn color="primary" icon="add" label="Add member" @click="showCrewDialog = true" unelevated dense class="action-btn" />
             </div>
             <q-list v-if="sessionDetails?.crew?.length > 0" separator>
-              <q-item v-for="member in sessionDetails.crew" :key="member.id">
+              <q-item v-for="member in sessionDetails.crew" :key="member.id" class="scan-row">
                 <q-item-section avatar>
-                  <q-avatar color="primary" text-color="white" icon="person" />
+                  <span class="scan-icon tone-accent">
+                    <User :size="20" />
+                  </span>
                 </q-item-section>
                 <q-item-section>
-                  <q-item-label>{{ member.name }}</q-item-label>
-                  <q-item-label caption>{{ member.role || 'Helper' }}</q-item-label>
-                  <q-item-label caption v-if="member.phone">{{ member.phone }}</q-item-label>
+                  <q-item-label class="scan-name">{{ member.name }}</q-item-label>
+                  <q-item-label caption class="scan-meta">{{ member.role || 'Helper' }}</q-item-label>
+                  <q-item-label caption class="scan-meta" v-if="member.phone">{{ member.phone }}</q-item-label>
                 </q-item-section>
               </q-item>
             </q-list>
-            <div v-else class="text-center text-grey-6 q-pa-lg">
+            <div v-else class="empty-state q-pa-lg">
               No crew members added yet
             </div>
           </q-card-section>
@@ -1839,29 +1888,29 @@ defineExpose({
 
     <!-- Create Session Dialog -->
     <q-dialog v-model="showCreateSession">
-      <q-card style="min-width: 400px">
+      <q-card style="min-width: 400px" class="dialog-card">
         <q-card-section>
-          <div class="text-h6">New Move Session</div>
-          <div v-if="currentMoveName || currentMoveLocations" class="text-caption text-grey-7 q-mt-xs">
+          <div class="dialog-title">New move session</div>
+          <div v-if="currentMoveName || currentMoveLocations" class="text-caption text-soft q-mt-xs">
             This session will use the move details from the Planning tab
           </div>
         </q-card-section>
 
         <q-card-section class="q-pt-none">
-          <q-banner v-if="!hasLoadedMove" class="bg-orange-1 text-orange-10 q-mb-md" rounded>
+          <q-banner v-if="!hasLoadedMove" class="banner banner--warning q-mb-md" rounded>
             Save your move plan first so sessions stay linked to the right locations and dates.
           </q-banner>
 
-          <div v-if="currentMoveName || currentMoveLocations" class="q-mb-md q-pa-sm bg-blue-1 rounded-borders">
-            <div class="text-caption text-grey-7">Auto-populated from:</div>
-            <div class="text-subtitle2">{{ currentMoveName || 'Current Move' }}</div>
+          <div v-if="currentMoveName || currentMoveLocations" class="q-mb-md q-pa-sm context-card">
+            <div class="section-eyebrow">Auto-populated from</div>
+            <div class="text-subtitle2 context-card-title">{{ currentMoveName || 'Current move' }}</div>
             <div v-if="currentMoveLocations" class="text-body2">{{ currentMoveLocations }}</div>
-            <div class="text-caption">Move window: {{ moveWindowLabel }}</div>
+            <div class="text-caption context-card-meta">Move window: {{ moveWindowLabel }}</div>
           </div>
 
           <!-- Session Type Selector -->
           <div class="q-mb-md">
-            <div class="text-body2 text-weight-medium q-mb-sm">Session Type</div>
+            <div class="text-body2 text-weight-medium q-mb-sm">Session type</div>
             <q-btn-toggle
               v-model="newSession.session_type"
               :options="sessionTypeOptions"
@@ -1878,7 +1927,7 @@ defineExpose({
             <div class="col-12 col-md-6">
               <q-input
                 v-model="newSession.session_name"
-                label="Session Name"
+                label="Session name"
                 placeholder="e.g. Loading Day 1"
                 outlined
                 dense
@@ -1890,7 +1939,7 @@ defineExpose({
               <q-input
                 v-model="newSession.session_date"
                 type="date"
-                label="Session Date"
+                label="Session date"
                 outlined
                 dense
                 :hint="`Within ${moveWindowLabel}`"
@@ -1899,7 +1948,7 @@ defineExpose({
                 :rules="[val => !!val || 'Session date is required']"
               >
                 <template v-slot:prepend>
-                  <q-icon name="event" />
+                  <Calendar :size="18" class="field-icon" />
                 </template>
               </q-input>
             </div>
@@ -1907,11 +1956,11 @@ defineExpose({
 
           <!-- Driving Session - Waypoint Selectors -->
           <div v-if="newSession.session_type === 'driving'" class="transfer-block q-mb-lg">
-            <div class="text-body1 text-weight-medium q-mb-sm">
-              <q-icon name="local_shipping" class="q-mr-sm" />
-              Driving Route
+            <div class="text-body1 text-weight-medium q-mb-sm transfer-block-title">
+              <Truck :size="18" class="q-mr-sm field-icon" />
+              Driving route
             </div>
-            <div class="text-caption text-grey-7 q-mb-md">
+            <div class="text-caption text-soft q-mb-md">
               Select the waypoints for this driving segment. Add waypoints in the Move Planning tab first.
             </div>
             <div class="row q-col-gutter-md">
@@ -1919,7 +1968,7 @@ defineExpose({
                 <q-select
                   v-model="newSession.start_waypoint_id"
                   :options="waypointOptions"
-                  label="Start Waypoint"
+                  label="Start waypoint"
                   outlined
                   dense
                   emit-value
@@ -1928,7 +1977,7 @@ defineExpose({
                   :disable="waypointOptions.length === 0"
                 >
                   <template v-slot:prepend>
-                    <q-icon name="trip_origin" color="primary" />
+                    <Circle :size="16" class="icon-accent" />
                   </template>
                 </q-select>
               </div>
@@ -1936,7 +1985,7 @@ defineExpose({
                 <q-select
                   v-model="newSession.end_waypoint_id"
                   :options="waypointOptions"
-                  label="End Waypoint"
+                  label="End waypoint"
                   outlined
                   dense
                   emit-value
@@ -1945,27 +1994,27 @@ defineExpose({
                   :disable="waypointOptions.length === 0"
                 >
                   <template v-slot:prepend>
-                    <q-icon name="place" color="positive" />
+                    <MapPin :size="16" class="icon-success" />
                   </template>
                 </q-select>
               </div>
             </div>
-            <q-banner v-if="waypointOptions.length === 0" class="bg-orange-1 text-orange-10 q-mt-md" rounded>
-              <q-icon name="info" class="q-mr-sm" />
+            <q-banner v-if="waypointOptions.length === 0" class="banner banner--warning q-mt-md" rounded>
+              <Info :size="16" class="q-mr-sm banner-icon" />
               No waypoints defined. Add waypoints in the Move Planning tab under "Costs & Route" to create driving sessions.
             </q-banner>
           </div>
 
           <!-- Non-Driving Sessions - Location Transfer -->
           <div v-if="newSession.session_type !== 'driving'" class="transfer-block q-mb-lg">
-            <div class="text-body1 text-weight-medium q-mb-sm">{{ startSelectLabel }}</div>
-            <div class="text-caption text-grey-7 q-mb-xs">
+            <div class="text-body1 text-weight-medium q-mb-sm transfer-block-title">{{ startSelectLabel }}</div>
+            <div class="text-caption text-soft q-mb-xs">
               {{ startSelectHint }}
             </div>
             <q-select
               v-model="newSession.start_location_id"
               :options="startOptionsForType"
-              label="Start Source"
+              label="Start source"
               outlined
               dense
               emit-value
@@ -1977,17 +2026,17 @@ defineExpose({
             />
             <q-banner
               v-if="!startOptionsLoading && startOptionsForType.length === 0"
-              class="bg-orange-1 text-orange-10 q-mt-sm"
+              class="banner banner--warning q-mt-sm"
               rounded
             >
-              <q-icon name="info" class="q-mr-sm" />
+              <Info :size="16" class="q-mr-sm banner-icon" />
               Set up a prior session to provide an eligible starting point for this session type.
             </q-banner>
             <q-select
               v-if="startCollectionChoices.length > 0"
               v-model="newSession.start_collection_id"
               :options="startCollectionChoices"
-              label="Source Collection (optional)"
+              label="Source collection (optional)"
               outlined
               dense
               emit-value
@@ -1999,7 +2048,7 @@ defineExpose({
           </div>
 
           <div v-if="newSession.session_type !== 'driving'" class="transfer-block q-mb-lg">
-            <div class="text-body1 text-weight-medium q-mb-sm">Transfer To</div>
+            <div class="text-body1 text-weight-medium q-mb-sm transfer-block-title">Transfer to</div>
             <div v-if="showEndModeToggle">
               <q-option-group
                 v-model="newSession.end_mode"
@@ -2008,7 +2057,7 @@ defineExpose({
                 inline
               />
             </div>
-            <div v-else class="text-caption text-grey-7 q-mb-sm">
+            <div v-else class="text-caption text-soft q-mb-sm">
               <template v-if="forceTruckDestination">
                 This session ends in a truck. Choose an existing truck or create a new one.
               </template>
@@ -2020,7 +2069,7 @@ defineExpose({
               <q-select
                 v-model="newSession.end_location_id"
                 :options="locationOptions"
-                label="Destination Location"
+                label="Destination location"
                 outlined
                 dense
                 emit-value
@@ -2034,7 +2083,7 @@ defineExpose({
                 v-if="endCollectionChoices.length > 0"
                 v-model="newSession.end_collection_id"
                 :options="endCollectionChoices"
-                label="Destination Collection (optional)"
+                label="Destination collection (optional)"
                 outlined
                 dense
                 emit-value
@@ -2063,7 +2112,7 @@ defineExpose({
                   <q-select
                     v-model="newSession.truck_size_hint"
                     :options="truckSizeOptionList"
-                    label="Truck Size"
+                    label="Truck size"
                     outlined
                     dense
                     emit-value
@@ -2071,9 +2120,9 @@ defineExpose({
                   />
                 </div>
                 <div class="col-12 col-md-6">
-                  <q-banner rounded class="bg-blue-1 text-primary q-pa-sm">
-                    <div class="text-body2">Zones auto-created</div>
-                    <div class="text-caption text-grey-7">
+                  <q-banner rounded class="banner banner--info q-pa-sm">
+                    <div class="text-body2 banner-title">Zones auto-created</div>
+                    <div class="text-caption text-soft">
                       We'll add {{ truckZoneOptions.length }} truck zones (front to rear). You can fine-tune assignments after the session starts.
                     </div>
                   </q-banner>
@@ -2085,7 +2134,7 @@ defineExpose({
                 <q-select
                   v-model="newSession.existing_truck_id"
                   :options="existingTruckOptions"
-                  label="Select Truck"
+                  label="Select truck"
                   outlined
                   dense
                   emit-value
@@ -2103,12 +2152,12 @@ defineExpose({
                     </q-item>
                   </template>
                 </q-select>
-                <div class="text-caption text-grey-7 q-mt-sm">
+                <div class="text-caption text-soft q-mt-sm">
                   Items will be loaded into this truck's existing zones.
                 </div>
               </div>
 
-              <div v-if="newSession.truck_mode === 'new' || existingTruckOptions.length === 0" class="text-caption text-grey-7 q-mt-sm">
+              <div v-if="newSession.truck_mode === 'new' || existingTruckOptions.length === 0" class="text-caption text-soft q-mt-sm">
                 We'll create truck zones as collections so your truck can be the next session's start location.
               </div>
             </div>
@@ -2118,25 +2167,25 @@ defineExpose({
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="grey" v-close-popup />
-          <q-btn unelevated label="Create" color="primary" @click="createSession" />
+          <q-btn flat label="Cancel" class="ghost-btn" v-close-popup />
+          <q-btn unelevated label="Create" color="primary" class="action-btn" @click="createSession" />
         </q-card-actions>
       </q-card>
     </q-dialog>
 
     <!-- Scan Dialog -->
     <q-dialog v-model="showScanDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="min-width: 400px" class="dialog-card">
         <q-card-section>
-          <div class="text-h6">{{ scanForm.scan_target === 'container' ? 'Scan Box' : 'Scan Loose Item' }}</div>
+          <div class="dialog-title">{{ scanForm.scan_target === 'container' ? 'Scan box' : 'Scan loose item' }}</div>
         </q-card-section>
 
         <q-card-section class="q-pt-none">
           <q-option-group
             v-model="scanForm.scan_target"
             :options="[
-              { label: 'Box/Container', value: 'container' },
-              { label: 'Loose Item', value: 'item' }
+              { label: 'Box / container', value: 'container' },
+              { label: 'Loose item', value: 'item' }
             ]"
             color="primary"
             inline
@@ -2147,7 +2196,7 @@ defineExpose({
             v-if="scanForm.scan_target === 'container'"
             v-model="scanForm.container_id"
             :options="containerOptions"
-            label="Select Box"
+            label="Select box"
             outlined
             dense
             emit-value
@@ -2159,7 +2208,7 @@ defineExpose({
             v-if="scanForm.scan_target === 'item'"
             v-model="scanForm.item_id"
             :options="looseItemOptions"
-            label="Select Item"
+            label="Select item"
             outlined
             dense
             emit-value
@@ -2170,7 +2219,7 @@ defineExpose({
           <q-select
             v-model="scanForm.scan_type"
             :options="['loaded', 'unloaded', 'arrived_at_room', 'unpacked']"
-            label="Scan Type"
+            label="Scan type"
             outlined
             dense
             class="q-mb-md"
@@ -2178,7 +2227,7 @@ defineExpose({
           <q-input
             v-if="scanForm.scan_type === 'arrived_at_room' || scanForm.scan_type === 'unloaded'"
             v-model="scanForm.destination_room"
-            label="Destination Room"
+            label="Destination room"
             outlined
             dense
             class="q-mb-md"
@@ -2187,17 +2236,17 @@ defineExpose({
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="grey" v-close-popup />
-          <q-btn unelevated label="Record Scan" color="primary" @click="recordScan" :disable="!canScan" />
+          <q-btn flat label="Cancel" class="ghost-btn" v-close-popup />
+          <q-btn unelevated label="Record scan" color="primary" class="action-btn" @click="recordScan" :disable="!canScan" />
         </q-card-actions>
       </q-card>
     </q-dialog>
 
     <!-- Damage Dialog -->
     <q-dialog v-model="showDamageDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="min-width: 400px" class="dialog-card">
         <q-card-section>
-          <div class="text-h6">Report Damage</div>
+          <div class="dialog-title">Report damage</div>
         </q-card-section>
 
         <q-card-section class="q-pt-none">
@@ -2224,17 +2273,17 @@ defineExpose({
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="grey" v-close-popup />
-          <q-btn unelevated label="Submit Report" color="warning" @click="reportDamage" />
+          <q-btn flat label="Cancel" class="ghost-btn" v-close-popup />
+          <q-btn unelevated label="Submit report" color="warning" class="action-btn" @click="reportDamage" />
         </q-card-actions>
       </q-card>
     </q-dialog>
 
     <!-- Crew Dialog -->
     <q-dialog v-model="showCrewDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="min-width: 400px" class="dialog-card">
         <q-card-section>
-          <div class="text-h6">Add Crew Member</div>
+          <div class="dialog-title">Add crew member</div>
         </q-card-section>
 
         <q-card-section class="q-pt-none">
@@ -2246,28 +2295,27 @@ defineExpose({
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="grey" v-close-popup />
-          <q-btn unelevated label="Add Member" color="primary" @click="addCrewMember" />
+          <q-btn flat label="Cancel" class="ghost-btn" v-close-popup />
+          <q-btn unelevated label="Add member" color="primary" class="action-btn" @click="addCrewMember" />
         </q-card-actions>
       </q-card>
     </q-dialog>
 
     <!-- Transfer Plan Dialog -->
     <q-dialog v-model="showLoadingPlanDialog" maximized>
-      <q-card>
+      <q-card class="plan-dialog-card">
         <q-card-section class="row items-center q-pb-none">
-          <div class="text-h6">Truck Transfer Plan</div>
+          <div class="dialog-title">Truck transfer plan</div>
           <q-space />
             <template v-if="isProPlan">
               <q-btn
                 unelevated
-                color="primary"
                 icon="auto_fix_high"
-                label="Smart Transfer"
+                label="Smart transfer"
                 :loading="isSmartLoading"
                 :disable="!allowPlanningEdits"
                 @click="smartLoad"
-                class="q-mr-md"
+                class="q-mr-md shimmer-btn"
               >
                 <q-tooltip>Automatically assign items to zones by weight and fragility</q-tooltip>
               </q-btn>
@@ -2275,23 +2323,22 @@ defineExpose({
           <template v-else>
             <q-btn
               outline
-              color="grey-5"
-              text-color="grey-7"
               icon="lock"
-              label="Smart Transfer (Pro)"
-              class="q-mr-md"
+              label="Smart transfer (Pro)"
+              class="q-mr-md locked-btn"
               @click="goToPricing"
             >
               <q-tooltip>Upgrade to Pro to unlock Smart Load</q-tooltip>
             </q-btn>
           </template>
-          <q-btn icon="close" flat round dense v-close-popup />
+          <q-btn icon="close" flat round dense v-close-popup class="ghost-btn" />
         </q-card-section>
 
         <q-card-section v-if="loadingPlan" class="loading-plan-container">
-          <div class="text-subtitle2 q-mb-md">
-            Truck Size: {{ activeSession?.truck_size }} | Zones: {{ activeSession?.num_zones }}
-            <q-badge color="grey" class="q-ml-md">Drag items between zones to organize your transfer</q-badge>
+          <div class="plan-meta q-mb-md">
+            <span class="plan-meta-item">Truck size <span class="plan-meta-value">{{ activeSession?.truck_size }}</span></span>
+            <span class="plan-meta-item">Zones <span class="plan-meta-value">{{ activeSession?.num_zones }}</span></span>
+            <span class="plan-hint">Drag items between zones to organize your transfer</span>
           </div>
 
           <div class="row q-col-gutter-md">
@@ -2306,12 +2353,12 @@ defineExpose({
                 @dragleave="handleDragLeave"
                 @drop="handleDrop($event, null)"
               >
-                <q-card-section class="bg-grey-3">
-                  <div class="text-h6 text-grey-9">
-                    <q-icon name="inbox" class="q-mr-sm" />
-                    Transfer Staging
+                <q-card-section class="zone-head zone-head--staging">
+                  <div class="zone-title">
+                    <Inbox :size="18" class="q-mr-sm zone-title-icon" />
+                    Transfer staging
                   </div>
-                  <div class="text-caption text-grey-7">
+                  <div class="zone-count">
                     {{ unassignedContainers.length + unassignedItems.length }} items
                   </div>
                 </q-card-section>
@@ -2319,16 +2366,14 @@ defineExpose({
                 <q-card-section class="zone-items-container">
                   <!-- Unassigned Containers -->
                   <div v-if="unassignedContainers.length > 0" class="q-mb-md">
-                    <div class="text-caption text-grey-7 q-mb-xs">Boxes/Containers:</div>
+                    <div class="group-eyebrow q-mb-xs">Boxes and containers</div>
                     <q-chip
                       v-for="container in unassignedContainers"
                       :key="container.id"
                       :draggable="allowPlanningEdits"
                       clickable
-                      color="blue-grey-2"
-                      text-color="blue-grey-9"
                       icon="inventory_2"
-                      class="draggable-item q-mb-xs"
+                      class="draggable-item plan-chip plan-chip--container q-mb-xs"
                       @dragstart="handleDragStart(container, 'container')"
                       @dragend="handleDragLeave"
                     >
@@ -2339,16 +2384,15 @@ defineExpose({
 
                   <!-- Unassigned Loose Items -->
                   <div v-if="unassignedItems.length > 0">
-                    <div class="text-caption text-grey-7 q-mb-xs">Loose Items:</div>
+                    <div class="group-eyebrow q-mb-xs">Loose items</div>
                     <q-chip
                       v-for="item in unassignedItems"
                       :key="item.id"
                       :draggable="allowPlanningEdits"
                       clickable
-                      color="grey-3"
-                      text-color="grey-9"
                       :icon="item.fragile ? 'warning' : 'label'"
-                      class="draggable-item q-mb-xs"
+                      class="draggable-item plan-chip plan-chip--item q-mb-xs"
+                      :class="{ 'plan-chip--fragile': item.fragile }"
                       @dragstart="handleDragStart(item, 'item')"
                       @dragend="handleDragLeave"
                     >
@@ -2357,8 +2401,8 @@ defineExpose({
                     </q-chip>
                   </div>
 
-                  <div v-if="unassignedContainers.length === 0 && unassignedItems.length === 0" class="text-grey-6 text-center q-pa-md">
-                    <q-icon name="check_circle" size="32px" color="positive" />
+                  <div v-if="unassignedContainers.length === 0 && unassignedItems.length === 0" class="empty-state q-pa-md">
+                    <CircleCheck :size="32" class="icon-success" />
                     <div class="text-caption q-mt-sm">All items assigned!</div>
                   </div>
                 </q-card-section>
@@ -2383,20 +2427,28 @@ defineExpose({
                     @drop="handleDrop($event, zone)"
                   >
                     <q-card-section
+                      class="zone-head"
                       :class="{
-                        'bg-orange-9 text-white': zone === 1,
-                        'bg-blue-9 text-white': zone !== 1 && zone !== activeSession?.num_zones,
-                        'bg-green-9 text-white': zone === activeSession?.num_zones
+                        'zone-head--front': zone === 1,
+                        'zone-head--middle': zone !== 1 && zone !== activeSession?.num_zones,
+                        'zone-head--rear': zone === activeSession?.num_zones
                       }"
                     >
-                      <div class="text-h6">
-                        <q-icon :name="zone === 1 ? 'fitness_center' : zone === activeSession?.num_zones ? 'bubble_chart' : 'widgets'" class="q-mr-sm" />
+                      <div class="zone-title">
+                        <component :is="zone === 1 ? Dumbbell : zone === activeSession?.num_zones ? Feather : Boxes" :size="18" class="q-mr-sm zone-title-icon" />
                         Zone {{ zone }}
                       </div>
-                      <div class="text-caption">
-                        {{ zone === 1 ? 'Front (Heavy)' : zone === activeSession?.num_zones ? 'Rear (Light/Fragile)' : 'Middle' }}
-                      </div>
-                      <div class="text-caption">
+                      <span
+                        class="status-pill zone-role-pill"
+                        :class="{
+                          'zone-role-pill--front': zone === 1,
+                          'zone-role-pill--middle': zone !== 1 && zone !== activeSession?.num_zones,
+                          'zone-role-pill--rear': zone === activeSession?.num_zones
+                        }"
+                      >
+                        {{ zone === 1 ? 'Front (heavy)' : zone === activeSession?.num_zones ? 'Rear (light / fragile)' : 'Middle' }}
+                      </span>
+                      <div class="zone-count">
                         {{ (containersByZone[zone] || []).length + (itemsByZone[zone] || []).length }} items
                       </div>
                     </q-card-section>
@@ -2404,16 +2456,14 @@ defineExpose({
                     <q-card-section class="zone-items-container">
                       <!-- Containers in this zone -->
                       <div v-if="containersByZone[zone]?.length > 0" class="q-mb-md">
-                        <div class="text-caption text-grey-7 q-mb-xs">Boxes/Containers:</div>
+                        <div class="group-eyebrow q-mb-xs">Boxes and containers</div>
                         <q-chip
                           v-for="container in containersByZone[zone]"
                           :key="container.id"
                           :draggable="allowPlanningEdits"
                           clickable
-                          color="blue-2"
-                          text-color="blue-9"
                           icon="inventory_2"
-                          class="draggable-item q-mb-xs"
+                          class="draggable-item plan-chip plan-chip--container q-mb-xs"
                           @dragstart="handleDragStart(container, 'container')"
                           @dragend="handleDragLeave"
                         >
@@ -2425,16 +2475,15 @@ defineExpose({
 
                       <!-- Loose items in this zone -->
                       <div v-if="itemsByZone[zone]?.length > 0">
-                        <div class="text-caption text-grey-7 q-mb-xs">Loose Items:</div>
+                        <div class="group-eyebrow q-mb-xs">Loose items</div>
                         <q-chip
                           v-for="item in itemsByZone[zone]"
                           :key="item.id"
                           :draggable="allowPlanningEdits"
                           clickable
-                          color="green-2"
-                          text-color="green-9"
                           :icon="item.fragile ? 'warning' : 'label'"
-                          class="draggable-item q-mb-xs"
+                          class="draggable-item plan-chip plan-chip--item q-mb-xs"
+                          :class="{ 'plan-chip--fragile': item.fragile }"
                           @dragstart="handleDragStart(item, 'item')"
                           @dragend="handleDragLeave"
                         >
@@ -2444,8 +2493,8 @@ defineExpose({
                         </q-chip>
                       </div>
 
-                      <div v-if="!containersByZone[zone]?.length && !itemsByZone[zone]?.length" class="text-grey-6 text-center q-pa-md empty-zone">
-                        <q-icon name="move_down" size="24px" />
+                      <div v-if="!containersByZone[zone]?.length && !itemsByZone[zone]?.length" class="empty-state empty-zone q-pa-md">
+                        <ArrowDownToLine :size="24" />
                         <div class="text-caption q-mt-sm">Drop items here</div>
                       </div>
                     </q-card-section>
@@ -2465,59 +2514,151 @@ defineExpose({
 </template>
 
 <style scoped>
+/* ================= Shell ================= */
 .moveday-container {
   max-width: 100%;
-  background: #F7F8FA;
+  background: var(--bg);
   min-height: 100vh;
+  font-family: var(--font-ui);
 }
 
-.moveday-header {
-  background: white;
-  border-bottom: 1px solid #E0E0E0;
+.moveday-shell {
+  background: transparent;
 }
 
-.subnav {
-  display: flex;
-  justify-content: center;
+/* Token-mapped text helpers (replace Quasar grey classes) */
+.text-soft {
+  color: var(--text-secondary);
 }
 
-.pill-tabs {
-  background: #F0F2F5;
-  border-radius: 8px;
-  padding: 4px;
+.section-eyebrow,
+.group-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.icon-accent {
+  color: var(--accent);
+}
+
+.icon-success {
+  color: var(--success);
+}
+
+.field-icon {
+  color: var(--text-tertiary);
+}
+
+.empty-state {
+  text-align: center;
+  color: var(--text-tertiary);
+}
+
+/* ================= Session header ================= */
+.session-header-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.session-header-title {
+  font-family: var(--font-display);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-title);
+  color: var(--text-primary);
+}
+
+.crumb-divider {
+  color: var(--text-tertiary);
+  margin: 0 var(--sp-1);
+}
+
+/* ================= Status pills =================
+   StatusPill contract: quiet tinted bg + semantic text. */
+.status-pill {
   display: inline-flex;
-  gap: 4px;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.pill-tab {
-  border-radius: 6px;
-  padding: 8px 20px;
-  transition: all 0.2s;
-  color: #5F6368;
-  font-weight: 500;
+.stage-pill--planning {
+  background: var(--surface-sunk);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
 }
 
-.pill-tab:hover {
-  background: rgba(0, 0, 0, 0.05);
+.stage-pill--action {
+  background: var(--accent-quiet);
+  color: var(--accent);
 }
 
-.pill-tab-active {
-  background: white !important;
-  color: #1976D2 !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+.stage-pill--complete {
+  background: var(--success-quiet);
+  color: var(--success);
 }
 
-/* Session Progress Line styles */
+/* Scan states */
+.scan-pill--loaded {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+.scan-pill--unloaded {
+  background: color-mix(in oklab, var(--cyan-500) 14%, transparent);
+  color: var(--cyan-600);
+}
+
+.scan-pill--arrived_at_room {
+  background: color-mix(in oklab, var(--beacon-500) 14%, transparent);
+  color: var(--beacon-600);
+}
+
+.scan-pill--unpacked {
+  background: var(--success-quiet);
+  color: var(--success);
+}
+
+/* Damage severity */
+.severity-pill--minor {
+  background: var(--warning-surface);
+  color: var(--warning-ink);
+}
+
+.severity-pill--moderate {
+  background: var(--danger-quiet);
+  color: var(--danger);
+}
+
+.severity-pill--severe {
+  background: var(--danger-quiet);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+/* ================= Session progress rail ================= */
 .session-progress-wrapper {
   overflow-x: auto;
   overflow-y: hidden;
-  padding-bottom: 8px;
+  padding-bottom: var(--sp-2);
 }
 
 .session-progress-container {
   display: flex;
   align-items: flex-start;
-  padding: 12px;
+  padding: var(--sp-3);
   min-width: max-content;
 }
 
@@ -2531,101 +2672,102 @@ defineExpose({
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: #F5F5F5;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--r-md);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-xs);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition:
+    transform var(--dur-base) var(--ease-standard),
+    box-shadow var(--dur-base) var(--ease-standard),
+    border-color var(--dur-base) var(--ease-standard),
+    background var(--dur-base) var(--ease-standard);
   min-width: 140px;
   position: relative;
 }
 
 .session-pill:hover {
-  background: #E8E8E8;
   transform: translateY(-2px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
+  border-color: var(--accent-quiet-2);
+}
+
+.session-pill:active {
+  transform: scale(0.97);
 }
 
 .session-pill-active {
-  background: #E3F2FD;
-  box-shadow: 0 2px 8px rgba(25, 118, 210, 0.2);
+  background: var(--accent-quiet);
+  border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
 }
 
 .session-pill-active:hover {
-  background: #BBDEFB;
+  background: var(--accent-quiet);
 }
 
-.session-icon-circle {
+.session-icon-circle,
+.session-number-circle {
   width: 32px;
   height: 32px;
-  border-radius: 50%;
-  background: #9E9E9E;
-  color: white;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunk);
+  color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-  font-size: 14px;
-  transition: all 0.3s ease;
+  transition: box-shadow var(--dur-base) var(--ease-standard);
   flex-shrink: 0;
 }
 
 .session-pill-active .session-icon-circle {
-  box-shadow: 0 0 0 4px rgba(25, 118, 210, 0.2);
+  box-shadow: 0 0 0 4px var(--accent-quiet-2);
 }
 
-/* Session Type Colors for Icons */
+/* Session type tints — quiet tinted circle + semantic glyph
+   (colored left-border accent bars removed; banned pattern) */
 .session-type-loading .session-icon-circle {
-  background: #1976D2; /* Blue for loading */
+  background: var(--accent-quiet);
+  color: var(--accent);
 }
 
 .session-type-unloading .session-icon-circle {
-  background: #388E3C; /* Green for unloading */
+  background: var(--success-quiet);
+  color: var(--success);
 }
 
 .session-type-driving .session-icon-circle {
-  background: #7B1FA2; /* Purple for driving */
+  background: color-mix(in oklab, var(--cyan-500) 14%, transparent);
+  color: var(--cyan-600);
 }
 
 .session-type-transfer .session-icon-circle {
-  background: #F57C00; /* Orange for transfer */
-}
-
-/* Session Type Border Colors */
-.session-type-loading {
-  border-left: 4px solid #1976D2;
-}
-
-.session-type-unloading {
-  border-left: 4px solid #388E3C;
-}
-
-.session-type-driving {
-  border-left: 4px solid #7B1FA2;
-}
-
-.session-type-transfer {
-  border-left: 4px solid #F57C00;
+  background: var(--warning-surface);
+  color: var(--warning-ink);
 }
 
 /* Session type badge */
 .session-type-badge {
   display: inline-block;
-  margin-left: 8px;
-  padding: 2px 6px;
-  background: rgba(0, 0, 0, 0.08);
-  border-radius: 4px;
-  font-size: 11px;
-  text-transform: capitalize;
-  color: #616161;
+  margin-left: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface-sunk);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-pill);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-secondary);
 }
 
 .session-pill-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-1);
 }
 
 .session-pill-content-compact {
@@ -2636,83 +2778,494 @@ defineExpose({
 }
 
 .session-date-compact {
-  font-size: 11px;
-  color: #757575;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
   white-space: nowrap;
 }
 
 .session-name {
-  font-size: 14px;
+  font-size: var(--fs-label);
   white-space: nowrap;
-  color: #424242;
-  font-weight: 500;
+  color: var(--text-primary);
+  font-weight: var(--fw-medium);
 }
 
 .session-pill-active .session-name {
-  color: #1976D2;
-  font-weight: 600;
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
 }
 
 .session-date {
-  font-size: 12px;
-  color: #757575;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
   display: flex;
   align-items: center;
 }
 
 .session-pill-active .session-date {
-  color: #1565C0;
+  color: var(--accent);
 }
 
 .session-progress-line {
   width: 40px;
-  height: 3px;
-  background: #E0E0E0;
-  margin: 0 4px;
+  height: 2px;
+  background: var(--border);
+  margin: 0 var(--sp-1);
   align-self: center;
   margin-top: -30px;
-  transition: all 0.3s ease;
+  transition: background var(--dur-base) var(--ease-standard);
 }
 
 .session-progress-line-active {
-  background: #1976D2;
+  background: var(--accent);
 }
 
-/* Add Session Button styles */
+/* Add session pill */
 .session-pill-add {
-  background: #F0F4F8;
-  border: 2px dashed #B0BEC5;
+  background: var(--surface);
+  border: 2px dashed var(--border);
+  box-shadow: none;
 }
 
 .session-pill-add:hover {
-  background: #E3F2FD;
-  border-color: #1976D2;
+  background: var(--accent-quiet);
+  border-color: var(--accent);
   transform: translateY(-2px);
 }
 
 .session-add-circle {
-  background: #B0BEC5;
+  transition:
+    background var(--dur-base) var(--ease-standard),
+    color var(--dur-base) var(--ease-standard);
 }
 
 .session-pill-add:hover .session-add-circle {
-  background: #1976D2;
+  background: var(--accent-quiet-2);
+  color: var(--accent);
 }
 
-/* Loading plan drag and drop styles */
+/* ================= Sub-tabs ================= */
+.subnav {
+  display: flex;
+  justify-content: center;
+}
+
+.pill-tabs {
+  background: var(--surface-sunk);
+  border-radius: var(--r-md);
+  padding: var(--sp-1);
+  display: inline-flex;
+  gap: var(--sp-1);
+}
+
+.pill-tab {
+  border-radius: var(--r-sm);
+  padding: var(--sp-2) var(--sp-5);
+  transition:
+    background var(--dur-fast) var(--ease-standard),
+    color var(--dur-fast) var(--ease-standard);
+  color: var(--text-secondary);
+  font-weight: var(--fw-semibold);
+}
+
+.pill-tab:hover {
+  background: var(--surface-hover);
+}
+
+.pill-tab-active {
+  background: var(--surface-card) !important;
+  color: var(--accent) !important;
+  box-shadow: var(--shadow-xs);
+}
+
+/* ================= StatCard metric tiles ================= */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--sp-5);
+}
+
+.stat-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-6);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  transition:
+    transform var(--dur-base) var(--ease-standard),
+    box-shadow var(--dur-base) var(--ease-standard);
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.stat-card-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.stat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-md);
+  flex-shrink: 0;
+}
+
+.tone-accent {
+  color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 14%, transparent);
+}
+
+.tone-cyan {
+  color: var(--cyan-600);
+  background: color-mix(in oklab, var(--cyan-500) 14%, transparent);
+}
+
+.tone-success {
+  color: var(--success);
+  background: color-mix(in oklab, var(--success) 14%, transparent);
+}
+
+.tone-beacon {
+  color: var(--beacon-600);
+  background: color-mix(in oklab, var(--beacon-500) 14%, transparent);
+}
+
+.tone-warning {
+  color: var(--warning-ink);
+  background: color-mix(in oklab, var(--warning) 14%, transparent);
+}
+
+.stat-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: var(--fs-title-l);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-display);
+  line-height: var(--lh-tight);
+  color: var(--text-primary);
+}
+
+.stat-value--data {
+  font-family: var(--font-mono);
+  letter-spacing: var(--ls-title);
+}
+
+.stat-denominator {
+  font-size: var(--fs-body-l);
+  font-weight: var(--fw-semibold);
+  color: var(--text-tertiary);
+}
+
+.stat-sub {
+  font-size: var(--fs-label);
+  color: var(--text-tertiary);
+}
+
+/* Shimmer progress fill — sanctioned progress use (ProgressBar contract) */
+.stat-progress {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-hover);
+  overflow: hidden;
+}
+
+.stat-progress-fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--shimmer);
+  transition: width var(--dur-slow) var(--ease-standard);
+}
+
+/* ================= Content cards ================= */
+.content-card {
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.card-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-title-s);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-title);
+  line-height: var(--lh-snug);
+  color: var(--accent);
+}
+
+/* Scan / crew rows — ItemCard visual language: glyph chip, name, mono meta */
+.scan-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-md);
+}
+
+.scan-name {
+  color: var(--text-primary);
+  font-weight: var(--fw-semibold);
+}
+
+.scan-meta {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--text-tertiary);
+}
+
+.moveday-timeline :deep(.q-timeline__subtitle) {
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+}
+
+/* ================= Buttons ================= */
+.action-btn {
+  border-radius: var(--r-md);
+  font-weight: var(--fw-semibold);
+}
+
+.action-btn--quiet {
+  background: var(--surface-sunk) !important;
+  color: var(--text-secondary) !important;
+}
+
+.ghost-btn {
+  color: var(--text-secondary);
+}
+
+/* The screen's single shimmer CTA: Smart transfer (Pro, AI-forward) */
+.shimmer-btn {
+  background: var(--shimmer) !important;
+  color: var(--text-on-accent) !important;
+  border-radius: var(--r-md);
+  font-weight: var(--fw-semibold);
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-btn:hover {
+  box-shadow: var(--glow-shimmer);
+}
+
+.shimmer-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.32), transparent);
+  animation: nx-shimmer-sweep var(--shimmer-sweep) var(--ease-standard) infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-btn::after {
+    animation: none;
+    display: none;
+  }
+}
+
+.locked-btn {
+  color: var(--text-secondary) !important;
+}
+
+/* ================= Banners and context ================= */
+.banner {
+  border-radius: var(--r-md);
+  font-size: var(--fs-label);
+}
+
+.banner--warning {
+  background: var(--warning-surface);
+  color: var(--warning-ink);
+  border: 1px solid color-mix(in oklab, var(--warning) 30%, transparent);
+}
+
+.banner--info {
+  background: var(--accent-quiet);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-quiet-2);
+}
+
+.banner-title {
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
+}
+
+.banner-icon {
+  vertical-align: -3px;
+}
+
+.context-card {
+  background: var(--accent-quiet);
+  border: 1px solid var(--accent-quiet-2);
+  border-radius: var(--r-md);
+}
+
+.context-card-title {
+  color: var(--text-primary);
+}
+
+.context-card-meta {
+  color: var(--text-secondary);
+}
+
+/* ================= Dialogs ================= */
+.dialog-card {
+  background: var(--surface-card);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--shadow-lg);
+}
+
+.plan-dialog-card {
+  background: var(--bg);
+}
+
+.dialog-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-title-s);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-title);
+  color: var(--text-primary);
+}
+
+/* ================= Transfer plan ================= */
 .loading-plan-container {
   max-height: calc(100vh - 200px);
   overflow-y: auto;
 }
 
-.zone-card {
-  min-height: 400px;
-  transition: all 0.2s ease;
+.plan-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
 }
 
+.plan-meta-item {
+  font-size: var(--fs-label);
+  color: var(--text-secondary);
+}
+
+.plan-meta-value {
+  font-family: var(--font-mono);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
+  margin-left: var(--sp-1);
+}
+
+.plan-hint {
+  font-size: var(--fs-label);
+  color: var(--text-tertiary);
+}
+
+.transfer-block-title {
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+}
+
+/* Zone cards — hairline borders, quiet tinted headers, token pills */
+.zone-card {
+  min-height: 400px;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition:
+    border-color var(--dur-fast) var(--ease-standard),
+    background var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
+}
+
+/* Drop target affordance on --accent-quiet */
 .zone-card.drag-over {
-  background-color: #E3F2FD;
-  border: 2px dashed #1976D2;
-  box-shadow: 0 4px 8px rgba(25, 118, 210, 0.2);
+  background: var(--accent-quiet);
+  border: 2px dashed var(--accent);
+  box-shadow: var(--shadow-md);
+}
+
+.zone-head {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.zone-head--staging {
+  background: var(--surface-sunk);
+}
+
+.zone-head--front {
+  background: color-mix(in oklab, var(--warning) 6%, var(--surface-card));
+}
+
+.zone-head--middle {
+  background: color-mix(in oklab, var(--accent) 5%, var(--surface-card));
+}
+
+.zone-head--rear {
+  background: color-mix(in oklab, var(--cyan-500) 6%, var(--surface-card));
+}
+
+.zone-title {
+  display: flex;
+  align-items: center;
+  font-family: var(--font-display);
+  font-size: var(--fs-body-l);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-title);
+  color: var(--text-primary);
+}
+
+.zone-title-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.zone-role-pill {
+  margin-top: var(--sp-1);
+}
+
+.zone-role-pill--front {
+  background: var(--warning-surface);
+  color: var(--warning-ink);
+}
+
+.zone-role-pill--middle {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+.zone-role-pill--rear {
+  background: color-mix(in oklab, var(--cyan-500) 14%, transparent);
+  color: var(--cyan-600);
+}
+
+.zone-count {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label);
+  color: var(--text-secondary);
+  margin-top: var(--sp-1);
 }
 
 .zone-items-container {
@@ -2721,26 +3274,55 @@ defineExpose({
   overflow-y: auto;
 }
 
+/* Draggable chips — token pills over Quasar colored chips */
+.plan-chip {
+  background: var(--surface-sunk) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border);
+  font-size: var(--fs-label);
+}
+
+.plan-chip--container {
+  background: var(--accent-quiet) !important;
+  color: var(--accent) !important;
+  border-color: var(--accent-quiet-2);
+}
+
+.plan-chip--item {
+  background: var(--surface-sunk) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border);
+}
+
+.plan-chip--fragile {
+  background: var(--warning-surface) !important;
+  color: var(--warning-ink) !important;
+  border-color: color-mix(in oklab, var(--warning) 30%, transparent);
+}
+
 .draggable-item {
   cursor: grab;
-  transition: all 0.2s ease;
+  transition:
+    transform var(--dur-fast) var(--ease-standard),
+    box-shadow var(--dur-fast) var(--ease-standard);
   display: inline-flex !important;
-  margin-right: 8px;
+  margin-right: var(--sp-2);
 }
 
 .draggable-item:active {
   cursor: grabbing;
   opacity: 0.7;
+  transform: scale(0.97);
 }
 
 .draggable-item:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-xs);
 }
 
 .empty-zone {
   opacity: 0.6;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--dur-fast) var(--ease-standard);
 }
 
 .zone-card.drag-over .empty-zone {
