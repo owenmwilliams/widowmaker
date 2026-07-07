@@ -35,6 +35,9 @@ button:focus-visible,
 /* Interaction states per readme "Interaction states". */
 .q-btn {
   transition: transform var(--dur-fast) var(--ease-standard);
+  /* Sentence case everywhere (desktop.md): neutralize Quasar's
+     uppercase default globally instead of per-button no-caps. */
+  text-transform: none;
 }
 .q-btn:active {
   transform: scale(0.97);
