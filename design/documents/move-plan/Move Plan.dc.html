@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; padding: 0; }
+  doc-page:not(:defined) { visibility: hidden; }
+  * { box-sizing: border-box; }
+</style>
+</helmet>
+
+<x-import component-from-global-scope="doc-page" from="./doc-page.js" size="letter" margin="0.55in" hint-size="100%,100%">
+
+  <div slot="header" style="display:flex;align-items:center;justify-content:space-between;padding-bottom:9px;border-bottom:1px solid #E4E8F1;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <svg width="22" height="22" viewBox="0 0 128 128" fill="none" aria-hidden="true">
+        <path d="M38 96 L38 42 L90 96 L90 48" stroke="#4F5BF0" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"></path>
+        <circle cx="90" cy="42" r="11" fill="#F98D5B"></circle>
+        <circle cx="90" cy="42" r="4.6" fill="#FFE2D4"></circle>
+      </svg>
+      <span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:15px;letter-spacing:-0.02em;color:#16204A;white-space:nowrap;">Nexus <span style="color:#4F5BF0;">Moves</span></span>
+    </div>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.14em;text-transform:uppercase;color:#8A92A6;">Move Plan · Your planning copy</span>
+  </div>
+
+  <div slot="footer" style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid #E4E8F1;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.1em;color:#8A92A6;">
+    <span>Estimates only · not a quote or a guarantee</span>
+    <span>Nexus Moves</span>
+  </div>
+
+  <!-- ============ TITLE ============ -->
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-top:6px;">
+    <div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.22em;text-transform:uppercase;color:#4F5BF0;margin-bottom:8px;">Move Plan</div>
+      <h1 style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:33px;line-height:1.04;letter-spacing:-0.025em;color:#16204A;margin:0;">{{ title }}</h1>
+      <div style="font-family:system-ui,-apple-system,sans-serif;font-size:13px;color:#5A6379;margin-top:9px;">{{ genLine }}</div>
+    </div>
+    <div style="text-align:right;flex-shrink:0;">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#8A92A6;">Move window</div>
+      <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:22px;color:#16204A;line-height:1.1;margin-top:5px;white-space:nowrap;">{{ windowVal }}</div>
+    </div>
+  </div>
+
+  <!-- ============ ROUTE / TRIP SUMMARY ============ -->
+  <div style="margin-top:20px;border:1px solid #E4E8F1;border-radius:16px;overflow:hidden;background:#FFFFFF;box-shadow:0 2px 8px rgba(22,32,74,0.05);break-inside:avoid;">
+    <div style="display:flex;align-items:stretch;">
+      <!-- FROM -->
+      <div style="flex:1;padding:16px 18px;min-width:0;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#8A92A6;margin-bottom:7px;">Leaving from</div>
+        <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;font-size:18px;color:#16204A;letter-spacing:-0.01em;">San Francisco, CA</div>
+        <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12.5px;color:#5A6379;margin-top:3px;">1669 Turk Street · 94115 · “SF APT”</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:11px;">
+          <sc-for list="{{ accessFrom }}" as="a" hint-placeholder-count="3">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.02em;color:#5A6379;background:#F1F4FA;border-radius:99px;padding:4px 9px;">{{ a }}</span>
+          </sc-for>
+        </div>
+      </div>
+      <!-- MIDDLE / DISTANCE -->
+      <div style="flex-shrink:0;width:132px;border-left:1px solid #EEF1F7;border-right:1px solid #EEF1F7;background:#FBFCFE;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 8px;text-align:center;">
+        <sc-if value="{{ hasDistance }}" hint-placeholder-val="{{ true }}">
+          <svg width="34" height="16" viewBox="0 0 34 16" fill="none" aria-hidden="true" style="margin-bottom:8px;"><path d="M2 8 H27" stroke="#4F5BF0" stroke-width="2" stroke-linecap="round" stroke-dasharray="1 4"></path><path d="M24 3 L30 8 L24 13" stroke="#4F5BF0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"></path></svg>
+          <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:18px;color:#16204A;line-height:1;letter-spacing:-0.02em;">{{ distanceVal }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.06em;color:#8A92A6;margin-top:5px;">{{ distanceSub }}</div>
+        </sc-if>
+        <sc-if value="{{ noDistance }}"><div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:#C0CCFF;">distance<br>pending</div></sc-if>
+      </div>
+      <!-- TO -->
+      <div style="flex:1;padding:16px 18px;background:#FBFCFE;min-width:0;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.16em;text-transform:uppercase;color:#8A92A6;margin-bottom:7px;">Heading to</div>
+        <sc-if value="{{ destKnown }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="width:9px;height:9px;border-radius:50%;background:#F98D5B;box-shadow:0 0 0 4px rgba(249,141,91,0.18);display:inline-block;flex-shrink:0;"></span>
+            <span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;font-size:18px;color:#16204A;letter-spacing:-0.01em;">{{ destCity }}</span>
+          </div>
+          <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12.5px;color:#5A6379;margin-top:3px;">{{ destLine }}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:11px;">
+            <sc-for list="{{ accessTo }}" as="a" hint-placeholder-count="3">
+              <span style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.02em;color:#5A6379;background:#FFFFFF;border:1px solid #E4E8F1;border-radius:99px;padding:4px 9px;">{{ a }}</span>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ destPending }}">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="width:9px;height:9px;border-radius:50%;background:#F98D5B;box-shadow:0 0 0 4px rgba(249,141,91,0.18);display:inline-block;flex-shrink:0;"></span>
+            <span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;font-size:18px;color:#8A92A6;letter-spacing:-0.01em;">Destination pending</span>
+          </div>
+          <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12.5px;color:#8A92A6;margin-top:3px;">Tell Nexus where you're headed and we'll finish the plan — distance, route and both cost paths.</div>
+        </sc-if>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ HONEST PROMISE BANNER ============ -->
+  <div style="display:flex;gap:13px;margin-top:14px;padding:15px 17px;border:1px solid #E8C98A;border-radius:16px;background:#FBF0D9;break-inside:avoid;">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex-shrink:0;margin-top:1px;" aria-hidden="true"><path d="M12 3.5 L22 20 H2 Z" stroke="#B8842A" stroke-width="1.8" stroke-linejoin="round" fill="none"></path><path d="M12 10 V14" stroke="#B8842A" stroke-width="1.8" stroke-linecap="round"></path><circle cx="12" cy="17" r="0.6" fill="#B8842A" stroke="#B8842A"></circle></svg>
+    <div>
+      <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;font-size:15px;color:#7A5A1E;margin-bottom:4px;">Every figure here is an estimate to help you decide</div>
+      <div style="font-family:system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.5;color:#7A5A1E;">This is a planning copy — not a quote, and not a guarantee. Real numbers depend on an on-site survey, how much you end up packing, and when you move. We'd rather hand you an honest range than a confident wrong number, so nothing below is locked in.</div>
+    </div>
+  </div>
+
+  <!-- ============ COST PATHS ============ -->
+  <div style="margin-top:26px;">
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;break-after:avoid;">
+      <h2 style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:19px;color:#16204A;margin:0;letter-spacing:-0.01em;">What it might cost</h2>
+      <span style="font-family:system-ui,sans-serif;font-size:12.5px;color:#8A92A6;">Two honest paths — your call on which fits</span>
+    </div>
+    <p style="font-family:system-ui,-apple-system,sans-serif;font-size:12.5px;line-height:1.5;color:#5A6379;margin:0 0 14px;max-width:660px;">{{ costIntro }}</p>
+
+    <sc-if value="{{ showCostCards }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex;gap:14px;align-items:stretch;">
+
+      <!-- DIY -->
+      <sc-if value="{{ showDiy }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;min-width:0;border:1px solid #E4E8F1;border-radius:16px;background:#FFFFFF;box-shadow:0 2px 8px rgba(22,32,74,0.05);overflow:hidden;break-inside:avoid;display:flex;flex-direction:column;">
+        <div style="padding:15px 17px 14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:9px;background:#EEF2FF;flex-shrink:0;">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4F5BF0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"></path><path d="M15 18H9"></path><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"></path><circle cx="7" cy="18" r="2"></circle><circle cx="17" cy="18" r="2"></circle></svg>
+              </span>
+              <span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;font-size:15px;color:#16204A;letter-spacing:-0.01em;">{{ diyName }}</span>
+            </div>
+            <span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.06em;text-transform:uppercase;padding:3px 8px;border-radius:99px;background:#E7ECFB;color:#3D45D9;font-weight:500;">{{ diyTag }}</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:7px;margin-top:14px;">
+            <span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:27px;color:#16204A;line-height:1;letter-spacing:-0.02em;">{{ diyRange }}</span>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:#8A92A6;margin-top:6px;">Estimated total</div>
+        </div>
+        <sc-if value="{{ showBreakdown }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:0 17px;">
+          <sc-for list="{{ diyLines }}" as="l" hint-placeholder-count="4">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:9px 0;border-top:1px solid #F1F4FA;">
+              <div style="min-width:0;">
+                <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12.5px;color:#16204A;font-weight:500;">{{ l.label }}</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A92A6;margin-top:2px;line-height:1.3;">{{ l.detail }}</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#5A6379;white-space:nowrap;flex-shrink:0;font-weight:500;padding-top:1px;">{{ l.amt }}</div>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+        <div style="margin-top:auto;padding:12px 17px 15px;border-top:1px solid #EEF1F7;background:#FBFCFE;">
+          <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.45;color:#5A6379;"><b style="color:#16204A;font-weight:600;">Best if</b> {{ diyBest }}</div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- PRO -->
+      <sc-if value="{{ showPro }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;min-width:0;border:1px solid #E4E8F1;border-radius:16px;background:#FFFFFF;box-shadow:0 2px 8px rgba(22,32,74,0.05);overflow:hidden;break-inside:avoid;display:flex;flex-direction:column;">
+        <div style="padding:15px 17px 14px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+            <div style="display:flex;align-items:center;gap:9px;">
+              <span style="display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:9px;background:#EEF2FF;flex-shrink:0;">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#4F5BF0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+              </span>
+              <span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;font-size:15px;color:#16204A;letter-spacing:-0.01em;">{{ proName }}</span>
+            </div>
+            <span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.06em;text-transform:uppercase;padding:3px 8px;border-radius:99px;background:#E7ECFB;color:#3D45D9;font-weight:500;">{{ proTag }}</span>
+          </div>
+          <div style="display:flex;align-items:baseline;gap:7px;margin-top:14px;">
+            <span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:27px;color:#16204A;line-height:1;letter-spacing:-0.02em;">{{ proRange }}</span>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:#8A92A6;margin-top:6px;">Estimated total</div>
+        </div>
+        <sc-if value="{{ showBreakdown }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:0 17px;">
+          <sc-for list="{{ proLines }}" as="l" hint-placeholder-count="4">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:9px 0;border-top:1px solid #F1F4FA;">
+              <div style="min-width:0;">
+                <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12.5px;color:#16204A;font-weight:500;">{{ l.label }}</div>
+                <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#8A92A6;margin-top:2px;line-height:1.3;">{{ l.detail }}</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#5A6379;white-space:nowrap;flex-shrink:0;font-weight:500;padding-top:1px;">{{ l.amt }}</div>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+        <div style="margin-top:auto;padding:12px 17px 15px;border-top:1px solid #EEF1F7;background:#FBFCFE;">
+          <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.45;color:#5A6379;"><b style="color:#16204A;font-weight:600;">Best if</b> {{ proBest }}</div>
+        </div>
+      </div>
+      </sc-if>
+
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:9px;margin-top:12px;padding:11px 15px;border:1px solid #E4E8F1;border-radius:14px;background:#FBFCFE;">
+      <span style="width:6px;height:6px;border-radius:50%;background:#4F5BF0;margin-top:5px;flex-shrink:0;"></span>
+      <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.45;color:#5A6379;">{{ costNote }}</div>
+    </div>
+    </sc-if>
+
+    <!-- COST PENDING STATE -->
+    <sc-if value="{{ costPending }}">
+    <div style="border:1px dashed #C7D0E4;border-radius:16px;background:#FBFCFE;padding:26px 22px;text-align:center;">
+      <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;font-size:16px;color:#16204A;letter-spacing:-0.01em;">Cost paths open once we know the destination</div>
+      <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12.5px;line-height:1.5;color:#5A6379;margin-top:6px;max-width:460px;margin-left:auto;margin-right:auto;">Distance, fuel, truck rental and mover pricing all hinge on where you're going. Set your destination and we'll lay out the DIY and full-service ranges side by side — the same way as everything else here.</div>
+    </div>
+    </sc-if>
+  </div>
+
+  <!-- ============ TRUCK + LABOR ============ -->
+  <div style="display:flex;gap:14px;margin-top:26px;align-items:stretch;break-inside:avoid;">
+    <!-- TRUCK -->
+    <div style="flex:1.35;min-width:0;border:1px solid #E4E8F1;border-radius:16px;background:#FFFFFF;box-shadow:0 2px 8px rgba(22,32,74,0.05);padding:16px 18px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
+        <h2 style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:17px;color:#16204A;margin:0;letter-spacing:-0.01em;">Recommended truck</h2>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:#8A92A6;">We recommend</span>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:9px;">
+        <span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:30px;color:#16204A;line-height:1;letter-spacing:-0.02em;">{{ truckSize }}</span>
+        <span style="font-family:system-ui,sans-serif;font-size:12.5px;color:#8A92A6;">{{ truckCap }}</span>
+      </div>
+      <!-- capacity bar -->
+      <div style="margin-top:14px;">
+        <div style="display:flex;height:12px;border-radius:99px;overflow:hidden;background:#EEF1F7;border:1px solid #E4E8F1;">
+          <div style="width:{{ truckFillPct }};background:linear-gradient(115deg,#3B6FE0,#2F8FE0,#34C8E0);"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.04em;color:#8A92A6;">
+          <span>{{ truckFillLabel }}</span>
+          <span>{{ truckBufferLabel }}</span>
+        </div>
+      </div>
+      <p style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.5;color:#5A6379;margin:13px 0 0;">{{ truckReason }}</p>
+    </div>
+    <!-- LABOR -->
+    <div style="flex:1;min-width:0;border:1px solid #E4E8F1;border-radius:16px;background:#FFFFFF;box-shadow:0 2px 8px rgba(22,32,74,0.05);padding:16px 18px;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;">
+        <h2 style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:17px;color:#16204A;margin:0;letter-spacing:-0.01em;">Labor &amp; crew</h2>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;color:#8A92A6;">Est. hours</span>
+      </div>
+      <div style="display:flex;gap:22px;">
+        <div>
+          <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:24px;color:#16204A;line-height:1;letter-spacing:-0.02em;">{{ loadHrs }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:#8A92A6;margin-top:5px;">Loading</div>
+        </div>
+        <div>
+          <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:24px;color:#16204A;line-height:1;letter-spacing:-0.02em;">{{ unloadHrs }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:#8A92A6;margin-top:5px;">Unloading</div>
+        </div>
+        <div>
+          <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:24px;color:#4F5BF0;line-height:1;letter-spacing:-0.02em;">{{ crew }}</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.1em;text-transform:uppercase;color:#8A92A6;margin-top:5px;">Crew</div>
+        </div>
+      </div>
+      <p style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.5;color:#5A6379;margin:14px 0 0;">{{ laborNote }}</p>
+    </div>
+  </div>
+
+  <!-- ============ DRIVE ROUTE ============ -->
+  <div style="margin-top:26px;">
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:11px;break-after:avoid;">
+      <h2 style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:19px;color:#16204A;margin:0;letter-spacing:-0.01em;">The drive</h2>
+      <span style="font-family:system-ui,sans-serif;font-size:12.5px;color:#8A92A6;">{{ routeSubhead }}</span>
+    </div>
+
+    <!-- ROAD TRIP -->
+    <sc-if value="{{ routeRoad }}" hint-placeholder-val="{{ true }}">
+    <div style="border:1px solid #E4E8F1;border-radius:16px;background:#FFFFFF;box-shadow:0 2px 8px rgba(22,32,74,0.05);overflow:hidden;break-inside:avoid;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 18px;border-bottom:1px solid #EEF1F7;background:#FBFCFE;">
+        <div style="display:flex;gap:22px;">
+          <div><span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:19px;color:#16204A;letter-spacing:-0.02em;">{{ routeMiles }}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:#8A92A6;">driving</span></div>
+          <div><span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:19px;color:#16204A;letter-spacing:-0.02em;">{{ routeDays }}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:#8A92A6;">on the road</span></div>
+          <div><span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:19px;color:#16204A;letter-spacing:-0.02em;">{{ routeNights }}</span> <span style="font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:#8A92A6;">overnights</span></div>
+        </div>
+      </div>
+      <div style="padding:6px 18px 10px;">
+        <sc-for list="{{ legs }}" as="g" hint-placeholder-count="5">
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid #F1F4FA;">
+            <span style="width:10px;height:10px;border-radius:50%;background:{{ g.dotBg }};box-shadow:{{ g.dotGlow }};flex-shrink:0;"></span>
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <span style="font-family:system-ui,-apple-system,sans-serif;font-size:13.5px;color:#16204A;font-weight:500;">{{ g.from }} <span style="color:#C0CCFF;">→</span> {{ g.to }}</span>
+                <sc-if value="{{ g.night }}"><span style="display:inline-flex;align-items:center;gap:4px;font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.06em;text-transform:uppercase;padding:2px 7px;border-radius:99px;background:#EEF2FF;color:#3D45D9;">
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#3D45D9" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6.4 6.4 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg>
+                  {{ g.night }}</span></sc-if>
+                <sc-if value="{{ g.arrive }}"><span style="font-family:'JetBrains Mono',monospace;font-size:8.5px;letter-spacing:0.06em;text-transform:uppercase;padding:2px 7px;border-radius:99px;background:#FBEAD9;color:#B8642A;">Arrive</span></sc-if>
+              </div>
+            </div>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:#5A6379;white-space:nowrap;flex-shrink:0;font-weight:500;">{{ g.miles }}</span>
+          </div>
+        </sc-for>
+        <div style="display:flex;align-items:flex-start;gap:9px;margin-top:11px;padding-top:2px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:#F98D5B;margin-top:5px;flex-shrink:0;"></span>
+          <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.45;color:#5A6379;">{{ routeNote }}</div>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- LOCAL -->
+    <sc-if value="{{ routeLocal }}">
+    <div style="border:1px solid #E4E8F1;border-radius:16px;background:#FFFFFF;box-shadow:0 2px 8px rgba(22,32,74,0.05);padding:18px 20px;break-inside:avoid;display:flex;align-items:center;gap:20px;">
+      <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
+        <span style="width:11px;height:11px;border-radius:50%;background:#4F5BF0;"></span>
+        <svg width="40" height="14" viewBox="0 0 40 14" fill="none" aria-hidden="true"><path d="M2 7 H33" stroke="#C0CCFF" stroke-width="2" stroke-linecap="round" stroke-dasharray="1 4"></path><path d="M30 3 L36 7 L30 11" stroke="#4F5BF0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"></path></svg>
+        <span style="width:11px;height:11px;border-radius:50%;background:#F98D5B;box-shadow:0 0 0 4px rgba(249,141,91,0.18);"></span>
+      </div>
+      <div>
+        <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;font-size:16px;color:#16204A;letter-spacing:-0.01em;">{{ localHead }}</div>
+        <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12.5px;line-height:1.5;color:#5A6379;margin-top:4px;">{{ localBlurb }}</div>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- PENDING -->
+    <sc-if value="{{ routePending }}">
+    <div style="border:1px dashed #C7D0E4;border-radius:16px;background:#FBFCFE;padding:26px 22px;text-align:center;">
+      <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:600;font-size:16px;color:#16204A;letter-spacing:-0.01em;">Your route maps itself once the destination is set</div>
+      <div style="font-family:system-ui,-apple-system,sans-serif;font-size:12.5px;line-height:1.5;color:#5A6379;margin-top:6px;max-width:480px;margin-left:auto;margin-right:auto;">If it's a long haul, we'll split the drive into safe ~450-mile days and suggest overnight stops. If it's across town, we'll just say so — no route card needed.</div>
+    </div>
+    </sc-if>
+  </div>
+
+  <!-- ============ SPECIAL HANDLING ============ -->
+  <div style="margin-top:26px;break-inside:avoid;">
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:13px;break-after:avoid;">
+      <h2 style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:19px;color:#16204A;margin:0;letter-spacing:-0.01em;">Special handling</h2>
+      <span style="font-family:system-ui,sans-serif;font-size:12.5px;color:#8A92A6;">Anyone loading the truck should read this first</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+      <sc-for list="{{ special }}" as="x" hint-placeholder-count="6">
+        <div style="display:flex;gap:13px;border:1px solid #EADFD3;border-radius:15px;background:#FFFFFF;padding:13px 15px;box-shadow:0 2px 8px rgba(22,32,74,0.05);">
+          <div style="flex-shrink:0;text-align:center;min-width:52px;">
+            <div style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:20px;color:#16204A;line-height:1;letter-spacing:-0.02em;">{{ x.wt }}</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.06em;text-transform:uppercase;color:#8A92A6;margin-top:4px;">lbs</div>
+          </div>
+          <div style="min-width:0;border-left:1px solid #F1F4FA;padding-left:13px;">
+            <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+              <span style="font-family:system-ui,-apple-system,sans-serif;font-weight:600;font-size:13px;color:#16204A;line-height:1.2;">{{ x.name }}</span>
+              <span style="flex-shrink:0;font-family:'JetBrains Mono',monospace;font-size:8px;letter-spacing:0.06em;text-transform:uppercase;padding:2px 6px;border-radius:99px;background:{{ x.tagBg }};color:{{ x.tagInk }};font-weight:500;">{{ x.tag }}</span>
+            </div>
+            <div style="font-family:system-ui,sans-serif;font-size:11.5px;line-height:1.4;color:#5A6379;margin-top:5px;">{{ x.note }}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- ============ INVENTORY ROLLUP ============ -->
+  <div style="margin-top:26px;break-inside:avoid;">
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:13px;break-after:avoid;">
+      <h2 style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:19px;color:#16204A;margin:0;letter-spacing:-0.01em;">What we're moving</h2>
+      <span style="font-family:system-ui,sans-serif;font-size:12.5px;color:#8A92A6;">Rolled up from your inventory</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+      <sc-for list="{{ rollup }}" as="s" hint-placeholder-count="4">
+        <div style="position:relative;border:1px solid #E4E8F1;border-radius:16px;background:#FFFFFF;padding:15px 16px 16px;box-shadow:0 2px 8px rgba(22,32,74,0.05);overflow:hidden;">
+          <div style="position:absolute;top:0;left:0;right:0;height:3px;background:{{ s.bar }};"></div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:9.5px;letter-spacing:0.14em;text-transform:uppercase;color:#8A92A6;">{{ s.label }}</div>
+          <div style="display:flex;align-items:baseline;gap:5px;margin-top:9px;">
+            <span style="font-family:'Bricolage Grotesque',system-ui,sans-serif;font-weight:700;font-size:27px;line-height:1;color:#16204A;letter-spacing:-0.02em;">{{ s.value }}</span>
+            <span style="font-family:system-ui,sans-serif;font-size:12px;color:#8A92A6;font-weight:500;">{{ s.unit }}</span>
+          </div>
+          <div style="font-family:system-ui,sans-serif;font-size:11.5px;color:#5A6379;margin-top:5px;">{{ s.sub }}</div>
+        </div>
+      </sc-for>
+    </div>
+    <!-- boxes packed vs loose -->
+    <div style="display:flex;align-items:center;gap:14px;margin-top:12px;padding:12px 16px;border:1px solid #E4E8F1;border-radius:14px;background:#FBFCFE;">
+      <div style="font-family:system-ui,sans-serif;font-size:12.5px;color:#5A6379;flex-shrink:0;"><b style="color:#16204A;">{{ boxesPacked }}</b> boxes packed · <b style="color:#16204A;">{{ boxesToPack }}</b> to go</div>
+      <div style="flex:1;height:8px;border-radius:99px;background:#EEF1F7;overflow:hidden;">
+        <div style="width:{{ boxesPct }};height:100%;border-radius:99px;background:linear-gradient(115deg,#3B6FE0,#2F8FE0,#34C8E0);"></div>
+      </div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;color:#8A92A6;flex-shrink:0;">{{ boxesPct }} packed</div>
+    </div>
+    <p style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.5;color:#5A6379;margin:11px 0 0;max-width:680px;">{{ rollupNote }}</p>
+  </div>
+
+  <!-- ============ CLOSE ============ -->
+  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #E4E8F1;display:flex;align-items:center;gap:9px;break-inside:avoid;">
+    <svg width="17" height="17" viewBox="0 0 128 128" fill="none" aria-hidden="true">
+      <path d="M38 96 L38 42 L90 96 L90 48" stroke="#4F5BF0" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"></path>
+      <circle cx="90" cy="42" r="11" fill="#F98D5B"></circle>
+    </svg>
+    <span style="font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#8A92A6;">Built with Nexus Moves to help you plan — not a quote. Questions, or ready to book? Reply to your share link and we'll take it from here.</span>
+  </div>
+
+</x-import>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;850px&quot;,&quot;height&quot;:&quot;1100px&quot;},&quot;scenario&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;road-trip&quot;,&quot;local&quot;,&quot;destination-pending&quot;],&quot;default&quot;:&quot;road-trip&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Scenario&quot;},&quot;costPath&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;both&quot;,&quot;diy&quot;,&quot;pro&quot;],&quot;default&quot;:&quot;both&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Content&quot;},&quot;showBreakdown&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Content&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const scenario = this.props.scenario ?? 'road-trip';
+    const costPath = this.props.costPath ?? 'both';
+    const showBreakdown = this.props.showBreakdown ?? true;
+
+    const isRoad = scenario === 'road-trip';
+    const isLocal = scenario === 'local';
+    const isPending = scenario === 'destination-pending';
+
+    // ---------- ACCESS DETAILS ----------
+    const accessFrom = ['3rd floor · no elevator', 'Narrow interior stairwell', 'Street parking · load-zone permit by 8am', 'Buzz 302 · prop the main door'];
+
+    // ---------- SPECIAL HANDLING (from inventory rollup) ----------
+    const AMB = { tagBg: '#FBEAD9', tagInk: '#B8642A' };
+    const BLU = { tagBg: '#E7ECFB', tagInk: '#3D45D9' };
+    const CYN = { tagBg: '#E1F3F7', tagInk: '#1C9BB8' };
+    const special = [
+      { name: '28-Bottle Wine Fridge', wt: '250', tag: 'Oversized', note: '2 people + dolly. Keep upright, tape the doors shut, strap to the wall.', ...AMB },
+      { name: 'Art installation display', wt: '200', tag: 'Oversized', note: '2 people. Blanket-wrap and load flat against a truck wall.', ...AMB },
+      { name: 'Canon Pro-1000 printer', wt: '85', tag: 'Heavy', note: 'Remove ink cartridges, keep level. Use the original box if you have it.', ...BLU },
+      { name: 'Art installation painting', wt: '75', tag: 'Fragile', note: '72 in. Corner-protect and load on its edge, never flat.', ...CYN },
+      { name: '18-Bottle Wine Fridge', wt: '65', tag: 'Heavy', note: '2 people. Secure the door, move and set upright only.', ...BLU },
+      { name: 'Longhorn Skull', wt: '45', tag: 'Fragile', note: '72 in span. Pad the horns and never stack anything on top.', ...CYN },
+    ];
+
+    // ---------- INVENTORY ROLLUP ----------
+    const rollup = [
+      { label: 'Items', value: '484', unit: '', sub: 'across 3 rooms', bar: 'linear-gradient(115deg,#3B6FE0,#2F8FE0,#34C8E0)' },
+      { label: 'Est. weight', value: '1,200', unit: 'lbs', sub: 'conservative estimate', bar: '#4F5BF0' },
+      { label: 'Volume', value: '183', unit: 'cu ft', sub: 'measured items only', bar: '#4F5BF0' },
+      { label: 'Special handling', value: '6', unit: 'items', sub: 'heavy & oversized', bar: '#F98D5B' },
+    ];
+    const boxesPacked = '34';
+    const boxesToPack = '~90';
+    const boxesPct = '27%';
+    const rollupNote = "This plan is built from your current inventory — a partial pass across 3 rooms, and 354 of 484 items still need real weights. As you catalogue the rest, the truck size, weight and both cost ranges will tighten. The full item list lives in your Mover Inventory.";
+
+    // ---------- SCENARIO-SPECIFIC ----------
+    let v;
+    if (isRoad) {
+      v = {
+        genLine: 'Generated Jul 4, 2026 · A planning copy — every figure here is an estimate',
+        windowVal: 'Aug 15–18, 2026',
+        destKnown: true, destPending: false,
+        destCity: 'Austin, TX', destLine: '2211 East Cesar Chavez · 78702',
+        accessTo: ['Ground floor + attached garage', 'Driveway parking at the door', 'Wide double entry', 'Gate code — arrange with landlord'],
+        hasDistance: true, noDistance: false,
+        distanceVal: '1,742 mi', distanceSub: 'DRIVING · 4 DAYS',
+
+        costIntro: "A long-distance move gives you a real choice: rent a truck and drive it yourself, or hand the whole thing to a full-service crew. Here's what each path tends to run for a load this size.",
+        showCostCards: true, costPending: false,
+        showDiy: costPath !== 'pro', showPro: costPath !== 'diy',
+        diyName: 'Rent & drive it yourself', diyTag: 'Usually lower cost', diyRange: '$3,100–$4,500',
+        diyBest: "you've got the time, a valid license for a 20-ft truck, and a couple of helpers at each end.",
+        diyLines: [
+          { label: '20-ft truck rental', detail: 'one-way · 4 days · ~1,900 mi allowance', amt: '$1,400–$2,100' },
+          { label: 'Fuel', detail: '~1,742 mi · ~9 mpg · ~$4.30/gal', amt: '$750–$950' },
+          { label: 'Loading + unloading help', detail: '2 movers each end · ~9 hrs total', amt: '$600–$900' },
+          { label: 'Lodging on the road', detail: '3 nights', amt: '$270–$450' },
+          { label: 'Equipment', detail: 'dolly, pads, straps', amt: '$60–$120' },
+        ],
+        proName: 'Hire a full-service mover', proTag: 'Least effort', proRange: '$4,800–$7,200',
+        proBest: "you'd rather not touch a box, or the 3rd-floor walk-up and heavy items feel like too much.",
+        proLines: [
+          { label: 'Dedicated crew & transport', detail: 'door-to-door, long-distance van line', amt: 'Included' },
+          { label: 'Loading, driving & unloading', detail: 'their crew, both ends', amt: 'Included' },
+          { label: 'Basic valuation coverage', detail: '$0.60/lb · upgrade available', amt: 'Included' },
+          { label: 'Special-handling surcharge', detail: 'wine fridges + oversized art', amt: '$150–$400' },
+        ],
+        costNote: "Both ranges assume ~1,200–2,000 lb. Because your inventory is a partial pass, a full walkthrough could move these either way — treat them as a starting point, not a bill.",
+
+        truckSize: '20-ft truck', truckCap: '~1,000 cu ft · up to ~6,000 lb',
+        truckFillPct: '18%', truckFillLabel: '183 cu ft catalogued', truckBufferLabel: 'buffer for uncatalogued rooms',
+        truckReason: "Your catalogue covers 3 rooms (~183 cu ft). A full 1–2 bedroom home usually needs more, so we sized up: a 20-ft box leaves room for the rooms you haven't logged yet, plus padding and a tight, safe load. If a final walkthrough comes in light, a 15-ft may be enough.",
+        loadHrs: '~5 hrs', unloadHrs: '~4 hrs', crew: '2–3',
+        laborNote: "Two heavy items — the 250-lb wine fridge and the 200-lb art display — each need 2 people, a dolly and straps. Add time for the 3rd-floor walk-up at origin; there's no elevator.",
+
+        routeRoad: true, routeLocal: false, routePending: false,
+        routeSubhead: 'Split into safe days with overnight stops',
+        routeMiles: '1,742 mi', routeDays: '4', routeNights: '3',
+        routeNote: "We kept days to roughly 450 miles so you're never wrestling a loaded truck exhausted. Book the overnight stops ahead in summer — highway-town motels fill up.",
+        legs: [
+          { from: 'San Francisco, CA', to: 'Bakersfield, CA', miles: '283 mi', night: null, arrive: false, dotBg: '#4F5BF0', dotGlow: 'none' },
+          { from: 'Bakersfield, CA', to: 'Kingman, AZ', miles: '305 mi', night: 'Night 1', arrive: false, dotBg: '#6E82F4', dotGlow: 'none' },
+          { from: 'Kingman, AZ', to: 'Albuquerque, NM', miles: '447 mi', night: 'Night 2', arrive: false, dotBg: '#6E82F4', dotGlow: 'none' },
+          { from: 'Albuquerque, NM', to: 'Amarillo, TX', miles: '287 mi', night: 'Night 3', arrive: false, dotBg: '#6E82F4', dotGlow: 'none' },
+          { from: 'Amarillo, TX', to: 'Austin, TX', miles: '420 mi', night: null, arrive: true, dotBg: '#F98D5B', dotGlow: '0 0 0 4px rgba(249,141,91,0.18)' },
+        ],
+      };
+    } else if (isLocal) {
+      v = {
+        genLine: 'Generated Jul 4, 2026 · A planning copy — every figure here is an estimate',
+        windowVal: 'Aug 16, 2026',
+        destKnown: true, destPending: false,
+        destCity: 'Oakland, CA', destLine: '4210 Telegraph Ave · 94609',
+        accessTo: ['2nd floor · elevator on site', 'Reserved loading spot out front', 'Standard double doors', 'Building move hours 9am–5pm'],
+        hasDistance: true, noDistance: false,
+        distanceVal: '12 mi', distanceSub: 'DRIVING · SAME DAY',
+
+        costIntro: "Across-town moves are usually a one-day job. You can rent a truck and hire a couple of movers by the hour, or book a full hourly crew who bring the truck — here's the rough spread.",
+        showCostCards: true, costPending: false,
+        showDiy: costPath !== 'pro', showPro: costPath !== 'diy',
+        diyName: 'Rent a truck + hire help', diyTag: 'Usually lower cost', diyRange: '$500–$900',
+        diyBest: "you can drive a 15-ft truck and just want muscle for the heavy lifting.",
+        diyLines: [
+          { label: '15-ft truck rental', detail: 'local · 1 day · day rate', amt: '$90–$160' },
+          { label: 'Mileage & fuel', detail: '~24 mi round trip', amt: '$40–$80' },
+          { label: 'Loading + unloading help', detail: '2 movers · ~5 hrs', amt: '$350–$550' },
+          { label: 'Equipment', detail: 'dolly, pads, straps', amt: '$40–$90' },
+        ],
+        proName: 'Book an hourly crew', proTag: 'Least effort', proRange: '$700–$1,300',
+        proBest: "you'd rather hand over the keys and have it done by dinner.",
+        proLines: [
+          { label: 'Crew + truck', detail: '3 movers · ~4 hr minimum', amt: 'Included' },
+          { label: 'Loading & unloading', detail: 'their crew, both ends', amt: 'Included' },
+          { label: 'Travel fee', detail: 'depot to origin & back', amt: '$90–$160' },
+          { label: 'Special-handling time', detail: 'wine fridges + oversized art', amt: '$80–$200' },
+        ],
+        costNote: "Hourly crews bill in real time, so the heavy items and the 3rd-floor walk-up at origin will add to the pro range. Move mid-week or mid-month for the best rates.",
+
+        truckSize: '15-ft truck', truckCap: '~760 cu ft · up to ~4,000 lb',
+        truckFillPct: '24%', truckFillLabel: '183 cu ft catalogued', truckBufferLabel: 'buffer for uncatalogued rooms',
+        truckReason: "For a local hop you can do two trips if needed, so we sized to a 15-ft box (~760 cu ft). It swallows the catalogued 183 cu ft with plenty of room for the rooms still to log, and it's easier to park on a city street than a 20-footer.",
+        loadHrs: '~4 hrs', unloadHrs: '~3 hrs', crew: '2–3',
+        laborNote: "Two heavy items — the 250-lb wine fridge and the 200-lb art display — each need 2 people, a dolly and straps. Budget extra time for the 3rd-floor walk-up at origin; there's no elevator.",
+
+        routeRoad: false, routeLocal: true, routePending: false,
+        routeSubhead: 'One trip across the bay',
+        localHead: '12 mi · ~35 min · same day',
+        localBlurb: "No overnight route to plan. Load in the morning, drive across the bay, and unload the same afternoon. If it runs long, a second trip is easy at this distance.",
+      };
+    } else {
+      // destination pending
+      v = {
+        genLine: 'Generated Jul 4, 2026 · A planning copy — a few sections open up once your destination is set',
+        windowVal: 'Aug 2026 · TBD',
+        destKnown: false, destPending: true,
+        destCity: '', destLine: '', accessTo: [],
+        hasDistance: false, noDistance: true,
+        distanceVal: '', distanceSub: '',
+
+        costIntro: "Once you tell Nexus where you're headed, this section fills in with two side-by-side cost paths — rent-and-drive versus full-service — each as an honest range.",
+        showCostCards: false, costPending: true,
+        showDiy: false, showPro: false,
+        diyLines: [], proLines: [],
+        costNote: '',
+
+        truckSize: '20-ft truck', truckCap: '~1,000 cu ft · up to ~6,000 lb',
+        truckFillPct: '18%', truckFillLabel: '183 cu ft catalogued', truckBufferLabel: 'buffer for uncatalogued rooms',
+        truckReason: "We can size the truck from your inventory alone. Your catalogue covers 3 rooms (~183 cu ft); a full 1–2 bedroom home usually needs more, so we've penciled in a 20-ft box for buffer. Confirm on a final walkthrough.",
+        loadHrs: '~5 hrs', unloadHrs: '~4 hrs', crew: '2–3',
+        laborNote: "These hold whatever the destination turns out to be. Two heavy items — the 250-lb wine fridge and the 200-lb art display — each need 2 people, a dolly and straps, plus time for the 3rd-floor walk-up at origin.",
+
+        routeRoad: false, routeLocal: false, routePending: true,
+        routeSubhead: 'Waiting on a destination',
+      };
+    }
+
+    return {
+      accessFrom, special, rollup, boxesPacked, boxesToPack, boxesPct, rollupNote,
+      title: "Owen's move", showBreakdown,
+      ...v,
+    };
+  }
+}
+</script>
+</body>
+</html>
