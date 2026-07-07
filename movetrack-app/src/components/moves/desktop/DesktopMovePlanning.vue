@@ -3387,11 +3387,24 @@ const initiateQuoteShoppingCheckout = async () => {
     return;
   }
 
-  // Show quote shopping modal using the component
+  // Show quote shopping modal using the component. The modal submits the
+  // quote lead itself (#90) — the compact move summary rides along for the
+  // owner's notification email.
+  const originDetails = locationsWithDetails.value.find(l => l.value === originLocation.value);
+  const destDetails = locationsWithDetails.value.find(l => l.value === destinationLocation.value);
   $q.dialog({
     component: QuoteShoppingModal,
     componentProps: {
-      isPro: isPro.value
+      isPro: isPro.value,
+      moveSummary: {
+        origin: originDetails?.fullAddress || originDetails?.name || null,
+        destination: destDetails?.fullAddress || destDetails?.name || null,
+        distanceMiles: estimatedDistance.value,
+        itemCount: totalItems.value,
+        totalWeightLbs: totalWeightLbs.value,
+        totalVolumeCuFt: totalVolumeCuFt.value,
+        moveDate: moveDate.value
+      }
     }
   }).onOk(({ tier, price }: { tier: string; price: number }) => {
     // Show confirmation dialog
