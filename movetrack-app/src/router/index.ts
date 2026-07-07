@@ -73,6 +73,13 @@ const router = createRouter({
       beforeEnter: authGuard
     },
     {
+      // Customer-facing Move Plan document (print-grade, issue #87).
+      path: "/move-plan/:moveId",
+      name: "move-plan",
+      component: () => import('../views/MovePlanView.vue'),
+      beforeEnter: authGuard
+    },
+    {
       path: "/mobile",
       redirect: { name: 'mobile-locations' }
     },
