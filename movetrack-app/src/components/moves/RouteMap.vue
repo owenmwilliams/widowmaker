@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch, toRaw, type PropType } from 'vue';
+import { AlertCircle } from 'lucide-vue-next';
 
 // Declare google namespace for TypeScript
 declare global {
@@ -109,7 +110,9 @@ const initMap = async () => {
       map: map.value,
       suppressMarkers: false,
       polylineOptions: {
-        strokeColor: '#1976D2',
+        // Maps API render parameter — literal is the theme-layer
+        // transcription of Nexus Blue (--blue-500 / --accent).
+        strokeColor: '#4F5BF0',
         strokeWeight: 5,
         strokeOpacity: 0.8
       }
@@ -172,7 +175,9 @@ const renderRoute = () => {
     // Create polyline
     routePolylineObj.value = new window.google.maps.Polyline({
       path: path,
-      strokeColor: '#1976D2',
+      // Maps API render parameter — literal is the theme-layer
+      // transcription of Nexus Blue (--blue-500 / --accent).
+      strokeColor: '#4F5BF0',
       strokeWeight: 5,
       strokeOpacity: 0.8,
       map: map.value
@@ -268,13 +273,13 @@ const renderWaypointMarkers = (routePath: any[]) => {
       zIndex: 100 + index  // Ensure waypoints appear above route line
     });
 
-    // Add info window on click
+    // Add info window on click — inline styles resolve tokens from :root
     const infoWindow = new window.google.maps.InfoWindow({
       content: `
-        <div style="padding: 8px; max-width: 200px;">
-          <div style="font-weight: bold; margin-bottom: 4px;">${waypointLabel}</div>
-          ${waypoint.overnight_recommended ? '<div style="color: #F57C00; font-size: 12px;">Overnight Stop Recommended</div>' : ''}
-          <div style="font-size: 12px; color: #666;">Stop ${index + 1} of ${sortedWaypoints.length}</div>
+        <div style="padding: var(--sp-3); max-width: 200px; font-family: var(--font-ui); color: var(--text-primary);">
+          <div style="font-weight: var(--fw-bold); margin-bottom: var(--sp-2);">${waypointLabel}</div>
+          ${waypoint.overnight_recommended ? '<div style="color: var(--warning); font-size: var(--fs-label);">Overnight stop recommended</div>' : ''}
+          <div style="font-size: var(--fs-label); color: var(--text-secondary);">Stop ${index + 1} of ${sortedWaypoints.length}</div>
         </div>
       `
     });
@@ -345,14 +350,14 @@ const renderDropoffMarkers = (routePath: any[]) => {
       zIndex: 200 + index  // Above waypoints
     });
 
-    // Add info window on click
+    // Add info window on click — inline styles resolve tokens from :root
     const infoWindow = new window.google.maps.InfoWindow({
       content: `
-        <div style="padding: 8px; max-width: 200px;">
-          <div style="font-weight: bold; margin-bottom: 4px; color: #FF9800;">Drop-off Location</div>
-          <div style="font-weight: bold;">${dropoff.name}</div>
-          ${dropoff.address ? `<div style="font-size: 12px; color: #666; margin-top: 4px;">${dropoff.address}</div>` : ''}
-          <div style="font-size: 12px; color: #666; margin-top: 4px;">Stop ${index + 1} of ${props.dropoffLocations!.length}</div>
+        <div style="padding: var(--sp-3); max-width: 200px; font-family: var(--font-ui); color: var(--text-primary);">
+          <div style="font-weight: var(--fw-bold); margin-bottom: var(--sp-2); color: var(--beacon);">Drop-off location</div>
+          <div style="font-weight: var(--fw-bold);">${dropoff.name}</div>
+          ${dropoff.address ? `<div style="font-size: var(--fs-label); color: var(--text-secondary); margin-top: var(--sp-2);">${dropoff.address}</div>` : ''}
+          <div style="font-size: var(--fs-label); color: var(--text-secondary); margin-top: var(--sp-2);">Stop ${index + 1} of ${props.dropoffLocations!.length}</div>
         </div>
       `
     });
@@ -433,11 +438,11 @@ onMounted(() => {
   <div class="route-map-wrapper">
     <div v-if="isLoading" class="map-loading">
       <q-spinner color="primary" size="50px" />
-      <div class="text-caption text-grey-7 q-mt-sm">Loading map...</div>
+      <div class="map-status-caption q-mt-sm">Loading map...</div>
     </div>
     <div v-else-if="loadError" class="map-error">
-      <q-icon name="error" color="negative" size="50px" />
-      <div class="text-body2 text-negative q-mt-sm">{{ loadError }}</div>
+      <AlertCircle :size="48" class="map-error-icon" />
+      <div class="map-error-text q-mt-sm">{{ loadError }}</div>
     </div>
     <div
       ref="mapContainer"
@@ -452,14 +457,16 @@ onMounted(() => {
 .route-map-wrapper {
   position: relative;
   width: 100%;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
   overflow: hidden;
-  background: #f5f5f5;
+  background: var(--surface-sunk);
+  box-shadow: var(--shadow-sm);
 }
 
 .map-container {
   width: 100%;
-  border-radius: 8px;
+  border-radius: var(--r-lg);
 }
 
 .map-loading,
@@ -468,7 +475,21 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 400px;
-  background: #fafafa;
+  height: 400px; /* map height — fixed layout dimension */
+  background: var(--surface-sunk);
+}
+
+.map-status-caption {
+  font-size: var(--fs-label);
+  color: var(--text-secondary);
+}
+
+.map-error-icon {
+  color: var(--danger);
+}
+
+.map-error-text {
+  font-size: var(--fs-body);
+  color: var(--danger);
 }
 </style>

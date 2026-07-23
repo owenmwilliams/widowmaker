@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue';
 import { API_BASE_URL } from "../../config/api";
 import { useQuasar } from 'quasar';
+import { PackageOpen, MapPin, BedDouble, Flag } from 'lucide-vue-next';
 import axios, { type AxiosRequestHeaders } from 'axios';
 
 // API URL based on environment
@@ -478,30 +479,21 @@ defineExpose({
           :class="['waypoint-row', { 'dropoff-waypoint': waypoint.is_dropoff }]"
         >
           <span class="waypoint-name">
-            <q-icon
-              v-if="waypoint.is_dropoff"
-              name="unarchive"
-              size="xs"
-              class="q-mr-xs text-orange-7"
-            >
+            <span v-if="waypoint.is_dropoff" class="stop-tag stop-tag--dropoff">
+              <PackageOpen :size="12" />
               <q-tooltip>Drop-off location (unloading stop)</q-tooltip>
-            </q-icon>
-            <q-icon
-              v-else-if="waypoint.source === 'manual'"
-              name="place"
-              size="xs"
-              class="q-mr-xs text-purple-6"
-            >
+            </span>
+            <span v-else-if="waypoint.source === 'manual'" class="stop-tag stop-tag--manual">
+              <MapPin :size="12" />
               <q-tooltip>Manual waypoint (won't be reordered)</q-tooltip>
-            </q-icon>
-            <q-icon
+            </span>
+            <span
               v-else-if="waypoint.overnight_recommended || waypoint.source === 'suggested'"
-              name="hotel"
-              size="xs"
-              class="q-mr-xs text-blue-6"
+              class="stop-tag stop-tag--overnight"
             >
+              <BedDouble :size="12" />
               <q-tooltip>Suggested overnight stop</q-tooltip>
-            </q-icon>
+            </span>
             {{ waypoint.city }}<span v-if="waypoint.state">, {{ waypoint.state }}</span>
           </span>
           <span v-if="waypoint.segment_distance_miles" class="waypoint-dist text-grey-6">
@@ -529,7 +521,10 @@ defineExpose({
         <!-- Destination row (final leg from last waypoint to destination) -->
         <div v-if="finalLegDistanceMiles" class="waypoint-row final-leg">
           <span class="waypoint-name">
-            <q-icon name="flag" size="xs" class="q-mr-xs text-red" />{{ destinationName || 'Destination' }}
+            <span class="stop-tag stop-tag--destination">
+              <Flag :size="12" />
+              <q-tooltip>Final destination</q-tooltip>
+            </span>{{ destinationName || 'Destination' }}
           </span>
           <span class="waypoint-dist text-grey-6">
             {{ Math.round(finalLegDistanceMiles / 10) * 10 }} mi, {{ Number(finalLegDurationHours || 0).toFixed(1) }}h
@@ -544,7 +539,7 @@ defineExpose({
     <q-dialog v-model="showAddDialog" persistent>
       <q-card style="min-width: 350px">
         <q-card-section>
-          <div class="text-h6">{{ editingWaypoint ? 'Edit Waypoint' : 'Add Waypoint' }}</div>
+          <div class="text-h6 waypoint-dialog-title">{{ editingWaypoint ? 'Edit waypoint' : 'Add waypoint' }}</div>
         </q-card-section>
 
         <q-card-section class="q-pt-none">
@@ -604,43 +599,54 @@ defineExpose({
 </template>
 
 <style scoped>
+/* Floating panel over the map: card recipe with a translucent surface */
 .waypoint-manager {
-  background: rgba(255, 255, 255, 0.65);
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-  max-width: 320px;
+  background: color-mix(in oklab, var(--surface-card) 82%, transparent);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+  max-width: 320px; /* fixed layout dimension */
+  overflow: hidden;
 }
 
 .waypoint-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: var(--sp-3) var(--sp-4);
   cursor: pointer;
   user-select: none;
-  border-bottom: 1px solid #e0e0e0;
+  border-bottom: 1px solid var(--border);
+  transition: background-color var(--dur-fast) var(--ease-standard);
 }
 
 .waypoint-header:hover {
-  background: rgba(0,0,0,0.03);
+  background: var(--surface-hover);
+}
+
+.waypoint-header:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .waypoint-content {
-  max-height: 200px;
+  max-height: 200px; /* fixed layout dimension */
   overflow-y: auto;
 }
 
 .waypoint-list {
-  padding: 4px 0;
+  padding: var(--sp-2) 0;
 }
 
 .waypoint-row {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
-  gap: 12px;
-  font-size: 13px;
-  border-bottom: 1px solid #f0f0f0;
+  padding: var(--sp-3) var(--sp-4);
+  gap: var(--sp-4);
+  font-size: var(--fs-label);
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-soft);
+  transition: background-color var(--dur-fast) var(--ease-standard);
 }
 
 .waypoint-row:last-child {
@@ -656,7 +662,8 @@ defineExpose({
 }
 
 .waypoint-dist {
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
   flex-shrink: 0;
 }
 
@@ -668,21 +675,58 @@ defineExpose({
 
 .waypoint-actions .q-btn {
   opacity: 0.6;
+  transition: opacity var(--dur-fast) var(--ease-standard);
 }
 
 .waypoint-row:hover .waypoint-actions .q-btn {
   opacity: 1;
 }
 
+/* Stop-type tags: token pills (icon + tooltip) */
+.stop-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  padding: var(--sp-1) var(--sp-2);
+  margin-right: var(--sp-2);
+  border-radius: var(--r-pill);
+}
+
+.stop-tag--dropoff {
+  background: color-mix(in oklab, var(--beacon) 14%, transparent);
+  color: var(--beacon);
+}
+
+.stop-tag--manual {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+.stop-tag--overnight {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+.stop-tag--destination {
+  background: color-mix(in oklab, var(--beacon) 14%, transparent);
+  color: var(--beacon);
+}
+
+/* Drop-off rows: quiet tint, no colored left-border (banned pattern) */
 .dropoff-waypoint {
-  background: rgba(255, 152, 0, 0.08);
-  border-left: 3px solid #ff9800;
-  font-weight: 500;
+  background: color-mix(in oklab, var(--beacon) 8%, transparent);
+  font-weight: var(--fw-medium);
 }
 
 .waypoint-row.final-leg {
-  background: #f5f5f5;
-  border-top: 1px dashed #ccc;
+  background: var(--surface-sunk);
+  border-top: 1px dashed var(--border);
   font-style: italic;
+}
+
+.waypoint-dialog-title {
+  font-family: var(--font-display);
+  letter-spacing: var(--ls-title);
 }
 </style>

@@ -8,6 +8,7 @@ import ReloPrepLogo from "../../brand/ReloPrepLogo.vue";
 import MobileNavDrawer from "../../layout/MobileNavDrawer.vue";
 import { inventoryStore } from "../../../stores/InventoryStore"
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import { CircleCheck, FolderOpen, TriangleAlert } from "lucide-vue-next";
 
 const props = defineProps({
   user: { type: String, required: true },
@@ -219,29 +220,30 @@ const sendInvite = () => {
 };
 
 // Computed
+// Semantic StatusPill tone (accent = in progress, success = complete).
 const sessionStatusColor = computed(() => {
-  if (!selectedSession.value) return "grey";
+  if (!selectedSession.value) return "neutral";
   switch (selectedSession.value.status) {
     case "in_progress":
-      return "blue";
+      return "accent";
     case "complete":
-      return "green";
+      return "success";
     case "not_started":
-      return "grey";
+      return "neutral";
     default:
-      return "grey";
+      return "neutral";
   }
 });
 
 const sessionStatusLabel = computed(() => {
-  if (!selectedSession.value) return "No Session";
+  if (!selectedSession.value) return "No session";
   switch (selectedSession.value.status) {
     case "in_progress":
-      return "In Progress";
+      return "In progress";
     case "complete":
       return "Complete";
     case "not_started":
-      return "Not Started";
+      return "Not started";
     default:
       return selectedSession.value.status;
   }
@@ -293,7 +295,7 @@ const scanRestrictionMessage = computed(() => {
     return inProgressRestrictionMessage.value;
   }
   if (selectedSession.value.status !== "in_progress") {
-    return "Set this session to In Progress before scanning.";
+    return "Set this session to In progress before scanning.";
   }
   return "";
 });
@@ -669,9 +671,9 @@ const changeStatus = () => {
   }
 
   const statuses = [
-    { label: "Not Started", value: "not_started" },
+    { label: "Not started", value: "not_started" },
     {
-      label: "In Progress",
+      label: "In progress",
       value: "in_progress",
       disable: !canSetSessionInProgress.value,
     },
@@ -679,7 +681,7 @@ const changeStatus = () => {
   ];
 
   $q.dialog({
-    title: "Change Status",
+    title: "Change status",
     message:
       !canSetSessionInProgress.value && inProgressRestrictionMessage.value
         ? inProgressRestrictionMessage.value
@@ -774,7 +776,7 @@ const handleScan = async (scanType: "loaded" | "unloaded") => {
 
     $q.notify({
       type: "positive",
-      message: `${selectionLabel} ${scanType === "loaded" ? "LOADED" : "UNLOADED"}`,
+      message: `${selectionLabel} ${scanType === "loaded" ? "loaded" : "unloaded"}`,
       position: "top",
       icon: "check_circle",
     });
@@ -976,7 +978,7 @@ watch(
         <q-btn dense flat round icon="menu" @click="showLeft = !showLeft" />
 
         <q-toolbar-title class="text-subtitle1 text-weight-medium">
-          Move Sessions
+          Move sessions
         </q-toolbar-title>
 
         <ReloPrepLogo
@@ -1005,20 +1007,21 @@ watch(
         <!-- No Move Selected -->
         <q-card v-if="!selectedMove" class="move-card q-mb-md">
           <q-card-section class="text-center">
-            <q-icon
-              name="folder_open"
-              size="48px"
-              color="grey-5"
-              class="q-mb-md"
+            <FolderOpen
+              :size="48"
+              class="empty-state__icon q-mb-md"
+              aria-hidden="true"
             />
-            <div class="text-h6 text-grey-7">No Move Selected</div>
-            <div class="text-caption text-grey-6 q-mb-md">
+            <div class="empty-state__title">No move selected</div>
+            <div class="empty-state__hint q-mb-md">
               Use the menu to select a move
             </div>
             <q-btn
+              class="block-btn"
               color="primary"
-              outline
-              label="Open Menu"
+              unelevated
+              no-caps
+              label="Open menu"
               @click="showLeft = true"
             />
           </q-card-section>
@@ -1031,10 +1034,10 @@ watch(
             <q-card-section>
               <div class="move-card-header">
                 <div>
-                  <div class="text-subtitle1 text-weight-bold text-primary">
+                  <div class="move-name">
                     {{ selectedMove.name }}
                   </div>
-                  <div class="text-caption text-grey-7">
+                  <div class="move-route">
                     {{ selectedMove.origin_address }} →
                     {{ selectedMove.destination_address }}
                   </div>
@@ -1043,18 +1046,21 @@ watch(
                   v-if="isMoveOwner"
                   flat
                   round
-                  dense
                   icon="ios_share"
+                  class="icon-action"
+                  aria-label="Share move"
                   @click="showShareDialog = true"
                 >
-                  <q-tooltip>Share Move</q-tooltip>
+                  <q-tooltip>Share move</q-tooltip>
                 </q-btn>
               </div>
               <div v-if="sessionTimeline.length" class="session-timeline">
-                <div
+                <button
                   v-for="node in sessionTimeline"
                   :key="node.id"
+                  type="button"
                   class="timeline-node"
+                  :aria-label="node.label"
                   :class="{
                     active: selectedSession?.id === node.id,
                     complete: node.status === 'complete',
@@ -1070,14 +1076,14 @@ watch(
                   }"
                   @click="onSessionChange(node.id)"
                 >
-                  <div class="node-content">
+                  <span class="node-content">
                     <template v-if="selectedSession?.id === node.id">
                       <span class="node-label">{{ node.label }}</span>
-                      <q-icon
+                      <CircleCheck
                         v-if="node.status === 'complete'"
-                        name="check_circle"
-                        size="16px"
+                        :size="16"
                         class="q-ml-sm"
+                        aria-hidden="true"
                       />
                     </template>
                     <template
@@ -1098,8 +1104,8 @@ watch(
                         {{ node.index }}
                       </span>
                     </template>
-                  </div>
-                </div>
+                  </span>
+                </button>
               </div>
             </q-card-section>
           </q-card>
@@ -1107,27 +1113,34 @@ watch(
           <!-- Session Selector -->
           <q-card v-if="selectedSession" class="move-card q-mb-md">
             <q-card-section>
-              <div class="text-subtitle2 q-mb-sm">Session Status</div>
-              <q-chip
-                :color="sessionStatusColor"
-                text-color="white"
-                :clickable="canOpenStatusDialog"
+              <div class="card-label q-mb-sm">Session status</div>
+              <button
+                type="button"
+                class="status-pill"
+                :class="[
+                  `status-pill--${sessionStatusColor}`,
+                  { 'status-pill--static': !canOpenStatusDialog },
+                ]"
                 @click="canOpenStatusDialog && changeStatus()"
               >
                 {{ sessionStatusLabel }}
                 <q-tooltip>Tap to change status</q-tooltip>
-              </q-chip>
+              </button>
             </q-card-section>
           </q-card>
 
-          <q-banner
+          <div
             v-if="selectedSession && !isSessionReadyForScanning"
-            class="bg-orange-1 text-orange-10 q-mb-md"
-            dense
-            rounded
+            class="nudge-banner q-mb-md"
+            role="status"
           >
-            {{ scanRestrictionMessage }}
-          </q-banner>
+            <TriangleAlert
+              :size="20"
+              class="nudge-banner__icon"
+              aria-hidden="true"
+            />
+            <span>{{ scanRestrictionMessage }}</span>
+          </div>
 
           <q-page-sticky
             v-if="selectedSession"
@@ -1136,8 +1149,9 @@ watch(
           >
             <div class="scan-actions">
               <q-btn
-                class="fab-button fab-pill"
+                class="fab-button"
                 unelevated
+                no-caps
                 icon="qr_code_scanner"
                 label="Scan box / item"
                 @click="openQRScanner"
@@ -1153,29 +1167,31 @@ watch(
     <FooterVue :user="user" />
 
     <q-dialog v-model="showShareDialog">
-      <q-card style="min-width: 320px">
+      <q-card class="share-card" style="min-width: 320px">
         <q-card-section>
-          <div class="text-h6">Share this Move</div>
-          <div class="text-caption text-grey-7">
+          <div class="share-card__title">Share this move</div>
+          <div class="share-card__hint">
             Send a link to helpers via text or email.
           </div>
         </q-card-section>
         <q-card-section class="q-gutter-md">
           <q-input v-model="inviteEmail" label="Email" type="email" />
           <q-input v-model="invitePhone" label="Phone" type="tel" />
-          <q-input v-model="shareLink" label="Invite Link" readonly dense />
+          <q-input v-model="shareLink" label="Invite link" readonly dense />
         </q-card-section>
         <q-card-actions align="right">
           <q-btn
             flat
+            no-caps
             label="Cancel"
             color="primary"
             @click="showShareDialog = false"
           />
           <q-btn
             unelevated
+            no-caps
             color="primary"
-            label="Send Invite"
+            label="Send invite"
             @click="sendInvite"
           />
         </q-card-actions>
@@ -1190,7 +1206,6 @@ watch(
       class="scan-toast-dialog"
     >
       <div class="scan-toast">
-        <div class="scan-toast__glow"></div>
         <div class="scan-toast__handle"></div>
         <div class="scan-toast__header">
           <div>
@@ -1204,10 +1219,9 @@ watch(
         <q-btn
           flat
           round
-          dense
           icon="close"
-          color="white"
           class="scan-toast__close"
+          aria-label="Close"
           @click="showScanDialog = false"
         />
 
@@ -1240,8 +1254,8 @@ watch(
           <div class="scan-controls q-mt-sm">
             <q-btn
               flat
-              dense
-              color="white"
+              no-caps
+              class="sheet-link"
               icon="autorenew"
               label="Scan again"
               @click="restartQrScanner"
@@ -1254,9 +1268,8 @@ watch(
           class="scan-manifest-picker"
         >
           <q-btn
-            dense
             flat
-            color="white"
+            no-caps
             icon="list_alt"
             class="manifest-toggle"
             :label="showManifestPicker ? 'Hide manifest' : 'Select box / item'"
@@ -1292,19 +1305,28 @@ watch(
         </div>
 
         <div v-if="boxInput" class="scan-selection">
-          <div class="selection-label">Selected</div>
-          <div class="selection-value">{{ scanSelectionLabel }}</div>
-          <div
-            v-if="scanZoneLabel"
-            class="selection-zone"
-          >
-            Assigned zone: <strong>{{ scanZoneLabel }}</strong>
+          <CircleCheck
+            :size="22"
+            class="scan-selection__check"
+            aria-hidden="true"
+          />
+          <div class="scan-selection__body">
+            <div class="selection-label">Selected</div>
+            <div class="selection-value">{{ scanSelectionLabel }}</div>
+            <div
+              v-if="scanZoneLabel"
+              class="selection-zone"
+            >
+              Assigned zone: <strong>{{ scanZoneLabel }}</strong>
+            </div>
           </div>
         </div>
 
         <div class="scan-toast__actions">
           <q-btn
             class="scan-action scan-action--primary"
+            unelevated
+            no-caps
             label="Loaded"
             icon="inventory_2"
             :disable="!canSubmitScan"
@@ -1312,7 +1334,9 @@ watch(
           />
           <q-btn
             class="scan-action scan-action--secondary"
-            label="Report Damage"
+            unelevated
+            no-caps
+            label="Report damage"
             icon="report"
             :disable="!canSubmitScan"
             @click="handleScan('unloaded')"
@@ -1325,81 +1349,108 @@ watch(
 </template>
 
 <style scoped>
+/* Retokenized to the Nexus Moves design system — light theme
+   (the web app is [data-theme="light"] app-wide, phase 1).
+   Literals remain only for fixed layout dims, hairlines,
+   micro-transforms, and the camera-viewport chrome (render
+   parameters for the live scanner feed). */
+
 .mobile-layout {
-  padding-bottom: 56px;
-  background:
-    radial-gradient(
-      circle at 20% 20%,
-      rgba(39, 70, 144, 0.08),
-      transparent 35%
-    ),
-    radial-gradient(
-      circle at 80% 10%,
-      rgba(28, 161, 193, 0.07),
-      transparent 30%
-    ),
-    #f7f8fa;
+  padding-bottom: 56px; /* footer clearance (fixed layout dim) */
+  background: var(--bg);
 }
 
 .move-page {
   min-height: 100vh;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.92),
-    rgba(237, 242, 255, 0.65)
-  );
 }
 
 .move-card {
-  border-radius: 18px;
-  border: none;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow:
-    0 15px 45px rgba(15, 23, 42, 0.08),
-    0 3px 12px rgba(15, 23, 42, 0.05);
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--surface-card);
+  box-shadow: var(--shadow-sm);
 }
 
-.move-card .text-h6 {
-  font-weight: 600;
-  color: #1f2a44;
+.card-label {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
 }
 
-.move-card .text-caption {
-  color: #64748b;
+/* ── Empty state ─────────────────────────────────────────── */
+.empty-state__icon {
+  color: var(--text-tertiary);
 }
 
-.move-card .q-field__control {
-  border-radius: 12px;
-  min-height: 52px;
+.empty-state__title {
+  font-size: var(--fs-title-s);
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
 }
 
+.empty-state__hint {
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+}
+
+.block-btn {
+  width: 100%;
+  min-height: var(--tap-min);
+  border-radius: var(--r-md);
+  font-size: var(--fs-body-l);
+  font-weight: var(--fw-bold);
+}
+
+/* ── Move header ─────────────────────────────────────────── */
 .move-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-4);
 }
 
+.move-name {
+  font-size: var(--fs-title-s);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-title);
+  color: var(--accent);
+}
+
+.move-route {
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+  margin-top: var(--sp-1);
+}
+
+.icon-action {
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  color: var(--accent);
+}
+
+/* ── Session timeline ────────────────────────────────────── */
 .session-timeline {
   display: flex;
   width: 100%;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 8px;
-  border-radius: 16px;
+  padding: var(--sp-4) var(--sp-3);
+  border-radius: var(--r-lg);
   overflow: hidden;
   position: relative;
 }
 
 .timeline-node {
+  appearance: none;
+  font-family: inherit;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.4s cubic-bezier(0.25, 1, 0.5, 1);
-  border-radius: 999px;
+  transition: all var(--dur-slow) var(--ease-standard);
+  border-radius: var(--r-pill);
   cursor: pointer;
   position: relative;
-  background: rgba(42, 68, 156, 0.1);
+  background: var(--accent-quiet);
   border: 1px solid transparent;
   width: 12px;
   height: 12px;
@@ -1407,36 +1458,61 @@ watch(
   margin: 0 4px;
 }
 
+/* Invisible hit-area expansion so every node meets --tap-min
+   without changing the dot visuals. */
+.timeline-node::after {
+  content: "";
+  position: absolute;
+  inset: -16px;
+  border-radius: inherit;
+}
+
+.timeline-node:active {
+  transform: scale(0.97);
+}
+
 .timeline-node.complete {
-  background: rgba(33, 186, 69, 0.2);
+  background: var(--success-quiet);
 }
 
 .timeline-node.adjacent {
   width: 32px;
   height: 32px;
-  background: #fff;
-  border-color: rgba(42, 68, 156, 0.2);
-  color: #1b2a5b;
+  background: var(--surface-card);
+  border-color: var(--accent-quiet-2);
+  color: var(--text-primary);
+}
+
+.timeline-node.adjacent::after {
+  inset: -6px;
 }
 
 .timeline-node.adjacent-secondary {
   width: 20px;
   height: 20px;
-  background: rgba(255, 255, 255, 0.85);
-  border-color: rgba(42, 68, 156, 0.2);
-  color: #1b2a5b;
+  background: var(--surface-card);
+  border-color: var(--accent-quiet-2);
+  color: var(--text-secondary);
+}
+
+.timeline-node.adjacent-secondary::after {
+  inset: -12px;
 }
 
 .timeline-node.active {
   flex-grow: 1;
   min-width: 120px;
   height: 38px;
-  padding: 0 16px;
-  background: #2a449c;
-  color: #fff;
+  padding: 0 var(--sp-5);
+  background: var(--accent);
+  color: var(--on-accent);
   border-color: transparent;
-  box-shadow: 0 4px 12px rgba(42, 68, 156, 0.25);
+  box-shadow: var(--shadow-sm);
   margin: 0 6px;
+}
+
+.timeline-node.active::after {
+  inset: -4px;
 }
 
 .timeline-node.distant {
@@ -1452,18 +1528,18 @@ watch(
 }
 
 .node-number {
-  font-size: 0.85rem;
-  font-weight: 700;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
 }
 
 .node-number--secondary {
-  font-size: 0.7rem;
+  font-size: var(--fs-micro);
   opacity: 0.8;
 }
 
 .node-label {
-  font-size: 0.95rem;
-  font-weight: 600;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
   opacity: 0;
   animation: fadeIn 0.3s forwards 0.2s;
 }
@@ -1477,8 +1553,8 @@ watch(
 .timeline-expand-enter-active,
 .timeline-expand-leave-active {
   transition:
-    opacity 0.2s ease,
-    transform 0.2s ease;
+    opacity var(--dur-base) var(--ease-standard),
+    transform var(--dur-base) var(--ease-standard);
 }
 
 .timeline-expand-enter-from,
@@ -1487,25 +1563,87 @@ watch(
   transform: translateX(-6px);
 }
 
-.manual-action {
-  font-size: 0.8rem;
+/* ── Session status (StatusPill semantics) ───────────────── */
+.status-pill {
+  appearance: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--tap-min);
+  padding: 0 var(--sp-5);
+  border-radius: var(--r-pill);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  transition: transform var(--dur-fast) var(--ease-standard);
 }
 
+.status-pill:active {
+  transform: scale(0.97);
+}
+
+.status-pill--accent {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+.status-pill--success {
+  background: var(--success-quiet);
+  color: var(--success);
+}
+
+.status-pill--neutral {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+.status-pill--static {
+  cursor: default;
+}
+
+.status-pill--static:active {
+  transform: none;
+}
+
+/* ── Honest-nudge banner (Banner, warning tone) ──────────── */
+.nudge-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  background: var(--warning-surface);
+  color: var(--warning-ink);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4) var(--sp-5);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: var(--fw-medium);
+}
+
+.nudge-banner__icon {
+  color: var(--warning);
+  flex: none;
+  margin-top: 1px; /* optical alignment */
+}
+
+/* ── Scan CTA — the single shimmer hero on this screen ───── */
 .scan-actions {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .fab-button {
   width: 100%;
-  padding: 16px 24px;
-  font-size: 1rem;
-  font-weight: 700;
-  border-radius: 999px;
-  background: linear-gradient(135deg, #4cc5ff, #1bb1f7);
-  color: #fff;
-  box-shadow: 0 12px 30px rgba(27, 177, 247, 0.35);
+  min-height: 52px; /* block CTA height (≥ --tap-min) */
+  padding: var(--sp-4) var(--sp-7);
+  font-size: var(--fs-body-l);
+  font-weight: var(--fw-bold);
+  border-radius: var(--r-pill);
+  background: var(--shimmer);
+  color: var(--on-accent);
+  box-shadow: var(--glow-shimmer);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1515,168 +1653,135 @@ watch(
 }
 
 .fab-button :deep(.q-btn__content) {
-  gap: 8px;
+  gap: var(--sp-3);
 }
 
 .fab-button :deep(.q-icon) {
   font-size: 24px;
 }
 
-.fab-button::after {
+/* Signature looping sweep (same recipe as the kit / NexusChat). */
+.fab-button::before {
   content: "";
   position: absolute;
-  inset: -40%;
-  background:
-    radial-gradient(
-      circle at 15% 20%,
-      rgba(255, 255, 255, 0.45),
-      transparent 60%
-    ),
-    radial-gradient(
-      circle at 50% 0%,
-      rgba(255, 255, 255, 0.35),
-      transparent 65%
-    ),
-    radial-gradient(
-      circle at 65% 75%,
-      rgba(255, 255, 255, 0.3),
-      transparent 70%
-    ),
-    radial-gradient(
-      circle at 85% 35%,
-      rgba(255, 255, 255, 0.2),
-      transparent 70%
-    );
-  animation: sparkleDrift 6s linear infinite;
+  inset: 0;
+  width: 45%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.35),
+    transparent
+  );
+  animation: nx-shimmer-sweep var(--shimmer-sweep) var(--ease-standard)
+    infinite;
   pointer-events: none;
 }
 
-.fab-button:hover {
-  box-shadow: 0 18px 40px rgba(27, 177, 247, 0.45);
+.fab-button.disabled::before {
+  animation: none;
 }
 
-@keyframes sparkleDrift {
-  0% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
-  100% {
-    transform: translateY(0);
+@media (prefers-reduced-motion: reduce) {
+  .fab-button::before {
+    animation: none;
   }
 }
 
+/* ── Scan sheet (Sheet contract: grabber + title, --r-2xl) ── */
 .scan-toast-dialog :deep(.q-dialog__inner--bottom) {
   padding: 0;
   justify-content: flex-end;
 }
 
 .scan-toast-dialog :deep(.q-dialog__backdrop) {
-  background: rgba(9, 11, 25, 0.65);
+  background: color-mix(in oklab, var(--navy-900) 55%, transparent);
 }
 
 .scan-toast {
   width: 100vw;
-  max-width: 480px;
+  max-width: 480px; /* fixed layout dim */
   min-height: 75vh;
-  border-radius: 28px 28px 0 0;
-  background: linear-gradient(165deg, #5374f0 0%, #a3c8ff 55%, #f9fbff 105%);
-  padding: 24px;
-  box-shadow:
-    0 -18px 40px rgba(17, 24, 39, 0.25),
-    0 -6px 18px rgba(17, 24, 39, 0.25);
+  border-radius: var(--r-2xl) var(--r-2xl) 0 0;
+  background: var(--surface);
+  padding: var(--sp-7);
+  box-shadow: var(--shadow-lg);
   position: relative;
   overflow: hidden;
-  color: #fff;
+  color: var(--text-primary);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-
-.scan-toast__glow {
-  position: absolute;
-  inset: -35%;
-  background:
-    radial-gradient(
-      18px 18px at 25% 25%,
-      rgba(255, 255, 255, 0.65),
-      transparent 70%
-    ),
-    radial-gradient(
-      24px 24px at 70% 20%,
-      rgba(255, 255, 255, 0.45),
-      transparent 75%
-    ),
-    radial-gradient(
-      14px 14px at 55% 85%,
-      rgba(255, 255, 255, 0.35),
-      transparent 70%
-    );
-  opacity: 0.8;
-  animation: sparkleDrift 8s linear infinite;
-  pointer-events: none;
-  mix-blend-mode: screen;
+  gap: var(--sp-6);
 }
 
 .scan-toast__handle {
-  width: 56px;
+  width: 40px; /* grabber dims per Sheet contract */
   height: 5px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.5);
+  border-radius: var(--r-pill);
+  background: var(--border);
   margin: 0 auto;
 }
 
 .scan-toast__header {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--sp-5);
   position: relative;
   z-index: 1;
 }
 
 .scan-toast__close {
   position: absolute;
-  top: 18px;
-  right: 18px;
+  top: var(--sp-4);
+  right: var(--sp-4);
   z-index: 2;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  color: var(--text-secondary);
 }
 
 .scan-toast__eyebrow {
+  font-family: var(--font-mono);
   text-transform: uppercase;
-  font-size: 0.7rem;
-  letter-spacing: 0.2em;
-  opacity: 0.75;
-  margin-bottom: 4px;
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--text-tertiary);
+  margin-bottom: var(--sp-2);
 }
 
 .scan-toast__title {
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: var(--fs-title-m);
+  font-weight: var(--fw-extrabold);
+  letter-spacing: var(--ls-title);
+  color: var(--text-primary);
 }
 
 .scan-toast__subtitle {
-  font-size: 0.95rem;
-  opacity: 0.8;
-  margin-top: 4px;
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  color: var(--text-secondary);
+  margin-top: var(--sp-2);
 }
 
 .scan-preview-window {
-  border-radius: 24px;
+  border-radius: var(--r-xl);
   padding: 0;
-  min-height: 240px;
+  min-height: 240px; /* scanner viewport dim */
   position: relative;
   z-index: 1;
 }
 
 .scan-video-wrapper {
+  /* Camera viewport chrome: deliberate literals — the live feed
+     renders here and the alignment cues must read identically in
+     any theme (scanner render parameters). */
   position: relative;
   width: 100%;
-  min-height: 240px;
-  border-radius: 24px;
+  min-height: 240px; /* scanner viewport dim */
+  border-radius: var(--r-xl);
   overflow: hidden;
-  background: rgba(7, 11, 30, 0.35);
+  background: rgba(7, 11, 30, 0.9);
   border: 2px dashed rgba(255, 255, 255, 0.4);
   box-shadow: inset 0 0 25px rgba(0, 0, 0, 0.25);
   display: flex;
@@ -1692,15 +1797,22 @@ watch(
 
 .scan-preview-text {
   position: absolute;
-  bottom: 12px;
+  bottom: var(--sp-4);
   left: 50%;
   transform: translateX(-50%);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  opacity: 0.9;
-  padding: 6px 18px;
-  border-radius: 999px;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  padding: var(--sp-3) var(--sp-5);
+  border-radius: var(--r-pill);
+  /* scrim over the live camera feed (render parameter) */
   background: rgba(7, 11, 30, 0.7);
+  color: #fff;
+  max-width: calc(100% - 24px);
+  text-align: center;
+}
+
+.scan-preview-text.text-negative {
+  color: var(--danger);
 }
 
 .scan-controls {
@@ -1708,63 +1820,94 @@ watch(
   justify-content: flex-end;
 }
 
+.sheet-link {
+  color: var(--accent);
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-body);
+  text-transform: none;
+  min-height: var(--tap-min);
+}
+
+/* ── Captured selection (ItemCard visuals) ───────────────── */
 .scan-selection {
-  backdrop-filter: blur(10px);
-  background: rgba(255, 255, 255, 0.18);
-  border-radius: 16px;
-  padding: 12px 16px;
-  color: #0d1f4a;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--shadow-sm);
   z-index: 1;
 }
 
+.scan-selection__check {
+  color: var(--success);
+  flex: none;
+  margin-top: 2px; /* optical alignment */
+}
+
+.scan-selection__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
 .selection-label {
-  font-size: 0.75rem;
-  letter-spacing: 0.2em;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  letter-spacing: var(--ls-eyebrow);
   text-transform: uppercase;
-  opacity: 0.7;
+  color: var(--text-tertiary);
 }
 
 .selection-value {
-  font-size: 1.1rem;
-  font-weight: 600;
+  font-size: var(--fs-body-l);
+  font-weight: var(--fw-bold);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 
 .selection-zone {
-  font-size: 0.85rem;
-  opacity: 0.85;
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
 }
 
 .selection-zone strong {
-  color: #1b2a5b;
+  font-family: var(--font-mono);
+  font-weight: var(--fw-semibold);
+  color: var(--text-primary);
 }
 
+/* ── Manifest picker ─────────────────────────────────────── */
 .scan-manifest-picker {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
-  padding: 12px 14px;
+  background: var(--surface-hover);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--sp-3);
   z-index: 1;
 }
 
 .manifest-toggle {
   text-transform: none;
-  font-weight: 600;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-body);
+  color: var(--accent);
   align-self: flex-start;
+  min-height: var(--tap-min);
 }
 
 .manifest-select {
-  border-radius: 12px;
+  border-radius: var(--r-sm);
   overflow: hidden;
 }
 
 .manifest-fade-enter-active,
 .manifest-fade-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity var(--dur-base) var(--ease-standard);
 }
 
 .manifest-fade-enter-from,
@@ -1772,36 +1915,48 @@ watch(
   opacity: 0;
 }
 
+/* ── Sheet actions ───────────────────────────────────────── */
 .scan-toast__actions {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--sp-4);
   position: relative;
   z-index: 1;
 }
 
 .scan-action {
   width: 100%;
-  font-weight: 600;
-  border-radius: 16px;
-  padding: 14px 18px;
+  min-height: 52px; /* block CTA height (≥ --tap-min) */
+  font-size: var(--fs-body-l);
+  font-weight: var(--fw-bold);
+  border-radius: var(--r-md);
   text-transform: none;
 }
 
 .scan-action--primary {
-  background: #101c3d;
-  color: #fff;
-  box-shadow: 0 14px 25px rgba(16, 28, 61, 0.35);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 .scan-action--secondary {
-  background: rgba(255, 255, 255, 0.9);
-  color: #14224b;
-  border: 1px solid rgba(255, 255, 255, 0.65);
+  background: var(--danger-quiet);
+  color: var(--danger);
 }
 
-.scan-action--secondary:disabled {
-  opacity: 0.6;
+/* ── Share dialog ────────────────────────────────────────── */
+.share-card {
+  border-radius: var(--r-lg);
+  background: var(--surface-card);
 }
 
+.share-card__title {
+  font-size: var(--fs-title-s);
+  font-weight: var(--fw-extrabold);
+  color: var(--text-primary);
+}
+
+.share-card__hint {
+  font-size: var(--fs-body);
+  color: var(--text-secondary);
+}
 </style>
