@@ -79,3 +79,4 @@ replaying from empty.
 | `038_add_scan_jobs` | `scan_jobs` table — durable async scan records; review card materialized from `result` (#42 Phase 2) |
 | `040_drop_orphaned_move_tables` | **Destructive.** Drop 5 orphaned tables no code reads/writes: `move_projects`, `move_tasks`, `storage_units`, `move_vehicles`, `move_team_members` (#86 M1) |
 | `041_add_quote_leads` | `quote_leads` table — quote-shopping leads submitted from QuoteShoppingModal, brokered manually (#90) |
+| `042_add_company_capture` | `companies` + `company_capture_sessions` tables and `users.source` marker — moving-company capture links with guest browser capture (H1, #96) |

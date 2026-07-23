@@ -257,6 +257,53 @@ const publicLimiter = rateLimit({
   legacyHeaders: false
 });
 
+/**
+ * Company Capture Start Limiter (issue #96)
+ * Bounds guest-session creation per company link + IP — the endpoint creates
+ * a users row and a capture session with no account wall in front of it.
+ *
+ * Limits: 20 session starts per hour per (company token, IP)
+ */
+const captureStartLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Route middleware on '/:companyToken/…' paths, so req.params is populated.
+  keyGenerator: (req) => `capture-start:${req.params?.companyToken || 'none'}:${ipKeyGenerator(req)}`,
+  handler: (req, res) => {
+    console.warn(`Capture start rate limit exceeded: ${req.params?.companyToken || '?'} ${req.ip}`);
+    res.status(429).json({
+      error: "You've started a lot of sessions from this link. Please wait an hour and try again.",
+      retryAfter: '1 hour'
+    });
+  }
+});
+
+/**
+ * Company Capture Limiter (issue #96)
+ * General guard for the guest capture endpoints (upload-url, scan jobs,
+ * polling, complete). Generous enough for a full home walkthrough — each room
+ * is one upload-url + one PUT (not through here) + one scan-job create + a
+ * couple dozen status polls — while bounding abuse per link + IP.
+ *
+ * Limits: 600 requests per 15 minutes per (company token, IP)
+ */
+const captureLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `capture:${req.params?.companyToken || 'none'}:${ipKeyGenerator(req)}`,
+  handler: (req, res) => {
+    console.warn(`Capture rate limit exceeded: ${req.params?.companyToken || '?'} ${req.ip}`);
+    res.status(429).json({
+      error: 'Too many requests — give it a few minutes and pick up where you left off.',
+      retryAfter: '15 minutes'
+    });
+  }
+});
+
 module.exports = {
   globalLimiter,
   authLimiter,
@@ -266,5 +313,7 @@ module.exports = {
   visionLimiter,
   rescanLimiter,
   emailLimiter,
-  publicLimiter
+  publicLimiter,
+  captureStartLimiter,
+  captureLimiter
 };

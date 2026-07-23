@@ -29,6 +29,7 @@ const VALID_SOURCES = new Set([
   'video_scan',
   'derived_crop',
   'derived_thumbnail',
+  'company_capture', // guest room videos from /c/{companyToken} links (#96)
 ]);
 
 // ── Path resolution ─────────────────────────────────────────────────────────
@@ -66,6 +67,9 @@ function resolvePath({ source, userId, assetUuid, ext, uploadSessionId, folderHi
       }
       return `users/${userId}/room-scans/${uploadSessionId}/source.${ext}`;
     }
+    case 'company_capture':
+      // Under users/{userId}/ so scanJobService.isAllowedMediaUrl accepts it.
+      return `users/${userId}/company-capture/${assetUuid}.${ext}`;
     case 'derived_crop':
       return `users/${userId}/derived/crops/${assetUuid}.jpg`;
     case 'derived_thumbnail':

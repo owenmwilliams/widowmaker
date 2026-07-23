@@ -22,7 +22,12 @@ const { authenticate } = require('../services/infra/authService');
 //   /public             – tokenized read-only inventory shares (resolved by token)
 //   /internal/scan-jobs – Cloud Tasks push target (verified by Google OIDC
 //                         token, not session — see routes/internal/scanJobs.js)
-const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook', '/public', '/internal/scan-jobs'];
+//   /api/capture        – company capture links (#96): public landing/start are
+//                         token-scoped + rate-limited, guest endpoints verify a
+//                         scoped guest JWT, and the /companies admin endpoints
+//                         apply authenticate + requireAdmin themselves — see
+//                         routes/api/companyCapture.js
+const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook', '/public', '/internal/scan-jobs', '/api/capture'];
 
 // Exact public paths (the Jade landing page + favicon).
 const PUBLIC_EXACT = new Set(['/', '/favicon.ico']);

@@ -121,6 +121,39 @@ function verifySessionToken(token) {
 }
 
 /**
+ * Guest capture tokens (company capture links, issue #96).
+ *
+ * A guest JWT is scoped to ONE company_capture_sessions row and only works on
+ * the /api/capture endpoints — it deliberately has NO auth_tokens row, so it
+ * can never pass getUserFromToken()/authenticate() and reach a normal
+ * authenticated route (no `userId`+`email` claim shape, no session record).
+ */
+function signGuestCaptureToken({ captureSessionId, userId }) {
+    if (!captureSessionId || !userId) {
+        throw new Error('signGuestCaptureToken: captureSessionId and userId are required');
+    }
+    const jti = crypto.randomBytes(8).toString('hex');
+    return jwt.sign({ captureSessionId, userId, guest: true, jti }, JWT_SECRET, { expiresIn: '30d' });
+}
+
+/**
+ * Verify a guest capture token. Returns the decoded claims or null. Rejects
+ * anything that isn't explicitly a guest capture token (so a normal session
+ * JWT can't be replayed against the capture endpoints either).
+ */
+function verifyGuestCaptureToken(token) {
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded && decoded.guest === true && decoded.captureSessionId && decoded.userId) {
+            return decoded;
+        }
+        return null;
+    } catch (error) {
+        return null;
+    }
+}
+
+/**
  * Create magic link token and store in database
  */
 async function createMagicLinkToken(email, ipAddress, userAgent) {
@@ -884,6 +917,8 @@ module.exports = {
     generateToken,
     generateSessionToken,
     verifySessionToken,
+    signGuestCaptureToken,
+    verifyGuestCaptureToken,
     createMagicLinkToken,
     verifyMagicLinkToken,
     sendMagicLinkEmail,
