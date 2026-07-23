@@ -28,6 +28,7 @@ CREATE TABLE users (
     last_login_at TIMESTAMPTZ,
     email_verified_at TIMESTAMPTZ,
     onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE,
+    source VARCHAR(40), -- how the row came to exist ('company_link' capture guests; NULL for normal signups) (migration 042)
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -1078,3 +1079,37 @@ CREATE TABLE IF NOT EXISTS quote_leads (
 );
 CREATE INDEX IF NOT EXISTS idx_quote_leads_status_created
     ON quote_leads(status, created_at);
+
+-- ============================================================================
+-- COMPANY CAPTURE (migration 042) — moving-company capture links (H1, #96).
+-- A company's /c/{token} link lets a customer record one video per room in
+-- the browser as a lightweight guest user (users.source = 'company_link');
+-- on completion the company is emailed the inventory share link. Per-session
+-- caps (≤20 videos / ≤500MB) are enforced via the counter columns.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS companies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    contact_email VARCHAR(255) NOT NULL,
+    token VARCHAR(80) NOT NULL UNIQUE,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_companies_token ON companies(token);
+
+CREATE TABLE IF NOT EXISTS company_capture_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    customer_email VARCHAR(255) NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL DEFAULT 'active',
+    consent BOOLEAN NOT NULL DEFAULT FALSE,
+    videos_count INTEGER NOT NULL DEFAULT 0,
+    bytes_total BIGINT NOT NULL DEFAULT 0,
+    expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_company_capture_sessions_company
+    ON company_capture_sessions(company_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_company_capture_sessions_user
+    ON company_capture_sessions(user_id);

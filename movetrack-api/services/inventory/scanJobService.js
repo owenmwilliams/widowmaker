@@ -401,10 +401,15 @@ async function runClaimedJob(job) {
     const args = { file_url: job.media_url, mime_type: job.mime_type, room_hint: roomHint, ...noteArgs };
     // Per-stage forensics parity with the chat path (issue #45): the job path
     // is the primary iOS flow, so it must leave the same scan_events trail.
+    // Company-capture jobs (#96) carry their capture session id in the
+    // idempotency key ('capture:{captureSessionId}:{clientKey}'); thread it
+    // into scan_events.request_id as 'capture:{captureSessionId}:{jobId}' so
+    // forensics can slice by capture session without a new column.
+    const captureMatch = /^capture:([0-9a-f-]{36}):/i.exec(job.idempotency_key || '');
     const recorder = createScanRecorder({
       userId: job.user_id,
       sessionId: job.session_id || null,
-      requestId: `scan_job:${job.id}`,
+      requestId: captureMatch ? `capture:${captureMatch[1]}:${job.id}` : `scan_job:${job.id}`,
       mediaKind: job.media_kind === 'video' ? 'video' : 'photo',
       mediaUrl: job.media_url,
     });
