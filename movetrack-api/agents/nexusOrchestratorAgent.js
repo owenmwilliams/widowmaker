@@ -381,6 +381,70 @@ async function detectUserIntent(message) {
   }
 }
 
+// ── First-Turn Onboarding Recovery ──────────────────────────────────────────────
+//
+// A brand-new user's first message is a reply to the seeded greeting ("First —
+// What's your name?"). That turn must NEVER fall through to a generic apology
+// (2026-07 beta: "Greg" → "Sorry — I didn't quite catch that"). When any
+// fallback fires on the first user turn during onboarding, we recover
+// deterministically: if the message is name-shaped, complete the intended
+// action (set_user_profile + the scripted step-2 line); otherwise re-ask for
+// the name warmly. A scripted recovery beats an apology on turn one.
+
+const ONBOARDING_STEP2_REPLY = (firstName) =>
+  `Nice to meet you, ${firstName}! Where are you moving from? Just a street address is fine.`;
+
+const ONBOARDING_NAME_REASK =
+  "Let me make sure I get this right — what's your first name? Just the name is fine, then we'll get your move set up.";
+
+// Leading fluff commonly wrapped around a name reply: "hi, my name is Greg".
+const NAME_PREFIX_RE = /^(?:(?:hi|hey|hello|hiya|howdy)[,!.\s]+)?(?:my name(?:'s|’s| is)|i(?:'|’)?m|i am|it(?:'|’)?s|this is|call me|name(?: is|'s|’s)?:?)\s+/i;
+
+// Words that make a 1–4 word message NOT a plausible name (greetings, verbs,
+// acknowledgments, question words, app nouns). Kept intentionally broad: a
+// false negative just means a gentle re-ask instead of the scripted flow.
+const NON_NAME_WORDS = new Set([
+  'hi', 'hey', 'hello', 'yo', 'sup', 'hiya', 'howdy',
+  'yes', 'yeah', 'yep', 'no', 'nope', 'ok', 'okay', 'sure', 'thanks', 'thank', 'please', 'sorry',
+  'help', 'start', 'stop', 'test', 'testing', 'skip', 'next', 'back', 'cancel', 'menu', 'done',
+  'what', 'whats', 'who', 'whos', 'why', 'how', 'when', 'where', 'which',
+  'the', 'a', 'an', 'my', 'your', 'our', 'this', 'that', 'it', 'me', 'you', 'we', 'they',
+  'is', 'are', 'was', 'am', 'be', 'do', 'does', 'did', 'can', 'could', 'will', 'would', 'should',
+  'add', 'scan', 'move', 'moving', 'pack', 'packing', 'share', 'upload', 'photo', 'video',
+  'room', 'house', 'apartment', 'inventory', 'name', 'not', 'dont', 'and', 'or', 'but',
+  'to', 'from', 'in', 'on', 'of', 'for', 'with',
+]);
+
+/**
+ * If the message plausibly IS a name (1–4 words, letters only, no verbs /
+ * questions / media), return { firstName, lastName|null }. Otherwise null.
+ * Deliberately conservative: the scripted "Nice to meet you, {name}!" reply is
+ * only safe when the text really looks like a name.
+ */
+function extractNameCandidate(rawMessage) {
+  if (!rawMessage || typeof rawMessage !== 'string') return null;
+  let text = rawMessage.trim();
+  if (!text || text.length > 80) return null;
+  text = text.replace(NAME_PREFIX_RE, '');   // "my name is Greg" → "Greg"
+  text = text.replace(/\.+$/, '').trim();    // allow a trailing period: "Greg."
+  if (!text) return null;
+
+  const words = text.split(/\s+/);
+  if (words.length < 1 || words.length > 4) return null;
+  for (const word of words) {
+    // Letters (any script), apostrophes and hyphens only — no digits, no
+    // punctuation ("asdf!!!"), no URLs/emails/emoji.
+    if (!/^[\p{L}][\p{L}'’-]*$/u.test(word)) return null;
+    if (NON_NAME_WORDS.has(word.toLowerCase().replace(/['’-]/g, ''))) return null;
+  }
+
+  const capitalize = (w) => w.charAt(0).toUpperCase() + w.slice(1);
+  return {
+    firstName: capitalize(words[0]),
+    lastName: words.length > 1 ? words.slice(1).map(capitalize).join(' ') : null,
+  };
+}
+
 // ── Conversation Loop ───────────────────────────────────────────────────────────
 
 /**
@@ -433,6 +497,15 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     );
     historyRows.reverse();
   }
+
+  // First-turn detection (computed BEFORE the current message is persisted):
+  // no prior user rows means this is the session's very first user turn — the
+  // reply to the seeded greeting. Any fallback firing here is a first-
+  // impression bug and must be logged loudly + recovered deterministically.
+  const isFirstUserTurn = !options.guidanceOnly && !historyRows.some(r => r.role === 'user');
+  const greetingAskedForName = historyRows.some(
+    r => r.role === 'model' && /what'?s your name/i.test(String(r.content || ''))
+  );
 
   // ── 3. Build Gemini contents from history ──────────────────────────────
   const contents = buildGeminiContents(historyRows);
@@ -509,6 +582,14 @@ async function processMessage(userId, message, attachments = [], plan = 'basic',
     ? `Name: ${sanitizeForPrompt(`${user.first_name || 'Unknown'} ${user.last_name || ''}`, 200)}\nOnboarding completed: ${user.onboarding_completed}`
     : 'Unknown user';
 
+  // Deterministic first-turn recovery is armed when: this is the session's
+  // first user turn, onboarding isn't done, and the transcript is the seeded
+  // name-ask (or is empty — i.e. the greeting the user saw isn't visible to
+  // us, the exact shape of the 2026-07 session-type bug).
+  const onboardingPending = !user || !user.onboarding_completed;
+  const canRecoverFirstTurn = isFirstUserTurn && onboardingPending &&
+    (greetingAskedForName || historyRows.length === 0);
+
   // User profile + inventory text are user-controlled — fence them as untrusted
   // data so a crafted name/item can't override the system instructions.
   let systemInstruction = SYSTEM_PROMPT
@@ -557,18 +638,88 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
   let crossAgentBounces = 0;
   let maxToolRounds = AGENT_LIMITS.orchestratorMaxToolRounds;
   let orchestratorRound = 0;
+  let loopExitReason = 'tool_round_exhaustion';
 
   console.log(`[orchestrator] Starting loop — budget: ${AGENT_LIMITS.maxDelegationsPerTurn} delegations, ${maxToolRounds} rounds, ${AGENT_LIMITS.maxParallelDelegations} parallel max`);
 
+  // Loud forensics whenever ANY fallback fires on a session's first user turn.
+  const logFirstTurnFallback = (reason) => {
+    if (!isFirstUserTurn) return;
+    console.error(
+      `[orchestrator] FIRST_TURN_FALLBACK session=${sessionId} reason=${reason} ` +
+      `onboardingPending=${onboardingPending} greetingAskedForName=${greetingAskedForName} ` +
+      `message=${JSON.stringify(String(message || '').substring(0, 200))}`
+    );
+  };
+
+  /**
+   * Deterministic first-turn onboarding recovery. Name-shaped reply →
+   * complete the intended action (set_user_profile + scripted step-2 line);
+   * anything else → warm re-ask. Never a generic apology.
+   */
+  const recoverFirstTurnOnboarding = async (reason) => {
+    logFirstTurnFallback(reason);
+    const candidate = extractNameCandidate(message);
+    let reply;
+
+    if (candidate) {
+      const toolArgs = { first_name: candidate.firstName };
+      if (candidate.lastName) toolArgs.last_name = candidate.lastName;
+      let toolResult;
+      try {
+        const handler = toolHandlers.set_user_profile;
+        toolResult = handler
+          ? await handler(toolArgs)
+          : { success: false, error: 'set_user_profile handler unavailable' };
+      } catch (err) {
+        console.error('[orchestrator] FIRST_TURN_FALLBACK scripted set_user_profile failed:', err.message);
+        toolResult = { success: false, error: err.message };
+      }
+      actions.push({ tool: 'set_user_profile', args: toolArgs, result: toolResult });
+      emit('tool_call', { tool: 'set_user_profile', label: TOOL_LABELS.set_user_profile, source: 'orchestrator', phase: 'orchestrator' });
+      emit('tool_result', { tool: 'set_user_profile', success: !!toolResult.success });
+      await db.none(
+        `INSERT INTO nexus_messages (session_id, role, tool_name, tool_args) VALUES ($1, 'tool_call', $2, $3)`,
+        [sessionId, 'set_user_profile', JSON.stringify(toolArgs)]
+      );
+      await db.none(
+        `INSERT INTO nexus_messages (session_id, role, tool_name, tool_response) VALUES ($1, 'tool_result', $2, $3)`,
+        [sessionId, 'set_user_profile', JSON.stringify(toolResult)]
+      );
+      reply = ONBOARDING_STEP2_REPLY(candidate.firstName);
+    } else {
+      reply = ONBOARDING_NAME_REASK;
+    }
+
+    await db.none(
+      `INSERT INTO nexus_messages (session_id, role, content) VALUES ($1, 'model', $2)`,
+      [sessionId, reply]
+    );
+    emit('done', { reply, actions, sessionId });
+    return { reply, actions, sessionId };
+  };
+
   emit('thinking', { phase: 'initial', source: 'orchestrator' });
-  let result = await model.generateContent({ contents });
+  let result;
+  try {
+    result = await model.generateContent({ contents });
+  } catch (err) {
+    if (canRecoverFirstTurn) {
+      return await recoverFirstTurnOnboarding(`exception: ${err.message}`);
+    }
+    logFirstTurnFallback(`unrecoverable exception: ${err.message}`);
+    throw err;
+  }
 
   while (maxToolRounds > 0) {
     orchestratorRound++;
     console.log(`[orchestrator] ── Round ${orchestratorRound}/${AGENT_LIMITS.orchestratorMaxToolRounds} ──`);
     const response = result.response;
     const candidate = response.candidates?.[0];
-    if (!candidate) break;
+    if (!candidate) {
+      loopExitReason = 'no_candidate_in_model_response';
+      break;
+    }
 
     const parts = candidate.content?.parts || [];
     const functionCalls = parts.filter(p => p.functionCall);
@@ -584,10 +735,20 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
       if (!reply) {
         const finishReason = candidate.finishReason || 'unknown';
         console.warn(`[orchestrator] Empty model reply (finishReason=${finishReason}) — using fallback`);
+        // Onboarding first turn: never apologize — complete the intended
+        // action (or re-ask for the name) deterministically instead.
+        if (canRecoverFirstTurn) {
+          return await recoverFirstTurnOnboarding(`empty_model_reply finishReason=${finishReason}`);
+        }
+        logFirstTurnFallback(`empty_model_reply finishReason=${finishReason}`);
         // Never re-greet: the greeting is already seeded in the transcript, so
         // an empty-candidate fallback that greets again reads as ignoring the
         // user's reply (2026-07-02 beta: greeted twice, name asked twice).
-        reply = "Sorry — I didn't quite catch that. Could you say it again?";
+        // During onboarding, "didn't catch that" reads as ignoring the answer
+        // the user just gave — re-ask warmly instead.
+        reply = onboardingPending
+          ? 'Sorry — could you tell me that once more? I want to make sure I get your setup details right.'
+          : "Sorry — I didn't quite catch that. Could you say it again?";
       }
 
       await db.none(
@@ -898,13 +1059,25 @@ Keep labels short (2–5 words). NEVER offer "I'm done", "I'm finished", or any 
     contents.push({ role: 'user', parts: toolResponses });
 
     emit('thinking', { phase: 'finalizing', source: 'orchestrator' });
-    result = await model.generateContent({ contents });
+    try {
+      result = await model.generateContent({ contents });
+    } catch (err) {
+      if (canRecoverFirstTurn) {
+        return await recoverFirstTurnOnboarding(`exception in round ${orchestratorRound}: ${err.message}`);
+      }
+      logFirstTurnFallback(`unrecoverable exception in round ${orchestratorRound}: ${err.message}`);
+      throw err;
+    }
     maxToolRounds--;
     console.log(`[orchestrator] Round ${orchestratorRound} complete — ${maxToolRounds} round(s) remaining, ${delegationCount} delegation(s) used, ${crossAgentBounces} bounce(s)`);
   }
 
-  // ── Structured fallback on round exhaustion ──
-  console.warn(`[orchestrator] Round limit exhausted after ${orchestratorRound} rounds — returning fallback`);
+  // ── Structured fallback on round exhaustion (or a candidate-less result) ──
+  console.warn(`[orchestrator] Loop ended without a final reply (${loopExitReason}) after ${orchestratorRound} rounds — returning fallback`);
+  if (canRecoverFirstTurn) {
+    return await recoverFirstTurnOnboarding(loopExitReason);
+  }
+  logFirstTurnFallback(loopExitReason);
   const completedDelegations = actions.filter(a =>
     (a.tool === 'delegate_to_census' || a.tool === 'delegate_to_vector') && a.result?.status === 'completed'
   );
@@ -996,4 +1169,10 @@ Keep it under 300 words. Write in third person: "The user..." not "You..."`,
   console.log(`[orchestrator] Summary updated for session ${sessionId}`);
 }
 
-module.exports = { processMessage, generateContextSummary };
+module.exports = {
+  processMessage,
+  generateContextSummary,
+  extractNameCandidate,
+  ONBOARDING_STEP2_REPLY,
+  ONBOARDING_NAME_REASK,
+};
