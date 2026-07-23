@@ -107,8 +107,13 @@ router.get('/active-session', async (req, res) => {
         const greeting = user && user.onboarding_completed
           ? "Welcome back! Want to keep building your inventory, or review what you have so far?"
           : "\u{1F44B} Hi! I'm Nexus, your moving assistant. Tell me about your move and I'll build an inventory you can share with movers \u2014 in three quick steps:\n\n1. \u{1F3E0} Tell me about your current home\n2. \u{1F3A5} Add a photo or video walkthrough of each room\n3. \u{1F4E4} Share your inventory with movers\n\nFirst \u2014 **What's your name?**";
+        // session_type MUST be 'nexus': the orchestrator resolves its session
+        // with session_type = 'nexus' (and getActiveSession above looks for
+        // 'nexus' too). Seeding as 'general' orphaned the greeting — the
+        // user's first message then ran against a brand-new EMPTY session and
+        // the model never saw the name-ask it was replying to.
         session = await db.one(
-          `INSERT INTO nexus_sessions (user_id, session_type) VALUES ($1, 'general') RETURNING *`,
+          `INSERT INTO nexus_sessions (user_id, session_type) VALUES ($1, 'nexus') RETURNING *`,
           [userId]
         );
         await db.none(
