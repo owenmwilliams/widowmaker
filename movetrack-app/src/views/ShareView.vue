@@ -456,7 +456,11 @@ const volLabel = (v: number | null) => (v == null ? '—' : v.toLocaleString('en
                   </section>
                 </template>
 
-                <!-- Room walkthroughs — screen only, never printed -->
+                <!-- Room walkthroughs — playable on screen; print gets a one-line
+                     pointer (below) instead of dead video frames. -->
+                <p v-if="report.walkthroughs && report.walkthroughs.length" class="walkthroughs-print-note print-only">
+                  {{ report.walkthroughs.length }} room walkthrough video{{ report.walkthroughs.length === 1 ? '' : 's' }} — watch at this page's link.
+                </p>
                 <section v-if="report.walkthroughs && report.walkthroughs.length" class="doc-section walkthroughs no-print">
                   <h2>Room walkthroughs</h2>
                   <div class="vid-grid">
@@ -767,8 +771,21 @@ table.items th:last-child, table.items td:last-child { padding-right: 0; }
    ============================================================ */
 @page { size: letter; margin: 0; }
 
+/* Print-only content (e.g. the walkthrough-videos pointer) stays out of the
+   screen layout entirely. */
+.print-only { display: none; }
+
 @media print {
   .no-print { display: none !important; }
+  .print-only { display: block !important; }
+
+  .walkthroughs-print-note {
+    margin: 0.12in 0 0;
+    font-size: 11px;
+    font-style: italic;
+    color: var(--text-secondary);
+    break-inside: avoid;
+  }
 
   /* The page canvas outside our sheet must print white too. */
   :global(html), :global(body), :global(#app), :global(.content) {

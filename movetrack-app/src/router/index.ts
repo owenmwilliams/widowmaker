@@ -241,6 +241,13 @@ const router = createRouter({
       name: "share",
       component: () => import('../views/ShareView.vue')
     },
+    {
+      // Public, unauthenticated company capture link (#96): a moving company's
+      // customer films their home room-by-room as a guest — no account.
+      path: "/c/:companyToken",
+      name: "company-capture",
+      component: () => import('../views/CompanyCaptureView.vue')
+    },
     // Fall back component for pages not found
     {
       path: "/:catchAll(.*)",
@@ -254,7 +261,9 @@ const router = createRouter({
 // texts/emails on any device) and legal/marketing pages stay reachable; a
 // sessionStorage flag ("Continue to the web version anyway") bypasses for the
 // tab. Tablets and desktops are untouched — this matches on phone UAs only.
-const MOBILE_WEB_ALLOWED = [/^\/share\//, /^\/get-the-app$/, /^\/privacypolicy$/, /^\/terms$/, /^\/pricing$/];
+// /c/ (company capture, #96) MUST stay web-reachable on phones — the whole
+// point of the link is recording room videos in the phone's browser.
+const MOBILE_WEB_ALLOWED = [/^\/share\//, /^\/c\//, /^\/get-the-app$/, /^\/privacypolicy$/, /^\/terms$/, /^\/pricing$/];
 
 function isPhoneBrowser(): boolean {
   const ua = navigator.userAgent || '';
@@ -270,8 +279,9 @@ router.beforeEach(async (to, from, next) => {
     return next({ name: 'get-the-app' });
   }
 
-  // Public mover-facing share view is always reachable, logged in or not.
-  if (to.path.startsWith('/share/')) {
+  // Public mover-facing share view and company capture links are always
+  // reachable, logged in or not.
+  if (to.path.startsWith('/share/') || to.path.startsWith('/c/')) {
     return next();
   }
 
