@@ -43,6 +43,12 @@ const phase = ref<Phase>('loading')
 const companyName = ref('')
 const invalidMessage = ref('')
 
+// Attribution (#98): the embeddable widget links here with ?src=widget; a
+// pasted link or a mailed link may carry src=link / src=email. Persisted on
+// the capture session via /start. Junk values are sent as-is — the server
+// nulls anything outside its enum rather than failing the start.
+const source = typeof route.query.src === 'string' && route.query.src ? route.query.src : null
+
 // ── Landing form ─────────────────────────────────────────────
 const email = ref(typeof route.query.email === 'string' ? route.query.email : '')
 const consent = ref(false)
@@ -160,6 +166,7 @@ async function start() {
     const { data } = await axios.post(`${core_url}/api/capture/${companyToken}/start`, {
       email: email.value.trim(),
       consent: consent.value,
+      source,
     })
     guestToken.value = data.token
     sessionId.value = data.sessionId

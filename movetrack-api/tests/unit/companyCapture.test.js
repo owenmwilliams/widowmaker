@@ -173,6 +173,13 @@ describe('GET /api/capture/:companyToken', () => {
     const res = await request(makeApp()).get(`${BASE}/nope`);
     expect(res.status).toBe(404);
   });
+
+  test('callable from any origin — the #98 widget fetches it from movers\' sites', async () => {
+    wireDb();
+    const res = await request(makeApp()).get(`${BASE}/${TOKEN}`).set('Origin', 'https://acmevanlines.example');
+    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
@@ -226,6 +233,46 @@ describe('POST /api/capture/:companyToken/start', () => {
     wireDb({ company: null });
     const res = await request(makeApp()).post(`${BASE}/${TOKEN}/start`).send({ email: 'a@b.co', consent: true });
     expect(res.status).toBe(404);
+  });
+
+  // ── source attribution (#98) ───────────────────────────────────────────
+
+  /** Wire db.one for a start and capture the session-INSERT params. */
+  function wireStartInserts() {
+    const seen = { sessionParams: null };
+    db.one.mockImplementation(async (sql, params) => {
+      if (/INSERT INTO users/.test(sql)) return { user_id: GUEST_ID };
+      if (/INSERT INTO locations/.test(sql)) return { id: 42 };
+      if (/INSERT INTO company_capture_sessions/.test(sql)) {
+        seen.sessionParams = params;
+        expect(sql).toContain('source');
+        return { id: SESSION_ID, status: 'active', videos_count: 0, bytes_total: 0, expires_at: '2026-09-18T00:00:00Z', created_at: '2026-08-19T00:00:00Z' };
+      }
+      throw new Error(`unexpected one: ${sql}`);
+    });
+    return seen;
+  }
+
+  test.each(['widget', 'link', 'email'])('valid source %s is stored on the session', async (source) => {
+    wireDb();
+    const seen = wireStartInserts();
+    const res = await request(makeApp()).post(`${BASE}/${TOKEN}/start`)
+      .send({ email: 'a@b.co', consent: true, source });
+    expect(res.status).toBe(201);
+    expect(seen.sessionParams[4]).toBe(source); // company_id, email, user_id, consent, source
+  });
+
+  test.each([
+    ['junk enum value', 'facebook-ad'],
+    ['non-string', { evil: true }],
+    ['absent', undefined],
+  ])('source %s is nulled, never a 400 — attribution must not block a start', async (_label, source) => {
+    wireDb();
+    const seen = wireStartInserts();
+    const res = await request(makeApp()).post(`${BASE}/${TOKEN}/start`)
+      .send({ email: 'a@b.co', consent: true, ...(source === undefined ? {} : { source }) });
+    expect(res.status).toBe(201);
+    expect(seen.sessionParams[4]).toBeNull();
   });
 });
 
@@ -504,6 +551,13 @@ describe('admin company endpoints', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.captureUrl).toMatch(new RegExp(`/c/${res.body.token}$`));
+
+    // #98: the mint response carries the one-line widget embed for the
+    // company's own website, built on the same app base URL as captureUrl.
+    const appOrigin = res.body.captureUrl.replace(/\/c\/.*$/, '');
+    expect(res.body.embedSnippet).toBe(
+      `<script src="${appOrigin}/widget.js" data-nexus-token="${res.body.token}" async></script>`
+    );
   });
 
   test('POST /companies validates contact_email', async () => {
