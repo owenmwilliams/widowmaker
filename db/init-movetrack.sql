@@ -1108,9 +1108,33 @@ CREATE TABLE IF NOT EXISTS company_capture_sessions (
     bytes_total BIGINT NOT NULL DEFAULT 0,
     source VARCHAR(20),
     expires_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_company_capture_sessions_company
     ON company_capture_sessions(company_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_company_capture_sessions_user
     ON company_capture_sessions(user_id);
+
+-- ============================================================================
+-- COMPANY AUTH (migration 044) — mover dashboard login (F2, #99). Company
+-- magic-link + session tokens, SEPARATE from user auth_tokens so a company
+-- session can never pass user authenticate() and vice versa. Tokens are
+-- SHA-256 hashed at rest; purpose is 'magic_link' (15 min, single-use) or
+-- 'session' (30 days; logout sets used_at).
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS company_auth_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    token_hash VARCHAR(500) NOT NULL UNIQUE,
+    purpose VARCHAR(20) NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ip_address VARCHAR(45),
+    user_agent TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_company_auth_tokens_company
+    ON company_auth_tokens(company_id);
+CREATE INDEX IF NOT EXISTS idx_company_auth_tokens_expires_at
+    ON company_auth_tokens(expires_at);

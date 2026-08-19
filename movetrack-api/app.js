@@ -50,6 +50,12 @@ var publicShareRouter = require('./routes/public/share');
 // gates each endpoint itself: admin session, public rate limit, or guest JWT) ──
 var companyCaptureRouter = require('./routes/api/companyCapture');
 
+// ── api/company/ (mover dashboard, #99 — public mount; auth endpoints are
+// rate-limited, portal endpoints all sit behind authenticateCompany, which
+// only accepts company session tokens — never user or guest JWTs) ────────────
+var companyAuthRouter = require('./routes/api/companyAuth');
+var companyPortalRouter = require('./routes/api/companyPortal');
+
 // ── internal/ (service-to-service, OIDC-verified — see middleware/auth.js) ────
 var internalScanJobsRouter = require('./routes/internal/scanJobs');
 
@@ -185,6 +191,11 @@ app.use('/public', publicShareRouter);
 
 // ── Company capture (unauthenticated mount, per-endpoint gates) ── /api/capture/…
 app.use('/api/capture', companyCaptureRouter);
+
+// ── Mover dashboard (unauthenticated mount, company-session gates) ── /api/company/…
+// Auth first so '/auth/…' is never read as a portal path.
+app.use('/api/company/auth', companyAuthRouter);
+app.use('/api/company', companyPortalRouter);
 
 // ── Internal (Cloud Tasks push target, OIDC-verified) ── /internal/scan-jobs/process
 app.use('/internal/scan-jobs', internalScanJobsRouter);

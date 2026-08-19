@@ -546,7 +546,7 @@ router.post('/:companyToken/complete', rateLimits.captureLimiter, guestAuth, exp
     });
 
     await db.none(
-      `UPDATE company_capture_sessions SET status = 'completed' WHERE id = $1`,
+      `UPDATE company_capture_sessions SET status = 'completed', completed_at = NOW() WHERE id = $1`,
       [s.id]
     );
 
