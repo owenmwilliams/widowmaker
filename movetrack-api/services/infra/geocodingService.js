@@ -520,6 +520,34 @@ async function getPlaceDetails(placeId) {
 }
 
 /**
+ * Search moving companies near a point using the Google Places Nearby Search
+ * API (legacy JSON endpoint — same family as the autocomplete/details calls
+ * above, same GOOGLE_API_KEY). Returns the RAW Google response
+ * ({ status, results, error_message }); callers own interpretation, caching,
+ * and rate discipline. NOTE: Places never returns business emails — the
+ * discover invite flow (#100) is honest about that.
+ *
+ * @param {number} lat - Search-center latitude
+ * @param {number} lng - Search-center longitude
+ * @param {{ radiusMeters?: number }} options - radius caps at Google's 50km
+ * @returns {Promise<object>} Raw Google Places Nearby Search response
+ */
+async function searchNearbyMovingCompanies(lat, lng, options = {}) {
+  if (!GOOGLE_API_KEY) throw new Error('Google API key not configured');
+  const radius = Math.min(Number(options.radiusMeters) || 50000, 50000);
+  const response = await axios.get('https://maps.googleapis.com/maps/api/place/nearbysearch/json', {
+    params: {
+      location: `${lat},${lng}`,
+      radius,
+      type: 'moving_company',
+      key: GOOGLE_API_KEY,
+    },
+    timeout: 10000,
+  });
+  return response.data;
+}
+
+/**
  * Validate a structured address using the Google Address Validation API.
  *
  * @param {{ postalCode?: string, administrativeArea?: string, locality?: string, addressLines?: string[] }} address
@@ -541,6 +569,7 @@ module.exports = {
   forwardGeocode,
   getPlacesAutocomplete,
   getPlaceDetails,
+  searchNearbyMovingCompanies,
   validateAddress,
   clearCache,
   getCacheStats,

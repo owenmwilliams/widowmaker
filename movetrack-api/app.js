@@ -56,6 +56,15 @@ var companyCaptureRouter = require('./routes/api/companyCapture');
 var companyAuthRouter = require('./routes/api/companyAuth');
 var companyPortalRouter = require('./routes/api/companyPortal');
 
+// ── api/company/claim (invite-loop mover claim, #100 — public mount; gated by
+// rate limits + a single-use invite token; mounted BEFORE the portal router
+// so authenticateCompany never sees /claim paths) ─────────────────────────────
+var companyClaimRouter = require('./routes/api/companyClaim');
+
+// ── api/discover (find movers near the customer's move origin, #100 —
+// NORMAL user auth via the global default-deny gate) ─────────────────────────
+var discoverRouter = require('./routes/api/discover');
+
 // ── internal/ (service-to-service, OIDC-verified — see middleware/auth.js) ────
 var internalScanJobsRouter = require('./routes/internal/scanJobs');
 
@@ -192,9 +201,14 @@ app.use('/public', publicShareRouter);
 // ── Company capture (unauthenticated mount, per-endpoint gates) ── /api/capture/…
 app.use('/api/capture', companyCaptureRouter);
 
+// ── API — Discover movers (user-authenticated) ──── /api/discover/movers /api/discover/invite
+app.use('/api/discover', discoverRouter);
+
 // ── Mover dashboard (unauthenticated mount, company-session gates) ── /api/company/…
-// Auth first so '/auth/…' is never read as a portal path.
+// Auth first so '/auth/…' is never read as a portal path; claim before the
+// portal so its public endpoints never hit authenticateCompany.
 app.use('/api/company/auth', companyAuthRouter);
+app.use('/api/company/claim', companyClaimRouter);
 app.use('/api/company', companyPortalRouter);
 
 // ── Internal (Cloud Tasks push target, OIDC-verified) ── /internal/scan-jobs/process

@@ -56,6 +56,21 @@ router.get('/overview', async (req, res) => {
        WHERE company_id = $1`,
       [c.id]
     );
+
+    // Inventory docs customers sent this company through "Find movers"
+    // (#100). These are NOT capture sessions (the inventory wasn't filmed
+    // through this company's link), so Walkthroughs can't show them — the
+    // overview lists the shared doc URLs so a claimed invite is never lost.
+    const pendingDocs = await db.any(
+      `SELECT mi.share_token_or_url, mi.created_at, u.email AS customer_email
+       FROM mover_invites mi
+       LEFT JOIN users u ON u.user_id = mi.user_id
+       WHERE mi.company_id = $1 AND mi.share_token_or_url IS NOT NULL
+       ORDER BY mi.created_at DESC
+       LIMIT 50`,
+      [c.id]
+    );
+
     res.json({
       company: {
         id: c.id,
@@ -71,6 +86,11 @@ router.get('/overview', async (req, res) => {
         sessionsCompleted: counters.sessions_completed,
         fromWidget: counters.from_widget,
       },
+      pendingDocs: pendingDocs.map((d) => ({
+        shareUrl: d.share_token_or_url,
+        customerEmail: d.customer_email && !d.customer_email.endsWith('.invalid') ? d.customer_email : null,
+        receivedAt: d.created_at,
+      })),
     });
   } catch (err) {
     console.error('[companyPortal] overview failed:', err.message);

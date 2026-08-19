@@ -353,6 +353,56 @@ const companyAuthVerifyLimiter = rateLimit({
   }
 });
 
+/**
+ * Discover Movers Search Limiter (F3 #100)
+ * Bounds Google Places nearby searches per user — the route caches results
+ * per move for 24h, so a normal customer makes ONE upstream call; this keeps
+ * a cache-busting client from burning Places quota.
+ *
+ * Limits: 30 searches per hour per user
+ */
+const discoverSearchLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    if (req.user && req.user.user_id) return `discover:${req.user.user_id}`;
+    return `discover:${ipKeyGenerator(req)}`;
+  },
+  handler: (req, res) => {
+    console.warn(`Discover search rate limit exceeded: ${req.user?.user_id || req.ip}`);
+    res.status(429).json({
+      error: "You've searched a lot in a short time. Please try again in an hour.",
+      retryAfter: '1 hour'
+    });
+  }
+});
+
+/**
+ * Company Claim Limiter (F3 #100)
+ * Bounds mover-account claims per IP — POST /api/company/claim is public
+ * (gated only by an unclaimed single-use invite token) and creates a
+ * companies row + sends two emails on success, so it must not be a free
+ * write/mail amplifier. Tokens are 128-bit random; this bounds the probing.
+ *
+ * Limits: 10 claim attempts per hour per IP
+ */
+const companyClaimLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `company-claim:${ipKeyGenerator(req)}`,
+  handler: (req, res) => {
+    console.warn(`Company claim rate limit exceeded: ${req.ip}`);
+    res.status(429).json({
+      error: 'Too many attempts. Please wait an hour and try again.',
+      retryAfter: '1 hour'
+    });
+  }
+});
+
 module.exports = {
   globalLimiter,
   authLimiter,
@@ -366,5 +416,7 @@ module.exports = {
   captureStartLimiter,
   captureLimiter,
   companyAuthRequestLimiter,
-  companyAuthVerifyLimiter
+  companyAuthVerifyLimiter,
+  discoverSearchLimiter,
+  companyClaimLimiter
 };

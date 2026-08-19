@@ -205,6 +205,48 @@ router.get('/companies', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// ── Admin: invite-loop research metrics (F3, #100) ───────────────────────────
+// Defined BEFORE '/:companyToken' so 'invites' is never read as a token.
+// Counts by status + the recent invites, so the owner can see whether the
+// discover→invite→claim loop is actually converting.
+
+router.get('/invites', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const counts = await db.one(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE status = 'sent')::int AS sent,
+              COUNT(*) FILTER (WHERE status = 'claimed')::int AS claimed,
+              COUNT(*) FILTER (WHERE status = 'failed')::int AS failed
+       FROM mover_invites`
+    );
+    const rows = await db.any(
+      `SELECT mi.id, mi.business_name, mi.place_ref, mi.status,
+              mi.company_id, mi.created_at, mi.claimed_at,
+              c.name AS company_name
+       FROM mover_invites mi
+       LEFT JOIN companies c ON c.id = mi.company_id
+       ORDER BY mi.created_at DESC
+       LIMIT 200`
+    );
+    res.json({
+      counts: { total: counts.total, sent: counts.sent, claimed: counts.claimed, failed: counts.failed },
+      invites: rows.map((r) => ({
+        id: r.id,
+        businessName: r.business_name,
+        placeRef: r.place_ref,
+        status: r.status,
+        companyId: r.company_id,
+        companyName: r.company_name,
+        createdAt: r.created_at,
+        claimedAt: r.claimed_at,
+      })),
+    });
+  } catch (err) {
+    console.error('[companyCapture] list invites failed:', err.message);
+    res.status(500).json({ error: 'Failed to list invites' });
+  }
+});
+
 // ── Public: landing data + session start ─────────────────────────────────────
 
 async function findActiveCompany(token) {

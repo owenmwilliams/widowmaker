@@ -4430,6 +4430,16 @@ const initiateQuoteShoppingCheckout = async () => {
                 <q-tooltip>Have Nexus Moves shop for the best quotes{{ isPro ? ' (Pro discount available)' : '' }}</q-tooltip>
               </q-btn>
 
+              <!-- Find movers near you (#100): the free self-serve path —
+                   search real companies near the origin and send them the
+                   inventory doc directly. -->
+              <router-link
+                class="find-movers-link"
+                :to="{ path: '/discover-movers', query: currentSavedMoveId ? { moveId: String(currentSavedMoveId) } : {} }"
+              >
+                Or find movers near you and send them your inventory — free
+              </router-link>
+
               <!-- Quote Validity Note -->
               <div class="text-caption text-grey-6 q-mt-md text-left">
                 <strong>About this estimate:</strong> Nexus Moves connects you with a
@@ -5231,6 +5241,26 @@ const initiateQuoteShoppingCheckout = async () => {
 .download-quote-btn:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
+}
+
+/* Find-movers entry (#100) — quiet text link under the hero CTA */
+.find-movers-link {
+  display: block;
+  margin-top: var(--sp-3);
+  font-size: var(--fs-label);
+  color: var(--accent);
+  text-decoration: none;
+  text-align: center;
+}
+
+.find-movers-link:hover {
+  text-decoration: underline;
+}
+
+.find-movers-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--r-xs);
 }
 
 .packing-grid > .content-card {
