@@ -1138,3 +1138,31 @@ CREATE INDEX IF NOT EXISTS idx_company_auth_tokens_company
     ON company_auth_tokens(company_id);
 CREATE INDEX IF NOT EXISTS idx_company_auth_tokens_expires_at
     ON company_auth_tokens(expires_at);
+
+-- ============================================================================
+-- MOVER INVITES (migration 045) — discover moving companies, invite-loop v1
+-- (F3, #100). One row per (customer, business) invite: the customer's
+-- inventory share URL sent to a nearby moving company found via Google
+-- Places. company_id is set when the business was already on Nexus at send
+-- time (direct email) or when it later claims via invite_token — the opaque
+-- single-use token behind {APP}/mover/claim/{inviteToken}.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS mover_invites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    company_id UUID REFERENCES companies(id) ON DELETE SET NULL,
+    place_ref VARCHAR(255),
+    business_name VARCHAR(255) NOT NULL,
+    business_email VARCHAR(255),
+    status VARCHAR(20) NOT NULL DEFAULT 'sent',
+    share_token_or_url VARCHAR(500),
+    invite_token VARCHAR(80) UNIQUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    claimed_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_mover_invites_user
+    ON mover_invites(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mover_invites_place_ref
+    ON mover_invites(place_ref);
+CREATE INDEX IF NOT EXISTS idx_mover_invites_company
+    ON mover_invites(company_id);

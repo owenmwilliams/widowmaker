@@ -260,10 +260,25 @@ const router = createRouter({
       component: () => import('../views/CompanyCaptureView.vue')
     },
     {
+      // Find movers near the move origin (#100): customer picks up to 5 real
+      // moving companies and sends each their inventory doc + a Nexus invite.
+      path: "/discover-movers",
+      name: "discover-movers",
+      component: () => import('../views/DiscoverMoversView.vue'),
+      beforeEnter: authGuard
+    },
+    {
       // Public mover login (#99): email form + magic-link ?token= callback.
       path: "/mover/login",
       name: "mover-login",
       component: () => import('../views/MoverLogin.vue')
+    },
+    {
+      // Public mover claim (#100): a customer forwarded this company an
+      // invite — company name + email creates their free mover account.
+      path: "/mover/claim/:inviteToken",
+      name: "mover-claim",
+      component: () => import('../views/MoverClaimView.vue')
     },
     {
       // Mover dashboard (#99): company-session-guarded (NOT user auth).

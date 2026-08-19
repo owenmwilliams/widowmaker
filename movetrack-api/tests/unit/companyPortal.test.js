@@ -89,6 +89,9 @@ const companySessionToken = () => companyAuthService.generateCompanyToken();
 beforeEach(() => {
   jest.clearAllMocks();
   db.none.mockResolvedValue(undefined);
+  // Overview now also lists invite-attached docs (#100) via db.any; default
+  // to none so pre-existing shape tests stay focused.
+  db.any.mockResolvedValue([]);
   mockSendMail.mockResolvedValue({ accepted: ['x'] });
   process.env.SMTP_USER = 'apikey';
   process.env.SMTP_PASS = 'test-smtp-pass';
