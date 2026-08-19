@@ -81,3 +81,4 @@ replaying from empty.
 | `041_add_quote_leads` | `quote_leads` table — quote-shopping leads submitted from QuoteShoppingModal, brokered manually (#90) |
 | `042_add_company_capture` | `companies` + `company_capture_sessions` tables and `users.source` marker — moving-company capture links with guest browser capture (H1, #96) |
 | `043_add_capture_source` | `company_capture_sessions.source` marker ('widget'/'link'/'email', nullable) — attribution for the embeddable quote widget (F1, #98) |
+| `044_add_company_auth` | `company_auth_tokens` table (magic-link + session tokens for the mover dashboard, hashed at rest, separate from user `auth_tokens`) + `company_capture_sessions.completed_at` (F2, #99) |

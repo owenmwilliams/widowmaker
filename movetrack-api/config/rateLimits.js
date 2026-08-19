@@ -304,6 +304,55 @@ const captureLimiter = rateLimit({
   }
 });
 
+/**
+ * Company Auth Request Limiter (mover dashboard, F2 #99)
+ * Bounds magic-link requests per (email, IP) — the endpoint always answers a
+ * neutral 200 (no account enumeration), so the limiter is the only thing
+ * standing between an abuser and a mailbox flood.
+ *
+ * Limits: 10 link requests per hour per (email, IP)
+ */
+const companyAuthRequestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase().trim() : 'none';
+    return `company-auth-request:${email}:${ipKeyGenerator(req)}`;
+  },
+  handler: (req, res) => {
+    console.warn(`Company auth request rate limit exceeded: ${req.ip}`);
+    res.status(429).json({
+      error: 'Too many login link requests. Please try again in an hour.',
+      retryAfter: '1 hour'
+    });
+  }
+});
+
+/**
+ * Company Auth Verify Limiter (mover dashboard, F2 #99)
+ * Bounds token-verify attempts per IP — tokens are 256-bit random so brute
+ * force is hopeless anyway, but this keeps the endpoint from being a free
+ * write amplifier (every attempt is a DB roundtrip).
+ *
+ * Limits: 30 verify attempts per 15 minutes per IP
+ */
+const companyAuthVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `company-auth-verify:${ipKeyGenerator(req)}`,
+  handler: (req, res) => {
+    console.warn(`Company auth verify rate limit exceeded: ${req.ip}`);
+    res.status(429).json({
+      error: 'Too many attempts. Please wait a few minutes and try again.',
+      retryAfter: '15 minutes'
+    });
+  }
+});
+
 module.exports = {
   globalLimiter,
   authLimiter,
@@ -315,5 +364,7 @@ module.exports = {
   emailLimiter,
   publicLimiter,
   captureStartLimiter,
-  captureLimiter
+  captureLimiter,
+  companyAuthRequestLimiter,
+  companyAuthVerifyLimiter
 };

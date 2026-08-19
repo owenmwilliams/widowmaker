@@ -27,7 +27,13 @@ const { authenticate } = require('../services/infra/authService');
 //                         scoped guest JWT, and the /companies admin endpoints
 //                         apply authenticate + requireAdmin themselves — see
 //                         routes/api/companyCapture.js
-const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook', '/public', '/internal/scan-jobs', '/api/capture'];
+//   /api/company        – mover dashboard (#99): /auth/* endpoints are public
+//                         + rate-limited, everything else sits behind
+//                         authenticateCompany (opaque company session tokens,
+//                         never user JWTs — a company session must NOT pass
+//                         the user authenticate() this gate applies) — see
+//                         routes/api/companyAuth.js + companyPortal.js
+const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook', '/public', '/internal/scan-jobs', '/api/capture', '/api/company'];
 
 // Exact public paths (the Jade landing page + favicon).
 const PUBLIC_EXACT = new Set(['/', '/favicon.ico']);

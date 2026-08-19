@@ -61,6 +61,17 @@ const adminGuard = (to: RouteLocationNormalized, from: RouteLocationNormalized, 
   return next({ name: 'items' });
 };
 
+// Company (mover dashboard, #99) session guard — COMPLETELY separate from the
+// user session: company sessions live under 'company_session_token' (see
+// utils/companyAuth.ts), so a mover can log in without touching a customer
+// session in the same browser.
+const companyGuard = (to: RouteLocationNormalized, from: RouteLocationNormalized, next: NavigationGuardNext) => {
+  if (localStorage.getItem('company_session_token')) {
+    return next();
+  }
+  return next('/mover/login');
+};
+
 const BASE_URL = import.meta.env.BASE_URL;
 const router = createRouter({
   history: createWebHistory(BASE_URL),
@@ -249,6 +260,19 @@ const router = createRouter({
       component: () => import('../views/CompanyCaptureView.vue')
     },
     {
+      // Public mover login (#99): email form + magic-link ?token= callback.
+      path: "/mover/login",
+      name: "mover-login",
+      component: () => import('../views/MoverLogin.vue')
+    },
+    {
+      // Mover dashboard (#99): company-session-guarded (NOT user auth).
+      path: "/mover",
+      name: "mover-dashboard",
+      component: () => import('../views/MoverDashboard.vue'),
+      beforeEnter: companyGuard
+    },
+    {
       // Public demo of the embeddable "Get a quote" widget (#98): a fake
       // mover site with the real widget embedded — what Owen shows companies.
       // Desktop-oriented; deliberately NOT phone-exempt (see MOBILE_WEB_ALLOWED).
@@ -271,7 +295,10 @@ const router = createRouter({
 // tab. Tablets and desktops are untouched — this matches on phone UAs only.
 // /c/ (company capture, #96) MUST stay web-reachable on phones — the whole
 // point of the link is recording room videos in the phone's browser.
-const MOBILE_WEB_ALLOWED = [/^\/share\//, /^\/c\//, /^\/get-the-app$/, /^\/privacypolicy$/, /^\/terms$/, /^\/pricing$/];
+// /mover (mover dashboard, #99) is desktop-first but never blocked: a mover
+// tapping their magic link on a phone must land on the dashboard, not the
+// customer app-store pitch.
+const MOBILE_WEB_ALLOWED = [/^\/share\//, /^\/c\//, /^\/mover(\/|$)/, /^\/get-the-app$/, /^\/privacypolicy$/, /^\/terms$/, /^\/pricing$/];
 
 function isPhoneBrowser(): boolean {
   const ua = navigator.userAgent || '';
@@ -288,8 +315,10 @@ router.beforeEach(async (to, from, next) => {
   }
 
   // Public mover-facing share view and company capture links are always
-  // reachable, logged in or not.
-  if (to.path.startsWith('/share/') || to.path.startsWith('/c/')) {
+  // reachable, logged in or not. The /mover surface runs on the COMPANY
+  // session (its own guard) — the user-session/onboarding logic below must
+  // never hijack a mover into /nexus or /login.
+  if (to.path.startsWith('/share/') || to.path.startsWith('/c/') || to.path === '/mover' || to.path.startsWith('/mover/')) {
     return next();
   }
 
