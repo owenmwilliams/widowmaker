@@ -1106,6 +1106,7 @@ CREATE TABLE IF NOT EXISTS company_capture_sessions (
     consent BOOLEAN NOT NULL DEFAULT FALSE,
     videos_count INTEGER NOT NULL DEFAULT 0,
     bytes_total BIGINT NOT NULL DEFAULT 0,
+    source VARCHAR(20),
     expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

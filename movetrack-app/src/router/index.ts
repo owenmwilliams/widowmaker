@@ -248,6 +248,14 @@ const router = createRouter({
       name: "company-capture",
       component: () => import('../views/CompanyCaptureView.vue')
     },
+    {
+      // Public demo of the embeddable "Get a quote" widget (#98): a fake
+      // mover site with the real widget embedded — what Owen shows companies.
+      // Desktop-oriented; deliberately NOT phone-exempt (see MOBILE_WEB_ALLOWED).
+      path: "/widget-demo",
+      name: "widget-demo",
+      component: () => import('../views/WidgetDemoView.vue')
+    },
     // Fall back component for pages not found
     {
       path: "/:catchAll(.*)",

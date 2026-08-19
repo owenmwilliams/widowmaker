@@ -20,7 +20,12 @@
  *
  *   Public (rate-limited by company token + IP):
  *     GET  /api/capture/:companyToken             company display name only
+ *                                                 (any-origin CORS — the #98
+ *                                                 widget calls it from movers'
+ *                                                 own websites)
  *     POST /api/capture/:companyToken/start       email+consent → guest JWT
+ *                                                 (+ optional source marker:
+ *                                                 'widget'|'link'|'email')
  *
  *   Guest (Bearer guest JWT scoped to ONE capture session):
  *     GET  /api/capture/:companyToken/session     resume state after reload
@@ -75,6 +80,32 @@ const BYTES_CAP_MESSAGE =
 
 function appBaseUrl() {
   return (process.env.APP_BASE_URL || 'https://movetrack-app-7hwn7ggbiq-uc.a.run.app').replace(/\/$/, '');
+}
+
+// One-line embed for the "Get a quote" widget (F1, #98) — what a moving
+// company pastes into its own site. Same base URL as captureUrl: the widget
+// script lives in the app bundle's public/ dir and derives all links from its
+// own src, so this single line needs no other config.
+function embedSnippet(token) {
+  return `<script src="${appBaseUrl()}/widget.js" data-nexus-token="${token}" async><\/script>`;
+}
+
+// How the customer reached the capture page (session attribution, #98).
+// Junk values become null rather than 400 — attribution must never block a
+// customer from starting a walkthrough.
+const CAPTURE_SOURCES = ['widget', 'link', 'email'];
+function normalizeSource(value) {
+  return CAPTURE_SOURCES.includes(value) ? value : null;
+}
+
+// The public landing lookup must be callable from ANY origin: the widget runs
+// on moving companies' own websites and fetches the display name from there.
+// Permissive CORS on ONLY this endpoint — it returns the company name and
+// nothing else (no contact email, id, or volume), so there is nothing to
+// protect; every other capture endpoint keeps the app-origin-only global CORS.
+function permissiveCors(req, res, next) {
+  res.set('Access-Control-Allow-Origin', '*');
+  next();
 }
 
 // Same SMTP transport shape as routes/api/move/quoteLeads.js (#92): SendGrid
@@ -136,6 +167,7 @@ router.post('/companies', authenticate, requireAdmin, express.json(), async (req
       contactEmail: row.contact_email,
       token: row.token,
       captureUrl: `${appBaseUrl()}/c/${row.token}`,
+      embedSnippet: embedSnippet(row.token),
       isActive: row.is_active,
       createdAt: row.created_at,
     });
@@ -162,6 +194,7 @@ router.get('/companies', authenticate, requireAdmin, async (req, res) => {
       contactEmail: row.contact_email,
       token: row.token,
       captureUrl: `${appBaseUrl()}/c/${row.token}`,
+      embedSnippet: embedSnippet(row.token),
       isActive: row.is_active,
       createdAt: row.created_at,
       sessionCount: row.session_count,
@@ -185,7 +218,7 @@ async function findActiveCompany(token) {
 // GET /api/capture/:companyToken — display name only. Unknown and inactive
 // tokens are indistinguishable (404), and nothing else about the company
 // (contact email, id, volume) ever leaks to the public page.
-router.get('/:companyToken', rateLimits.captureLimiter, async (req, res) => {
+router.get('/:companyToken', permissiveCors, rateLimits.captureLimiter, async (req, res) => {
   try {
     const company = await findActiveCompany(req.params.companyToken);
     if (!company) return res.status(404).json({ error: 'This link is not active. Check with your moving company for a fresh one.' });
@@ -196,10 +229,11 @@ router.get('/:companyToken', rateLimits.captureLimiter, async (req, res) => {
   }
 });
 
-// POST /api/capture/:companyToken/start { email, consent }
+// POST /api/capture/:companyToken/start { email, consent, source? }
 router.post('/:companyToken/start', rateLimits.captureStartLimiter, express.json(), async (req, res) => {
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
   const consent = req.body?.consent === true;
+  const source = normalizeSource(req.body?.source);
 
   if (!email || email.length > 255 || !EMAIL_RE.test(email)) {
     return res.status(400).json({ error: 'A valid email is required' });
@@ -239,10 +273,10 @@ router.post('/:companyToken/start', rateLimits.captureStartLimiter, express.json
     );
 
     const session = await db.one(
-      `INSERT INTO company_capture_sessions (company_id, customer_email, user_id, consent, expires_at)
-       VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${SESSION_DAYS} days')
+      `INSERT INTO company_capture_sessions (company_id, customer_email, user_id, consent, source, expires_at)
+       VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '${SESSION_DAYS} days')
        RETURNING id, status, videos_count, bytes_total, expires_at, created_at`,
-      [company.id, email, guest.user_id, consent]
+      [company.id, email, guest.user_id, consent, source]
     );
 
     const token = signGuestCaptureToken({ captureSessionId: session.id, userId: guest.user_id });
