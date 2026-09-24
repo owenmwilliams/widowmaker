@@ -34,10 +34,16 @@ type Overview = {
   embedSnippet: string
   counters: { sessionsTotal: number; sessionsCompleted: number; fromWidget: number }
 }
+type WalkthroughQuote = {
+  status: 'quoted' | 'review_required'
+  rangeLow: number | null; rangeHigh: number | null; nte: number | null
+  createdAt: string
+}
 type Walkthrough = {
   id: string; customerEmail: string; status: string; source: string | null
   videosCount: number; itemsCount: number
   createdAt: string; completedAt: string | null; shareUrl: string | null
+  quote: WalkthroughQuote | null
 }
 type LeadsPayload = { leads: unknown[]; note?: string }
 
@@ -213,6 +219,11 @@ const SOURCE_LABELS: Record<string, string> = { widget: 'Your website', link: 'D
 const sourceLabel = (s: string | null) => (s && SOURCE_LABELS[s]) || '—'
 
 const statusLabel = (s: string) => (s === 'completed' ? 'Completed' : s === 'active' ? 'In progress' : s)
+
+// Priced-lead quote display (#107).
+const money = (n: number | null) => (n == null ? '—' : `$${Math.round(n).toLocaleString('en-US')}`)
+const quoteRange = (q: WalkthroughQuote) =>
+  q.rangeLow != null && q.rangeHigh != null ? `${money(q.rangeLow)}–${money(q.rangeHigh)}` : '—'
 </script>
 
 <template>
@@ -355,6 +366,7 @@ const statusLabel = (s: string) => (s === 'completed' ? 'Completed' : s === 'act
                   <th scope="col">Source</th>
                   <th scope="col" class="md-col-num">Videos</th>
                   <th scope="col" class="md-col-num">Items</th>
+                  <th scope="col" class="md-col-num">Quote</th>
                   <th scope="col"><span class="md-visually-hidden">Inventory</span></th>
                 </tr>
               </thead>
@@ -372,6 +384,16 @@ const statusLabel = (s: string) => (s === 'completed' ? 'Completed' : s === 'act
                   </td>
                   <td class="md-col-num">{{ w.videosCount }}</td>
                   <td class="md-col-num">{{ w.itemsCount }}</td>
+                  <td class="md-col-num">
+                    <template v-if="w.quote">
+                      <span class="md-quote-range">{{ quoteRange(w.quote) }}</span>
+                      <span
+                        class="md-pill md-quote-pill"
+                        :class="w.quote.status === 'quoted' ? 'md-pill--done' : 'md-pill--review'"
+                      >{{ w.quote.status === 'quoted' ? 'Quoted' : 'Estimator review' }}</span>
+                    </template>
+                    <span v-else class="md-cell-pending">—</span>
+                  </td>
                   <td class="md-cell-action">
                     <a v-if="w.shareUrl" class="md-view-link" :href="w.shareUrl" target="_blank" rel="noopener">
                       View inventory
@@ -668,6 +690,17 @@ const statusLabel = (s: string) => (s === 'completed' ? 'Completed' : s === 'act
 }
 .md-pill--done { background: var(--success-quiet); color: var(--success); }
 .md-pill--active { background: var(--accent-quiet); color: var(--accent-press); }
+.md-pill--review { background: var(--warning-surface); color: var(--warning-ink); }
+
+/* Priced-lead cell (#107) */
+.md-quote-range {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.md-quote-pill { margin-top: 3px; }
 
 .md-badge {
   display: inline-block;

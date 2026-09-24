@@ -1093,6 +1093,7 @@ CREATE TABLE IF NOT EXISTS companies (
     contact_email VARCHAR(255) NOT NULL,
     token VARCHAR(80) NOT NULL UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    trust_block JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_companies_token ON companies(token);
@@ -1166,3 +1167,38 @@ CREATE INDEX IF NOT EXISTS idx_mover_invites_place_ref
     ON mover_invites(place_ref);
 CREATE INDEX IF NOT EXISTS idx_mover_invites_company
     ON mover_invites(company_id);
+
+-- ============================================================================
+-- INTAKE QUOTES (migration 046) — agentic intake Mode A (#107). A capture-link
+-- customer answers a short estimator battery (and/or films rooms) and gets a
+-- PRICED quote computed deterministically from the vendor's own versioned
+-- rate card (rate_cards.data JSONB). companies.trust_block carries the
+-- license/liability/deposit facts every quote must render; the API refuses to
+-- price without a complete block. intake_quotes stores full inputs + outputs
+-- plus rate_card_version and engine_version so every quote is reproducible
+-- (PRD R8).
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS rate_cards (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL DEFAULT 1,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    data JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rate_cards_company_version
+    ON rate_cards(company_id, version);
+
+CREATE TABLE IF NOT EXISTS intake_quotes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    capture_session_id UUID REFERENCES company_capture_sessions(id) ON DELETE SET NULL,
+    rate_card_version INTEGER NOT NULL,
+    engine_version VARCHAR(40) NOT NULL,
+    inputs JSONB NOT NULL,
+    outputs JSONB NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'quoted',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_intake_quotes_company
+    ON intake_quotes(company_id, created_at DESC);

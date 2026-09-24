@@ -83,3 +83,4 @@ replaying from empty.
 | `043_add_capture_source` | `company_capture_sessions.source` marker ('widget'/'link'/'email', nullable) — attribution for the embeddable quote widget (F1, #98) |
 | `044_add_company_auth` | `company_auth_tokens` table (magic-link + session tokens for the mover dashboard, hashed at rest, separate from user `auth_tokens`) + `company_capture_sessions.completed_at` (F2, #99) |
 | `045_add_mover_invites` | `mover_invites` table — customer→mover inventory invites from the "Find movers near you" discover flow, with single-use claim tokens for the mover account invite loop (F3, #100) |
+| `046_add_intake_quotes` | `rate_cards` (versioned vendor pricing config) + `intake_quotes` (priced intake leads with reproducible inputs/outputs + engine/card versions) + `companies.trust_block` JSONB (license/liability/deposit facts every quote must carry) — agentic intake Mode A (#107) |

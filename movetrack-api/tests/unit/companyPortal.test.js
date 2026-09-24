@@ -372,13 +372,36 @@ describe('GET /api/company/walkthroughs', () => {
     expect(res.body.walkthroughs[0]).toEqual({
       id: 's-2', customerEmail: 'new@example.com', status: 'active', source: 'widget',
       videosCount: 2, itemsCount: 9, createdAt: '2026-08-18T10:00:00Z', completedAt: null,
-      shareUrl: null,
+      shareUrl: null, quote: null, // no intake quote for this session (#107)
     });
     expect(res.body.walkthroughs[1]).toMatchObject({
       id: 's-1', customerEmail: 'done@example.com', status: 'completed',
       itemsCount: 42, completedAt: '2026-08-10T11:00:00Z',
     });
     expect(res.body.walkthroughs[1].shareUrl).toMatch(/\/share\/sh-abc$/);
+  });
+
+  test('a session with an intake quote carries the priced-lead fields (#107)', async () => {
+    wireCompanySession();
+    db.any.mockImplementation(async () => [
+      {
+        id: 's-3', customer_email: 'priced@example.com', status: 'active', source: 'widget',
+        videos_count: 0, created_at: '2026-09-01T10:00:00Z', completed_at: null,
+        items_count: 0, share_token: null,
+        quote_outputs: { rangeLow: 1151, rangeHigh: 1494, nte: 1718 },
+        quote_status: 'quoted', quote_created_at: '2026-09-01T10:05:00Z',
+      },
+    ]);
+
+    const res = await request(makeApp())
+      .get('/api/company/walkthroughs')
+      .set('Authorization', `Bearer ${companySessionToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.walkthroughs[0].quote).toEqual({
+      status: 'quoted', rangeLow: 1151, rangeHigh: 1494, nte: 1718,
+      createdAt: '2026-09-01T10:05:00Z',
+    });
   });
 
   test('empty list for a brand-new company', async () => {
