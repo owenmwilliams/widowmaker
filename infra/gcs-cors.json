@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://movetrack-app-7hwn7ggbiq-uc.a.run.app"],
+    "method": ["PUT"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
+  }
+]
