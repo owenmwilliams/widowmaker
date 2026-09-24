@@ -109,7 +109,8 @@ router.get('/walkthroughs', async (req, res) => {
       `SELECT s.id, s.customer_email, s.status, s.source, s.videos_count,
               s.created_at, s.completed_at,
               COALESCE(ic.items_count, 0)::int AS items_count,
-              sh.token AS share_token
+              sh.token AS share_token,
+              q.outputs AS quote_outputs, q.status AS quote_status, q.created_at AS quote_created_at
        FROM company_capture_sessions s
        LEFT JOIN LATERAL (
          SELECT COALESCE(SUM(GREATEST(i.quantity, 1)), 0) AS items_count
@@ -120,6 +121,11 @@ router.get('/walkthroughs', async (req, res) => {
          WHERE user_id = s.user_id AND revoked_at IS NULL
          ORDER BY created_at DESC LIMIT 1
        ) sh ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT outputs, status, created_at FROM intake_quotes
+         WHERE capture_session_id = s.id
+         ORDER BY created_at DESC LIMIT 1
+       ) q ON TRUE
        WHERE s.company_id = $1
        ORDER BY s.created_at DESC
        LIMIT 200`,
@@ -138,6 +144,14 @@ router.get('/walkthroughs', async (req, res) => {
         // The share only becomes the company's to open once the customer
         // finished ("I'm done" completes the session and emails this link).
         shareUrl: r.status === 'completed' && r.share_token ? shareService.shareUrl(r.share_token) : null,
+        // Newest intake quote for this session (#107) — the priced-lead row.
+        quote: r.quote_status ? {
+          status: r.quote_status,
+          rangeLow: r.quote_outputs?.rangeLow ?? null,
+          rangeHigh: r.quote_outputs?.rangeHigh ?? null,
+          nte: r.quote_outputs?.nte ?? null,
+          createdAt: r.quote_created_at,
+        } : null,
       })),
     });
   } catch (err) {
