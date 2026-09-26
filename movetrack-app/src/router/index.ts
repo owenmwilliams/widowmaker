@@ -290,7 +290,7 @@ const router = createRouter({
     {
       // Public demo of the embeddable "Get a quote" widget (#98): a fake
       // mover site with the real widget embedded — what Owen shows companies.
-      // Desktop-oriented; deliberately NOT phone-exempt (see MOBILE_WEB_ALLOWED).
+      // Phone-exempt: outreach emails link here and movers tap them on phones.
       path: "/widget-demo",
       name: "widget-demo",
       component: () => import('../views/WidgetDemoView.vue')
@@ -313,7 +313,7 @@ const router = createRouter({
 // /mover (mover dashboard, #99) is desktop-first but never blocked: a mover
 // tapping their magic link on a phone must land on the dashboard, not the
 // customer app-store pitch.
-const MOBILE_WEB_ALLOWED = [/^\/share\//, /^\/c\//, /^\/mover(\/|$)/, /^\/get-the-app$/, /^\/privacypolicy$/, /^\/terms$/, /^\/pricing$/];
+const MOBILE_WEB_ALLOWED = [/^\/widget-demo$/, /^\/share\//, /^\/c\//, /^\/mover(\/|$)/, /^\/get-the-app$/, /^\/privacypolicy$/, /^\/terms$/, /^\/pricing$/];
 
 function isPhoneBrowser(): boolean {
   const ua = navigator.userAgent || '';
