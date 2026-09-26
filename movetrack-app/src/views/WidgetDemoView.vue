@@ -2,32 +2,40 @@
 import { ref, onMounted } from 'vue'
 
 /* ============================================================
-   /widget-demo — the pitch page for the embeddable "Get a quote"
-   widget (F1, issue #98). A fake mover website ("Acme Van Lines")
-   with the REAL widget embedded twice — card + button variants —
-   via the actual <script> tag mechanism a moving company would
-   paste, plus the copy-able snippet. Desktop demo; this is what
-   Owen shows companies. Public route, no auth.
+   /widget-demo — the pitch page for the embeddable widgets
+   (F1 #98, redesigned for the hero CHAT widget in #112). A fake
+   mover website ("Acme Van Lines") with the REAL widgets
+   embedded via the actual <script> tag mechanism a moving
+   company would paste.
+
+   The chat panel is the HERO now: big, right of the hero copy,
+   above the fold, LIVE against the `demo` vendor token — the
+   buyer can chat to a real quote and a (simulated-deposit)
+   reservation without leaving this page. Card + button variants
+   remain below as the secondary story. Public route, no auth.
 
    Deliberately styled like a generic third-party mover site (its
-   own literal styles, not our design tokens) so the widget's
-   shadow-DOM isolation is demonstrated honestly.
+   own literal styles, not our design tokens) so the widgets'
+   isolation — shadow DOM for card/button, an iframe for chat —
+   is demonstrated honestly.
    ============================================================ */
 
 const DEMO_TOKEN = 'demo'
 const DEMO_NAME = 'Acme Van Lines'
 
+const chatSlot = ref<HTMLElement | null>(null)
 const cardSlot = ref<HTMLElement | null>(null)
 const buttonSlot = ref<HTMLElement | null>(null)
 const copied = ref(false)
 
-// The one-liner a company pastes (shown with a placeholder token; the mint
+// The one-liners a company pastes (shown with a placeholder token; the mint
 // response's embedSnippet carries their real one).
+const chatSnippet = ref('')
 const snippet = ref('')
 const buttonSnippet = ref('')
 const anchorSnippet = ref('')
 
-function embedWidget(slot: HTMLElement, variant: 'card' | 'button') {
+function embedWidget(slot: HTMLElement, variant: 'chat' | 'card' | 'button') {
   // The real mechanism: a plain script tag, exactly like a mover's site.
   // data-name skips the company-name lookup (the demo token isn't minted).
   const s = document.createElement('script')
@@ -35,13 +43,13 @@ function embedWidget(slot: HTMLElement, variant: 'card' | 'button') {
   s.async = true
   s.setAttribute('data-nexus-token', DEMO_TOKEN)
   s.setAttribute('data-name', DEMO_NAME)
-  if (variant === 'button') s.setAttribute('data-variant', 'button')
+  if (variant !== 'card') s.setAttribute('data-variant', variant)
   slot.appendChild(s)
 }
 
 async function copySnippet() {
   try {
-    await navigator.clipboard.writeText(snippet.value)
+    await navigator.clipboard.writeText(chatSnippet.value)
     copied.value = true
     setTimeout(() => { copied.value = false }, 2000)
   } catch { /* clipboard blocked — the text is selectable */ }
@@ -49,9 +57,11 @@ async function copySnippet() {
 
 onMounted(() => {
   const origin = window.location.origin
+  chatSnippet.value = `<script src="${origin}/widget.js" data-nexus-token="YOUR_COMPANY_TOKEN" data-variant="chat" async><\/script>`
   snippet.value = `<script src="${origin}/widget.js" data-nexus-token="YOUR_COMPANY_TOKEN" async><\/script>`
   buttonSnippet.value = `<script src="${origin}/widget.js" data-nexus-token="YOUR_COMPANY_TOKEN" data-variant="button" async><\/script>`
   anchorSnippet.value = `<a href="${origin}/c/YOUR_COMPANY_TOKEN?src=widget" target="_blank" rel="noopener">Get an accurate moving quote — film your home with your phone<\/a>`
+  if (chatSlot.value) embedWidget(chatSlot.value, 'chat')
   if (cardSlot.value) embedWidget(cardSlot.value, 'card')
   if (buttonSlot.value) embedWidget(buttonSlot.value, 'button')
 })
@@ -67,6 +77,7 @@ onMounted(() => {
       </nav>
     </header>
 
+    <!-- HERO: mover pitch left, the LIVE chat agent right, above the fold -->
     <section class="wd__hero">
       <div class="wd__hero-copy">
         <h1>Moving families across the state since 1987</h1>
@@ -77,41 +88,54 @@ onMounted(() => {
         </p>
         <p class="wd__lorem">
           Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris
-          nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in
-          reprehenderit in voluptate velit esse cillum dolore.
+          nisi ut aliquip ex ea commodo consequat.
+        </p>
+        <p class="wd__hero-hint" aria-hidden="true">
+          Try it — the assistant on the right quotes and books against this
+          demo company's real rate card. &rarr;
         </p>
       </div>
 
-      <!-- The REAL widget, card variant, embedded via its script tag -->
-      <div class="wd__widget-slot" ref="cardSlot" aria-label="Nexus quote widget — card variant"></div>
+      <!-- The REAL chat widget, hero-sized, live against the demo vendor -->
+      <div class="wd__chat-slot" ref="chatSlot" aria-label="Nexus chat widget — live demo"></div>
     </section>
 
+    <!-- Secondary: the classic card + button variants -->
     <section class="wd__strip">
-      <p>
-        Excepteur sint occaecat cupidatat non proident, sunt in culpa qui
-        officia deserunt mollit anim id est laborum. Ready when you are —
-      </p>
-      <!-- The REAL widget, button variant -->
-      <div class="wd__widget-slot" ref="buttonSlot" aria-label="Nexus quote widget — button variant"></div>
+      <div class="wd__strip-copy">
+        <h2>Prefer the classic widgets?</h2>
+        <p>
+          The card and button variants open the film-your-home capture flow in
+          a new tab — excepteur sint occaecat cupidatat non proident. Ready
+          when you are —
+        </p>
+        <!-- The REAL widget, button variant -->
+        <div class="wd__widget-slot" ref="buttonSlot" aria-label="Nexus quote widget — button variant"></div>
+      </div>
+      <!-- The REAL widget, card variant -->
+      <div class="wd__widget-slot" ref="cardSlot" aria-label="Nexus quote widget — card variant"></div>
     </section>
 
     <!-- The pitch: how a company gets this on their site -->
     <section class="wd__embed">
       <h2>Put this on your website</h2>
       <p>
-        Paste one line where you want the quote panel to appear. Your company
-        token comes with your Nexus Moves capture link.
+        Paste one line where you want your AI quote assistant to appear. Your
+        company token comes with your Nexus Moves account — the same agent
+        also answers any MCP-speaking AI client, out of the box.
       </p>
 
       <div class="wd__code-row">
-        <pre class="wd__code"><code>{{ snippet }}</code></pre>
+        <pre class="wd__code"><code>{{ chatSnippet }}</code></pre>
         <button type="button" class="wd__copy" @click="copySnippet">
           {{ copied ? 'Copied' : 'Copy' }}
         </button>
       </div>
 
       <details class="wd__more">
-        <summary>Button-only variant and no-JavaScript fallback</summary>
+        <summary>Card and button variants, and the no-JavaScript fallback</summary>
+        <p>The classic quote card (opens the capture flow in a new tab):</p>
+        <pre class="wd__code"><code>{{ snippet }}</code></pre>
         <p>Just the button (for a navbar or footer):</p>
         <pre class="wd__code"><code>{{ buttonSnippet }}</code></pre>
         <p>Plain link — works everywhere, no script at all:</p>
@@ -121,7 +145,9 @@ onMounted(() => {
 
     <footer class="wd__foot">
       Demo page — “Acme Van Lines” is not a real company. The widgets above are
-      live: they open the Nexus Moves capture flow in a new tab.
+      live: the chat quotes and reserves against a demo rate card (deposits are
+      simulated — nothing is ever charged), and the card/button open the Nexus
+      Moves capture flow in a new tab.
     </footer>
   </div>
 </template>
@@ -144,31 +170,46 @@ onMounted(() => {
 }
 .wd__logo { font-weight: 700; letter-spacing: 0.12em; font-size: 18px; }
 .wd__links { display: flex; gap: 28px; font-size: 14px; opacity: 0.85; }
+
+/* Hero: copy left, LIVE chat right — the chat is the hero. */
 .wd__hero {
   display: flex;
-  gap: 48px;
+  gap: 56px;
   align-items: flex-start;
-  max-width: 1040px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 64px 40px 48px;
+  padding: 56px 40px 48px;
 }
-.wd__hero-copy { flex: 1; min-width: 0; }
+.wd__hero-copy { flex: 1; min-width: 0; padding-top: 8px; }
 .wd__hero h1 { font-size: 40px; line-height: 1.15; margin: 0 0 18px; color: #1f2d24; }
 .wd__hero p { font-size: 17px; line-height: 1.6; margin: 0 0 14px; }
 .wd__lorem { color: #6b6b60; }
-.wd__widget-slot { flex: none; }
+.wd__hero-hint { color: #8a8778; font-style: italic; font-size: 15px; }
+.wd__chat-slot {
+  flex: none;
+  width: 420px;
+  max-width: 100%;
+}
+
+/* Secondary strip: card + button variants */
 .wd__strip {
-  max-width: 1040px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 8px 40px 48px;
   display: flex;
-  align-items: center;
-  gap: 24px;
+  align-items: flex-start;
+  gap: 48px;
   flex-wrap: wrap;
+  border-top: 1px solid #e2ded2;
+  padding-top: 40px;
 }
-.wd__strip p { font-size: 16px; line-height: 1.6; margin: 0; flex: 1; min-width: 260px; }
+.wd__strip-copy { flex: 1; min-width: 280px; }
+.wd__strip-copy h2 { font-size: 24px; margin: 0 0 10px; color: #1f2d24; }
+.wd__strip-copy p { font-size: 16px; line-height: 1.6; margin: 0 0 18px; }
+.wd__widget-slot { flex: none; }
+
 .wd__embed {
-  max-width: 1040px;
+  max-width: 1120px;
   margin: 0 auto 48px;
   padding: 32px 40px;
   background: #ffffff;
@@ -212,15 +253,22 @@ onMounted(() => {
 .wd__more p { margin: 14px 0 8px; color: #55554c; }
 .wd__more .wd__code { margin-bottom: 4px; }
 .wd__foot {
-  max-width: 1040px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 0 40px 48px;
   font-size: 13px;
   color: #8a8778;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
-@media (max-width: 860px) {
-  .wd__hero { flex-direction: column; }
+@media (max-width: 900px) {
+  .wd__hero { flex-direction: column; gap: 32px; }
+  .wd__chat-slot { width: 100%; }
   .wd__strip { align-items: flex-start; }
+}
+@media (max-width: 560px) {
+  .wd__nav { padding: 16px 20px; }
+  .wd__links { display: none; }
+  .wd__hero, .wd__strip, .wd__embed, .wd__foot { padding-left: 20px; padding-right: 20px; }
+  .wd__hero h1 { font-size: 30px; }
 }
 </style>

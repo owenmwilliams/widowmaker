@@ -352,6 +352,11 @@ const redirectAfterLogin = (_user: any) => {
           <div class="hint-text q-mt-lg text-center">
             No password needed — just a quick code by email.
           </div>
+
+          <!-- Two-door (#112): movers have their own session + login. -->
+          <div class="mover-door text-center q-mt-md">
+            <router-link class="mover-door__link" to="/mover/login">Moving company? Sign in here &rarr;</router-link>
+          </div>
         </div>
       </q-card-section>
     </q-card>
@@ -532,4 +537,19 @@ const redirectAfterLogin = (_user: any) => {
 @media (max-width: 600px) {
   .login-container { min-height: 60vh; }
 }
+
+/* Two-door (#112): one quiet line for movers. */
+.mover-door {
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--border-soft);
+}
+.mover-door__link {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-semibold);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: var(--r-xs);
+}
+.mover-door__link:hover { color: var(--text-primary); text-decoration: underline; }
+.mover-door__link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 </style>

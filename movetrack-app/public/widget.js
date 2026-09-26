@@ -9,6 +9,13 @@
  * data-variant="button") that opens their Nexus Moves capture link
  * /c/{token}?src=widget in a new tab. See docs/widget-README.md.
  *
+ * data-variant="chat" (#112) instead renders a HERO-sized chat panel that
+ * iframes the company's Nexus agent — /agent/{token}?src=widget — directly
+ * in-page: the buyer chats, gets a priced quote range, and reserves a date
+ * without ever leaving the mover's site. (Chat needs no camera, so the
+ * new-tab constraint that applies to capture does not apply here.) The
+ * iframe posts its content height; we listen, origin-checked, and resize.
+ *
  * Constraints (deliberate):
  *   - Served AS-IS from public/ — no build step, no imports, ES5-safe syntax.
  *   - Renders into shadow DOM: the host page's CSS cannot bleed in, ours
@@ -42,7 +49,9 @@
     return;
   }
 
-  var variant = script.getAttribute('data-variant') === 'button' ? 'button' : 'card';
+  var variantAttr = script.getAttribute('data-variant');
+  var variant = variantAttr === 'button' ? 'button' : variantAttr === 'chat' ? 'chat' : 'card';
+  var presetName = script.getAttribute('data-name');
 
   // Transcribed design tokens (light theme) — names from the Nexus design system:
   var ACCENT = script.getAttribute('data-accent') || '#4F5BF0'; // --blue-500 / --accent (Nexus Blue)
@@ -126,6 +135,14 @@
     '.nx-foot{font-size:14px;color:' + TEXT_SECONDARY + ';margin-top:10px}' +
     '.nx-foot a{color:' + TEXT_SECONDARY + ';font-weight:600;text-decoration:underline}' +
     '.nx-foot a:focus-visible{outline:2px solid ' + ACCENT + ';outline-offset:2px}' +
+    // Chat variant (#112): a hero-sized panel. Full-width on phones,
+    // capped at 420px on desktop; the iframe starts at 560px tall and
+    // grows to fit the conversation via postMessage.
+    '.nx--chat{max-width:420px;width:100%}' +
+    '.nx-chatframe{display:block;width:100%;height:560px;min-height:560px;border:1px solid ' + BORDER + ';' +
+      'border-radius:' + RADIUS_LG + ';background:' + SURFACE_CARD + ';box-shadow:' + SHADOW_XS + '}' +
+    '.nx--chat .nx-foot{margin-top:8px;text-align:right}' +
+    '@media (max-width:480px){.nx--chat{max-width:none}}' +
     '@media (prefers-reduced-motion:reduce){.nx-cta{transition:none}.nx-cta:active{transform:none}}';
   root.appendChild(style);
 
@@ -136,11 +153,49 @@
   var box = document.createElement('div');
   box.className = variant === 'card' ? 'nx-card' : '';
   box.setAttribute('role', 'group');
-  box.setAttribute('aria-label', 'Get a moving quote with Nexus Moves');
+  box.setAttribute('aria-label', variant === 'chat'
+    ? 'Chat for an instant moving quote with Nexus Moves'
+    : 'Get a moving quote with Nexus Moves');
   wrap.appendChild(box);
 
   var forSpan = null;
   var emailInput = null;
+
+  // ── Chat variant (#112): iframe the vendor's agent in-page ─────────────
+  if (variant === 'chat') {
+    var frame = document.createElement('iframe');
+    frame.className = 'nx-chatframe';
+    frame.src = origin + '/agent/' + encodeURIComponent(token) + '?src=widget';
+    frame.title = (presetName ? presetName + "'s" : 'Our') + ' moving assistant — instant quote chat';
+    box.appendChild(frame);
+
+    // Height auto-resize: the chat page posts { type, height }; only act on
+    // messages from OUR app origin and OUR iframe. Clamped so a runaway
+    // value can never swallow the host page.
+    window.addEventListener('message', function (ev) {
+      if (ev.origin !== origin) return;
+      if (!frame.contentWindow || ev.source !== frame.contentWindow) return;
+      var d = ev.data;
+      if (!d || d.type !== 'nexus-agent-height') return;
+      var h = Number(d.height);
+      if (!isFinite(h) || h <= 0) return;
+      frame.style.height = Math.max(560, Math.min(Math.round(h), 1400)) + 'px';
+    });
+
+    var chatFoot = document.createElement('div');
+    chatFoot.className = 'nx-foot';
+    chatFoot.appendChild(document.createTextNode('Powered by '));
+    var chatBrand = document.createElement('a');
+    chatBrand.href = origin;
+    chatBrand.target = '_blank';
+    chatBrand.rel = 'noopener';
+    chatBrand.textContent = 'Nexus Moves';
+    chatFoot.appendChild(chatBrand);
+    box.appendChild(chatFoot);
+
+    root.appendChild(wrap);
+    return; // no CTA, no email field, no name lookup — the chat greets itself
+  }
 
   if (variant === 'card') {
     var head = document.createElement('h2');
@@ -207,7 +262,6 @@
   // never show visitors a slick button into a dead end. Anything else
   // (network error, HTML from an SPA host, timeout) fails OPEN: keep the
   // widget, just without the name.
-  var presetName = script.getAttribute('data-name');
   if (presetName) {
     if (forSpan) forSpan.textContent = ' for ' + presetName;
   } else {
