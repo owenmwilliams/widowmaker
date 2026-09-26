@@ -288,6 +288,14 @@ const router = createRouter({
       beforeEnter: companyGuard
     },
     {
+      // Public vendor chat agent (#112): the hero chat widget — MCP client #1
+      // against the per-vendor agent server (#111). No auth, iframe-friendly
+      // (the widget's chat variant embeds it on movers' own sites).
+      path: "/agent/:companyToken",
+      name: "agent-chat",
+      component: () => import('../views/AgentChatView.vue')
+    },
+    {
       // Public demo of the embeddable "Get a quote" widget (#98): a fake
       // mover site with the real widget embedded — what Owen shows companies.
       // Phone-exempt: outreach emails link here and movers tap them on phones.
@@ -313,7 +321,9 @@ const router = createRouter({
 // /mover (mover dashboard, #99) is desktop-first but never blocked: a mover
 // tapping their magic link on a phone must land on the dashboard, not the
 // customer app-store pitch.
-const MOBILE_WEB_ALLOWED = [/^\/widget-demo$/, /^\/share\//, /^\/c\//, /^\/mover(\/|$)/, /^\/get-the-app$/, /^\/privacypolicy$/, /^\/terms$/, /^\/pricing$/];
+// /agent/ (vendor chat, #112) is likewise phone-exempt: buyers open it from
+// movers' sites on any device, and the widget iframes it in place.
+const MOBILE_WEB_ALLOWED = [/^\/widget-demo$/, /^\/share\//, /^\/c\//, /^\/agent\//, /^\/mover(\/|$)/, /^\/get-the-app$/, /^\/privacypolicy$/, /^\/terms$/, /^\/pricing$/];
 
 function isPhoneBrowser(): boolean {
   const ua = navigator.userAgent || '';
@@ -337,6 +347,7 @@ router.beforeEach(async (to, from, next) => {
   // mover opening the outreach demo is not a consumer to route to chat.
   const PUBLIC_ALWAYS =
     to.path.startsWith('/share/') || to.path.startsWith('/c/') ||
+    to.path.startsWith('/agent/') ||
     to.path === '/mover' || to.path.startsWith('/mover/') ||
     to.path === '/widget-demo' || to.path === '/get-the-app' ||
     to.path === '/privacypolicy' || to.path === '/terms' || to.path === '/pricing';

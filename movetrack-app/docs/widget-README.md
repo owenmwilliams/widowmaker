@@ -9,6 +9,28 @@ email. (F1, issue #98; capture flow is #96/#97.)
 The script is `movetrack-app/public/widget.js`, served as-is from the app
 origin (no build step, no dependencies). Live demo: `/widget-demo`.
 
+## Chat variant — the hero embed (#112)
+
+```html
+<script src="https://YOUR_APP_ORIGIN/widget.js" data-nexus-token="YOUR_COMPANY_TOKEN" data-variant="chat" async></script>
+```
+
+Renders a HERO-sized chat panel (up to 420px wide on desktop, full-width on
+phones, starting at 560px tall) that iframes the company's Nexus agent —
+`/agent/{token}?src=widget` — directly in-page. The buyer never leaves the
+mover's site: the deterministic assistant asks the intake battery, gates the
+quote range behind an email, and reserves a move date behind a clearly-marked
+SIMULATED deposit (companies with `payments_mode` other than `simulated` get
+no card sheet at all). The chat page is MCP client #1 against the per-vendor
+agent server (`POST /api/agent/{token}/mcp`, see
+`movetrack-api/docs/vendor-agent-mcp.md`) — the same agent any MCP-speaking
+AI client can call.
+
+Chat needs no camera, so the new-tab constraint that applies to the capture
+variants does not apply here. The iframe posts its content height
+(`{ type: 'nexus-agent-height', height }`); the widget listens with an
+origin + source check and grows the panel (clamped 560–1400px).
+
 ## Embed (card variant, default)
 
 ```html
@@ -49,7 +71,7 @@ script at all, same attribution:
 | Attribute          | Required | Values                | Default              | Notes |
 |--------------------|----------|-----------------------|----------------------|-------|
 | `data-nexus-token` | yes      | company capture token | —                    | Without it the widget renders nothing (console warning). |
-| `data-variant`     | no       | `card` \| `button`    | `card`               | |
+| `data-variant`     | no       | `card` \| `button` \| `chat` | `card`        | `chat` embeds the vendor agent in-page (iframe); card/button open capture in a new tab. |
 | `data-accent`      | no       | any CSS color         | `#4F5BF0` Nexus Blue | CTA background + focus ring, so the button can match the host site's palette. |
 | `data-name`        | no       | display name          | (looked up)          | Skips the company-name lookup and shows this name. Used by `/widget-demo`; real embeds normally omit it. |
 
@@ -76,4 +98,4 @@ script at all, same attribution:
 - **Accessibility.** Real `<button>`, visible focus ring, text ≥14px, AA
   contrast in both variants, no animation beyond hover (and transitions are
   disabled under `prefers-reduced-motion`).
-- **Size.** Self-contained, no imports, < 15KB unminified.
+- **Size.** Self-contained, no imports, < 18KB unminified.

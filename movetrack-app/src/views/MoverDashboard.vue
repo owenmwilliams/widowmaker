@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
 import {
   Copy, Check, ExternalLink, LogOut, Link2, Code2, CircleAlert,
-  Video, ClipboardList, Pause, Play,
+  Video, ClipboardList, Pause, Play, CalendarCheck, Timer, X,
 } from 'lucide-vue-next'
 import { API_BASE_URL } from '../config/api'
 import { companyAuthHeaders, clearCompanySession, getCompanyData, logoutCompany } from '../utils/companyAuth'
@@ -46,6 +46,21 @@ type Walkthrough = {
   quote: WalkthroughQuote | null
 }
 type LeadsPayload = { leads: unknown[]; note?: string }
+// Reserve-pending-confirmation bookings (#111/#112) — the vendor's side of
+// the chat agent's "reserve with a simulated deposit" handshake.
+type Reservation = {
+  id: string
+  quoteId: string | null
+  customerEmail: string
+  requestedDate: string
+  depositAmount: number | null
+  depositSimulated: boolean
+  status: 'pending_confirmation' | 'confirmed' | 'declined' | 'expired' | string
+  createdAt: string
+  expiresAt: string
+  expiresInSeconds: number | null
+  quote: { rangeLow: number | null; rangeHigh: number | null; nte: number | null } | null
+}
 
 // ── Per-section state (quiet degradation) ────────────────────
 const overview = ref<Overview | null>(null)
@@ -59,6 +74,15 @@ const walkthroughsError = ref('')
 const leads = ref<LeadsPayload | null>(null)
 const leadsLoading = ref(true)
 const leadsError = ref('')
+
+const reservations = ref<Reservation[] | null>(null)
+const reservationsLoading = ref(true)
+const reservationsError = ref('')
+const reservationsFetchedAt = ref(0)   // for the live countdown
+const nowTick = ref(Date.now())        // 1s heartbeat while pending rows exist
+const settleBusy = ref<string | null>(null)      // reservation id in flight
+const confirmingDecline = ref<string | null>(null) // inline decline confirm
+const settleError = ref('')
 
 // Header shows the cached name instantly; overview refreshes it.
 const companyName = ref(getCompanyData()?.name || '')
@@ -135,11 +159,80 @@ async function loadLeads() {
   }
 }
 
+async function loadReservations() {
+  reservationsLoading.value = true
+  reservationsError.value = ''
+  try {
+    const { data } = await axios.get(`${core_url}/api/company/reservations`, { headers: companyAuthHeaders() })
+    reservations.value = data.reservations
+    reservationsFetchedAt.value = Date.now()
+  } catch (e: any) {
+    if (isAuthFailure(e)) return kickToLogin()
+    reservationsError.value = e?.response?.data?.error || 'Could not load your reservations.'
+  } finally {
+    reservationsLoading.value = false
+  }
+}
+
+const pendingReservations = computed(() =>
+  (reservations.value || []).filter((r) => r.status === 'pending_confirmation'))
+
+// Live countdown against the server's expiresInSeconds snapshot.
+function secondsLeft(r: Reservation): number {
+  if (r.expiresInSeconds == null) return 0
+  const elapsed = Math.floor((nowTick.value - reservationsFetchedAt.value) / 1000)
+  return Math.max(0, r.expiresInSeconds - elapsed)
+}
+function countdownLabel(r: Reservation): string {
+  const s = secondsLeft(r)
+  if (s <= 0) return 'Expired'
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  if (h > 0) return `${h}h ${m}m left`
+  return `${m}m ${s % 60}s left`
+}
+
+let tickTimer: ReturnType<typeof setInterval> | null = null
+
+async function settleReservation(r: Reservation, action: 'confirm' | 'decline') {
+  settleError.value = ''
+  confirmingDecline.value = null
+  settleBusy.value = r.id
+  try {
+    const { data } = await axios.post(
+      `${core_url}/api/company/reservations/${r.id}/${action}`,
+      {},
+      { headers: companyAuthHeaders() }
+    )
+    // Reflect the settled row in place (it leaves the pending list).
+    if (reservations.value) {
+      const idx = reservations.value.findIndex((x) => x.id === r.id)
+      if (idx >= 0) {
+        reservations.value[idx] = {
+          ...reservations.value[idx],
+          status: data.reservation?.status || (action === 'confirm' ? 'confirmed' : 'declined'),
+          expiresInSeconds: null,
+        }
+      }
+    }
+  } catch (e: any) {
+    if (isAuthFailure(e)) return kickToLogin()
+    settleError.value = e?.response?.data?.error || `Could not ${action} the reservation. Please try again.`
+    // A 409 means the row moved under us (expired / already settled) — refresh.
+    if (e?.response?.status === 409) loadReservations()
+  } finally {
+    settleBusy.value = null
+  }
+}
+
 onMounted(() => {
   loadOverview()
   loadWalkthroughs()
   loadLeads()
+  loadReservations()
+  tickTimer = setInterval(() => { nowTick.value = Date.now() }, 1000)
 })
+onUnmounted(() => { if (tickTimer) clearInterval(tickTimer) })
 
 // ── Copy buttons ─────────────────────────────────────────────
 const copiedLink = ref(false)
@@ -218,12 +311,37 @@ const fmtDate = (iso: string | null) =>
 const SOURCE_LABELS: Record<string, string> = { widget: 'Your website', link: 'Direct link', email: 'Email' }
 const sourceLabel = (s: string | null) => (s && SOURCE_LABELS[s]) || '—'
 
-const statusLabel = (s: string) => (s === 'completed' ? 'Completed' : s === 'active' ? 'In progress' : s)
 
 // Priced-lead quote display (#107).
 const money = (n: number | null) => (n == null ? '—' : `$${Math.round(n).toLocaleString('en-US')}`)
-const quoteRange = (q: WalkthroughQuote) =>
+const quoteRange = (q: { rangeLow: number | null; rangeHigh: number | null }) =>
   q.rangeLow != null && q.rangeHigh != null ? `${money(q.rangeLow)}–${money(q.rangeHigh)}` : '—'
+
+// ── Pipeline language (#112) ─────────────────────────────────
+// One stage pill per lead: New → Quoted → Estimator review → Reserved →
+// Confirmed. Walkthrough rows don't carry reservations, so we join
+// client-side on the customer's email (an MCP chat quote has no capture
+// session — its reservation still shows in "Reservations to confirm").
+type Stage = { label: string; cls: string }
+function reservationFor(emailAddr: string): Reservation | null {
+  const list = reservations.value || []
+  const norm = emailAddr.trim().toLowerCase()
+  let best: Reservation | null = null
+  for (const r of list) {
+    if (r.customerEmail.trim().toLowerCase() !== norm) continue
+    if (r.status === 'confirmed') return r
+    if (r.status === 'pending_confirmation' && (!best || best.status !== 'confirmed')) best = r
+  }
+  return best
+}
+function leadStage(w: Walkthrough): Stage {
+  const r = reservationFor(w.customerEmail)
+  if (r?.status === 'confirmed') return { label: 'Confirmed', cls: 'md-pill--done' }
+  if (r?.status === 'pending_confirmation') return { label: 'Reserved', cls: 'md-pill--reserved' }
+  if (w.quote?.status === 'review_required') return { label: 'Estimator review', cls: 'md-pill--review' }
+  if (w.quote) return { label: 'Quoted', cls: 'md-pill--active' }
+  return { label: 'New', cls: 'md-pill--new' }
+}
 </script>
 
 <template>
@@ -329,9 +447,89 @@ const quoteRange = (q: WalkthroughQuote) =>
         </template>
       </section>
 
-      <!-- ── Walkthroughs ───────────────────────────────────── -->
-      <section class="md-section" aria-label="Walkthroughs">
-        <h2 class="md-section-title">Walkthroughs</h2>
+      <!-- ── Reservations to confirm (#111/#112) ─────────────── -->
+      <section class="md-section" aria-label="Reservations to confirm">
+        <h2 class="md-section-title">Reservations to confirm</h2>
+
+        <div v-if="reservationsLoading" class="md-card">
+          <div class="md-skel md-skel--row"></div>
+        </div>
+
+        <div v-else-if="reservationsError" class="md-card md-error-card">
+          <CircleAlert :size="18" aria-hidden="true" />
+          <div>
+            <p class="md-error-head">{{ reservationsError }}</p>
+            <button class="md-btn md-btn--quiet" @click="loadReservations">Try again</button>
+          </div>
+        </div>
+
+        <div v-else-if="pendingReservations.length === 0" class="md-card md-empty md-empty--compact">
+          <CalendarCheck :size="22" class="md-empty-icon" aria-hidden="true" />
+          <p>No reservations waiting on you. When a customer reserves a move date through your chat agent, it lands here with a 24-hour clock.</p>
+        </div>
+
+        <div v-else class="md-card md-table-card">
+          <p v-if="settleError" class="md-settings-error md-resv-error" role="alert">{{ settleError }}</p>
+          <div class="md-table-scroll">
+            <table class="md-table">
+              <thead>
+                <tr>
+                  <th scope="col">Customer</th>
+                  <th scope="col">Move date</th>
+                  <th scope="col" class="md-col-num">Quote</th>
+                  <th scope="col" class="md-col-num">Deposit</th>
+                  <th scope="col">Respond within</th>
+                  <th scope="col"><span class="md-visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in pendingReservations" :key="r.id">
+                  <td class="md-cell-email">{{ r.customerEmail }}</td>
+                  <td class="md-cell-date">{{ fmtDate(r.requestedDate) }}</td>
+                  <td class="md-col-num">
+                    <span v-if="r.quote" class="md-quote-range">{{ quoteRange(r.quote) }}</span>
+                    <span v-else class="md-cell-pending">—</span>
+                  </td>
+                  <td class="md-col-num">
+                    <template v-if="r.depositAmount">
+                      <span class="md-quote-range">{{ money(r.depositAmount) }}</span>
+                      <span v-if="r.depositSimulated" class="md-pill md-pill--review md-quote-pill">Simulated — no charge</span>
+                    </template>
+                    <span v-else class="md-cell-pending">None</span>
+                  </td>
+                  <td>
+                    <span class="md-countdown" :class="{ 'md-countdown--tight': secondsLeft(r) < 4 * 3600 }">
+                      <Timer :size="13" aria-hidden="true" />
+                      {{ countdownLabel(r) }}
+                    </span>
+                  </td>
+                  <td class="md-cell-action">
+                    <template v-if="confirmingDecline === r.id">
+                      <span class="md-decline-confirm">Decline and release {{ fmtDate(r.requestedDate) }}?</span>
+                      <button class="md-btn md-btn--danger" :disabled="settleBusy === r.id || secondsLeft(r) <= 0" @click="settleReservation(r, 'decline')">Yes, decline</button>
+                      <button class="md-btn md-btn--quiet" @click="confirmingDecline = null">Keep it</button>
+                    </template>
+                    <template v-else>
+                      <button class="md-btn" :disabled="settleBusy === r.id || secondsLeft(r) <= 0" @click="settleReservation(r, 'confirm')">
+                        <Check :size="14" aria-hidden="true" />
+                        {{ settleBusy === r.id ? 'Working…' : 'Confirm' }}
+                      </button>
+                      <button class="md-btn md-btn--quiet" :disabled="settleBusy === r.id || secondsLeft(r) <= 0" @click="confirmingDecline = r.id">
+                        <X :size="14" aria-hidden="true" />
+                        Decline
+                      </button>
+                    </template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Leads (walkthrough pipeline) ─────────────────────── -->
+      <section class="md-section" aria-label="Leads">
+        <h2 class="md-section-title">Leads</h2>
 
         <div v-if="walkthroughsLoading" class="md-card">
           <div v-for="i in 3" :key="i" class="md-skel md-skel--row"></div>
@@ -347,11 +545,11 @@ const quoteRange = (q: WalkthroughQuote) =>
 
         <div v-else-if="walkthroughs && walkthroughs.length === 0" class="md-card md-empty">
           <Video :size="26" class="md-empty-icon" aria-hidden="true" />
-          <h3>No walkthroughs yet</h3>
+          <h3>No leads yet</h3>
           <p>
-            When a customer opens your capture link and films their home, their walkthrough shows up here —
-            and the finished inventory lands in your inbox. Start by sharing the link above or adding the
-            widget to your website.
+            When a customer opens your capture link and films their home — or chats with your website
+            agent — their lead shows up here, and the finished inventory lands in your inbox. Start by
+            sharing the link above or adding the widget to your website.
           </p>
         </div>
 
@@ -362,7 +560,7 @@ const quoteRange = (q: WalkthroughQuote) =>
                 <tr>
                   <th scope="col">Customer</th>
                   <th scope="col">Started</th>
-                  <th scope="col">Status</th>
+                  <th scope="col">Stage</th>
                   <th scope="col">Source</th>
                   <th scope="col" class="md-col-num">Videos</th>
                   <th scope="col" class="md-col-num">Items</th>
@@ -375,9 +573,7 @@ const quoteRange = (q: WalkthroughQuote) =>
                   <td class="md-cell-email">{{ w.customerEmail }}</td>
                   <td class="md-cell-date">{{ fmtDate(w.createdAt) }}</td>
                   <td>
-                    <span class="md-pill" :class="w.status === 'completed' ? 'md-pill--done' : 'md-pill--active'">
-                      {{ statusLabel(w.status) }}
-                    </span>
+                    <span class="md-pill" :class="leadStage(w).cls">{{ leadStage(w).label }}</span>
                   </td>
                   <td>
                     <span class="md-badge" :class="{ 'md-badge--widget': w.source === 'widget' }">{{ sourceLabel(w.source) }}</span>
@@ -385,13 +581,7 @@ const quoteRange = (q: WalkthroughQuote) =>
                   <td class="md-col-num">{{ w.videosCount }}</td>
                   <td class="md-col-num">{{ w.itemsCount }}</td>
                   <td class="md-col-num">
-                    <template v-if="w.quote">
-                      <span class="md-quote-range">{{ quoteRange(w.quote) }}</span>
-                      <span
-                        class="md-pill md-quote-pill"
-                        :class="w.quote.status === 'quoted' ? 'md-pill--done' : 'md-pill--review'"
-                      >{{ w.quote.status === 'quoted' ? 'Quoted' : 'Estimator review' }}</span>
-                    </template>
+                    <span v-if="w.quote" class="md-quote-range">{{ quoteRange(w.quote) }}</span>
                     <span v-else class="md-cell-pending">—</span>
                   </td>
                   <td class="md-cell-action">
@@ -691,6 +881,22 @@ const quoteRange = (q: WalkthroughQuote) =>
 .md-pill--done { background: var(--success-quiet); color: var(--success); }
 .md-pill--active { background: var(--accent-quiet); color: var(--accent-press); }
 .md-pill--review { background: var(--warning-surface); color: var(--warning-ink); }
+/* Pipeline stages (#112) */
+.md-pill--new { background: var(--surface-sunk); color: var(--text-secondary); }
+.md-pill--reserved { background: var(--accent); color: var(--text-on-accent); }
+
+/* Reservations to confirm (#112) */
+.md-countdown {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semibold);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+.md-countdown--tight { color: var(--warning-ink); }
+.md-cell-action .md-btn + .md-btn { margin-left: var(--sp-2); }
+.md-decline-confirm { font-size: 12px; color: var(--text-secondary); margin-right: var(--sp-2); }
+.md-resv-error { padding: var(--sp-3) var(--sp-6) 0; margin: 0; }
 
 /* Priced-lead cell (#107) */
 .md-quote-range {
