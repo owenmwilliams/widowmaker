@@ -403,6 +403,34 @@ const companyClaimLimiter = rateLimit({
   }
 });
 
+/**
+ * Vendor Agent MCP Limiter (issue #111)
+ * Guards the public per-vendor MCP endpoint (POST /api/agent/:companyToken/mcp).
+ * Being quotable by any AI client is the point, so the endpoint is public —
+ * this bounds each (company token, IP) pair. A full agent conversation is
+ * roughly: a handful of initialize/tools-list handshakes + one question
+ * fetch + a few quotes + a reservation ≈ 20–30 calls, so 300/15min leaves
+ * room for many customers behind one NAT while still capping abuse.
+ *
+ * Limits: 300 requests per 15 minutes per (company token, IP)
+ */
+const agentMcpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `agent-mcp:${req.params?.companyToken || 'none'}:${ipKeyGenerator(req)}`,
+  handler: (req, res) => {
+    console.warn(`Agent MCP rate limit exceeded: ${req.params?.companyToken || '?'} ${req.ip}`);
+    // JSON-RPC-shaped so MCP clients surface it as a protocol error.
+    res.status(429).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Too many requests — give it a few minutes and try again.' },
+      id: null
+    });
+  }
+});
+
 module.exports = {
   globalLimiter,
   authLimiter,
@@ -418,5 +446,6 @@ module.exports = {
   companyAuthRequestLimiter,
   companyAuthVerifyLimiter,
   discoverSearchLimiter,
-  companyClaimLimiter
+  companyClaimLimiter,
+  agentMcpLimiter
 };

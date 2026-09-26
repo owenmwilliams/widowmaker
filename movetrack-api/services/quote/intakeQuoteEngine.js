@@ -146,6 +146,25 @@ function flightsOf(v) {
 
 const isElevator = (v) => normStr(v) === 'elevator';
 
+// ── Deposit ──────────────────────────────────────────────────────────────────
+
+/**
+ * Deposit in whole dollars from the rate card (#111). Two card shapes:
+ *   depositPct    — percent of the quote's LOW end, rounded to dollars
+ *                   (10% of a $1,151 low = $115);
+ *   depositAmount — the original flat dollar figure (#108).
+ * When both are present, depositPct WINS — a percentage that scales with the
+ * job is the more honest instrument, and a card that adds one means it.
+ * Neither present (or both ≤ 0) ⇒ 0: no deposit on this card.
+ */
+function depositFromCard(cardData, rangeLow) {
+  const card = cardData && typeof cardData === 'object' ? cardData : {};
+  const pct = Number(card.depositPct);
+  if (pct > 0) return Math.round((Number(rangeLow) || 0) * (pct / 100));
+  const flat = Number(card.depositAmount);
+  return flat > 0 ? Math.round(flat) : 0;
+}
+
 // ── The engine ───────────────────────────────────────────────────────────────
 
 /**
@@ -299,7 +318,7 @@ function computeQuote(inputs) {
     rangeHigh,
     nte,
     deposit: {
-      amount: Number(card.depositAmount) > 0 ? Math.round(Number(card.depositAmount)) : 0,
+      amount: depositFromCard(card, rangeLow),
       refundWindowDays: Number(card.refundWindowDays) >= 0 ? Number(card.refundWindowDays) : null,
     },
     status,
@@ -425,6 +444,7 @@ module.exports = {
   crewForCuFt,
   billHours,
   missingTrustFields,
+  depositFromCard,
   computeQuote,
   buildQuestions,
   sanitizeAnswers,

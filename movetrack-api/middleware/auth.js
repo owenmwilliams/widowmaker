@@ -33,7 +33,14 @@ const { authenticate } = require('../services/infra/authService');
 //                         never user JWTs — a company session must NOT pass
 //                         the user authenticate() this gate applies) — see
 //                         routes/api/companyAuth.js + companyPortal.js
-const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook', '/public', '/internal/scan-jobs', '/api/capture', '/api/company'];
+//   /api/agent          – per-vendor MCP agent server (#111): being quotable
+//                         by ANY AI client is the point. Token-scoped
+//                         (unknown/inactive tokens get a JSON-RPC error, no
+//                         data) + per-(token, IP) rate limit — see
+//                         routes/api/vendorAgentMcp.js. NOTE: '/api/agents'
+//                         (the authenticated user agents) does NOT match
+//                         this prefix — the matcher requires 'prefix/…'.
+const PUBLIC_PREFIXES = ['/auth', '/health', '/billing/webhook', '/public', '/internal/scan-jobs', '/api/capture', '/api/company', '/api/agent'];
 
 // Exact public paths (the Jade landing page + favicon).
 const PUBLIC_EXACT = new Set(['/', '/favicon.ico']);

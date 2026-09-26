@@ -1094,6 +1094,7 @@ CREATE TABLE IF NOT EXISTS companies (
     token VARCHAR(80) NOT NULL UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     trust_block JSONB,
+    payments_mode VARCHAR(20) NOT NULL DEFAULT 'none',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_companies_token ON companies(token);
@@ -1202,3 +1203,30 @@ CREATE TABLE IF NOT EXISTS intake_quotes (
 );
 CREATE INDEX IF NOT EXISTS idx_intake_quotes_company
     ON intake_quotes(company_id, created_at DESC);
+
+-- ============================================================================
+-- BOOKING RESERVATIONS (migration 047) — per-vendor MCP agent server, W1a
+-- (#111). A customer (through the widget or any MCP client talking to the
+-- vendor's agent) reserves a move date against a priced intake quote. The
+-- vendor has 24 hours to confirm (expires_at); expiry is lazy — reads flip
+-- past-due pending rows to 'expired', no cron. deposit_simulated is TRUE
+-- everywhere in this build: no real charges exist yet (real rails are W2).
+-- companies.payments_mode ('none'|'simulated') gates the pretend deposit.
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS booking_reservations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    intake_quote_id UUID NOT NULL REFERENCES intake_quotes(id) ON DELETE CASCADE,
+    capture_session_id UUID REFERENCES company_capture_sessions(id) ON DELETE SET NULL,
+    customer_email VARCHAR(255) NOT NULL,
+    requested_date DATE NOT NULL,
+    deposit_amount NUMERIC(10,2),
+    deposit_simulated BOOLEAN NOT NULL DEFAULT TRUE,
+    status VARCHAR(30) NOT NULL DEFAULT 'pending_confirmation',
+    expires_at TIMESTAMPTZ NOT NULL,
+    confirmed_at TIMESTAMPTZ,
+    declined_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_booking_reservations_company
+    ON booking_reservations(company_id, status, created_at DESC);

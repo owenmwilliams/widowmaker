@@ -28,6 +28,7 @@ const express = require('express');
 const { db } = require('../../services/infra/db');
 const { authenticateCompany } = require('../../services/infra/companyAuthService');
 const shareService = require('../../services/inventory/shareService');
+const intakeAgent = require('../../services/quote/intakeAgentService');
 
 const router = express.Router();
 
@@ -175,6 +176,63 @@ router.get('/leads', async (req, res) => {
     note: 'Quote leads from your website widget land here once lead routing launches. Walkthrough requests already appear under Walkthroughs.',
   });
 });
+
+// ── Reservations (reserve-pending-confirmation bookings, #111) ───────────────
+// Customers reserve a move date against a priced quote through the vendor's
+// MCP agent (routes/api/vendorAgentMcp.js); these endpoints are the vendor's
+// side of that handshake. Company-scoped like everything else here — the id
+// in the path is only honored when the row belongs to req.company.
+//
+// EXPIRY IS LAZY (documented decision, #111): there is no cron. Any read
+// that encounters a pending reservation past its 24h expires_at flips it to
+// 'expired' and emails the customer ONCE (the conditional UPDATE inside
+// intakeAgentService is the atomic once-only latch). A vendor who never
+// opens the dashboard delays the flip, but never un-expires anything: the
+// confirm/decline SQL requires expires_at > NOW(), so a stale row can only
+// ever become 'expired'.
+
+// GET /api/company/reservations — pending first (with countdown fields),
+// then the settled history, newest first within each group.
+router.get('/reservations', async (req, res) => {
+  try {
+    const reservations = await intakeAgent.listReservations({
+      companyId: req.company.id,
+      companyName: req.company.name,
+    });
+    res.json({ reservations });
+  } catch (err) {
+    console.error('[companyPortal] reservations failed:', err.message);
+    res.status(500).json({ error: 'Could not load your reservations. Please try again.' });
+  }
+});
+
+function settleHandler(action) {
+  return async (req, res) => {
+    try {
+      const fn = action === 'confirm' ? intakeAgent.confirmReservation : intakeAgent.declineReservation;
+      const reservation = await fn({
+        companyId: req.company.id,
+        companyName: req.company.name,
+        reservationId: req.params.id,
+      });
+      res.json({ reservation });
+    } catch (err) {
+      if (err instanceof intakeAgent.IntakeAgentError) {
+        return res.status(err.statusCode).json({ error: err.message, code: err.code });
+      }
+      console.error(`[companyPortal] reservation ${action} failed:`, err.message);
+      res.status(500).json({ error: `Could not ${action} the reservation. Please try again.` });
+    }
+  };
+}
+
+// POST /api/company/reservations/:id/confirm — pending + unexpired only;
+// emails the customer the honest confirmation (simulated deposit, no charge).
+router.post('/reservations/:id/confirm', express.json(), settleHandler('confirm'));
+
+// POST /api/company/reservations/:id/decline — same gate; the customer is
+// told plainly that nothing was ever charged, so there is nothing to refund.
+router.post('/reservations/:id/decline', express.json(), settleHandler('decline'));
 
 // ── PATCH /api/company/settings ──────────────────────────────────────────────
 // { name?, contact_email?, is_active? } — v1 keeps the email change simple:

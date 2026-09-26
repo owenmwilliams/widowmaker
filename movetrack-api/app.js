@@ -65,6 +65,11 @@ var companyClaimRouter = require('./routes/api/companyClaim');
 // NORMAL user auth via the global default-deny gate) ─────────────────────────
 var discoverRouter = require('./routes/api/discover');
 
+// ── api/agent/ (per-vendor MCP agent server, #111 — public mount; being
+// quotable by any AI client is the point. Token-scoped + rate-limited; all
+// logic shared with /api/capture via intakeAgentService) ─────────────────────
+var vendorAgentMcpRouter = require('./routes/api/vendorAgentMcp');
+
 // ── internal/ (service-to-service, OIDC-verified — see middleware/auth.js) ────
 var internalScanJobsRouter = require('./routes/internal/scanJobs');
 
@@ -102,6 +107,14 @@ var corsOptions = {
   credentials: true,
   optionsSuccessStatus: 200
 }
+// Per-vendor MCP agent (#111): the chat widget calls this endpoint from
+// moving companies' OWN websites, so this ONE prefix is any-origin (no
+// credentials). Mounted BEFORE the app-origin cors() below because that
+// middleware terminates every OPTIONS preflight itself — a foreign-origin
+// preflight would otherwise be answered without allow headers and the
+// browser would block the POST. Serves only computed quotes + the public
+// trust block; abuse is bounded by the per-(token, IP) limiter.
+app.use('/api/agent', cors({ origin: true, credentials: false }));
 app.use(cors(corsOptions));
 
 const frontendOrigins = [
@@ -200,6 +213,9 @@ app.use('/public', publicShareRouter);
 
 // ── Company capture (unauthenticated mount, per-endpoint gates) ── /api/capture/…
 app.use('/api/capture', companyCaptureRouter);
+
+// ── Vendor MCP agent (unauthenticated mount, token-scoped) ── /api/agent/:token/mcp
+app.use('/api/agent', vendorAgentMcpRouter);
 
 // ── API — Discover movers (user-authenticated) ──── /api/discover/movers /api/discover/invite
 app.use('/api/discover', discoverRouter);
