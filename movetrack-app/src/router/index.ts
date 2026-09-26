@@ -329,11 +329,18 @@ router.beforeEach(async (to, from, next) => {
     return next({ name: 'get-the-app' });
   }
 
-  // Public mover-facing share view and company capture links are always
-  // reachable, logged in or not. The /mover surface runs on the COMPANY
-  // session (its own guard) — the user-session/onboarding logic below must
-  // never hijack a mover into /nexus or /login.
-  if (to.path.startsWith('/share/') || to.path.startsWith('/c/') || to.path === '/mover' || to.path.startsWith('/mover/')) {
+  // Public pages are always reachable, logged in or not: mover-facing share
+  // views, company capture links, the /mover surface (runs on the COMPANY
+  // session — its own guard), the widget demo, and legal/marketing pages.
+  // The user-session/onboarding logic below must never hijack these into
+  // /nexus or /login — a half-onboarded session reading the Terms or a
+  // mover opening the outreach demo is not a consumer to route to chat.
+  const PUBLIC_ALWAYS =
+    to.path.startsWith('/share/') || to.path.startsWith('/c/') ||
+    to.path === '/mover' || to.path.startsWith('/mover/') ||
+    to.path === '/widget-demo' || to.path === '/get-the-app' ||
+    to.path === '/privacypolicy' || to.path === '/terms' || to.path === '/pricing';
+  if (PUBLIC_ALWAYS) {
     return next();
   }
 
