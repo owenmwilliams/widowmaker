@@ -4,7 +4,10 @@
 real Model Context Protocol endpoint any AI client can talk to. The website
 chat widget (issue #112) is **client #1** and this document is its contract;
 Claude Desktop, ChatGPT connectors, or anything else that speaks MCP
-streamable-HTTP gets the same four tools with zero extra server work.
+streamable-HTTP gets the same five tools with zero extra server work.
+(The widget's default brain moved to `POST /:companyToken/converse` in W1c,
+issue #117 — this MCP endpoint stays as the bring-your-own-brain tool layer,
+and the widget still uses it directly in deterministic-fallback mode.)
 
 - **Endpoint:** `POST https://{API_BASE}/api/agent/{companyToken}/mcp`
 - **Protocol:** MCP streamable-HTTP, JSON-RPC 2.0, official
@@ -140,8 +143,24 @@ deposit step). No contact emails, ids, or tokens — ever.
 
 The estimator battery from `intakeQuoteEngine.buildQuestions`, minus every
 question whose id appears in `knownAnswers` (string values only; junk keys
-are ignored). Returns `{ questions, known }` where `known` echoes the
-sanitized answers that were accepted.
+are ignored), **plus the company's own `intake_specs` questions** (#117 —
+mover-defined extras like COI/HOA rules, appended as
+`{ id, label, type: 'text', source: 'company' }` and filtered by
+`knownAnswers` the same way). Returns `{ questions, known }` where `known`
+echoes the sanitized answers that were accepted.
+
+### `check_availability` — `{ requestedDate: 'YYYY-MM-DD' }`
+
+Whether the company can take a move on that date, per its **Nexus booking
+calendar** (W1c, #117 — Mode B-lite; external calendar sync is W2):
+`capacity_per_day` minus `booking_reservations` holding a slot
+(`pending_confirmation` + `confirmed`), with company `blackout_days` and past
+dates never open. Returns
+`{ requestedDate, requestedDateOpen, reason, capacityPerDay, alternatives }`
+where `reason` is `null | 'past_date' | 'blackout' | 'fully_booked'` and
+`alternatives` is up to 3 nearest open dates (±7-day window preferred,
+forward-weighted, extending forward when the window is dry). A malformed
+date is a tool error (`code: "invalid_input"`).
 
 ### `price_quote` — `{ answers: Record<string,string>, customerEmail: string }`
 
