@@ -3,7 +3,7 @@ steps:
   # Run API unit tests (DB-free) — gates the build. Integration suites in
   # movetrack-api/tests/*.test.js require a Postgres instance and are run
   # separately; wire a Cloud SQL/Postgres service in here to include them.
-  - name: 'node:18'
+  - name: 'node:20'
     id: 'test-api'
     entrypoint: 'bash'
     args:
@@ -127,7 +127,7 @@ steps:
   # On the existing production database (no schema_migrations table yet) the runner
   # auto-baselines: it records the current migrations as applied without re-running
   # them, then applies only genuinely new migrations on subsequent deploys.
-  - name: 'node:18'
+  - name: 'node:20'
     entrypoint: 'bash'
     secretEnv: ['DB_PASS']
     args:
