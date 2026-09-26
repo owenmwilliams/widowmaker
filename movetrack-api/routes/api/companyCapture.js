@@ -62,8 +62,7 @@ const mediaAssetService = require('../../services/infra/mediaAssetService');
 const scanJobs = require('../../services/inventory/scanJobService');
 const inventoryMutation = require('../../services/inventory/inventoryMutationService');
 const shareService = require('../../services/inventory/shareService');
-const intakeEngine = require('../../services/quote/intakeQuoteEngine');
-const { calculateDrivingDistance } = require('../../services/move/distanceService');
+const intakeAgent = require('../../services/quote/intakeAgentService');
 
 const router = express.Router();
 
@@ -625,38 +624,22 @@ router.post('/:companyToken/complete', rateLimits.captureLimiter, guestAuth, exp
   }
 });
 
-// ── Intake quote (agentic intake Mode A, #107) ───────────────────────────────
+// ── Intake quote (agentic intake Mode A, #107; service layer #111) ──────────
 // The estimator battery + instant vendor-priced quote, on the same guest
 // surface. Both endpoints work on active AND completed sessions — a customer
 // who filmed rooms and tapped "I'm done" can still ask for a price.
+//
+// Since #111 the logic lives in services/quote/intakeAgentService.js, shared
+// verbatim with the per-vendor MCP server (routes/api/vendorAgentMcp.js) —
+// these routes only adapt the guest-session surface onto that service, and
+// their request/response shapes are unchanged from #108.
 
 // GET /api/capture/:companyToken/intake-questions — the battery, minus
 // anything the session already knows (PRD R2): rooms scanned → home size is
 // known from the inventory; origin address on file → origin question skipped.
 router.get('/:companyToken/intake-questions', rateLimits.captureLimiter, guestAuth, async (req, res) => {
-  const userId = req.capture.userId;
   try {
-    const [itemsRow, loc] = await Promise.all([
-      db.one(`SELECT COUNT(*)::int AS n FROM items WHERE user_id = $1`, [userId]),
-      db.oneOrNone(
-        `SELECT address, city, state FROM locations
-         WHERE user_id = $1 AND location_type = 'primary_residence'
-         ORDER BY id ASC LIMIT 1`,
-        [userId]
-      ),
-    ]);
-
-    const originParts = [loc?.address, loc?.city, loc?.state].filter(Boolean);
-    const origin = originParts.length ? originParts.join(', ') : null;
-    const itemsCount = itemsRow.n;
-
-    res.json({
-      questions: intakeEngine.buildQuestions({
-        hasInventory: itemsCount > 0,
-        hasOrigin: !!origin,
-      }),
-      known: { itemsCount, origin },
-    });
+    res.json(await intakeAgent.getIntakeQuestions({ userId: req.capture.userId }));
   } catch (err) {
     console.error('[companyCapture] intake-questions failed:', err.message);
     res.status(500).json({ error: 'Could not load the questions. Please try again.' });
@@ -667,128 +650,31 @@ router.get('/:companyToken/intake-questions', rateLimits.captureLimiter, guestAu
 // Runs the deterministic engine against the company's ACTIVE rate card plus
 // any scanned inventory in the session, persists the quote (inputs + outputs
 // + engine/card versions — reproducible, PRD R8), notifies the company, and
-// returns the payload the price card renders.
-//
-// INVARIANT: no quote without a complete trust block. A price with no
-// license/liability/deposit context is the dark pattern this product exists
-// to kill, so an incomplete block is a 409 with admin-facing copy — never a
-// bare price.
+// returns the payload the price card renders. All of that happens inside
+// intakeAgentService.priceQuote — including the INVARIANT: no quote without
+// a complete trust block. A price with no license/liability/deposit context
+// is the dark pattern this product exists to kill, so an incomplete block is
+// a 409 with admin-facing copy — never a bare price.
 router.post('/:companyToken/quote', rateLimits.captureLimiter, guestAuth, express.json(), async (req, res) => {
   const s = req.capture.session;
-  const userId = req.capture.userId;
 
   try {
-    // 1. Trust block — the invariant gate, checked before any pricing work.
-    const companyRow = await db.one(
-      `SELECT trust_block FROM companies WHERE id = $1`,
-      [s.company_id]
-    );
-    const missing = intakeEngine.missingTrustFields(companyRow.trust_block);
-    if (missing.length > 0) {
-      return res.status(409).json({
-        error: `${s.company_name} hasn't finished setting up licensing and coverage details, so instant quotes are paused. `
-          + `(Admin: complete the trust block — missing ${missing.join(', ')}.)`,
-        missing,
-      });
-    }
-
-    // 2. Active rate card — newest active version prices new quotes.
-    const rateCardRow = await db.oneOrNone(
-      `SELECT version, data FROM rate_cards
-       WHERE company_id = $1 AND active = TRUE
-       ORDER BY version DESC LIMIT 1`,
-      [s.company_id]
-    );
-    if (!rateCardRow) {
-      return res.status(409).json({
-        error: `${s.company_name} hasn't published a rate card yet, so instant quotes are paused. `
-          + `(Admin: seed an active rate card for this company.)`,
-      });
-    }
-
-    // 3. Scanned inventory snapshot (empty on the Q&A-only path).
-    const itemRows = await db.any(
-      `SELECT name, quantity, weight_lbs, length_in, width_in, height_in
-       FROM items WHERE user_id = $1`,
-      [userId]
-    );
-    const items = itemRows.map((it) => ({
-      name: String(it.name || ''),
-      quantity: Number(it.quantity) > 0 ? Math.floor(Number(it.quantity)) : 1,
-      weightLbs: Number(it.weight_lbs) > 0 ? Number(it.weight_lbs) : null,
-      lengthIn: Number(it.length_in) > 0 ? Number(it.length_in) : null,
-      widthIn: Number(it.width_in) > 0 ? Number(it.width_in) : null,
-      heightIn: Number(it.height_in) > 0 ? Number(it.height_in) : null,
-    }));
-
-    const answers = intakeEngine.sanitizeAnswers(req.body?.answers);
-
-    // 4. Distance — the one nondeterministic step, resolved HERE so the
-    // stored inputs freeze it (the engine itself stays pure). Best-effort:
-    // no addresses or a lookup failure just means no travel-time component.
-    let distance = null;
-    if (answers.originAddress && answers.destinationAddress) {
-      try {
-        const d = await calculateDrivingDistance({
-          origin: answers.originAddress,
-          destination: answers.destinationAddress,
-        });
-        if (d && Number(d.distance_miles) >= 0) {
-          distance = {
-            miles: Number(d.distance_miles),
-            driveHours: Math.round(((Number(d.duration_seconds) || 0) / 3600) * 10) / 10,
-            source: d.source || null,
-          };
-        }
-      } catch (err) {
-        console.warn('[companyCapture] quote distance lookup failed (continuing without):', err.message);
-      }
-    }
-
-    // 5. The deterministic engine. `inputs` is EVERYTHING it reads —
-    // computeQuote(storedInputs) reproduces storedOutputs exactly (PRD R8).
-    const inputs = {
-      answers,
-      items,
-      distance,
-      rateCard: { version: rateCardRow.version, data: rateCardRow.data },
-    };
-    const outputs = intakeEngine.computeQuote(inputs);
-
-    const quote = await db.one(
-      `INSERT INTO intake_quotes
-         (company_id, capture_session_id, rate_card_version, engine_version, inputs, outputs, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, created_at`,
-      [s.company_id, s.id, rateCardRow.version, intakeEngine.ENGINE_VERSION,
-        JSON.stringify(inputs), JSON.stringify(outputs), outputs.status]
-    );
-
-    // 6. Best-effort company notification — a mail failure never fails the
-    // quote; the dashboard row is the durable record.
-    try {
-      const fmt = (n) => `$${Number(n).toLocaleString('en-US')}`;
-      await sendMail({
-        to: s.company_contact_email,
-        subject: `Priced lead: ${fmt(outputs.rangeLow)}–${fmt(outputs.rangeHigh)} — ${s.customer_email}`,
-        text: `${s.customer_email} just got an instant quote through your Nexus Moves intake.\n\n`
-          + `Estimate: ${fmt(outputs.rangeLow)}–${fmt(outputs.rangeHigh)} (NTE ${fmt(outputs.nte)})\n`
-          + `Crew: ${outputs.crew} movers, ${outputs.hours.low}–${outputs.hours.high} hrs\n`
-          + `Status: ${outputs.status === 'review_required' ? 'Estimator review required' : 'Quoted'}\n`
-          + (outputs.reviewReasons.length ? `Why: ${outputs.reviewReasons.join(' ')}\n` : '')
-          + `\nSee it in your dashboard: ${appBaseUrl()}/mover\n`,
-      });
-    } catch (err) {
-      console.error(`[companyCapture] quote notification failed for session ${s.id} (quote is saved):`, err.message);
-    }
-
-    res.status(201).json({
-      quoteId: quote.id,
-      company: { name: s.company_name },
-      ...outputs,
-      trustBlock: companyRow.trust_block,
+    const result = await intakeAgent.priceQuote({
+      companyId: s.company_id,
+      companyName: s.company_name,
+      companyContactEmail: s.company_contact_email,
+      captureSessionId: s.id,
+      customerEmail: s.customer_email,
+      userId: req.capture.userId,
+      answers: req.body?.answers,
     });
+    res.status(201).json(result.payload);
   } catch (err) {
+    if (err instanceof intakeAgent.IntakeAgentError) {
+      const body = { error: err.message };
+      if (err.missing) body.missing = err.missing;
+      return res.status(err.statusCode).json(body);
+    }
     console.error('[companyCapture] quote failed:', err.message);
     res.status(500).json({ error: 'Could not price your move. Please try again.' });
   }
