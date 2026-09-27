@@ -91,16 +91,23 @@
 
   function renderAnchorFallback() {
     // Used when shadow DOM is unavailable, and when the token turns out to be
-    // dead (the capture page explains "link not active" politely). When a
+    // dead (the target page explains "link not active" politely). When a
     // shadow root exists it renders there (light-DOM children of a shadow
-    // host don't paint).
+    // host don't paint). The CHAT path never carries film-your-home framing
+    // (#117): its fallback links to the chat agent itself; filming stays an
+    // optional postscript inside the conversation.
     var target = root || host;
     while (target.firstChild) target.removeChild(target.firstChild);
     var a = document.createElement('a');
-    a.href = captureUrl('');
+    if (variant === 'chat') {
+      a.href = origin + '/agent/' + encodeURIComponent(token) + '?src=widget';
+      a.textContent = 'Chat with ' + (presetName || 'our') + ' moving assistant — instant quote, book a date';
+    } else {
+      a.href = captureUrl('');
+      a.textContent = 'Get an accurate moving quote — film your home with your phone';
+    }
     a.target = '_blank';
     a.rel = 'noopener';
-    a.textContent = 'Get an accurate moving quote — film your home with your phone';
     target.appendChild(a);
   }
 

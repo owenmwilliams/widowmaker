@@ -2,38 +2,48 @@
 import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  ShieldCheck, LoaderCircle, RotateCcw, Video, Lock, CalendarCheck, Check,
+  ShieldCheck, LoaderCircle, RotateCcw, Video, Lock, CalendarCheck, CalendarDays, Check,
 } from 'lucide-vue-next'
 import { callTool, McpToolError, McpTransportError } from '../utils/mcpClient'
+import { API_BASE_URL } from '../config/api'
 
 /* ============================================================
-   /agent/:companyToken — the vendor's hero chat widget (#112),
-   MCP client #1 against the per-vendor agent server (#111/#113).
+   /agent/:companyToken — the vendor's hero chat widget.
 
-   A self-contained, DETERMINISTIC conversation (no LLM): greet →
-   intake battery one question per bubble → email gate → quote
-   RANGE in-thread (trust block fused to the price) → reserve the
-   date behind a clearly-simulated deposit → "vendor confirms in
-   24h". The buyer never leaves the page.
+   W1c (#117): the chat IS the agent now. The default brain is
+   the model-run converse endpoint (POST /api/agent/:token/
+   converse) — free text live from the very first message,
+   quick-reply chips suggested by the model, and every card
+   (quote, availability, reservation) rendered from the RAW
+   tool payload the server sends in RESULT.event. The model
+   never renders a number; the cards do (R34 by architecture).
+
+   The #114 deterministic battery lives on, in this same file,
+   as the graceful fallback: a 503 {fallback:true} (no model
+   key) or two consecutive transport failures switches to it
+   MID-conversation, carrying every answer already gathered
+   (the converse response's `known` seeds get_intake_questions'
+   knownAnswers, so nothing is asked twice). ?brain=det forces
+   the battery; ?brain=llm forces the agent.
 
    Public route, iframe-friendly (the widget's chat variant
-   embeds it directly on movers' own sites and listens for our
-   height postMessage). State lives in sessionStorage so a reload
-   resumes mid-conversation; every MCP failure is a quiet bubble
-   with a retry, never a dead end.
+   embeds it and listens for our height postMessage). State
+   lives in sessionStorage so a reload resumes mid-conversation
+   — including the converse conversationId.
    ============================================================ */
 
 const route = useRoute()
 const companyToken = String(route.params.companyToken || '')
 
-// ── Types (MCP tool payload shapes — vendor-agent-mcp.md) ────
+// ── Types (tool payload shapes — vendor-agent-mcp.md) ────────
 type QuestionOption = { value: string; label: string }
 type Question = {
   id: string
   label: string
-  type: 'chips' | 'address' | 'date'
+  type: 'chips' | 'address' | 'date' | 'text'
   options?: QuestionOption[]
   placeholder?: string
+  source?: string
 }
 type TrustBlock = {
   legalName: string; dba?: string; stateLicense: string; usDot: string
@@ -66,28 +76,45 @@ type Reservation = {
   quote: { id: string; rangeLow: number; rangeHigh: number; nte: number }
   deposit: { amount: number | null; simulated: boolean; note: string }
 }
+type Availability = {
+  requestedDate: string
+  requestedDateOpen: boolean
+  reason: 'past_date' | 'blackout' | 'fully_booked' | null
+  capacityPerDay: number
+  alternatives: string[]
+}
 
-// ── Conversation state machine (deterministic, in-view) ─────
+// ── Conversation state machine ───────────────────────────────
+// llm: the agent chat (free composer + model chips).
+// The rest is the #114 deterministic battery, kept verbatim.
 type Step =
-  | 'boot'            // fetching company info + questions
+  | 'llm'             // agent brain running the conversation
+  | 'boot'            // fetching company info + questions (det)
   | 'boot_failed'     // dead token / network down before hello
-  | 'question'        // asking questions[qIdx]
-  | 'email'           // the email gate
-  | 'quoting'         // price_quote in flight
-  | 'reserve_offer'   // quote shown, offering to lock the date
-  | 'deposit'         // simulated card sheet open
-  | 'reserving'       // reserve_booking in flight
+  | 'question'        // asking questions[qIdx] (det)
+  | 'email'           // the email gate (det)
+  | 'quoting'         // price_quote in flight (det)
+  | 'reserve_offer'   // quote shown, offering to lock the date (det)
+  | 'deposit'         // simulated card sheet open (both brains)
+  | 'reserving'       // reserve_booking in flight (det)
   | 'reserved'        // done
-  | 'passed'          // said "not now" after the quote
+  | 'passed'          // said "not now" after the quote (det)
 
-type RetryKey = 'boot' | 'quote' | 'reserve'
+type RetryKey = 'boot' | 'quote' | 'reserve' | 'llm'
 type Msg =
   | { kind: 'bot'; text: string }
   | { kind: 'user'; text: string }
+  | { kind: 'notice'; text: string }
   | { kind: 'quote' }
+  | { kind: 'availability'; payload: Availability }
   | { kind: 'reserved' }
   | { kind: 'error'; text: string; retry: RetryKey | null }
 
+type Brain = 'llm' | 'det'
+const forcedBrain: Brain | null =
+  route.query.brain === 'det' ? 'det' : route.query.brain === 'llm' ? 'llm' : null
+
+const brain = ref<Brain>(forcedBrain ?? 'llm')
 const step = ref<Step>('boot')
 const messages = ref<Msg[]>([])
 const typing = ref(false)
@@ -100,7 +127,17 @@ const email = ref('')
 const quote = ref<Quote | null>(null)
 const reservation = ref<Reservation | null>(null)
 
-// Bottom composer inputs (address / email steps).
+// Agent-brain state.
+const conversationId = ref<string | null>(null)
+const chips = ref<string[]>([])
+// True only while a converse request is in flight — the cosmetic typing
+// animation must never swallow a send.
+const busy = ref(false)
+let known: Record<string, string> = {}
+let lastSent: string | null = null
+let transportFails = 0
+
+// Bottom composer inputs.
 const textDraft = ref('')
 const dateDraft = ref('')
 const inputError = ref('')
@@ -129,6 +166,19 @@ const depositPct = computed(() => {
 const usesSimulatedDeposit = computed(() =>
   company.value?.paymentsMode === 'simulated' && (quote.value?.deposit?.amount ?? 0) > 0)
 
+// Composer visibility: the agent brain has it LIVE from second zero (only
+// the deposit sheet takes it over); the battery shows it for text steps.
+const composerOpen = computed(() => {
+  if (brain.value === 'llm') return step.value !== 'deposit' && step.value !== 'boot_failed'
+  const q = currentQuestion.value
+  return (q && (q.type === 'address' || q.type === 'text')) || step.value === 'email'
+})
+const composerPlaceholder = computed(() => {
+  if (brain.value === 'llm') return 'Type a message…'
+  if (step.value === 'email') return 'you@example.com'
+  return currentQuestion.value?.placeholder || 'Type your answer…'
+})
+
 function fmtDay(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '')
   if (!m) return iso || 'your date'
@@ -136,7 +186,8 @@ function fmtDay(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-// Phone handoff: film rooms for a tighter quote (capture link, #96).
+// Phone handoff: OPTIONAL postscript after reserving — film rooms for a
+// tighter quote (capture link, #96). Never a gate on the chat path.
 const captureUrl = computed(() =>
   `${window.location.origin}/c/${encodeURIComponent(companyToken)}?src=agent`)
 const qrDataUrl = ref('')
@@ -147,7 +198,7 @@ async function makeQr() {
   } catch { /* QR is garnish — the link works without it */ }
 }
 
-// ── Motion: instant brain, chat-feel pacing ──────────────────
+// ── Motion ───────────────────────────────────────────────────
 const reducedMotion = typeof window.matchMedia === 'function'
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 let restoring = false
@@ -175,6 +226,10 @@ function pushUser(text: string) {
   messages.value.push({ kind: 'user', text })
   scrollToEnd()
 }
+function pushNotice(text: string) {
+  messages.value.push({ kind: 'notice', text })
+  scrollToEnd()
+}
 function pushError(text: string, retry: RetryKey | null) {
   messages.value.push({ kind: 'error', text, retry })
   scrollToEnd()
@@ -182,11 +237,21 @@ function pushError(text: string, retry: RetryKey | null) {
 
 // ── Resilience: reload resumes mid-conversation ─────────────
 const STORAGE_KEY = `nexus-agent:${companyToken}`
+function stableStep(): Step {
+  if (step.value === 'quoting') return 'email'
+  if (step.value === 'reserving') return 'reserve_offer'
+  if (step.value === 'boot' || step.value === 'boot_failed') return brain.value === 'llm' ? 'llm' : 'boot'
+  return step.value
+}
 function saveState() {
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
-      v: 1,
-      step: step.value === 'quoting' ? 'email' : step.value === 'reserving' ? 'reserve_offer' : step.value,
+      v: 2,
+      brain: brain.value,
+      conversationId: conversationId.value,
+      chips: chips.value,
+      known,
+      step: stableStep(),
       messages: messages.value.filter((m) => m.kind !== 'error'),
       company: company.value,
       questions: questions.value,
@@ -201,9 +266,14 @@ function saveState() {
 function restoreState(): boolean {
   let s: any = null
   try { s = JSON.parse(sessionStorage.getItem(STORAGE_KEY) || 'null') } catch { /* ignore */ }
-  if (!s || s.v !== 1 || !Array.isArray(s.messages) || !s.company) return false
-  if (!['question', 'email', 'reserve_offer', 'deposit', 'reserved', 'passed'].includes(s.step)) return false
+  if (!s || s.v !== 2 || !Array.isArray(s.messages) || !s.company) return false
+  if (!['llm', 'question', 'email', 'reserve_offer', 'deposit', 'reserved', 'passed'].includes(s.step)) return false
+  if (forcedBrain && s.brain !== forcedBrain) return false // brain override wins over resume
   restoring = true
+  brain.value = s.brain === 'det' ? 'det' : 'llm'
+  conversationId.value = typeof s.conversationId === 'string' ? s.conversationId : null
+  chips.value = Array.isArray(s.chips) ? s.chips : []
+  known = s.known && typeof s.known === 'object' ? s.known : {}
   company.value = s.company
   questions.value = Array.isArray(s.questions) ? s.questions : []
   qIdx.value = Number.isInteger(s.qIdx) ? s.qIdx : 0
@@ -219,7 +289,214 @@ function restoreState(): boolean {
   return true
 }
 
-// ── The flow ─────────────────────────────────────────────────
+/* ============================================================
+   THE AGENT BRAIN (default) — POST /api/agent/:token/converse
+   ============================================================ */
+
+/** 503 {fallback:true}: the server says "drop to deterministic". */
+class ConverseFallback extends Error {
+  known?: Record<string, string>
+  constructor(known?: Record<string, string>) {
+    super('fallback')
+    this.known = known
+  }
+}
+
+async function converse(body: { conversationId?: string | null; message?: string }): Promise<any> {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE_URL}/api/agent/${encodeURIComponent(companyToken)}/converse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch {
+    throw new McpTransportError('Could not reach the server. Check your connection and try again.')
+  }
+  let data: any = null
+  try { data = await res.json() } catch { /* handled below */ }
+  if (res.status === 503 && data?.fallback) throw new ConverseFallback(data?.known)
+  if (!res.ok || !data) {
+    throw new McpTransportError(
+      typeof data?.error === 'string' && data.error
+        ? data.error
+        : 'Something went wrong talking to the server. Please try again.',
+    )
+  }
+  return data
+}
+
+/** Fold one converse RESULT into the thread — cards from DATA, always. */
+async function applyTurn(r: any) {
+  transportFails = 0
+  if (typeof r.conversationId === 'string') conversationId.value = r.conversationId
+  if (r.company) {
+    company.value = {
+      name: String(r.company.name || ''),
+      trustBlock: company.value?.trustBlock ?? null,
+      paymentsMode: r.company.paymentsMode || 'none',
+    }
+  }
+  if (r.known && typeof r.known === 'object') known = r.known
+  if (typeof r.customerEmail === 'string' && r.customerEmail) email.value = r.customerEmail
+
+  if (typeof r.reply === 'string' && r.reply) await pushBot(r.reply)
+  chips.value = Array.isArray(r.chips) ? r.chips.slice(0, 4) : []
+
+  const ev = r.event
+  if (ev?.type === 'quote' && ev.payload) {
+    quote.value = ev.payload as Quote
+    messages.value.push({ kind: 'quote' })
+    await scrollToEnd()
+  } else if (ev?.type === 'availability' && ev.payload) {
+    messages.value.push({ kind: 'availability', payload: ev.payload as Availability })
+    await scrollToEnd()
+  } else if (ev?.type === 'reservation' && ev.payload) {
+    reservation.value = ev.payload as Reservation
+    if (usesSimulatedDeposit.value && quote.value) {
+      // Deposit UI stays UI-side: the reservation event opens the same
+      // clearly-simulated sheet; completing it reveals the reserved card.
+      step.value = 'deposit'
+      cardError.value = ''
+      await scrollToEnd()
+    } else {
+      finishReserved()
+    }
+  }
+  saveState()
+}
+
+function finishReserved() {
+  messages.value.push({ kind: 'reserved' })
+  step.value = 'reserved'
+  cardNumber.value = ''
+  cardExp.value = ''
+  cardCvc.value = ''
+  makeQr()
+  saveState()
+  scrollToEnd()
+}
+
+async function bootLlm() {
+  step.value = 'boot'
+  try {
+    const r = await converse({}) // deterministic greeting, no model call
+    step.value = 'llm'
+    await applyTurn(r)
+  } catch (e) {
+    if (e instanceof ConverseFallback) {
+      brain.value = 'det'
+      await boot() // straight into the battery — no notice needed pre-hello
+      return
+    }
+    handleMcpFailure(e, 'boot')
+    step.value = 'boot_failed'
+  }
+}
+
+async function sendLlm(message: string, shown?: string) {
+  const text = message.trim().slice(0, 2000)
+  if (!text || busy.value) return
+  pushUser(shown ?? text)
+  chips.value = []
+  lastSent = text
+  busy.value = true
+  typing.value = true
+  await scrollToEnd()
+  try {
+    const r = await converse({ conversationId: conversationId.value, message: text })
+    busy.value = false
+    typing.value = false
+    await applyTurn(r)
+  } catch (e) {
+    busy.value = false
+    typing.value = false
+    if (e instanceof ConverseFallback) {
+      await switchToDet(e.known)
+      return
+    }
+    transportFails += 1
+    if (transportFails >= 2) {
+      await switchToDet()
+      return
+    }
+    pushError(e instanceof McpTransportError ? e.message : 'Something went wrong. Please try again.', 'llm')
+  }
+  saveState()
+}
+
+function sendDraftLlm() {
+  if (busy.value) return // keep the draft — never swallow it mid-request
+  const v = textDraft.value.trim()
+  if (!v) { inputError.value = 'Type a message first.'; return }
+  inputError.value = ''
+  textDraft.value = ''
+  sendLlm(v)
+}
+
+async function retryLlm() {
+  if (!lastSent || busy.value) return
+  busy.value = true
+  typing.value = true
+  await scrollToEnd()
+  try {
+    const r = await converse({ conversationId: conversationId.value, message: lastSent })
+    busy.value = false
+    typing.value = false
+    await applyTurn(r)
+  } catch (e) {
+    busy.value = false
+    typing.value = false
+    if (e instanceof ConverseFallback) { await switchToDet(e.known); return }
+    transportFails += 1
+    if (transportFails >= 2) { await switchToDet(); return }
+    pushError('Still no luck — one more try?', 'llm')
+  }
+}
+
+/** Availability card → tappable date chip: the tap IS the next message. */
+function pickDate(iso: string) {
+  sendLlm(`Let's do ${iso}`, fmtDay(iso))
+}
+
+function availLine(p: Availability): string {
+  if (p.requestedDateOpen) return `${fmtDay(p.requestedDate)} is open on ${companyName.value}'s booking calendar.`
+  if (p.reason === 'past_date') return `${fmtDay(p.requestedDate)} has already passed — pick a day ahead.`
+  return `${fmtDay(p.requestedDate)} isn't available${p.alternatives.length ? ' — nearest open days:' : '.'}`
+}
+
+/**
+ * The graceful mid-conversation fallback: agent → deterministic battery,
+ * CARRYING everything already gathered (the server's `known` seeds
+ * knownAnswers, so get_intake_questions only returns what's still open).
+ * One quiet notice line; same quote, same rates, no restart.
+ */
+async function switchToDet(carryKnown?: Record<string, string>) {
+  if (brain.value === 'det') return
+  brain.value = 'det'
+  chips.value = []
+  if (carryKnown && typeof carryKnown === 'object') known = { ...known, ...carryKnown }
+  Object.assign(answers, known)
+  pushNotice('Continuing with quick questions — same rates, same quote.')
+  try {
+    if (!company.value) {
+      company.value = await callTool<CompanyInfo>(companyToken, 'get_company_info')
+    }
+    const qs = await callTool<{ questions: Question[] }>(companyToken, 'get_intake_questions', { knownAnswers: { ...answers } })
+    questions.value = qs.questions
+    qIdx.value = 0
+    await askCurrent()
+  } catch (e) {
+    handleMcpFailure(e, 'boot')
+    step.value = 'boot_failed'
+  }
+  saveState()
+}
+
+/* ============================================================
+   THE DETERMINISTIC BATTERY (#114) — now the fallback brain
+   ============================================================ */
+
 async function boot() {
   step.value = 'boot'
   try {
@@ -372,7 +649,13 @@ function submitDeposit() {
     return
   }
   cardError.value = ''
-  doReserve()
+  if (brain.value === 'llm') {
+    // Agent brain: the reservation already exists (the event triggered this
+    // sheet); the sheet just completes the simulated-deposit theater.
+    finishReserved()
+  } else {
+    doReserve()
+  }
 }
 
 async function doReserve() {
@@ -387,14 +670,7 @@ async function doReserve() {
     })
     typing.value = false
     reservation.value = r
-    messages.value.push({ kind: 'reserved' })
-    step.value = 'reserved'
-    cardNumber.value = ''
-    cardExp.value = ''
-    cardCvc.value = ''
-    saveState()
-    makeQr()
-    await scrollToEnd()
+    finishReserved()
   } catch (e) {
     typing.value = false
     handleMcpFailure(e, 'reserve')
@@ -419,12 +695,22 @@ function retryAction(key: RetryKey) {
   messages.value = messages.value.filter((m) => m.kind !== 'error')
   if (key === 'boot') {
     messages.value = []
-    boot()
+    if (brain.value === 'llm') bootLlm()
+    else boot()
   } else if (key === 'quote') {
     getQuote()
+  } else if (key === 'llm') {
+    retryLlm()
   } else {
     doReserve()
   }
+}
+
+// ── Composer dispatch (one form, two brains) ────────────────
+function onComposerSubmit() {
+  if (brain.value === 'llm') return sendDraftLlm()
+  if (step.value === 'email') return submitEmail()
+  if (currentQuestion.value) return submitText(currentQuestion.value)
 }
 
 // ── Iframe embed: post our content height to the widget ─────
@@ -446,7 +732,10 @@ onMounted(() => {
     resizeObserver = new ResizeObserver(() => postHeight())
     resizeObserver.observe(document.documentElement)
   }
-  if (!restoreState()) boot()
+  if (!restoreState()) {
+    if (brain.value === 'llm') bootLlm()
+    else boot()
+  }
 })
 onBeforeUnmount(() => { resizeObserver?.disconnect() })
 </script>
@@ -474,12 +763,29 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
           <div v-if="m.kind === 'bot'" class="ag__msg ag__msg--bot">{{ m.text }}</div>
           <div v-else-if="m.kind === 'user'" class="ag__msg ag__msg--user">{{ m.text }}</div>
 
+          <!-- Quiet one-line notice (brain fallback) -->
+          <p v-else-if="m.kind === 'notice'" class="ag__notice">{{ m.text }}</p>
+
           <!-- Quiet retryable failure -->
           <div v-else-if="m.kind === 'error'" class="ag__msg ag__msg--bot ag__msg--err">
             <p class="ag__err-text">{{ m.text }}</p>
             <button v-if="m.retry" type="button" class="ag__retry" @click="retryAction(m.retry)">
               <RotateCcw :size="14" aria-hidden="true" /> Try again
             </button>
+          </div>
+
+          <!-- Availability card: dates from tool DATA, tappable -->
+          <div v-else-if="m.kind === 'availability'" class="ag__avail">
+            <p class="ag__avail-line">
+              <CalendarDays :size="15" aria-hidden="true" />
+              <span>{{ availLine(m.payload) }}</span>
+            </p>
+            <div v-if="m.payload.alternatives && m.payload.alternatives.length" class="ag__avail-days">
+              <button
+                v-for="d in m.payload.alternatives" :key="d" type="button"
+                class="ag__chip" @click="pickDate(d)"
+              >{{ fmtDay(d) }}</button>
+            </div>
           </div>
 
           <!-- The quote card: range HUGE, trust block fused (hairline divider) -->
@@ -543,13 +849,13 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
             </div>
           </div>
 
-          <!-- Reserved! -->
+          <!-- Reserved! Filming stays an OPTIONAL postscript, never a gate -->
           <div v-else-if="m.kind === 'reserved' && reservation" class="ag__done">
             <span class="ag__done-badge"><Check :size="20" aria-hidden="true" /></span>
             <h2 class="ag__done-title">Reserved!</h2>
             <p class="ag__done-body">
               {{ companyName }} will confirm within 24 hours.
-              Confirmation sent to <strong>{{ email }}</strong>.
+              Confirmation sent to <strong>{{ email || 'your email' }}</strong>.
             </p>
             <p class="ag__done-deposit">{{ reservation.deposit.note }}</p>
             <div class="ag__handoff">
@@ -558,18 +864,26 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
                 <a :href="captureUrl" target="_blank" rel="noopener" class="ag__handoff-link">
                   <Video :size="15" aria-hidden="true" /> Film your rooms for a tighter quote
                 </a>
-                <p class="ag__handoff-sub">Point your phone camera at the code, or open the link — about a minute per room.</p>
+                <p class="ag__handoff-sub">Optional — point your phone camera at the code, or open the link. About a minute per room.</p>
               </div>
             </div>
           </div>
         </template>
 
-        <!-- Typing indicator (~300ms chat pacing; skipped for reduced motion) -->
+        <!-- Typing indicator (real converse latency, or ~300ms det pacing) -->
         <div v-if="typing" class="ag__msg ag__msg--bot ag__typing" aria-label="Assistant is typing">
           <span></span><span></span><span></span>
         </div>
 
-        <!-- In-thread affordances for the current step -->
+        <!-- Agent-brain quick replies (model-suggested, tap or type) -->
+        <div v-if="brain === 'llm' && chips.length && !typing && step !== 'deposit'" class="ag__chips">
+          <button
+            v-for="c in chips" :key="c" type="button"
+            class="ag__chip" @click="sendLlm(c)"
+          >{{ c }}</button>
+        </div>
+
+        <!-- Deterministic battery affordances -->
         <div v-if="currentQuestion && currentQuestion.type === 'chips'" class="ag__chips">
           <button
             v-for="opt in currentQuestion.options" :key="opt.value" type="button"
@@ -598,7 +912,7 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
         <!-- Simulated deposit sheet — CLEARLY marked, calls no payment API -->
         <form v-else-if="step === 'deposit' && quote" class="ag__sheet" @submit.prevent="submitDeposit">
           <p class="ag__sheet-demo" role="note">Demo mode — no charge will be made</p>
-          <p class="ag__sheet-title">Deposit to hold {{ fmtDay(answers.moveDate || '') }}: <strong>{{ money(quote.deposit.amount) }}</strong> ({{ depositPct }}% of your low estimate)</p>
+          <p class="ag__sheet-title">Deposit to hold {{ fmtDay(reservation?.requestedDate || answers.moveDate || '') }}: <strong>{{ money(quote.deposit.amount) }}</strong> ({{ depositPct }}% of your low estimate)</p>
           <label class="ag__sheet-label" for="ag-card">Card number</label>
           <input id="ag-card" v-model="cardNumber" class="ag__input" type="text" inputmode="numeric" autocomplete="off" placeholder="4242 4242 4242 4242" />
           <div class="ag__sheet-row">
@@ -619,27 +933,28 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
         </form>
       </div>
 
-      <!-- Bottom composer: address / free-text questions + the email gate -->
-      <!-- novalidate: our own email-shape check words the error in-thread
+      <!-- Bottom composer: LIVE from second zero on the agent brain;
+           address/text questions + the email gate on the battery.
+           novalidate: our own email-shape check words the error in-thread
            instead of the browser's native bubble -->
       <form
-        v-if="(currentQuestion && currentQuestion.type === 'address') || step === 'email'"
+        v-if="composerOpen"
         class="ag__composer"
         novalidate
-        @submit.prevent="step === 'email' ? submitEmail() : submitText(currentQuestion!)"
+        @submit.prevent="onComposerSubmit"
       >
         <div class="ag__composer-inner">
           <input
             v-model="textDraft"
             class="ag__input ag__input--grow"
-            :type="step === 'email' ? 'email' : 'text'"
-            :inputmode="step === 'email' ? 'email' : 'text'"
-            :autocomplete="step === 'email' ? 'email' : 'street-address'"
-            :placeholder="step === 'email' ? 'you@example.com' : (currentQuestion?.placeholder || 'Type your answer…')"
-            :aria-label="step === 'email' ? 'Your email' : currentQuestion?.label"
+            :type="brain === 'det' && step === 'email' ? 'email' : 'text'"
+            :inputmode="brain === 'det' && step === 'email' ? 'email' : 'text'"
+            :autocomplete="brain === 'det' && step === 'email' ? 'email' : (brain === 'det' && currentQuestion?.type === 'address' ? 'street-address' : 'off')"
+            :placeholder="composerPlaceholder"
+            :aria-label="brain === 'llm' ? 'Message the assistant' : (step === 'email' ? 'Your email' : currentQuestion?.label)"
           />
-          <button type="submit" class="ag__send" :disabled="!textDraft.trim()">
-            {{ step === 'email' ? 'Get my quote' : 'Send' }}
+          <button type="submit" class="ag__send" :disabled="!textDraft.trim() || (brain === 'llm' && busy)">
+            {{ brain === 'det' && step === 'email' ? 'Get my quote' : 'Send' }}
           </button>
         </div>
         <p v-if="inputError" class="ag__input-err" role="alert">{{ inputError }}</p>
@@ -760,6 +1075,15 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
 .ag__retry:active { transform: scale(0.97); }
 .ag__retry:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
+/* Quiet brain-switch notice */
+.ag__notice {
+  margin: 0;
+  align-self: center;
+  text-align: center;
+  font-size: var(--fs-label);
+  color: var(--text-tertiary);
+}
+
 /* Typing dots */
 .ag__typing { display: inline-flex; gap: 5px; align-items: center; min-height: 38px; }
 .ag__typing span {
@@ -797,6 +1121,28 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
   font-weight: var(--fw-semibold);
 }
 .ag__chip--primary:hover { background: var(--accent-hover); }
+
+/* Availability card: tool data as tappable days */
+.ag__avail {
+  align-self: flex-start;
+  max-width: 88%;
+  background: var(--surface-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  border-bottom-left-radius: var(--r-xs);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.ag__avail-line {
+  margin: 0;
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  font-size: var(--fs-body-l);
+  line-height: var(--lh-body);
+}
+.ag__avail-line svg { flex: none; margin-top: 3px; color: var(--accent); }
+.ag__avail-days { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 
 /* Date row */
 .ag__daterow { display: flex; gap: var(--sp-2); padding-left: var(--sp-2); flex-wrap: wrap; }
