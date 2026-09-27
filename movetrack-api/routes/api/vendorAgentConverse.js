@@ -135,6 +135,7 @@ router.post(
       const out = { conversationId: conversation.id, reply, turns, known: state.known || {} };
       if (chips && chips.length) out.chips = chips;
       if (event) out.event = event;
+      if (state.customerEmail) out.customerEmail = state.customerEmail;
       if (greeting) out.company = { name: company.name, paymentsMode: company.payments_mode || 'none' };
       return res.json(out);
     };

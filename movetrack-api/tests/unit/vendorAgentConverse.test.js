@@ -206,6 +206,7 @@ describe('a conversation turn', () => {
       event,
       turns: 2,
       known: { bedrooms: '2', originAddress: 'Oakland, CA' },
+      customerEmail: 'c@x.com', // the widget's reserved card needs it
     });
 
     // The brain got the company + prior state + the message.
