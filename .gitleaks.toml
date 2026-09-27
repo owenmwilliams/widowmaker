@@ -1,0 +1,39 @@
+# Secret-scanning config for CI (.github/workflows/ci.yml → secret-scan job).
+#
+# The default gitleaks ruleset did NOT catch the Gmail app password that was
+# hardcoded in movetrack-api/routes/email.js (Nov 2025) and later abused, so
+# the two custom rules below cover that shape explicitly.
+title = "widowmaker gitleaks config"
+
+[extend]
+useDefault = true
+
+# Google app password (16 lowercase letters, optionally as 4 groups of 4)
+# assigned to a password-ish key, e.g. nodemailer `auth: { pass: '....' }`.
+[[rules]]
+id = "google-app-password"
+description = "Google app password literal"
+regex = '''(?i:pass(?:word)?|app_?pass(?:word)?|smtp_pass(?:word)?)["']?\s*[:=]\s*["']([a-z]{4} ?[a-z]{4} ?[a-z]{4} ?[a-z]{4})["']'''
+secretGroup = 1
+keywords = ["pass", "PASS"]
+
+# Any literal (non-env-lookup) value assigned to an SMTP / mail password key.
+[[rules]]
+id = "smtp-password-literal"
+description = "Literal SMTP / mail password"
+regex = '''(?i:\b(?:smtp|mail|email|gmail)_?(?:pass|password|app_?password)\b)["']?\s*[:=]\s*["']?([^\s"'$\{][^\s"',;]{7,})'''
+secretGroup = 1
+keywords = ["smtp", "SMTP", "mail", "MAIL"]
+  [rules.allowlist]
+  regexes = [
+    '''(?i)^(your|change|example|test|placeholder|dummy|fake)''',
+    # Secret Manager references (`--set-secrets SMTP_PASS=<secret-name>:latest`), not values
+    ''':(latest|[0-9]+)$''',
+  ]
+
+[allowlist]
+description = "Documentation placeholders"
+regexes = [
+  '''^YOUR_[A-Z_]*$''',
+  '''^abc123''',
+]
