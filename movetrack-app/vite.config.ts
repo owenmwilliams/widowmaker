@@ -28,10 +28,6 @@ export default defineConfig({
     }
   },
 
-  define: {
-    'import.meta.env.VITE_APP_DECRYPT_URL_KEY': JSON.stringify(process.env.VITE_APP_DECRYPT_URL_KEY),
-  },
-
   build: {
     target: ["ES2022"], // 👈 build.target
   },
