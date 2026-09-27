@@ -70,6 +70,11 @@ var discoverRouter = require('./routes/api/discover');
 // logic shared with /api/capture via intakeAgentService) ─────────────────────
 var vendorAgentMcpRouter = require('./routes/api/vendorAgentMcp');
 
+// ── api/agent/:token/converse (the model-run widget chat, #117 — same public
+// mount + token scoping as the MCP server; the Gemini brain lives in
+// services/quote/vendorIntakeAgent and calls the SAME service layer) ─────────
+var vendorAgentConverseRouter = require('./routes/api/vendorAgentConverse');
+
 // ── internal/ (service-to-service, OIDC-verified — see middleware/auth.js) ────
 var internalScanJobsRouter = require('./routes/internal/scanJobs');
 
@@ -216,6 +221,9 @@ app.use('/api/capture', companyCaptureRouter);
 
 // ── Vendor MCP agent (unauthenticated mount, token-scoped) ── /api/agent/:token/mcp
 app.use('/api/agent', vendorAgentMcpRouter);
+
+// ── Vendor converse agent (unauthenticated mount, token-scoped) ── /api/agent/:token/converse
+app.use('/api/agent', vendorAgentConverseRouter);
 
 // ── API — Discover movers (user-authenticated) ──── /api/discover/movers /api/discover/invite
 app.use('/api/discover', discoverRouter);

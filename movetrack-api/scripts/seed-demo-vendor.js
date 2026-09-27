@@ -82,6 +82,22 @@ const RATE_CARD = {
   reviewFlagItems: ['piano', 'safe', 'pool table', 'gun safe'],
 };
 
+// Agent scheduling + intake knobs (#117): the demo vendor takes 2 jobs/day,
+// has ONE blackout day ~2 weeks out (so the availability demo has a closed
+// day to bounce off), and asks one realistic extra intake question.
+const CAPACITY_PER_DAY = 2;
+function blackoutDays() {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + 14);
+  return [d.toISOString().slice(0, 10)];
+}
+const INTAKE_SPECS = [
+  {
+    key: 'coi',
+    question: 'Does either building require a certificate of insurance (COI) or have HOA move-in rules?',
+  },
+];
+
 function connectionConfig() {
   if (process.env.DATABASE_URL) return { connectionString: process.env.DATABASE_URL };
   return {
@@ -102,16 +118,21 @@ async function main() {
     // payments_mode 'simulated' (#111): the demo vendor's MCP agent takes a
     // PRETEND deposit during reserve_booking. No real charge exists anywhere.
     const company = (await client.query(
-      `INSERT INTO companies (name, contact_email, token, is_active, trust_block, payments_mode)
-       VALUES ($1, $2, $3, TRUE, $4, 'simulated')
+      `INSERT INTO companies (name, contact_email, token, is_active, trust_block, payments_mode,
+                              capacity_per_day, blackout_days, intake_specs)
+       VALUES ($1, $2, $3, TRUE, $4, 'simulated', $5, $6, $7)
        ON CONFLICT (token) DO UPDATE
          SET name = EXCLUDED.name,
              contact_email = EXCLUDED.contact_email,
              is_active = TRUE,
              trust_block = EXCLUDED.trust_block,
-             payments_mode = 'simulated'
-       RETURNING id, name, token`,
-      [NAME, contactEmail, TOKEN, JSON.stringify(TRUST_BLOCK)]
+             payments_mode = 'simulated',
+             capacity_per_day = EXCLUDED.capacity_per_day,
+             blackout_days = EXCLUDED.blackout_days,
+             intake_specs = EXCLUDED.intake_specs
+       RETURNING id, name, token, blackout_days`,
+      [NAME, contactEmail, TOKEN, JSON.stringify(TRUST_BLOCK),
+        CAPACITY_PER_DAY, JSON.stringify(blackoutDays()), JSON.stringify(INTAKE_SPECS)]
     )).rows[0];
 
     const bumpCard = process.argv.includes('--bump-card');
@@ -143,6 +164,7 @@ async function main() {
     const appBase = (process.env.APP_BASE_URL || 'http://localhost:5173').replace(/\/$/, '');
     console.log(`\nSeeded "${company.name}" (company ${company.id})`);
     console.log(`  contact email : ${contactEmail}`);
+    console.log(`  agent knobs   : capacity ${CAPACITY_PER_DAY}/day, blackout ${JSON.stringify(company.blackout_days)}, 1 intake spec (coi)`);
     console.log(`  capture link  : ${appBase}/c/${company.token}`);
     console.log(`  widget demo   : ${appBase}/widget-demo  (its widget already points at /c/${company.token})`);
     console.log(`  mover login   : ${appBase}/mover/login  (magic link goes to the contact email)`);

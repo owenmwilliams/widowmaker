@@ -1095,6 +1095,9 @@ CREATE TABLE IF NOT EXISTS companies (
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     trust_block JSONB,
     payments_mode VARCHAR(20) NOT NULL DEFAULT 'none',
+    capacity_per_day INTEGER NOT NULL DEFAULT 2,
+    blackout_days JSONB NOT NULL DEFAULT '[]',
+    intake_specs JSONB NOT NULL DEFAULT '[]',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_companies_token ON companies(token);
@@ -1230,3 +1233,26 @@ CREATE TABLE IF NOT EXISTS booking_reservations (
 );
 CREATE INDEX IF NOT EXISTS idx_booking_reservations_company
     ON booking_reservations(company_id, status, created_at DESC);
+
+-- ============================================================================
+-- AGENT CONVERSATIONS (migration 048) — the real vendor agent, W1c (#117).
+-- One row per widget-chat conversation with a vendor's model-run agent
+-- (POST /api/agent/:token/converse): full transcript, gathered state
+-- (answers, customer email, quoteId once priced), and a turn counter backing
+-- the per-conversation cap. companies also gains the agent's scheduling +
+-- intake knobs: capacity_per_day / blackout_days (availability, Mode B-lite)
+-- and intake_specs (mover-defined extra questions merged into the battery).
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS agent_conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    customer_email VARCHAR(255),
+    state JSONB NOT NULL DEFAULT '{}',
+    transcript JSONB NOT NULL DEFAULT '[]',
+    turns INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_conversations_company
+    ON agent_conversations(company_id, created_at);

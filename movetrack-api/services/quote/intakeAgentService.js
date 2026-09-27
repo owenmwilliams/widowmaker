@@ -135,16 +135,54 @@ async function getIntakeQuestions({ userId }) {
 }
 
 /**
- * Session-less path (MCP): the caller — an AI client mid-conversation —
- * says what it already knows via knownAnswers, and only the still-open
- * questions come back. There's no inventory or address on file here, so R2
- * filtering reduces to "don't re-ask what the conversation already covered".
+ * Mover-defined intake specs (companies.intake_specs, #117): extra questions
+ * a company wants asked before quoting, e.g. COI/HOA rules. Whitelisted to
+ * exactly {key, question}, sane key shape, no collisions with the estimator
+ * battery's own ids, capped at 10 — a company row can't inject arbitrary
+ * question objects into any surface.
  */
-function questionBattery({ knownAnswers } = {}) {
+const SPEC_KEY_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/;
+function sanitizeIntakeSpecs(raw) {
+  const batteryIds = new Set(intakeEngine.buildQuestions({}).map((q) => q.id));
+  const out = [];
+  const seen = new Set();
+  for (const spec of Array.isArray(raw) ? raw : []) {
+    if (out.length >= 10) break;
+    const key = typeof spec?.key === 'string' ? spec.key.trim() : '';
+    const question = typeof spec?.question === 'string' ? spec.question.trim() : '';
+    if (!SPEC_KEY_RE.test(key) || !question || question.length > 300) continue;
+    if (batteryIds.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, question });
+  }
+  return out;
+}
+
+/**
+ * Session-less path (MCP + the converse brain): the caller — an AI client
+ * mid-conversation — says what it already knows via knownAnswers, and only
+ * the still-open questions come back. There's no inventory or address on
+ * file here, so R2 filtering reduces to "don't re-ask what the conversation
+ * already covered". `intakeSpecs` (the company's intake_specs, #117) are
+ * merged in as free-text questions after the battery — answered specs drop
+ * out the same way, and their answers ride back in `known` so both brains
+ * carry them.
+ */
+function questionBattery({ knownAnswers, intakeSpecs } = {}) {
   const known = intakeEngine.sanitizeAnswers(knownAnswers);
   const questions = intakeEngine
     .buildQuestions({ hasInventory: false, hasOrigin: !!known.originAddress })
     .filter((q) => !(q.id in known));
+
+  const rawKnown = knownAnswers && typeof knownAnswers === 'object' ? knownAnswers : {};
+  for (const spec of sanitizeIntakeSpecs(intakeSpecs)) {
+    const answer = typeof rawKnown[spec.key] === 'string' ? rawKnown[spec.key].trim() : '';
+    if (answer) {
+      known[spec.key] = answer.slice(0, 255);
+    } else {
+      questions.push({ id: spec.key, label: spec.question, type: 'text', source: 'company' });
+    }
+  }
   return { questions, known };
 }
 
@@ -602,6 +640,7 @@ module.exports = {
   CONFIRM_WINDOW_HOURS,
   getIntakeQuestions,
   questionBattery,
+  sanitizeIntakeSpecs,
   priceQuote,
   reserveBooking,
   listReservations,

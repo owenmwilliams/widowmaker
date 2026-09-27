@@ -431,6 +431,30 @@ const agentMcpLimiter = rateLimit({
   }
 });
 
+/**
+ * Vendor Agent Converse Limiter (issue #117)
+ * Guards the public converse endpoint (POST /api/agent/:companyToken/converse)
+ * — the model-run widget chat. Same family as agentMcpLimiter, tighter cap:
+ * every request here is ONE customer turn that costs real Gemini tokens, and
+ * a whole booking conversation is well under the 40-turn cap. 120/15min per
+ * (company token, IP) fits several customers behind one NAT while bounding
+ * both abuse and the vendor's token bill.
+ */
+const agentConverseLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `agent-converse:${req.params?.companyToken || 'none'}:${ipKeyGenerator(req)}`,
+  handler: (req, res) => {
+    console.warn(`Agent converse rate limit exceeded: ${req.params?.companyToken || '?'} ${req.ip}`);
+    res.status(429).json({
+      error: 'Too many messages in a short time — give it a few minutes and pick the conversation back up.',
+      retryAfter: '15 minutes'
+    });
+  }
+});
+
 module.exports = {
   globalLimiter,
   authLimiter,
@@ -447,5 +471,6 @@ module.exports = {
   companyAuthVerifyLimiter,
   discoverSearchLimiter,
   companyClaimLimiter,
-  agentMcpLimiter
+  agentMcpLimiter,
+  agentConverseLimiter
 };

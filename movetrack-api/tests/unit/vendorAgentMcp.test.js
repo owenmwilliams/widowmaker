@@ -97,7 +97,11 @@ const COMPANY_ROW = {
   contact_email: 'ops@acme.test',
   trust_block: TRUST_BLOCK,
   payments_mode: 'simulated',
+  intake_specs: [],
 };
+
+// The seeded mover-defined intake spec (#117) — merged into the battery.
+const COI_SPEC = { key: 'coi', question: 'Does either building require a certificate of insurance (COI) or have HOA move-in rules?' };
 
 // Q&A-only 2BR (#108 hand-computed): range 1151–1494, NTE 1718.
 const ANSWERS_2BR = {
@@ -143,10 +147,14 @@ function wireDb({
   rateCard = { version: 3, data: CARD },
   quoteRow = null,
   reservationRow = null,
+  availabilityKnobs = { capacity_per_day: 2, blackout_days: [] },
 } = {}) {
   db.oneOrNone.mockImplementation(async (sql, params) => {
     if (/FROM companies WHERE token = \$1 AND is_active = TRUE/.test(sql)) {
       return company && params[0] === TOKEN ? company : null;
+    }
+    if (/SELECT capacity_per_day, blackout_days FROM companies/.test(sql)) {
+      return params[0] === COMPANY_ID ? availabilityKnobs : null;
     }
     if (/FROM rate_cards/.test(sql)) return rateCard;
     if (/FROM intake_quotes q/.test(sql)) return quoteRow;
@@ -194,17 +202,22 @@ describe('MCP handshake', () => {
     expect(res.headers['mcp-session-id']).toBeUndefined();
   });
 
-  test('tools/list exposes exactly the four tools with schemas', async () => {
+  test('tools/list exposes exactly the five tools with schemas', async () => {
     wireDb();
     const res = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     expect(res.status).toBe(200);
     const tools = res.body.result.tools;
     expect(tools.map((t) => t.name).sort()).toEqual([
+      'check_availability',
       'get_company_info',
       'get_intake_questions',
       'price_quote',
       'reserve_booking',
     ]);
+    const avail = tools.find((t) => t.name === 'check_availability');
+    expect(avail.inputSchema.properties).toHaveProperty('requestedDate');
+    // Honest calendar copy: the schema says whose calendar this is.
+    expect(avail.description).toMatch(/Nexus booking calendar/);
     const priceQuote = tools.find((t) => t.name === 'price_quote');
     expect(priceQuote.inputSchema.properties).toHaveProperty('answers');
     expect(priceQuote.inputSchema.properties).toHaveProperty('customerEmail');
@@ -284,6 +297,57 @@ describe('get_intake_questions', () => {
     expect(ids).not.toContain('originAddress');
     expect(ids).toContain('destinationAddress');
     expect(known).toEqual({ bedrooms: '2', originAddress: 'Oakland, CA' });
+  });
+
+  test("the company's intake_specs are merged into the battery (#117)", async () => {
+    wireDb({ company: { ...COMPANY_ROW, intake_specs: [COI_SPEC] } });
+    const res = await call('get_intake_questions');
+    const { questions } = toolPayload(res);
+    const spec = questions.find((q) => q.id === 'coi');
+    expect(spec).toEqual({ id: 'coi', label: COI_SPEC.question, type: 'text', source: 'company' });
+    // Specs come after the estimator battery, not instead of it.
+    expect(questions.map((q) => q.id)).toContain('bedrooms');
+  });
+
+  test('an answered spec drops out and its answer rides back in known', async () => {
+    wireDb({ company: { ...COMPANY_ROW, intake_specs: [COI_SPEC] } });
+    const res = await call('get_intake_questions', { knownAnswers: { coi: 'No COI needed' } });
+    const { questions, known } = toolPayload(res);
+    expect(questions.map((q) => q.id)).not.toContain('coi');
+    expect(known.coi).toBe('No COI needed');
+  });
+});
+
+// ── check_availability (#117) ────────────────────────────────────────────────
+
+describe('check_availability', () => {
+  test('capacity + blackouts from the company row; counted holds close a day; ≤3 alternatives', async () => {
+    // Tomorrow-ish future date, capacity 1, one pending hold on the day.
+    const req = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10);
+    wireDb({ availabilityKnobs: { capacity_per_day: 1, blackout_days: [] } });
+    db.any.mockImplementation(async (sql, params) => {
+      if (/FROM booking_reservations/.test(sql)) {
+        expect(sql).toMatch(/status IN \('pending_confirmation', 'confirmed'\)/);
+        expect(params[0]).toBe(COMPANY_ID);
+        return [{ day: req, booked: 1 }];
+      }
+      return [];
+    });
+    const res = await call('check_availability', { requestedDate: req });
+    const payload = toolPayload(res);
+    expect(res.body.result.isError).toBeUndefined();
+    expect(payload.requestedDateOpen).toBe(false);
+    expect(payload.reason).toBe('fully_booked');
+    expect(payload.capacityPerDay).toBe(1);
+    expect(payload.alternatives.length).toBeLessThanOrEqual(3);
+    expect(payload.alternatives).not.toContain(req);
+  });
+
+  test('malformed date is an honest tool error, never a stack trace', async () => {
+    wireDb();
+    const res = await call('check_availability', { requestedDate: 'next tuesday' });
+    expect(res.body.result.isError).toBe(true);
+    expect(toolPayload(res).code).toBe('invalid_input');
   });
 });
 

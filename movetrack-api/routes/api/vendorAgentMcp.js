@@ -27,7 +27,11 @@
  *
  * Tools (all results are JSON text content):
  *   get_company_info     → name, trustBlock, paymentsMode
- *   get_intake_questions → estimator battery minus knownAnswers
+ *   get_intake_questions → estimator battery minus knownAnswers, plus the
+ *                          company's own intake_specs questions (#117)
+ *   check_availability   → whether a date is open on the company's Nexus
+ *                          booking calendar (capacity/blackouts, #117), with
+ *                          up to 3 nearest alternative open days
  *   price_quote          → the full quote payload INCLUDING the trust block.
  *                          The #108 invariant is enforced identically by the
  *                          shared service layer: an incomplete trust block
@@ -58,6 +62,7 @@ const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/ser
 const { db } = require('../../services/infra/db');
 const rateLimits = require('../../config/rateLimits');
 const intakeAgent = require('../../services/quote/intakeAgentService');
+const availability = require('../../services/quote/vendorAvailabilityService');
 
 const router = express.Router();
 
@@ -155,9 +160,32 @@ function buildServer(company) {
     },
     async ({ knownAnswers }) => {
       try {
-        return toolJson(intakeAgent.questionBattery({ knownAnswers }));
+        return toolJson(intakeAgent.questionBattery({ knownAnswers, intakeSpecs: company.intake_specs }));
       } catch (err) {
         return toolError(err, 'get_intake_questions');
+      }
+    }
+  );
+
+  server.registerTool(
+    'check_availability',
+    {
+      title: 'Check date availability',
+      description:
+        `Whether ${company.name} can take a move on a given date, per its Nexus booking calendar `
+        + '(capacity per day minus reservations already holding a slot, plus company blackout days '
+        + '— external calendars are not synced yet). Returns requestedDateOpen plus up to 3 nearest '
+        + 'alternative open dates when the day is closed (or to offer choices). Present dates '
+        + 'exactly as returned — never promise a date this tool did not say is open.',
+      inputSchema: {
+        requestedDate: z.string().describe('The move date to check, YYYY-MM-DD.'),
+      },
+    },
+    async ({ requestedDate }) => {
+      try {
+        return toolJson(await availability.checkAvailability(company.id, requestedDate));
+      } catch (err) {
+        return toolError(err, 'check_availability');
       }
     }
   );
@@ -247,7 +275,7 @@ router.post('/:companyToken/mcp', permissiveCors, rateLimits.agentMcpLimiter, ex
     const token = String(req.params.companyToken || '');
     company = token && token.length <= 80
       ? await db.oneOrNone(
-        `SELECT id, name, contact_email, trust_block, payments_mode
+        `SELECT id, name, contact_email, trust_block, payments_mode, intake_specs
          FROM companies WHERE token = $1 AND is_active = TRUE`,
         [token]
       )
