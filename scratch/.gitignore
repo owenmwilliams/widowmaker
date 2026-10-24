@@ -1,0 +1,25 @@
+# Local artifacts from one-off experiments. Scratch work should never drag
+# dependencies, build output, or data dumps into the repo.
+
+node_modules/
+package-lock.json
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+out/
+tmp/
+dist/
+build/
+
+*.csv
+*.tsv
+*.json.gz
+*.dump
+*.sqlite
+*.db
+
+.env
+.env.*
+!.env.example
