@@ -110,60 +110,75 @@ ${JSON.stringify({
 
 // ── Tool declarations ────────────────────────────────────────────────────────
 
-const toolDeclarations = [
-  {
-    name: 'get_intake_questions',
-    description: 'The intake questions a quote still needs, given everything already known. Call this to find out what to ask next. Pass ALL answers the conversation has established (from state and this turn) as knownAnswers.',
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        knownAnswers: {
-          type: SchemaType.OBJECT,
-          description: 'Answers already established, keyed by question id (e.g. {"bedrooms":"2","originAddress":"Oakland, CA"}). String values only.',
+/**
+ * Gemini rejects an OBJECT schema with no properties — a 400 on EVERY
+ * request, which silently pushed every turn onto the deterministic
+ * fallback. So the answer maps list each question id explicitly, built per
+ * company from the same battery the conversation uses (standard questions
+ * plus the mover's own intake_specs).
+ */
+function answersSchema(company, description) {
+  const { questions } = intakeAgent.questionBattery({ knownAnswers: {}, intakeSpecs: company?.intake_specs });
+  const properties = {};
+  for (const q of questions) {
+    const allowed = Array.isArray(q.options) && q.options.length
+      ? ` One of: ${q.options.map((o) => o.value).join(', ')}.`
+      : '';
+    properties[q.id] = { type: SchemaType.STRING, description: `${q.label}${allowed}` };
+  }
+  return { type: SchemaType.OBJECT, description, properties };
+}
+
+function buildToolDeclarations(company) {
+    return [
+    {
+      name: 'get_intake_questions',
+      description: 'The intake questions a quote still needs, given everything already known. Call this to find out what to ask next. Pass ALL answers the conversation has established (from state and this turn) as knownAnswers.',
+      parameters: {
+        type: SchemaType.OBJECT,
+        properties: {
+          knownAnswers: answersSchema(company, 'Answers already established, keyed by question id. Omit anything not yet known.'),
         },
       },
     },
-  },
-  {
-    name: 'check_availability',
-    description: "Whether the company can take a move on a date (its Nexus booking calendar: capacity per day, existing reservations, blackout days). Returns requestedDateOpen plus up to 3 nearest alternative open dates. Use it before reserving, and whenever the customer asks about a date.",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        requestedDate: { type: SchemaType.STRING, description: 'The move date to check, YYYY-MM-DD.' },
-      },
-      required: ['requestedDate'],
-    },
-  },
-  {
-    name: 'price_quote',
-    description: "Compute the company's instant quote from its own rate card. Requires the estimator answers gathered so far and the customer's email address. The result (price range, line items, not-to-exceed, deposit, trust block) is rendered as a card by the page.",
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        answers: {
-          type: SchemaType.OBJECT,
-          description: 'All estimator answers, keyed by question id. String values only.',
+    {
+      name: 'check_availability',
+      description: "Whether the company can take a move on a date (its Nexus booking calendar: capacity per day, existing reservations, blackout days). Returns requestedDateOpen plus up to 3 nearest alternative open dates. Use it before reserving, and whenever the customer asks about a date.",
+      parameters: {
+        type: SchemaType.OBJECT,
+        properties: {
+          requestedDate: { type: SchemaType.STRING, description: 'The move date to check, YYYY-MM-DD.' },
         },
-        customerEmail: { type: SchemaType.STRING, description: "The customer's email address, exactly as they gave it." },
+        required: ['requestedDate'],
       },
-      required: ['answers', 'customerEmail'],
     },
-  },
-  {
-    name: 'reserve_booking',
-    description: 'Reserve a move date against the quote already priced in this conversation. Only call it after the customer clearly asks to book/reserve, and only for a date check_availability said is open.',
-    parameters: {
-      type: SchemaType.OBJECT,
-      properties: {
-        quoteId: { type: SchemaType.STRING, description: 'The quoteId from price_quote.' },
-        requestedDate: { type: SchemaType.STRING, description: 'The move date, YYYY-MM-DD.' },
-        customerEmail: { type: SchemaType.STRING, description: "The customer's email address." },
+    {
+      name: 'price_quote',
+      description: "Compute the company's instant quote from its own rate card. Requires the estimator answers gathered so far and the customer's email address. The result (price range, line items, not-to-exceed, deposit, trust block) is rendered as a card by the page.",
+      parameters: {
+        type: SchemaType.OBJECT,
+        properties: {
+          answers: answersSchema(company, 'All estimator answers gathered so far, keyed by question id.'),
+          customerEmail: { type: SchemaType.STRING, description: "The customer's email address, exactly as they gave it." },
+        },
+        required: ['answers', 'customerEmail'],
       },
-      required: ['quoteId', 'requestedDate', 'customerEmail'],
     },
-  },
-];
+    {
+      name: 'reserve_booking',
+      description: 'Reserve a move date against the quote already priced in this conversation. Only call it after the customer clearly asks to book/reserve, and only for a date check_availability said is open.',
+      parameters: {
+        type: SchemaType.OBJECT,
+        properties: {
+          quoteId: { type: SchemaType.STRING, description: 'The quoteId from price_quote.' },
+          requestedDate: { type: SchemaType.STRING, description: 'The move date, YYYY-MM-DD.' },
+          customerEmail: { type: SchemaType.STRING, description: "The customer's email address." },
+        },
+        required: ['quoteId', 'requestedDate', 'customerEmail'],
+      },
+    },
+  ];
+}
 
 // ── Tool handlers (state-carrying closures over one turn) ───────────────────
 
@@ -315,17 +330,94 @@ function nextStepFallback(state, company) {
   };
 }
 
+/** Chip/greeting phrases that steer the conversation — never an answer. */
+const CONTROL_PHRASES = new Set([
+  'price my move', 'check a date', 'check my move date', 'how does this work?',
+  'i have a question', 'hi', 'hello', 'hey',
+]);
+
+const normalize = (v) => String(v || '').toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, ' ').trim();
+
+/**
+ * When the model didn't act this turn, the fallback must still make
+ * progress: record the customer's reply as the answer to the question it
+ * last asked (chip labels like "2 bed" map to their stored value "2"),
+ * then capture the email. Without this the fallback re-asked the same
+ * question forever.
+ */
+function captureFallbackAnswer(state, company, message) {
+  const text = typeof message === 'string' ? message.trim() : '';
+  if (!text || CONTROL_PHRASES.has(normalize(text))) return;
+
+  const { questions } = intakeAgent.questionBattery({
+    knownAnswers: state.known || {},
+    intakeSpecs: company.intake_specs,
+  });
+  if (questions.length > 0) {
+    const q = questions[0];
+    let value = null;
+    if (Array.isArray(q.options) && q.options.length) {
+      const m = normalize(text);
+      const hit = q.options.find((o) => normalize(o.label) === m || normalize(o.value) === m);
+      if (hit) value = hit.value;
+    } else {
+      value = text.slice(0, 255);
+    }
+    if (value) mergeKnown(state, company, { [q.id]: value });
+    return;
+  }
+
+  const email = text.toLowerCase();
+  if (!state.customerEmail && email.length <= 255 && EMAIL_RE.test(email)) {
+    state.customerEmail = email;
+  }
+}
+
+/**
+ * The fallback turn: capture what the customer said (only when no tool ran
+ * this turn — otherwise the model already recorded it and the reply would
+ * land on the wrong question), price deterministically once everything is
+ * in, then ask the next thing.
+ */
+async function fallbackTurn({ state, company, message, handlers, toolCalls }) {
+  if (toolCalls.length === 0) captureFallbackAnswer(state, company, message);
+  const { questions } = intakeAgent.questionBattery({
+    knownAnswers: state.known || {},
+    intakeSpecs: company.intake_specs,
+  });
+  if (questions.length === 0 && state.customerEmail && !state.quote) {
+    try {
+      await handlers.price_quote({ customerEmail: state.customerEmail, answers: state.known });
+      toolCalls.push({ name: 'price_quote', ok: true });
+    } catch (err) {
+      console.error('[vendorAgent] fallback price_quote failed:', err.message);
+      toolCalls.push({ name: 'price_quote', ok: false });
+    }
+  }
+  return nextStepFallback(state, company);
+}
+
 // ── Gemini history from the persisted transcript ─────────────────────────────
 
 function buildContents(transcript, message) {
   const contents = [];
   const rows = Array.isArray(transcript) ? transcript.slice(-HISTORY_WINDOW) : [];
+  // Gemini wants the history to open with a user turn and to alternate, but
+  // the persisted transcript opens with the scripted greeting (the system
+  // prompt already carries that identity) — so skip leading model turns and
+  // fold any same-role runs together.
+  const push = (role, text) => {
+    if (contents.length === 0 && role === 'model') return;
+    const last = contents[contents.length - 1];
+    if (last && last.role === role) last.parts[0].text += `\n\n${text}`;
+    else contents.push({ role, parts: [{ text }] });
+  };
   for (const t of rows) {
     const text = typeof t?.text === 'string' ? t.text : '';
     if (!text) continue;
-    contents.push({ role: t.role === 'user' ? 'user' : 'model', parts: [{ text }] });
+    push(t.role === 'user' ? 'user' : 'model', text);
   }
-  contents.push({ role: 'user', parts: [{ text: message }] });
+  push('user', message);
   return contents;
 }
 
@@ -362,7 +454,7 @@ async function runTurn({ company, state, transcript, message }) {
   const model = instrumentModel(geminiClient.getGenerativeModel({
     model: MODEL_ID,
     systemInstruction: buildSystemPrompt(company, state, todayIso),
-    tools: [{ functionDeclarations: toolDeclarations }],
+    tools: [{ functionDeclarations: buildToolDeclarations(company) }],
     // flash counts thinking tokens against maxOutputTokens — give it headroom
     // (the orchestrator's 2048 was too tight and produced empty candidates).
     generationConfig: { maxOutputTokens: 4096 },
@@ -370,13 +462,13 @@ async function runTurn({ company, state, transcript, message }) {
 
   const contents = buildContents(transcript, message);
 
-  const finish = (rawText) => {
+  const finish = async (rawText) => {
     let { reply, chips } = extractChips(rawText);
     if (!reply || mentionsUnbackedPrice(reply, state)) {
       if (reply) {
         console.warn(`[vendorAgent] scrubbed unbacked price in reply for company ${company.id}: ${JSON.stringify(reply.slice(0, 160))}`);
       }
-      const fb = nextStepFallback(state, company);
+      const fb = await fallbackTurn({ state, company, message, handlers, toolCalls });
       reply = fb.reply;
       chips = fb.chips;
     }
@@ -394,8 +486,7 @@ async function runTurn({ company, state, transcript, message }) {
     result = await model.generateContent({ contents });
   } catch (err) {
     console.error('[vendorAgent] generateContent failed:', err.message);
-    const fb = nextStepFallback(state, company);
-    return { reply: fb.reply, chips: fb.chips, event: undefined, state, toolCalls };
+    return finish('');
   }
 
   let rounds = 0;
@@ -475,7 +566,8 @@ module.exports = {
   nextStepFallback,
   extractChips,
   mentionsUnbackedPrice,
-  toolDeclarations,
+  buildToolDeclarations,
+  captureFallbackAnswer,
   MODEL_ID,
   MAX_TOOL_ROUNDS,
   TURN_CAP,

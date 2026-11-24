@@ -296,3 +296,103 @@ describe('isConfigured', () => {
     expect(agent.isConfigured()).toBe(true);
   });
 });
+
+// ── Production loop (Nov 2026): Gemini 400 on every call + stuck fallback ───
+
+describe('tool schemas — Gemini accepts them', () => {
+  // Gemini 400s the WHOLE request when any OBJECT schema has no properties.
+  function assertNoEmptyObjects(schema, path) {
+    if (schema.type === 'OBJECT') {
+      const keys = Object.keys(schema.properties || {});
+      expect({ path, keys: keys.length > 0 }).toEqual({ path, keys: true });
+      for (const k of keys) assertNoEmptyObjects(schema.properties[k], `${path}.${k}`);
+    }
+  }
+
+  test('every OBJECT schema lists properties, including the answer maps', () => {
+    const decls = agent.buildToolDeclarations(COMPANY);
+    for (const d of decls) assertNoEmptyObjects(d.parameters, d.name);
+  });
+
+  test('answer maps carry the battery ids plus the company\'s intake specs', () => {
+    const decls = agent.buildToolDeclarations(COMPANY);
+    const price = decls.find((d) => d.name === 'price_quote');
+    const keys = Object.keys(price.parameters.properties.answers.properties);
+    expect(keys).toEqual(expect.arrayContaining(['bedrooms', 'originAddress', 'destinationAddress', 'moveDate', 'coi']));
+    expect(price.parameters.properties.answers.properties.bedrooms.description).toMatch(/One of: studio, 1, 2, 3, 4/);
+  });
+});
+
+describe('fallback makes progress when the model is down', () => {
+  const converse = async (state, message) => agent.runTurn({ company: COMPANY, state, transcript: [], message });
+
+  test('the screenshot: "Price my move" then "2 bed" moves on to the next question', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('[400 Bad Request] properties: should be non-empty for OBJECT type'));
+    const state = {};
+    const first = await converse(state, 'Price my move');
+    expect(first.reply).toMatch(/How big is your home\?/);
+    expect(state.known).toEqual({});
+
+    const second = await converse(state, '2 bed');
+    expect(state.known.bedrooms).toBe('2');
+    expect(second.reply).not.toMatch(/How big is your home\?/);
+    expect(second.reply).toMatch(/Where are you moving from\?/);
+  });
+
+  test('a full outage still ends in a priced quote card from the rate card', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('[400 Bad Request] invalid argument'));
+    const state = {};
+    let turn = await converse(state, 'Price my move');
+    for (let i = 0; i < 15 && !/Where should we send your quote/.test(turn.reply); i++) {
+      turn = await converse(state, turn.chips?.length ? turn.chips[0] : 'Oakland, CA');
+    }
+    expect(turn.reply).toMatch(/Where should we send your quote/);
+    expect(state.known).toEqual(expect.objectContaining({ bedrooms: 'studio', originAddress: 'Oakland, CA', coi: 'Oakland, CA' }));
+
+    const priced = await converse(state, 'Sam@Example.com');
+    expect(mockPriceQuote).toHaveBeenCalledTimes(1);
+    expect(mockPriceQuote.mock.calls[0][0]).toEqual(expect.objectContaining({ customerEmail: 'sam@example.com' }));
+    expect(priced.event).toEqual({ type: 'quote', payload: QUOTE_PAYLOAD });
+    expect(priced.reply).toMatch(/quote from Acme Van Lines is above/);
+  });
+
+  test('when a tool ran this turn, the message is not re-filed under the next question', async () => {
+    mockMainGenerate
+      .mockResolvedValueOnce(functionCallResult('get_intake_questions', { knownAnswers: { bedrooms: '2' } }))
+      .mockResolvedValueOnce(emptyCandidateResult());
+    const state = {};
+    const out = await converse(state, '2 bed');
+    expect(state.known.bedrooms).toBe('2');
+    expect(state.known.originAddress).toBeUndefined();
+    expect(out.reply).toMatch(/Where are you moving from\?/);
+  });
+
+  test('steering chips and unmatched chip text are never recorded as answers', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('down'));
+    const state = {};
+    await converse(state, 'How does this work?');
+    await converse(state, 'a big one');
+    expect(state.known).toEqual({});
+  });
+});
+
+describe('Gemini history shape', () => {
+  test('opens with a user turn and alternates, even after the scripted greeting', async () => {
+    mockMainGenerate.mockResolvedValueOnce(textResult('Got it — where are you moving from?'));
+    await agent.runTurn({
+      company: COMPANY,
+      state: {},
+      transcript: [
+        { role: 'assistant', text: 'Hi — I\'m Acme Van Lines\'s moving assistant.' },
+        { role: 'user', text: 'Price my move' },
+        { role: 'assistant', text: 'How big is your home?' },
+        { role: 'user', text: '2 bed' },
+      ],
+      message: '2 bed',
+    });
+    const { contents } = mockMainGenerate.mock.calls[0][0];
+    expect(contents[0].role).toBe('user');
+    for (let i = 1; i < contents.length; i++) expect(contents[i].role).not.toBe(contents[i - 1].role);
+    expect(contents[contents.length - 1]).toEqual({ role: 'user', parts: [{ text: '2 bed\n\n2 bed' }] });
+  });
+});
