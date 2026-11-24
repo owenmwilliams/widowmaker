@@ -105,13 +105,16 @@ async function checkAvailability(companyId, requestedDate, { today } = {}) {
   // One read covers the whole scan window: requested ± NEAR plus the forward
   // extension. Counting pending_confirmation AND confirmed is deliberate —
   // a pending reservation holds its slot until it's declined or expires.
+  // Expiry is flipped lazily (only when the vendor dashboard loads), so a
+  // pending row past its expires_at must be treated as already expired here.
   const windowStart = isoDay(Math.max(todayT, reqT - NEAR_WINDOW_DAYS * DAY));
   const windowEnd = isoDay(reqT + FORWARD_EXTEND_DAYS * DAY);
   const rows = await db.any(
     `SELECT requested_date::text AS day, COUNT(*)::int AS booked
      FROM booking_reservations
      WHERE company_id = $1
-       AND status IN ('pending_confirmation', 'confirmed')
+       AND (status = 'confirmed'
+            OR (status = 'pending_confirmation' AND expires_at > NOW()))
        AND requested_date BETWEEN $2 AND $3
      GROUP BY requested_date`,
     [companyId, windowStart, windowEnd]
