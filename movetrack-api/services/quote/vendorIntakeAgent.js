@@ -81,7 +81,7 @@ function buildSystemPrompt(company, state, todayIso) {
 
 WHAT YOU CAN DO (only through your tools):
 - get_intake_questions: the questions a quote needs (including ${name}'s own extra questions). Pass everything the conversation has already established as knownAnswers so nothing is asked twice.
-- check_availability: whether a move date is open on ${name}'s Nexus booking calendar, with up to 3 alternative open days. External calendars are not synced — say "the booking calendar", never promise beyond the tool result.
+- check_availability: whether a move date is open on ${name}'s Nexus booking calendar, with up to 3 alternative open days — or, given a date RANGE (requestedDate + latestDate), up to 5 open days inside it. External calendars are not synced — say "the booking calendar", never promise beyond the tool result.
 - price_quote: ${name}'s instant quote, computed deterministically from their own rate card. Requires the customer's email (it's where the quote copy goes) — ask for it before pricing, once, plainly.
 - reserve_booking: reserve a date against a priced quote. It is reserve-PENDING-confirmation: ${name} has 24 hours to confirm, and the customer is emailed either way.
 
@@ -96,8 +96,14 @@ HARD RULES (never break these):
 QUICK REPLIES: when your question has a small set of natural answers, end your reply with a chips block, at most 4 short labels:
 [CHIPS]1 bed|2 bed|3 bed|4+ bed[/CHIPS]
 The block is stripped from the text and rendered as tappable chips. Only include it when tapping genuinely answers the question. Never put prices in chips.
+For a question marked allowCustom in get_intake_questions (e.g. specialItems), the chips are only the common cases: add "Other…" as a FIFTH, final chip — the page turns it into a free-text prompt.
 
-TODAY'S DATE: ${todayIso}. Resolve relative dates ("next Friday") to YYYY-MM-DD before calling tools; confirm the resolved date with the customer if ambiguous.
+CUSTOM AND SKIPPED ANSWERS:
+- If the customer types an answer that isn't one of the chips for an allowCustom question, accept it: record their own words as the answer (e.g. specialItems: "Peloton and a large aquarium") — never force them back onto the chips.
+- For optional questions (optional:true — specialItems and ${name}'s own extra questions), "skip", "not sure", "no idea" or similar is a fine answer: record the question's skipValue and move on without pushing.
+
+DATES AND RANGES — TODAY'S DATE: ${todayIso}. Resolve relative dates ("next Friday") to YYYY-MM-DD before calling tools.
+When the customer gives a range or a vague window ("next January, sometime 20th to the end of the month", "early March", "the week of the 10th"), do NOT ask them to pick one exact date first. Resolve the window to concrete dates (requestedDate = start, latestDate = end, the next future occurrence), call check_availability with both, and offer the open dates it returns as choices — one short sentence; the page renders them as tappable date chips. Record moveDate only once they pick one. If the range has no open dates, say so plainly and offer the tool's nearest alternatives.
 
 CONVERSATION STATE (already established — never re-ask):
 ${JSON.stringify({
@@ -121,10 +127,12 @@ function answersSchema(company, description) {
   const { questions } = intakeAgent.questionBattery({ knownAnswers: {}, intakeSpecs: company?.intake_specs });
   const properties = {};
   for (const q of questions) {
-    const allowed = Array.isArray(q.options) && q.options.length
+    let allowed = Array.isArray(q.options) && q.options.length
       ? ` One of: ${q.options.map((o) => o.value).join(', ')}.`
       : '';
-    properties[q.id] = { type: SchemaType.STRING, description: `${q.label}${allowed}` };
+    if (allowed && q.allowCustom) allowed = ` Usually one of: ${q.options.map((o) => o.value).join(', ')} — or the customer's own words.`;
+    const skip = q.optional && q.skipValue ? ` Optional: "${q.skipValue}" if they skip or aren't sure.` : '';
+    properties[q.id] = { type: SchemaType.STRING, description: `${q.label}${allowed}${skip}` };
   }
   return { type: SchemaType.OBJECT, description, properties };
 }
@@ -143,11 +151,12 @@ function buildToolDeclarations(company) {
     },
     {
       name: 'check_availability',
-      description: "Whether the company can take a move on a date (its Nexus booking calendar: capacity per day, existing reservations, blackout days). Returns requestedDateOpen plus up to 3 nearest alternative open dates. Use it before reserving, and whenever the customer asks about a date.",
+      description: "Whether the company can take a move on a date (its Nexus booking calendar: capacity per day, existing reservations, blackout days). Returns requestedDateOpen plus up to 3 nearest alternative open dates. When the customer gives a date RANGE or window, pass its start as requestedDate and its end as latestDate: the result adds openDates (up to 5 open days in the range, earliest first) to offer as choices. Use it before reserving, and whenever the customer asks about a date.",
       parameters: {
         type: SchemaType.OBJECT,
         properties: {
-          requestedDate: { type: SchemaType.STRING, description: 'The move date to check, YYYY-MM-DD.' },
+          requestedDate: { type: SchemaType.STRING, description: 'The move date to check — or the START of a date range — YYYY-MM-DD.' },
+          latestDate: { type: SchemaType.STRING, description: 'Optional END of a date range, YYYY-MM-DD, on or after requestedDate (ranges over 31 days are clamped). Omit for a single date.' },
         },
         required: ['requestedDate'],
       },
@@ -206,7 +215,8 @@ function buildToolHandlers({ company, state, events }) {
     },
 
     async check_availability(args = {}) {
-      const payload = await availabilityService.checkAvailability(company.id, args.requestedDate);
+      const latestDate = typeof args.latestDate === 'string' && args.latestDate.trim() ? args.latestDate : undefined;
+      const payload = await availabilityService.checkAvailability(company.id, args.requestedDate, { latestDate });
       events.push({ type: 'availability', payload });
       return payload;
     },
@@ -255,16 +265,41 @@ function buildToolHandlers({ company, state, events }) {
 
 const CHIPS_RE = /\[CHIPS\]([\s\S]*?)\[\/CHIPS\]/i;
 
+/** The free-text escape hatch chip — the page turns it into a composer prompt. */
+const OTHER_CHIP = 'Other…';
+const isOtherChip = (label) => /^other\b/i.test(String(label || '').trim());
+
 function extractChips(text) {
   const m = CHIPS_RE.exec(text || '');
   if (!m) return { reply: (text || '').trim(), chips: undefined };
-  const chips = m[1]
+  const all = m[1]
     .split('|')
     .map((s) => s.trim())
-    .filter((s) => s && s.length <= 40 && !/\$\s?\d/.test(s)) // no prices in chips, ever
-    .slice(0, 4);
+    .filter((s) => s && s.length <= 40 && !/\$\s?\d/.test(s)); // no prices in chips, ever
+  // ≤4 answer chips, plus "Other…" as an optional fifth (always last).
+  const chips = all.filter((c) => !isOtherChip(c)).slice(0, 4);
+  if (all.some(isOtherChip)) chips.push(OTHER_CHIP);
   const reply = (text || '').replace(CHIPS_RE, '').trim();
   return { reply, chips: chips.length ? chips : undefined };
+}
+
+/**
+ * Deterministic chip polish (owner feedback, Nov 2026). When the chips on
+ * screen answer a question that allows custom answers (≥2 of its option
+ * labels are present) and the model forgot "Other…", append it. Whenever
+ * "Other…" is shown, return the composer placeholder the page should use.
+ */
+function decorateChips(chips, state, company) {
+  if (!Array.isArray(chips) || chips.length === 0) return { chips, inputHint: undefined };
+  const { questions } = intakeAgent.questionBattery({ knownAnswers: state.known || {}, intakeSpecs: company.intake_specs });
+  const custom = questions.filter((q) => q.allowCustom && Array.isArray(q.options));
+  const labels = new Set(chips.map(normalize));
+  const matched = custom.find((q) => q.options.filter((o) => labels.has(normalize(o.label))).length >= 2);
+  let out = chips;
+  if (matched && !chips.some(isOtherChip)) out = [...chips.slice(0, 4), OTHER_CHIP];
+  if (!out.some(isOtherChip)) return { chips: out, inputHint: undefined };
+  const q = matched || custom[0];
+  return { chips: out, inputHint: { placeholder: q?.customPlaceholder || 'Type your answer…' } };
 }
 
 // ── Price scrubbing (R34 belt-and-braces) ────────────────────────────────────
@@ -304,9 +339,12 @@ function nextStepFallback(state, company) {
 
   if (questions.length > 0) {
     const q = questions[0];
-    const chips = Array.isArray(q.options)
+    let chips = Array.isArray(q.options)
       ? q.options.map((o) => o.label).slice(0, 4)
       : undefined;
+    if (chips && q.allowCustom) chips.push(OTHER_CHIP);
+    // Optional free-text questions (the company's own) get a skip chip.
+    if (!chips && q.optional && q.skipValue) chips = [q.skipValue];
     return { reply: `Let's keep it moving — ${q.label}`, chips };
   }
 
@@ -333,10 +371,15 @@ function nextStepFallback(state, company) {
 /** Chip/greeting phrases that steer the conversation — never an answer. */
 const CONTROL_PHRASES = new Set([
   'price my move', 'check a date', 'check my move date', 'how does this work?',
-  'i have a question', 'hi', 'hello', 'hey',
+  'i have a question', 'hi', 'hello', 'hey', 'other', 'other…', 'other...',
 ]);
 
 const normalize = (v) => String(v || '').toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/\s+/g, ' ').trim();
+
+/** "Skip"-style replies to an OPTIONAL question ⇒ its neutral skipValue. */
+const SKIP_RE = /^(skip(\s+(it|this|that))?|not sure|unsure|no idea|i don'?t know|dunno|n\/?a|pass)[.!]?$/;
+/** "Nothing"-style replies — only mean the skipValue when that value IS "none". */
+const NONE_RE = /^(none|nothing|no|nope|nah|nothing special|nothing really)[.!]?$/;
 
 /**
  * When the model didn't act this turn, the fallback must still make
@@ -355,13 +398,20 @@ function captureFallbackAnswer(state, company, message) {
   });
   if (questions.length > 0) {
     const q = questions[0];
+    const m = normalize(text);
     let value = null;
     if (Array.isArray(q.options) && q.options.length) {
-      const m = normalize(text);
       const hit = q.options.find((o) => normalize(o.label) === m || normalize(o.value) === m);
       if (hit) value = hit.value;
-    } else {
-      value = text.slice(0, 255);
+    }
+    if (!value && q.optional && q.skipValue
+      && (SKIP_RE.test(m) || m === normalize(q.skipValue) || (q.skipValue === 'none' && NONE_RE.test(m)))) {
+      value = q.skipValue;
+    }
+    if (!value && (q.allowCustom || !(Array.isArray(q.options) && q.options.length))) {
+      // Free text: questions without options, and chip questions that allow
+      // the customer's own words (specialItems: "a Peloton") — never discarded.
+      value = text.slice(0, q.allowCustom ? 120 : 255);
     }
     if (value) mergeKnown(state, company, { [q.id]: value });
     return;
@@ -472,13 +522,15 @@ async function runTurn({ company, state, transcript, message }) {
       reply = fb.reply;
       chips = fb.chips;
     }
+    const decorated = decorateChips(chips, state, company);
+    chips = decorated.chips;
     // Most significant event of the turn — the UI renders THIS as a card.
     const priority = { reservation: 3, quote: 2, availability: 1 };
     let event;
     for (const e of events) {
       if (!event || priority[e.type] >= priority[event.type]) event = e;
     }
-    return { reply, chips, event, state, toolCalls };
+    return { reply, chips, event, state, toolCalls, inputHint: decorated.inputHint };
   };
 
   let result;
@@ -549,6 +601,20 @@ async function runTurn({ company, state, transcript, message }) {
   return finish('');
 }
 
+// ── Quote progress (header tracker) ──────────────────────────────────────────
+
+/** { answered, total, quoteReady, reserved } for this conversation's state. */
+function progressFor(state, company) {
+  const st = state || {};
+  return intakeAgent.quoteProgress({
+    knownAnswers: st.known || {},
+    intakeSpecs: company?.intake_specs,
+    customerEmail: st.customerEmail || null,
+    quoteReady: !!st.quote,
+    reserved: !!st.reservation,
+  });
+}
+
 // ── Deterministic greeting (turn zero — no model call, instant) ─────────────
 
 function buildGreeting(company) {
@@ -565,6 +631,9 @@ module.exports = {
   buildSystemPrompt,
   nextStepFallback,
   extractChips,
+  decorateChips,
+  progressFor,
+  OTHER_CHIP,
   mentionsUnbackedPrice,
   buildToolDeclarations,
   captureFallbackAnswer,

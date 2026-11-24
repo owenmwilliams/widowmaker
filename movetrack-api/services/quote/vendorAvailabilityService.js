@@ -34,6 +34,13 @@
  *     reason:             null | 'past_date' | 'blackout' | 'fully_booked',
  *     capacityPerDay:     number,
  *     alternatives:       ['YYYY-MM-DD', …]   // ≤3, nearest-first
+ *     // only when a latestDate RANGE was asked for (owner feedback, Nov
+ *     // 2026 — "sometime 20th to the end of the month"):
+ *     latestDate:         'YYYY-MM-DD',       // range end actually scanned
+ *     rangeTruncated:     boolean,            // true when clamped to 31 days
+ *     openDates:          ['YYYY-MM-DD', …]   // ≤5 open days in
+ *                                             // [requestedDate, latestDate],
+ *                                             // earliest first
  *   }
  *
  * Throws IntakeAgentError('invalid_input') for a malformed date so both the
@@ -47,6 +54,8 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const NEAR_WINDOW_DAYS = 7;   // preferred ± scan window
 const FORWARD_EXTEND_DAYS = 30; // how far forward we'll walk when ±7 is dry
 const MAX_ALTERNATIVES = 3;
+const MAX_RANGE_DAYS = 31;       // a range is clamped to requestedDate + 30 days (31 days inclusive)
+const MAX_RANGE_OPEN_DATES = 5;  // open days returned for a range
 
 /** 'YYYY-MM-DD' → UTC ms at midnight (NaN when malformed). */
 function dayMs(iso) {
@@ -60,6 +69,11 @@ function isoDay(ms) {
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** True when `iso` is a real calendar date in strict YYYY-MM-DD form. */
+function isRealDate(iso) {
+  return typeof iso === 'string' && DATE_RE.test(iso) && !Number.isNaN(dayMs(iso)) && isoDay(dayMs(iso)) === iso;
+}
+
 /**
  * Availability for one company on one date, plus up to 3 alternative days.
  *
@@ -68,18 +82,48 @@ const DAY = 24 * 60 * 60 * 1000;
  * @param {object} [opts]
  * @param {string} [opts.today]   injectable 'today' (YYYY-MM-DD) for tests;
  *                                defaults to the real current UTC date.
+ * @param {string} [opts.latestDate]  optional range end (YYYY-MM-DD, ≥
+ *                                requestedDate): also return up to 5 open
+ *                                days in [requestedDate, latestDate],
+ *                                earliest first. Ranges longer than 31 days
+ *                                are clamped (rangeTruncated: true).
  * @throws {IntakeAgentError} invalid_input (400) on a malformed date;
  *         company_not_found (404) when the company row is gone.
  */
-async function checkAvailability(companyId, requestedDate, { today } = {}) {
+async function checkAvailability(companyId, requestedDate, { today, latestDate } = {}) {
   const date = typeof requestedDate === 'string' ? requestedDate.trim() : '';
   // Round-trip check catches JS Date leniency ('2026-02-30' → Mar 2).
-  if (!DATE_RE.test(date) || Number.isNaN(dayMs(date)) || isoDay(dayMs(date)) !== date) {
+  if (!isRealDate(date)) {
     throw new IntakeAgentError(
       'invalid_input',
       'requestedDate must be a real date in YYYY-MM-DD form.',
       { statusCode: 400 }
     );
+  }
+
+  // Optional range end — validated as strictly as the start. Absent/empty
+  // means a single-date check (the original contract, unchanged).
+  let rangeEnd = null;
+  let rangeTruncated = false;
+  const latest = typeof latestDate === 'string' ? latestDate.trim() : latestDate;
+  if (latest !== undefined && latest !== null && latest !== '') {
+    if (!isRealDate(latest)) {
+      throw new IntakeAgentError(
+        'invalid_input',
+        'latestDate must be a real date in YYYY-MM-DD form.',
+        { statusCode: 400 }
+      );
+    }
+    if (dayMs(latest) < dayMs(date)) {
+      throw new IntakeAgentError(
+        'invalid_input',
+        'latestDate must be on or after requestedDate (the range runs requestedDate → latestDate).',
+        { statusCode: 400 }
+      );
+    }
+    const capT = dayMs(date) + (MAX_RANGE_DAYS - 1) * DAY;
+    rangeTruncated = dayMs(latest) > capT;
+    rangeEnd = rangeTruncated ? isoDay(capT) : latest;
   }
 
   const company = await db.oneOrNone(
@@ -108,7 +152,10 @@ async function checkAvailability(companyId, requestedDate, { today } = {}) {
   // Expiry is flipped lazily (only when the vendor dashboard loads), so a
   // pending row past its expires_at must be treated as already expired here.
   const windowStart = isoDay(Math.max(todayT, reqT - NEAR_WINDOW_DAYS * DAY));
-  const windowEnd = isoDay(reqT + FORWARD_EXTEND_DAYS * DAY);
+  const windowEnd = isoDay(Math.max(
+    reqT + FORWARD_EXTEND_DAYS * DAY,
+    rangeEnd ? dayMs(rangeEnd) : 0
+  ));
   const rows = await db.any(
     `SELECT requested_date::text AS day, COUNT(*)::int AS booked
      FROM booking_reservations
@@ -152,13 +199,29 @@ async function checkAvailability(companyId, requestedDate, { today } = {}) {
     consider(d);
   }
 
-  return {
+  const result = {
     requestedDate: date,
     requestedDateOpen: requestedOpen,
     reason,
     capacityPerDay: capacity,
     alternatives,
   };
+
+  // Range: the open days inside [requestedDate, latestDate], earliest
+  // first — the same isOpen() rules (past, blackout, capacity) as above.
+  if (rangeEnd) {
+    const openDates = [];
+    const endT = dayMs(rangeEnd);
+    for (let t = reqT; t <= endT && openDates.length < MAX_RANGE_OPEN_DATES; t += DAY) {
+      const iso = isoDay(t);
+      if (isOpen(iso, t)) openDates.push(iso);
+    }
+    result.latestDate = rangeEnd;
+    result.rangeTruncated = rangeTruncated;
+    result.openDates = openDates;
+  }
+
+  return result;
 }
 
 module.exports = {
@@ -166,4 +229,6 @@ module.exports = {
   NEAR_WINDOW_DAYS,
   FORWARD_EXTEND_DAYS,
   MAX_ALTERNATIVES,
+  MAX_RANGE_DAYS,
+  MAX_RANGE_OPEN_DATES,
 };

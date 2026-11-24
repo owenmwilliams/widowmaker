@@ -216,6 +216,8 @@ describe('MCP handshake', () => {
     ]);
     const avail = tools.find((t) => t.name === 'check_availability');
     expect(avail.inputSchema.properties).toHaveProperty('requestedDate');
+    expect(avail.inputSchema.properties).toHaveProperty('latestDate');
+    expect(avail.inputSchema.required).toEqual(['requestedDate']); // latestDate optional
     // Honest calendar copy: the schema says whose calendar this is.
     expect(avail.description).toMatch(/Nexus booking calendar/);
     const priceQuote = tools.find((t) => t.name === 'price_quote');
@@ -304,7 +306,10 @@ describe('get_intake_questions', () => {
     const res = await call('get_intake_questions');
     const { questions } = toolPayload(res);
     const spec = questions.find((q) => q.id === 'coi');
-    expect(spec).toEqual({ id: 'coi', label: COI_SPEC.question, type: 'text', source: 'company' });
+    expect(spec).toEqual({
+      id: 'coi', label: COI_SPEC.question, type: 'text', source: 'company',
+      optional: true, skipValue: 'Not sure',
+    });
     // Specs come after the estimator battery, not instead of it.
     expect(questions.map((q) => q.id)).toContain('bedrooms');
   });
@@ -341,6 +346,31 @@ describe('check_availability', () => {
     expect(payload.capacityPerDay).toBe(1);
     expect(payload.alternatives.length).toBeLessThanOrEqual(3);
     expect(payload.alternatives).not.toContain(req);
+  });
+
+  test('date range: latestDate returns up to 5 open days in range, respecting capacity + blackouts', async () => {
+    // Relative to the real clock (the MCP route uses real "today").
+    const base = Date.now() + 60 * 86400000;
+    const day = (n) => new Date(base + n * 86400000).toISOString().slice(0, 10);
+    wireDb({ availabilityKnobs: { capacity_per_day: 1, blackout_days: [day(1)] } });
+    db.any.mockImplementation(async (sql) => (
+      /FROM booking_reservations/.test(sql) ? [{ day: day(0), booked: 1 }, { day: day(3), booked: 1 }] : []
+    ));
+    const res = await call('check_availability', { requestedDate: day(0), latestDate: day(11) });
+    const payload = toolPayload(res);
+    expect(res.body.result.isError).toBeUndefined();
+    expect(payload.requestedDateOpen).toBe(false);
+    expect(payload.latestDate).toBe(day(11));
+    expect(payload.openDates).toEqual([day(2), day(4), day(5), day(6), day(7)]);
+  });
+
+  test('date range: latestDate before requestedDate (or malformed) is invalid_input', async () => {
+    wireDb();
+    for (const latestDate of ['2030-01-19', 'soon']) {
+      const res = await call('check_availability', { requestedDate: '2030-01-20', latestDate });
+      expect(res.body.result.isError).toBe(true);
+      expect(toolPayload(res).code).toBe('invalid_input');
+    }
   });
 
   test('malformed date is an honest tool error, never a stack trace', async () => {

@@ -13,8 +13,13 @@
  * iframes the company's Nexus agent — /agent/{token}?src=widget — directly
  * in-page: the buyer chats, gets a priced quote range, and reserves a date
  * without ever leaving the mover's site. (Chat needs no camera, so the
- * new-tab constraint that applies to capture does not apply here.) The
- * iframe posts its content height; we listen, origin-checked, and resize.
+ * new-tab constraint that applies to capture does not apply here.)
+ *
+ * The chat iframe is a FIXED-HEIGHT panel (owner feedback, Nov 2026): the
+ * conversation scrolls INSIDE it and the composer stays pinned, so the
+ * widget never grows the host page. Default height min(640px, 85vh);
+ * vendors may set data-height="720" (px, clamped 420–1000) — still capped
+ * at 85vh so a phone always sees the whole panel. No postMessage channel.
  *
  * Constraints (deliberate):
  *   - Served AS-IS from public/ — no build step, no imports, ES5-safe syntax.
@@ -52,6 +57,13 @@
   var variantAttr = script.getAttribute('data-variant');
   var variant = variantAttr === 'button' ? 'button' : variantAttr === 'chat' ? 'chat' : 'card';
   var presetName = script.getAttribute('data-name');
+
+  // Chat panel height (px). Optional data-height; anything unparseable or
+  // out of range falls back to / clamps into a sane window.
+  var CHAT_HEIGHT_DEFAULT = 640;
+  var chatHeight = parseInt(script.getAttribute('data-height') || '', 10);
+  if (!isFinite(chatHeight) || chatHeight <= 0) chatHeight = CHAT_HEIGHT_DEFAULT;
+  chatHeight = Math.max(420, Math.min(chatHeight, 1000));
 
   // Transcribed design tokens (light theme) — names from the Nexus design system:
   var ACCENT = script.getAttribute('data-accent') || '#4F5BF0'; // --blue-500 / --accent (Nexus Blue)
@@ -142,11 +154,13 @@
     '.nx-foot{font-size:14px;color:' + TEXT_SECONDARY + ';margin-top:10px}' +
     '.nx-foot a{color:' + TEXT_SECONDARY + ';font-weight:600;text-decoration:underline}' +
     '.nx-foot a:focus-visible{outline:2px solid ' + ACCENT + ';outline-offset:2px}' +
-    // Chat variant (#112): a hero-sized panel. Full-width on phones,
-    // capped at 420px on desktop; the iframe starts at 560px tall and
-    // grows to fit the conversation via postMessage.
+    // Chat variant (#112): a hero-sized, FIXED-height panel. Full-width on
+    // phones, capped at 420px on desktop; height min(chatHeight, 85vh) —
+    // the plain px declaration first is the fallback for browsers without
+    // CSS min(). The conversation scrolls inside the iframe.
     '.nx--chat{max-width:420px;width:100%}' +
-    '.nx-chatframe{display:block;width:100%;height:560px;min-height:560px;border:1px solid ' + BORDER + ';' +
+    '.nx-chatframe{display:block;width:100%;height:' + chatHeight + 'px;' +
+      'height:min(' + chatHeight + 'px,85vh);min-height:360px;border:1px solid ' + BORDER + ';' +
       'border-radius:' + RADIUS_LG + ';background:' + SURFACE_CARD + ';box-shadow:' + SHADOW_XS + '}' +
     '.nx--chat .nx-foot{margin-top:8px;text-align:right}' +
     '@media (max-width:480px){.nx--chat{max-width:none}}' +
@@ -176,18 +190,8 @@
     frame.title = (presetName ? presetName + "'s" : 'Our') + ' moving assistant — instant quote chat';
     box.appendChild(frame);
 
-    // Height auto-resize: the chat page posts { type, height }; only act on
-    // messages from OUR app origin and OUR iframe. Clamped so a runaway
-    // value can never swallow the host page.
-    window.addEventListener('message', function (ev) {
-      if (ev.origin !== origin) return;
-      if (!frame.contentWindow || ev.source !== frame.contentWindow) return;
-      var d = ev.data;
-      if (!d || d.type !== 'nexus-agent-height') return;
-      var h = Number(d.height);
-      if (!isFinite(h) || h <= 0) return;
-      frame.style.height = Math.max(560, Math.min(Math.round(h), 1400)) + 'px';
-    });
+    // Fixed height (see header): no resize listener — the chat scrolls
+    // inside the frame, so nothing from the iframe is ever trusted here.
 
     var chatFoot = document.createElement('div');
     chatFoot.className = 'nx-foot';

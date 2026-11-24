@@ -135,3 +135,77 @@ describe('checkAvailability — alternative days', () => {
     expect(r.alternatives.length).toBeLessThanOrEqual(3);
   });
 });
+
+// ── Date ranges (owner feedback, Nov 2026: "sometime 20th to the end") ──────
+
+describe('checkAvailability — date range (latestDate)', () => {
+  const { MAX_RANGE_OPEN_DATES, MAX_RANGE_DAYS } = require('../../services/quote/vendorAvailabilityService');
+
+  test('no latestDate ⇒ the original single-date shape, no range fields', async () => {
+    wire({});
+    const r = await checkAvailability(COMPANY_ID, '2026-10-15', { today: TODAY });
+    expect(r).not.toHaveProperty('openDates');
+    expect(r).not.toHaveProperty('latestDate');
+  });
+
+  test('open dates inside [requestedDate, latestDate], earliest first, alongside the old fields', async () => {
+    wire({ capacity: 1, booked: { '2027-01-20': 1, '2027-01-22': 1 }, blackouts: ['2027-01-21'] });
+    const r = await checkAvailability(COMPANY_ID, '2027-01-20', { today: TODAY, latestDate: '2027-01-31' });
+    expect(r.requestedDateOpen).toBe(false);          // existing fields still there
+    expect(r.reason).toBe('fully_booked');
+    expect(r.alternatives.length).toBeLessThanOrEqual(MAX_ALTERNATIVES);
+    expect(r.latestDate).toBe('2027-01-31');
+    expect(r.rangeTruncated).toBe(false);
+    // 20 full, 21 blackout, 22 full ⇒ 23 onward; capped at 5.
+    expect(r.openDates).toEqual(['2027-01-23', '2027-01-24', '2027-01-25', '2027-01-26', '2027-01-27']);
+    expect(r.openDates).toHaveLength(MAX_RANGE_OPEN_DATES);
+  });
+
+  test('fewer open days than the cap ⇒ just those; a fully closed range ⇒ []', async () => {
+    wire({ capacity: 2, booked: { '2027-01-30': 2 } });
+    const few = await checkAvailability(COMPANY_ID, '2027-01-29', { today: TODAY, latestDate: '2027-01-31' });
+    expect(few.openDates).toEqual(['2027-01-29', '2027-01-31']);
+
+    wire({ capacity: 1, booked: { '2027-01-30': 1, '2027-01-31': 1 } });
+    const none = await checkAvailability(COMPANY_ID, '2027-01-30', { today: TODAY, latestDate: '2027-01-31' });
+    expect(none.openDates).toEqual([]);
+    expect(none.alternatives.length).toBeGreaterThan(0); // still something to offer
+  });
+
+  test('a range starting in the past only offers future days', async () => {
+    wire({});
+    const r = await checkAvailability(COMPANY_ID, '2026-09-24', { today: TODAY, latestDate: '2026-09-29' });
+    expect(r.openDates).toEqual(['2026-09-27', '2026-09-28', '2026-09-29']);
+  });
+
+  test('the booking read covers the whole range', async () => {
+    wire({ capacity: 1, booked: { '2027-01-15': 1 } });
+    await checkAvailability(COMPANY_ID, '2027-01-01', { today: TODAY, latestDate: '2027-01-31' });
+    const [, start, end] = db.any.mock.calls[0][1];
+    expect(start <= '2027-01-01').toBe(true);
+    expect(end >= '2027-01-31').toBe(true);
+  });
+
+  test(`ranges longer than ${31} days are clamped and say so`, async () => {
+    wire({ capacity: 1 });
+    const r = await checkAvailability(COMPANY_ID, '2027-03-01', { today: TODAY, latestDate: '2027-06-30' });
+    expect(MAX_RANGE_DAYS).toBe(31);
+    expect(r.latestDate).toBe('2027-03-31');
+    expect(r.rangeTruncated).toBe(true);
+  });
+
+  test('a single-day range is fine', async () => {
+    wire({});
+    const r = await checkAvailability(COMPANY_ID, '2027-01-20', { today: TODAY, latestDate: '2027-01-20' });
+    expect(r.openDates).toEqual(['2027-01-20']);
+  });
+
+  test('invalid ranges are invalid_input, before any booking read', async () => {
+    wire({});
+    for (const latestDate of ['end of january', '2027-02-30', '2027-1-31', '2027-01-19']) {
+      await expect(checkAvailability(COMPANY_ID, '2027-01-20', { today: TODAY, latestDate }))
+        .rejects.toMatchObject({ code: 'invalid_input' });
+    }
+    expect(db.any).not.toHaveBeenCalled();
+  });
+});
