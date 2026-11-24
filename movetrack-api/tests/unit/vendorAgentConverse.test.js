@@ -281,3 +281,71 @@ describe('bounds', () => {
     expect(typeof real.agentConverseLimiter).toBe('function');
   });
 });
+
+// ── Progress tracker (owner feedback, Nov 2026) ─────────────────────────────
+
+describe('progress in every response', () => {
+  // Battery (10 questions) + 1 company spec + the email step = 12.
+  test('greeting turn: 0 of 12', async () => {
+    wireDb();
+    const res = await post({});
+    expect(res.body.progress).toEqual({ answered: 0, total: 12, quoteReady: false, reserved: false });
+  });
+
+  test('mid-flow: counts battery + spec answers from state; email counts as a step', async () => {
+    wireDb({
+      conversation: {
+        id: CONVO_ID, company_id: COMPANY_ID, customer_email: null,
+        state: { known: { bedrooms: '2' } }, transcript: [{ role: 'assistant', text: 'Hi!' }], turns: 1, status: 'active',
+      },
+    });
+    mockRunTurn.mockImplementation(async ({ state }) => {
+      Object.assign(state.known, { originAddress: 'Oakland, CA', destinationAddress: 'San Jose, CA', coi: 'Not sure' });
+      return { reply: 'Stairs at your current place?', chips: ['No stairs'], state, toolCalls: [] };
+    });
+    const res = await post({ conversationId: CONVO_ID, message: 'Oakland to San Jose, not sure about COI' });
+    expect(res.body.progress).toEqual({ answered: 4, total: 12, quoteReady: false, reserved: false });
+  });
+
+  test('quote priced ⇒ complete; reservation ⇒ flagged', async () => {
+    wireDb({
+      conversation: {
+        id: CONVO_ID, company_id: COMPANY_ID, customer_email: null,
+        state: { known: {} }, transcript: [{ role: 'assistant', text: 'Hi!' }], turns: 1, status: 'active',
+      },
+    });
+    mockRunTurn.mockImplementation(async ({ state }) => {
+      state.customerEmail = 'c@x.com';
+      state.quote = { quoteId: 'q-1', payload: {} };
+      return { reply: 'Here is your quote.', state, toolCalls: [] };
+    });
+    const quoted = await post({ conversationId: CONVO_ID, message: 'c@x.com' });
+    expect(quoted.body.progress).toEqual({ answered: 12, total: 12, quoteReady: true, reserved: false });
+
+    mockRunTurn.mockImplementation(async ({ state }) => {
+      state.reservation = { requestedDate: '2027-01-23' };
+      return { reply: 'Reserved.', state, toolCalls: [] };
+    });
+    const reserved = await post({ conversationId: CONVO_ID, message: 'book the 23rd' });
+    expect(reserved.body.progress.reserved).toBe(true);
+  });
+
+  test('inputHint rides out when the turn offers "Other…"', async () => {
+    wireDb({
+      conversation: {
+        id: CONVO_ID, company_id: COMPANY_ID, customer_email: null,
+        state: { known: {} }, transcript: [{ role: 'assistant', text: 'Hi!' }], turns: 1, status: 'active',
+      },
+    });
+    mockRunTurn.mockImplementation(async ({ state }) => ({
+      reply: 'Anything unusually heavy or delicate?',
+      chips: ['Nothing special', 'Piano', 'Safe', 'Pool table', 'Other…'],
+      inputHint: { placeholder: 'Type it — e.g. a Peloton, a large aquarium' },
+      state,
+      toolCalls: [],
+    }));
+    const res = await post({ conversationId: CONVO_ID, message: 'next' });
+    expect(res.body.chips).toHaveLength(5);
+    expect(res.body.inputHint).toEqual({ placeholder: expect.stringMatching(/Peloton/) });
+  });
+});

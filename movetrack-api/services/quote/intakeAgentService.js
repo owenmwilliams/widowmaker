@@ -143,7 +143,12 @@ async function getIntakeQuestions({ userId }) {
  */
 const SPEC_KEY_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,39}$/;
 function sanitizeIntakeSpecs(raw) {
-  const batteryIds = new Set(intakeEngine.buildQuestions({}).map((q) => q.id));
+  // Legacy answer aliases (e.g. the pre-split `parking`) stay reserved too,
+  // so a spec can never shadow how old callers' answers are read.
+  const batteryIds = new Set([
+    ...intakeEngine.buildQuestions({}).map((q) => q.id),
+    ...intakeEngine.LEGACY_ANSWER_KEYS,
+  ]);
   const out = [];
   const seen = new Set();
   for (const spec of Array.isArray(raw) ? raw : []) {
@@ -159,6 +164,22 @@ function sanitizeIntakeSpecs(raw) {
 }
 
 /**
+ * Quote progress for the chat header (owner feedback, Nov 2026): how many
+ * of the questions a quote needs are answered — the battery plus the
+ * company's intake_specs, plus the email step. A priced quote completes it.
+ *
+ * @returns {{ answered: number, total: number, quoteReady: boolean, reserved: boolean }}
+ */
+function quoteProgress({ knownAnswers, intakeSpecs, customerEmail, quoteReady = false, reserved = false } = {}) {
+  const all = questionBattery({ knownAnswers: {}, intakeSpecs }).questions.length;
+  const open = questionBattery({ knownAnswers, intakeSpecs }).questions.length;
+  const total = all + 1; // + the email step
+  let answered = Math.max(0, all - open) + (customerEmail ? 1 : 0);
+  if (quoteReady || reserved) answered = total;
+  return { answered: Math.min(answered, total), total, quoteReady: !!(quoteReady || reserved), reserved: !!reserved };
+}
+
+/**
  * Session-less path (MCP + the converse brain): the caller — an AI client
  * mid-conversation — says what it already knows via knownAnswers, and only
  * the still-open questions come back. There's no inventory or address on
@@ -168,6 +189,8 @@ function sanitizeIntakeSpecs(raw) {
  * out the same way, and their answers ride back in `known` so both brains
  * carry them.
  */
+const SPEC_SKIP_VALUE = 'Not sure';
+
 function questionBattery({ knownAnswers, intakeSpecs } = {}) {
   const known = intakeEngine.sanitizeAnswers(knownAnswers);
   const questions = intakeEngine
@@ -180,7 +203,17 @@ function questionBattery({ knownAnswers, intakeSpecs } = {}) {
     if (answer) {
       known[spec.key] = answer.slice(0, 255);
     } else {
-      questions.push({ id: spec.key, label: spec.question, type: 'text', source: 'company' });
+      // Mover-defined questions are genuinely optional for the customer
+      // (many don't know their building's COI rules yet): "Not sure"
+      // records a neutral answer and the battery moves on.
+      questions.push({
+        id: spec.key,
+        label: spec.question,
+        type: 'text',
+        source: 'company',
+        optional: true,
+        skipValue: SPEC_SKIP_VALUE,
+      });
     }
   }
   return { questions, known };
@@ -640,6 +673,7 @@ module.exports = {
   CONFIRM_WINDOW_HOURS,
   getIntakeQuestions,
   questionBattery,
+  quoteProgress,
   sanitizeIntakeSpecs,
   priceQuote,
   reserveBooking,

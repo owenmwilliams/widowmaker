@@ -251,7 +251,8 @@ describe('intakeQuoteEngine.buildQuestions (PRD R2)', () => {
 
   test('nothing known → full battery, bedrooms first', () => {
     const qs = engine.buildQuestions({ hasInventory: false, hasOrigin: false });
-    expect(ids(qs)).toEqual(expect.arrayContaining(['bedrooms', 'originAddress', 'destinationAddress', 'stairsOrigin', 'stairsDestination', 'parking', 'packing', 'specialItems', 'moveDate']));
+    // Origin/destination grouped naturally: addresses, stairs each end, parking each end.
+    expect(ids(qs)).toEqual(['bedrooms', 'originAddress', 'destinationAddress', 'stairsOrigin', 'stairsDestination', 'parkingOrigin', 'parkingDestination', 'packing', 'specialItems', 'moveDate']);
   });
 
   test('rooms scanned → home-size question skipped', () => {

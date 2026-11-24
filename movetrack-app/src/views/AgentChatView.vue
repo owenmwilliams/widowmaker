@@ -2,7 +2,7 @@
 import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  ShieldCheck, LoaderCircle, RotateCcw, Video, Lock, CalendarCheck, CalendarDays, Check,
+  ShieldCheck, LoaderCircle, RotateCcw, Video, Lock, CalendarCheck, CalendarDays, Check, ArrowDown,
 } from 'lucide-vue-next'
 import { callTool, McpToolError, McpTransportError } from '../utils/mcpClient'
 import { API_BASE_URL } from '../config/api'
@@ -27,9 +27,13 @@ import { API_BASE_URL } from '../config/api'
    the battery; ?brain=llm forces the agent.
 
    Public route, iframe-friendly (the widget's chat variant
-   embeds it and listens for our height postMessage). State
-   lives in sessionStorage so a reload resumes mid-conversation
-   — including the converse conversationId.
+   embeds it at a FIXED height). Owner feedback (Nov 2026): the
+   chat is a fixed-height panel — header + progress tracker +
+   an internally scrolling thread + a pinned composer — that
+   never grows the host page; the thread sticks to the newest
+   message unless the reader has scrolled up. State lives in
+   sessionStorage so a reload resumes mid-conversation —
+   including the converse conversationId.
    ============================================================ */
 
 const route = useRoute()
@@ -44,7 +48,14 @@ type Question = {
   options?: QuestionOption[]
   placeholder?: string
   source?: string
+  /** Chips are the common cases; the customer's own words are valid too. */
+  allowCustom?: boolean
+  customPlaceholder?: string
+  /** Genuinely optional: skipValue is the neutral "skip / not sure" answer. */
+  optional?: boolean
+  skipValue?: string
 }
+type Progress = { answered: number; total: number; quoteReady?: boolean; reserved?: boolean }
 type TrustBlock = {
   legalName: string; dba?: string; stateLicense: string; usDot: string
   liabilityPerLb: number; workedExample: string; fullValueOption?: string
@@ -82,6 +93,10 @@ type Availability = {
   reason: 'past_date' | 'blackout' | 'fully_booked' | null
   capacityPerDay: number
   alternatives: string[]
+  // Present only for a date-RANGE check (requestedDate → latestDate).
+  latestDate?: string
+  rangeTruncated?: boolean
+  openDates?: string[]
 }
 
 // ── Conversation state machine ───────────────────────────────
@@ -136,6 +151,17 @@ const busy = ref(false)
 let known: Record<string, string> = {}
 let lastSent: string | null = null
 let transportFails = 0
+// Composer prompt the server sends with an "Other…" chip.
+const inputHint = ref<string | null>(null)
+// Server-computed progress (agent brain).
+const serverProgress = ref<Progress | null>(null)
+
+// "Other…" chip → the composer becomes the answer box for that question.
+const otherMode = ref(false)
+const otherPlaceholder = ref('')
+const composerInput = ref<HTMLInputElement | null>(null)
+// Battery fallback: answers carried in before the det questions were fetched.
+const detPreAnswered = ref(0)
 
 // Bottom composer inputs.
 const textDraft = ref('')
@@ -171,19 +197,77 @@ const usesSimulatedDeposit = computed(() =>
 const composerOpen = computed(() => {
   if (brain.value === 'llm') return step.value !== 'deposit' && step.value !== 'boot_failed'
   const q = currentQuestion.value
-  return (q && (q.type === 'address' || q.type === 'text')) || step.value === 'email'
+  return (q && (q.type === 'address' || q.type === 'text' || (q.type === 'chips' && otherMode.value)))
+    || step.value === 'email'
 })
 const composerPlaceholder = computed(() => {
+  if (otherMode.value && otherPlaceholder.value) return otherPlaceholder.value
   if (brain.value === 'llm') return 'Type a message…'
   if (step.value === 'email') return 'you@example.com'
   return currentQuestion.value?.placeholder || 'Type your answer…'
 })
 
-function fmtDay(iso: string): string {
+// ── "Other…" chips (owner feedback: chips are suggestions, not a cage) ──
+const OTHER_LABEL = 'Other…'
+const isOtherChip = (label: string) => /^other\b/i.test(String(label || '').trim())
+
+async function openOther(placeholder?: string | null) {
+  otherMode.value = true
+  otherPlaceholder.value = placeholder || 'Type your answer…'
+  inputError.value = ''
+  textDraft.value = ''
+  await nextTick()
+  composerInput.value?.focus()
+  scrollToEnd()
+}
+function closeOther() {
+  otherMode.value = false
+  otherPlaceholder.value = ''
+}
+
+/** Agent-brain chip tap: "Other…" opens the composer; anything else is the message. */
+function tapChip(c: string) {
+  if (isOtherChip(c)) { openOther(inputHint.value); return }
+  sendLlm(c)
+}
+
+// ── Progress tracker ─────────────────────────────────────────
+const progress = computed<Progress | null>(() => {
+  const reserved = step.value === 'reserved' || !!reservation.value
+  if (brain.value === 'llm') {
+    const p = serverProgress.value
+    if (!p || !(p.total > 0)) return null
+    if (quote.value || reserved) return { answered: p.total, total: p.total, quoteReady: true, reserved }
+    return p
+  }
+  if (!questions.value.length && !quote.value) return null
+  const pre = detPreAnswered.value
+  const total = pre + questions.value.length + 1 // + the email step
+  if (quote.value || reserved) return { answered: total, total, quoteReady: true, reserved }
+  const asked = Math.min(qIdx.value, questions.value.length)
+  return { answered: Math.min(pre + asked, total), total }
+})
+const progressPct = computed(() => {
+  const p = progress.value
+  return p && p.total > 0 ? Math.round((p.answered / p.total) * 100) : 0
+})
+const progressLabel = computed(() => {
+  const p = progress.value
+  if (!p) return ''
+  if (p.reserved) return `Date reserved · ${companyName.value} confirms within 24 hours`
+  if (p.quoteReady) return 'Quote ready'
+  const left = Math.max(0, p.total - p.answered)
+  if (left <= 1) return `${p.answered} of ${p.total} · last step: where to send your quote`
+  return `${p.answered} of ${p.total} · about ${left} quick questions to your quote`
+})
+
+function fmtDay(iso: string, withWeekday = false): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '')
   if (!m) return iso || 'your date'
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return d.toLocaleDateString('en-US', withWeekday
+    ? { weekday: 'short', month: 'short', day: 'numeric' }
+    : { month: 'short', day: 'numeric' })
 }
 
 // Phone handoff: OPTIONAL postscript after reserving — film rooms for a
@@ -204,13 +288,42 @@ const reducedMotion = typeof window.matchMedia === 'function'
 let restoring = false
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// ── Fixed-height panel: the THREAD scrolls, never the page ───
+// Stick-to-bottom: new content scrolls into view only while the reader is
+// at (or near) the bottom. Scrolled up to re-read? We leave them there and
+// show a "Jump to latest" pill instead of yanking them down.
 const threadEl = ref<HTMLElement | null>(null)
-async function scrollToEnd() {
-  await nextTick()
-  // Standalone: the page scrolls. Embedded: the iframe grows instead.
-  if (!inIframe) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: reducedMotion ? 'auto' : 'smooth' })
-  postHeight()
+const stickToBottom = ref(true)
+const unseen = ref(false)
+const STICK_PX = 72
+let programmaticUntil = 0
+
+function onThreadScroll() {
+  const el = threadEl.value
+  if (!el) return
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX
+  // Our own smooth scroll fires scroll events mid-flight — those must not
+  // read as "the reader scrolled up".
+  if (atBottom) { stickToBottom.value = true; unseen.value = false }
+  else if (Date.now() > programmaticUntil) stickToBottom.value = false
 }
+
+/** Scroll the thread to the newest message — `force` for the user's own sends. */
+async function scrollToEnd(force = false) {
+  await nextTick()
+  const el = threadEl.value
+  if (!el) return
+  if (force || stickToBottom.value) {
+    const smooth = !reducedMotion && !restoring
+    programmaticUntil = Date.now() + (smooth ? 600 : 50)
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+    stickToBottom.value = true
+    unseen.value = false
+  } else {
+    unseen.value = true
+  }
+}
+function jumpToLatest() { scrollToEnd(true) }
 
 async function pushBot(text: string) {
   if (!restoring && !reducedMotion) {
@@ -224,7 +337,7 @@ async function pushBot(text: string) {
 }
 function pushUser(text: string) {
   messages.value.push({ kind: 'user', text })
-  scrollToEnd()
+  scrollToEnd(true) // the customer's own message always brings them down
 }
 function pushNotice(text: string) {
   messages.value.push({ kind: 'notice', text })
@@ -250,6 +363,9 @@ function saveState() {
       brain: brain.value,
       conversationId: conversationId.value,
       chips: chips.value,
+      inputHint: inputHint.value,
+      progress: serverProgress.value,
+      detPreAnswered: detPreAnswered.value,
       known,
       step: stableStep(),
       messages: messages.value.filter((m) => m.kind !== 'error'),
@@ -273,6 +389,9 @@ function restoreState(): boolean {
   brain.value = s.brain === 'det' ? 'det' : 'llm'
   conversationId.value = typeof s.conversationId === 'string' ? s.conversationId : null
   chips.value = Array.isArray(s.chips) ? s.chips : []
+  inputHint.value = typeof s.inputHint === 'string' ? s.inputHint : null
+  serverProgress.value = s.progress && typeof s.progress === 'object' ? s.progress : null
+  detPreAnswered.value = Number.isInteger(s.detPreAnswered) ? s.detPreAnswered : 0
   known = s.known && typeof s.known === 'object' ? s.known : {}
   company.value = s.company
   questions.value = Array.isArray(s.questions) ? s.questions : []
@@ -284,8 +403,7 @@ function restoreState(): boolean {
   messages.value = s.messages
   step.value = s.step
   if (step.value === 'reserved') makeQr()
-  restoring = false
-  scrollToEnd()
+  scrollToEnd(true).finally(() => { restoring = false })
   return true
 }
 
@@ -340,8 +458,19 @@ async function applyTurn(r: any) {
   if (r.known && typeof r.known === 'object') known = r.known
   if (typeof r.customerEmail === 'string' && r.customerEmail) email.value = r.customerEmail
 
+  if (r.progress && typeof r.progress === 'object' && Number(r.progress.total) > 0) {
+    serverProgress.value = {
+      answered: Number(r.progress.answered) || 0,
+      total: Number(r.progress.total),
+      quoteReady: !!r.progress.quoteReady,
+      reserved: !!r.progress.reserved,
+    }
+  }
+
   if (typeof r.reply === 'string' && r.reply) await pushBot(r.reply)
-  chips.value = Array.isArray(r.chips) ? r.chips.slice(0, 4) : []
+  // ≤4 answer chips + an optional "Other…" (the server keeps it last).
+  chips.value = Array.isArray(r.chips) ? r.chips.slice(0, 5) : []
+  inputHint.value = typeof r.inputHint?.placeholder === 'string' ? r.inputHint.placeholder : null
 
   const ev = r.event
   if (ev?.type === 'quote' && ev.payload) {
@@ -399,6 +528,7 @@ async function sendLlm(message: string, shown?: string) {
   if (!text || busy.value) return
   pushUser(shown ?? text)
   chips.value = []
+  closeOther()
   lastSent = text
   busy.value = true
   typing.value = true
@@ -459,7 +589,20 @@ function pickDate(iso: string) {
   sendLlm(`Let's do ${iso}`, fmtDay(iso))
 }
 
+function availDays(p: Availability): string[] {
+  if (Array.isArray(p.openDates) && p.openDates.length) return p.openDates
+  return Array.isArray(p.alternatives) ? p.alternatives : []
+}
+const isRange = (p: Availability) => Array.isArray(p.openDates) && !!p.latestDate
+
 function availLine(p: Availability): string {
+  if (isRange(p)) {
+    const span = `${fmtDay(p.requestedDate)}–${fmtDay(p.latestDate!)}`
+    if (p.openDates!.length) {
+      return `Open on ${companyName.value}'s booking calendar, ${span} — tap a day:`
+    }
+    return `Nothing open ${span}${p.alternatives.length ? ' — nearest open days:' : '.'}`
+  }
   if (p.requestedDateOpen) return `${fmtDay(p.requestedDate)} is open on ${companyName.value}'s booking calendar.`
   if (p.reason === 'past_date') return `${fmtDay(p.requestedDate)} has already passed — pick a day ahead.`
   return `${fmtDay(p.requestedDate)} isn't available${p.alternatives.length ? ' — nearest open days:' : '.'}`
@@ -482,8 +625,10 @@ async function switchToDet(carryKnown?: Record<string, string>) {
     if (!company.value) {
       company.value = await callTool<CompanyInfo>(companyToken, 'get_company_info')
     }
-    const qs = await callTool<{ questions: Question[] }>(companyToken, 'get_intake_questions', { knownAnswers: { ...answers } })
+    const qs = await callTool<{ questions: Question[]; known?: Record<string, string> }>(companyToken, 'get_intake_questions', { knownAnswers: { ...answers } })
     questions.value = qs.questions
+    // Progress keeps counting from where the agent left off.
+    detPreAnswered.value = qs.known && typeof qs.known === 'object' ? Object.keys(qs.known).length : 0
     qIdx.value = 0
     await askCurrent()
   } catch (e) {
@@ -517,6 +662,7 @@ async function askCurrent() {
   const q = questions.value[qIdx.value]
   if (!q) return openEmailGate()
   step.value = 'question'
+  closeOther()
   textDraft.value = answers[q.id] || ''
   dateDraft.value = q.type === 'date' ? (answers[q.id] || '') : ''
   inputError.value = ''
@@ -535,13 +681,19 @@ function pickChip(q: Question, opt: QuestionOption) {
   if (step.value !== 'question') return
   answer(q, opt.value, opt.label)
 }
+/** Optional question: record its neutral value ("none" / "Not sure"). */
+function skipQuestion(q: Question) {
+  if (step.value !== 'question' || !q.skipValue) return
+  textDraft.value = ''
+  answer(q, q.skipValue, q.type === 'chips' ? 'Skip' : q.skipValue)
+}
 function submitDate(q: Question) {
   const v = dateDraft.value
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { inputError.value = 'Pick a date first.'; return }
   answer(q, v, fmtDay(v))
 }
 function submitText(q: Question) {
-  const v = textDraft.value.trim().slice(0, 255)
+  const v = textDraft.value.trim().slice(0, q.allowCustom ? 120 : 255)
   if (!v) { inputError.value = 'Type an answer first.'; return }
   textDraft.value = ''
   answer(q, v, v)
@@ -713,31 +865,40 @@ function onComposerSubmit() {
   if (currentQuestion.value) return submitText(currentQuestion.value)
 }
 
-// ── Iframe embed: post our content height to the widget ─────
+// ── Iframe embed ─────────────────────────────────────────────
+// The widget gives the iframe a FIXED height (owner feedback, Nov 2026) and
+// the thread scrolls inside it, so there is no height postMessage anymore —
+// nothing crosses the frame boundary at all.
 const inIframe = window.self !== window.top
+
+// Keep the newest message in view when the panel itself resizes (phone
+// keyboard opening, rotation) — only while stuck to the bottom.
+// Any thread content change (chips appearing after a reply, a card, the
+// typing dots) also follows the bottom — again only while stuck there.
 let resizeObserver: ResizeObserver | null = null
-let lastPostedHeight = 0
-function postHeight() {
-  if (!inIframe) return
-  const h = Math.ceil(document.documentElement.scrollHeight)
-  if (h === lastPostedHeight) return
-  lastPostedHeight = h
-  // Nothing sensitive rides on this message, and the embedding page's origin
-  // is unknowable from in here — the WIDGET checks event.origin instead.
-  try { window.parent.postMessage({ type: 'nexus-agent-height', height: h }, '*') } catch { /* ignore */ }
+let mutationObserver: MutationObserver | null = null
+let followQueued = false
+function followIfStuck() {
+  if (followQueued || !stickToBottom.value) return
+  followQueued = true
+  requestAnimationFrame(() => { followQueued = false; if (stickToBottom.value) scrollToEnd() })
 }
 
 onMounted(() => {
-  if (inIframe && typeof ResizeObserver === 'function') {
-    resizeObserver = new ResizeObserver(() => postHeight())
-    resizeObserver.observe(document.documentElement)
+  if (typeof ResizeObserver === 'function' && threadEl.value) {
+    resizeObserver = new ResizeObserver(followIfStuck)
+    resizeObserver.observe(threadEl.value)
+  }
+  if (typeof MutationObserver === 'function' && threadEl.value) {
+    mutationObserver = new MutationObserver(followIfStuck)
+    mutationObserver.observe(threadEl.value, { childList: true, subtree: true })
   }
   if (!restoreState()) {
     if (brain.value === 'llm') bootLlm()
     else boot()
   }
 })
-onBeforeUnmount(() => { resizeObserver?.disconnect() })
+onBeforeUnmount(() => { resizeObserver?.disconnect(); mutationObserver?.disconnect() })
 </script>
 
 <template>
@@ -745,15 +906,37 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
     <div class="ag__panel">
       <!-- Header -->
       <header class="ag__head">
-        <span class="ag__avatar" aria-hidden="true"><CalendarCheck :size="17" /></span>
-        <div class="ag__head-txt">
-          <span class="ag__head-name">{{ company ? `${company.name}` : 'Moving assistant' }}</span>
-          <span class="ag__head-sub">{{ company ? 'Moving assistant · instant quote' : 'Connecting…' }}</span>
+        <div class="ag__head-row">
+          <span class="ag__avatar" aria-hidden="true"><CalendarCheck :size="17" /></span>
+          <div class="ag__head-txt">
+            <span class="ag__head-name">{{ company ? `${company.name}` : 'Moving assistant' }}</span>
+            <span class="ag__head-sub">{{ company ? 'Moving assistant · instant quote' : 'Connecting…' }}</span>
+          </div>
+        </div>
+
+        <!-- Progress to the quote: battery + company questions + email -->
+        <div v-if="progress" class="ag__progress" :class="{ 'ag__progress--done': progress.quoteReady }">
+          <div
+            class="ag__progress-track"
+            role="progressbar"
+            aria-label="Progress to your quote"
+            aria-valuemin="0"
+            :aria-valuemax="progress.total"
+            :aria-valuenow="progress.answered"
+            :aria-valuetext="progressLabel"
+          >
+            <span class="ag__progress-fill" :style="{ width: `${progressPct}%` }"></span>
+          </div>
+          <p class="ag__progress-label">
+            <Check v-if="progress.quoteReady" :size="13" aria-hidden="true" />
+            <span>{{ progressLabel }}</span>
+          </p>
         </div>
       </header>
 
-      <!-- Thread -->
-      <div ref="threadEl" class="ag__thread" role="log" aria-live="polite" aria-label="Conversation">
+      <!-- Thread: the ONLY scrolling region (fixed-height panel) -->
+      <div class="ag__threadwrap">
+      <div ref="threadEl" class="ag__thread" role="log" aria-live="polite" aria-label="Conversation" @scroll.passive="onThreadScroll">
         <div v-if="step === 'boot' && messages.length === 0 && !typing" class="ag__booting">
           <LoaderCircle :size="22" class="ag-spin" aria-hidden="true" />
         </div>
@@ -780,12 +963,15 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
               <CalendarDays :size="15" aria-hidden="true" />
               <span>{{ availLine(m.payload) }}</span>
             </p>
-            <div v-if="m.payload.alternatives && m.payload.alternatives.length" class="ag__avail-days">
+            <div v-if="availDays(m.payload).length" class="ag__avail-days" :class="{ 'ag__avail-days--range': isRange(m.payload) && m.payload.openDates!.length }">
               <button
-                v-for="d in m.payload.alternatives" :key="d" type="button"
-                class="ag__chip" @click="pickDate(d)"
-              >{{ fmtDay(d) }}</button>
+                v-for="d in availDays(m.payload)" :key="d" type="button"
+                class="ag__chip ag__chip--date" @click="pickDate(d)"
+              >{{ fmtDay(d, isRange(m.payload)) }}</button>
             </div>
+            <p v-if="isRange(m.payload) && m.payload.rangeTruncated" class="ag__avail-note">
+              Showing the first month of that window — ask about later dates any time.
+            </p>
           </div>
 
           <!-- The quote card: range HUGE, trust block fused (hairline divider) -->
@@ -879,8 +1065,10 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
         <div v-if="brain === 'llm' && chips.length && !typing && step !== 'deposit'" class="ag__chips">
           <button
             v-for="c in chips" :key="c" type="button"
-            class="ag__chip" @click="sendLlm(c)"
-          >{{ c }}</button>
+            class="ag__chip" :class="{ 'ag__chip--other': isOtherChip(c), 'ag__chip--on': isOtherChip(c) && otherMode }"
+            :aria-pressed="isOtherChip(c) ? otherMode : undefined"
+            @click="tapChip(c)"
+          >{{ isOtherChip(c) ? OTHER_LABEL : c }}</button>
         </div>
 
         <!-- Deterministic battery affordances -->
@@ -889,6 +1077,17 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
             v-for="opt in currentQuestion.options" :key="opt.value" type="button"
             class="ag__chip" @click="pickChip(currentQuestion, opt)"
           >{{ opt.label }}</button>
+          <button
+            v-if="currentQuestion.allowCustom" type="button"
+            class="ag__chip ag__chip--other" :class="{ 'ag__chip--on': otherMode }"
+            :aria-pressed="otherMode"
+            @click="openOther(currentQuestion.customPlaceholder)"
+          >{{ OTHER_LABEL }}</button>
+        </div>
+
+        <!-- Optional free-text question (the company's own): a quiet skip -->
+        <div v-else-if="currentQuestion && currentQuestion.type === 'text' && currentQuestion.optional && currentQuestion.skipValue" class="ag__chips">
+          <button type="button" class="ag__chip" @click="skipQuestion(currentQuestion)">{{ currentQuestion.skipValue }}</button>
         </div>
 
         <div v-else-if="currentQuestion && currentQuestion.type === 'date'" class="ag__daterow">
@@ -933,6 +1132,12 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
         </form>
       </div>
 
+      <!-- Scrolled up to re-read while something new arrived -->
+      <button v-if="unseen" type="button" class="ag__jump" @click="jumpToLatest">
+        <ArrowDown :size="14" aria-hidden="true" /> Latest message
+      </button>
+      </div>
+
       <!-- Bottom composer: LIVE from second zero on the agent brain;
            address/text questions + the email gate on the battery.
            novalidate: our own email-shape check words the error in-thread
@@ -945,13 +1150,15 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
       >
         <div class="ag__composer-inner">
           <input
+            ref="composerInput"
             v-model="textDraft"
             class="ag__input ag__input--grow"
             :type="brain === 'det' && step === 'email' ? 'email' : 'text'"
             :inputmode="brain === 'det' && step === 'email' ? 'email' : 'text'"
             :autocomplete="brain === 'det' && step === 'email' ? 'email' : (brain === 'det' && currentQuestion?.type === 'address' ? 'street-address' : 'off')"
             :placeholder="composerPlaceholder"
-            :aria-label="brain === 'llm' ? 'Message the assistant' : (step === 'email' ? 'Your email' : currentQuestion?.label)"
+            @keydown.esc="closeOther"
+            :aria-label="otherMode ? 'Type your own answer' : (brain === 'llm' ? 'Message the assistant' : (step === 'email' ? 'Your email' : currentQuestion?.label))"
           />
           <button type="submit" class="ag__send" :disabled="!textDraft.trim() || (brain === 'llm' && busy)">
             {{ brain === 'det' && step === 'email' ? 'Get my quote' : 'Send' }}
@@ -969,43 +1176,74 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
 </template>
 
 <style scoped>
-/* Mobile-first buyer surface, semantic tokens only (COMMON.md). */
+/* Mobile-first buyer surface, semantic tokens only (COMMON.md).
+   FIXED-HEIGHT PANEL (owner feedback, Nov 2026): header + progress, an
+   internally scrolling thread, and a pinned composer. Standalone it fills
+   the viewport (100dvh, so mobile browser chrome never hides the composer);
+   embedded, 100% of the iframe the widget sized for us. The page itself
+   never scrolls. */
 .ag {
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text-primary);
   font-family: var(--font-ui);
   display: flex;
   justify-content: center;
 }
-/* Embedded in the widget's iframe: the document IS the panel — no page
-   chrome; content height flows out via postMessage instead of scrolling.
-   100vh here is the IFRAME's height, so the composer hugs the panel's
-   bottom edge; growth is stable because the posted scrollHeight only ever
-   matches or exceeds it. */
-.ag--embed { min-height: 100vh; background: var(--surface-card); }
+.ag--embed { background: var(--surface-card); }
 
 .ag__panel {
   width: 100%;
   max-width: 480px;
+  height: 100%;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-height: inherit;
 }
+.ag:not(.ag--embed) .ag__panel { background: var(--surface-card); border-inline: 1px solid var(--border-soft); }
 .ag--embed .ag__panel { max-width: none; }
 
 /* Header */
 .ag__head {
+  flex: none;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--sp-3);
-  padding: var(--sp-4) var(--sp-5);
+  padding: var(--sp-4) var(--sp-5) var(--sp-3);
   background: var(--surface-card);
   border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
   z-index: 2;
 }
+.ag__head-row { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+
+/* Progress tracker — slim, on-brand, never pushes the composer away */
+.ag__progress { display: flex; flex-direction: column; gap: 6px; }
+.ag__progress-track {
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--accent-quiet);
+  overflow: hidden;
+}
+.ag__progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width var(--dur-base) var(--ease-standard);
+}
+.ag__progress--done .ag__progress-fill { background: var(--success); }
+.ag__progress-label {
+  margin: 0;
+  display: flex; align-items: center; gap: var(--sp-1);
+  font-size: var(--fs-label);
+  color: var(--text-secondary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.ag__progress--done .ag__progress-label { color: var(--success); font-weight: var(--fw-semibold); }
+.ag__progress-label svg { flex: none; }
 .ag__avatar {
   width: 34px; height: 34px; flex: none;
   display: flex; align-items: center; justify-content: center;
@@ -1023,14 +1261,48 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
 }
 .ag__head-sub { font-size: var(--fs-label); color: var(--text-secondary); }
 
-/* Thread */
+/* Thread — the one scrolling region */
+.ag__threadwrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .ag__thread {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
   padding: var(--sp-5);
 }
+/* Cards and bubbles keep their natural height inside the scroller */
+.ag__thread > * { flex-shrink: 0; }
+.ag__jump {
+  position: absolute;
+  left: 50%;
+  bottom: var(--sp-3);
+  transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-4);
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font-ui);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  z-index: 1;
+}
+.ag__jump:hover { background: var(--surface-hover); }
+.ag__jump:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .ag__booting { display: flex; justify-content: center; padding: var(--sp-8) 0; color: var(--text-tertiary); }
 
 .ag__msg {
@@ -1121,6 +1393,10 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
   font-weight: var(--fw-semibold);
 }
 .ag__chip--primary:hover { background: var(--accent-hover); }
+/* "Other…" — the free-text escape hatch: quieter, dashed, clearly an option */
+.ag__chip--other { border-style: dashed; color: var(--text-secondary); }
+.ag__chip--on { background: var(--accent-quiet); border-color: var(--accent); border-style: solid; color: var(--text-primary); }
+.ag__chip--date { font-variant-numeric: tabular-nums; }
 
 /* Availability card: tool data as tappable days */
 .ag__avail {
@@ -1143,6 +1419,8 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
 }
 .ag__avail-line svg { flex: none; margin-top: 3px; color: var(--accent); }
 .ag__avail-days { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.ag__avail-days--range .ag__chip { padding-inline: var(--sp-4); }
+.ag__avail-note { margin: 0; font-size: var(--fs-label); color: var(--text-tertiary); line-height: var(--lh-body); }
 
 /* Date row */
 .ag__daterow { display: flex; gap: var(--sp-2); padding-left: var(--sp-2); flex-wrap: wrap; }
@@ -1380,10 +1658,9 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
 .ag__handoff-link:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .ag__handoff-sub { margin: var(--sp-2) 0 0; font-size: var(--fs-label); color: var(--text-secondary); line-height: var(--lh-body); }
 
-/* Composer */
+/* Composer — pinned: a flex sibling of the thread, never scrolled away */
 .ag__composer {
-  position: sticky;
-  bottom: 0;
+  flex: none;
   background: var(--surface-card);
   border-top: 1px solid var(--border);
   padding: var(--sp-3) var(--sp-5) var(--sp-4);
@@ -1392,6 +1669,7 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
 
 /* Footer */
 .ag__foot {
+  flex: none;
   padding: var(--sp-2) var(--sp-5) var(--sp-3);
   font-size: 11.5px;
   color: var(--text-tertiary);
@@ -1399,7 +1677,7 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
   background: var(--surface-card);
 }
 .ag--embed .ag__foot { border-top: 1px solid var(--border-soft); }
-.ag:not(.ag--embed) .ag__foot { background: transparent; }
+.ag:not(.ag--embed) .ag__foot { border-top: 1px solid var(--border-soft); }
 .ag__foot-brand { color: var(--text-tertiary); font-weight: var(--fw-semibold); text-decoration: underline; border-radius: var(--r-xs); }
 .ag__foot-brand:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
@@ -1408,6 +1686,7 @@ onBeforeUnmount(() => { resizeObserver?.disconnect() })
 @keyframes ag-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
   .ag-spin, .ag__typing span { animation: none; }
+  .ag__progress-fill { transition: none; }
   .ag__chip, .ag__send, .ag__cta, .ag__retry { transition: none; }
   .ag__chip:active, .ag__send:active, .ag__cta:active, .ag__retry:active { transform: none; }
 }

@@ -13,13 +13,19 @@
  *   → { conversationId, message? }        (no/empty message on a brand-new
  *                                          conversation ⇒ the deterministic
  *                                          greeting, no model call)
- *   ← { conversationId, reply, chips?, event?, turns, known, company? }
+ *   ← { conversationId, reply, chips?, event?, turns, known, progress,
+ *       inputHint?, company? }
  *       event   — {type:'quote'|'reservation'|'availability', payload} with
  *                 the RAW tool payload: the quote card, date chips and
  *                 reservation card render from DATA, never model prose (R34).
  *       known   — the answers gathered so far, so the widget can fall back
  *                 to the deterministic battery MID-conversation without
  *                 re-asking anything (its knownAnswers seed).
+ *       progress — {answered, total, quoteReady, reserved}: the header's
+ *                 "4 of 12" tracker (battery + intake_specs + the email
+ *                 step; a priced quote completes it).
+ *       inputHint — {placeholder} when the chips include "Other…": the
+ *                 composer prompt for the customer's own answer.
  *       company — {name, paymentsMode} on the greeting turn only (the widget
  *                 needs paymentsMode for the simulated-deposit sheet).
  *
@@ -131,9 +137,17 @@ router.post(
     const transcript = Array.isArray(conversation.transcript) ? conversation.transcript : [];
     const now = new Date().toISOString();
 
-    const respond = ({ reply, chips, event, turns, greeting = false }) => {
-      const out = { conversationId: conversation.id, reply, turns, known: state.known || {} };
+    const respond = ({ reply, chips, event, turns, inputHint, greeting = false }) => {
+      const out = {
+        conversationId: conversation.id,
+        reply,
+        turns,
+        known: state.known || {},
+        // Header tracker: battery + intake_specs + email; a quote completes it.
+        progress: vendorAgent.progressFor(state, company),
+      };
       if (chips && chips.length) out.chips = chips;
+      if (inputHint) out.inputHint = inputHint;
       if (event) out.event = event;
       if (state.customerEmail) out.customerEmail = state.customerEmail;
       if (greeting) out.company = { name: company.name, paymentsMode: company.payments_mode || 'none' };
@@ -204,7 +218,13 @@ router.post(
         turns,
         status: 'active',
       });
-      return respond({ reply: turnResult.reply, chips: turnResult.chips, event: turnResult.event, turns });
+      return respond({
+        reply: turnResult.reply,
+        chips: turnResult.chips,
+        event: turnResult.event,
+        inputHint: turnResult.inputHint,
+        turns,
+      });
     } catch (err) {
       console.error('[vendorAgentConverse] turn failed:', err.message);
       // The widget treats 503 {fallback:true} as "switch to the

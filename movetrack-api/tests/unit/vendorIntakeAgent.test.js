@@ -166,7 +166,7 @@ describe('availability + reservation events', () => {
       .mockResolvedValueOnce(textResult('That day is full — here are the nearest open days.'));
 
     const r = await run();
-    expect(mockCheckAvailability).toHaveBeenCalledWith(COMPANY.id, '2026-10-15');
+    expect(mockCheckAvailability).toHaveBeenCalledWith(COMPANY.id, '2026-10-15', { latestDate: undefined });
     expect(r.event).toEqual({ type: 'availability', payload: availability });
   });
 
@@ -214,7 +214,10 @@ describe('intake specs — the mover-defined question reaches the brain', () => 
     const secondCall = mockMainGenerate.mock.calls[1][0];
     const battery = secondCall.contents[secondCall.contents.length - 1].parts[0].functionResponse.response;
     const spec = battery.questions.find((q) => q.id === 'coi');
-    expect(spec).toEqual({ id: 'coi', label: COMPANY.intake_specs[0].question, type: 'text', source: 'company' });
+    expect(spec).toEqual({
+      id: 'coi', label: COMPANY.intake_specs[0].question, type: 'text', source: 'company',
+      optional: true, skipValue: 'Not sure',
+    });
     expect(r.chips).toEqual(['Studio', '1 bed', '2 bed', '3 bed']);
     expect(r.reply).toBe('First — how big is your home?');
   });
@@ -242,8 +245,9 @@ describe('fallbacks never stall', () => {
     mockMainGenerate.mockResolvedValueOnce(emptyCandidateResult());
     const known = {
       bedrooms: '2', originAddress: 'Oakland, CA', destinationAddress: 'San Jose, CA',
-      stairsOrigin: 'none', stairsDestination: 'none', parking: 'right_outside',
-      packing: 'no', specialItems: 'none', moveDate: '2026-10-15', coi: 'no',
+      stairsOrigin: 'none', stairsDestination: 'none', parkingOrigin: 'right_outside',
+      parkingDestination: 'right_outside', packing: 'no', specialItems: 'none',
+      moveDate: '2026-10-15', coi: 'no',
     };
     const r = await run({ state: { known } });
     expect(r.reply).toMatch(/email/i);
@@ -347,7 +351,12 @@ describe('fallback makes progress when the model is down', () => {
       turn = await converse(state, turn.chips?.length ? turn.chips[0] : 'Oakland, CA');
     }
     expect(turn.reply).toMatch(/Where should we send your quote/);
-    expect(state.known).toEqual(expect.objectContaining({ bedrooms: 'studio', originAddress: 'Oakland, CA', coi: 'Oakland, CA' }));
+    // Tapping the first chip each time: the optional COI spec now offers a
+    // "Not sure" skip chip, which records the neutral value.
+    expect(state.known).toEqual(expect.objectContaining({
+      bedrooms: 'studio', originAddress: 'Oakland, CA', parkingOrigin: 'right_outside',
+      parkingDestination: 'right_outside', specialItems: 'none', coi: 'Not sure',
+    }));
 
     const priced = await converse(state, 'Sam@Example.com');
     expect(mockPriceQuote).toHaveBeenCalledTimes(1);
@@ -394,5 +403,172 @@ describe('Gemini history shape', () => {
     expect(contents[0].role).toBe('user');
     for (let i = 1; i < contents.length; i++) expect(contents[i].role).not.toBe(contents[i - 1].role);
     expect(contents[contents.length - 1]).toEqual({ role: 'user', parts: [{ text: '2 bed\n\n2 bed' }] });
+  });
+});
+
+// ── Owner feedback (Nov 2026): Other… / free text / skip ────────────────────
+
+describe('custom and skipped answers', () => {
+  const converse = async (state, message) => agent.runTurn({ company: COMPANY, state, transcript: [], message });
+  const UP_TO_SPECIAL = {
+    bedrooms: '2', originAddress: 'Oakland, CA', destinationAddress: 'San Jose, CA',
+    stairsOrigin: 'none', stairsDestination: '1', parkingOrigin: 'right_outside',
+    parkingDestination: 'long_carry', packing: 'no',
+  };
+
+  test('fallback offers the 4 special-item chips plus "Other…", with a composer placeholder', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('down'));
+    const r = await converse({ known: { ...UP_TO_SPECIAL } }, 'Price my move');
+    expect(r.reply).toMatch(/unusually heavy or delicate/);
+    expect(r.chips).toEqual(['Nothing special', 'Piano', 'Safe', 'Pool table', 'Other…']);
+    expect(r.inputHint).toEqual({ placeholder: 'Type it — e.g. a Peloton, a large aquarium' });
+  });
+
+  test('fallback accepts free text for specialItems instead of discarding it', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('down'));
+    const state = { known: { ...UP_TO_SPECIAL } };
+    const r = await converse(state, 'A Peloton and a big aquarium');
+    expect(state.known.specialItems).toBe('A Peloton and a big aquarium');
+    expect(r.reply).toMatch(/When are you moving/);
+  });
+
+  test('chip labels still map to their stored values', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('down'));
+    const state = { known: { ...UP_TO_SPECIAL } };
+    await converse(state, 'Pool table');
+    expect(state.known.specialItems).toBe('pool table');
+  });
+
+  test.each(['skip', 'Not sure', 'nothing', 'no'])('"%s" on the optional specialItems records the neutral "none"', async (msg) => {
+    mockMainGenerate.mockRejectedValue(new Error('down'));
+    const state = { known: { ...UP_TO_SPECIAL } };
+    await converse(state, msg);
+    expect(state.known.specialItems).toBe('none');
+  });
+
+  test('tapping "Other…" itself is never recorded as an answer', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('down'));
+    const state = { known: { ...UP_TO_SPECIAL } };
+    const r = await converse(state, 'Other…');
+    expect(state.known.specialItems).toBeUndefined();
+    expect(r.reply).toMatch(/unusually heavy or delicate/);
+  });
+
+  test('the optional company spec offers a "Not sure" skip chip and records it', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('down'));
+    const state = { known: { ...UP_TO_SPECIAL, specialItems: 'none', moveDate: '2027-01-23' } };
+    const ask = await converse(state, 'Price my move');
+    expect(ask.reply).toMatch(/certificate of insurance/);
+    expect(ask.chips).toEqual(['Not sure']);
+    await converse(state, "I don't know");
+    expect(state.known.coi).toBe('Not sure');
+  });
+
+  test('a plain "no" to a spec question is a real answer, not a skip', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('down'));
+    const state = { known: { ...UP_TO_SPECIAL, specialItems: 'none', moveDate: '2027-01-23' } };
+    await converse(state, 'no');
+    expect(state.known.coi).toBe('no');
+  });
+
+  test('non-custom chip questions still ignore unmatched text (no silent mis-pricing)', async () => {
+    mockMainGenerate.mockRejectedValue(new Error('down'));
+    const state = { known: { bedrooms: '2', originAddress: 'Oakland, CA', destinationAddress: 'San Jose, CA', stairsOrigin: 'none', stairsDestination: 'none' } };
+    await converse(state, 'a loading dock maybe');
+    expect(state.known.parkingOrigin).toBeUndefined();
+  });
+
+  test('model chips for an allowCustom question get "Other…" appended deterministically', async () => {
+    mockMainGenerate.mockResolvedValueOnce(textResult('Anything heavy or delicate? [CHIPS]Nothing special|Piano|Safe|Pool table[/CHIPS]'));
+    const r = await run({ state: { known: { ...UP_TO_SPECIAL } } });
+    expect(r.chips).toEqual(['Nothing special', 'Piano', 'Safe', 'Pool table', 'Other…']);
+    expect(r.inputHint.placeholder).toMatch(/Peloton/);
+  });
+
+  test('chips for other questions are left alone (no stray "Other…")', async () => {
+    mockMainGenerate.mockResolvedValueOnce(textResult('How big is your home? [CHIPS]Studio|1 bed|2 bed|3 bed[/CHIPS]'));
+    const r = await run();
+    expect(r.chips).toEqual(['Studio', '1 bed', '2 bed', '3 bed']);
+    expect(r.inputHint).toBeUndefined();
+  });
+
+  test('extractChips keeps ≤4 answer chips plus "Other…" last', () => {
+    const { chips } = agent.extractChips('Pick. [CHIPS]Other|a|b|c|d|e[/CHIPS]');
+    expect(chips).toEqual(['a', 'b', 'c', 'd', 'Other…']);
+  });
+
+  test('the model-path free-text answer is stored via knownAnswers (sanitized, ≤120 chars)', async () => {
+    mockMainGenerate
+      .mockResolvedValueOnce(functionCallResult('get_intake_questions', { knownAnswers: { ...UP_TO_SPECIAL, specialItems: 'Peloton' } }))
+      .mockResolvedValueOnce(textResult('Got it — when are you moving?'));
+    const r = await run({ state: { known: {} } });
+    expect(r.state.known.specialItems).toBe('Peloton');
+  });
+
+  test('system prompt carries the custom/skip and Other… guidance', () => {
+    const p = agent.buildSystemPrompt(COMPANY, {}, '2026-11-24');
+    expect(p).toMatch(/Other…/);
+    expect(p).toMatch(/record their own words/);
+    expect(p).toMatch(/skipValue/);
+  });
+});
+
+describe('date ranges', () => {
+  test('check_availability passes latestDate through and the range payload rides out as the event', async () => {
+    const payload = {
+      requestedDate: '2027-01-20', requestedDateOpen: true, reason: null, capacityPerDay: 2,
+      alternatives: ['2027-01-21'], latestDate: '2027-01-31', rangeTruncated: false,
+      openDates: ['2027-01-20', '2027-01-21', '2027-01-22', '2027-01-25', '2027-01-26'],
+    };
+    mockCheckAvailability.mockResolvedValue(payload);
+    mockMainGenerate
+      .mockResolvedValueOnce(functionCallResult('check_availability', { requestedDate: '2027-01-20', latestDate: '2027-01-31' }))
+      .mockResolvedValueOnce(textResult('These days are open in that window — tap one.'));
+    const r = await run({ message: 'Next January, sometime 20th to the end of the month' });
+    expect(mockCheckAvailability).toHaveBeenCalledWith(COMPANY.id, '2027-01-20', { latestDate: '2027-01-31' });
+    expect(r.event).toEqual({ type: 'availability', payload });
+  });
+
+  test('the tool declaration exposes an optional, fully specified latestDate', () => {
+    const avail = agent.buildToolDeclarations(COMPANY).find((d) => d.name === 'check_availability');
+    expect(avail.parameters.properties.latestDate).toEqual({ type: 'STRING', description: expect.stringMatching(/END of a date range/) });
+    expect(avail.parameters.required).toEqual(['requestedDate']);
+  });
+
+  test('the prompt tells the model to resolve windows and offer open dates, not demand one date', () => {
+    const p = agent.buildSystemPrompt(COMPANY, {}, '2026-11-24');
+    expect(p).toMatch(/TODAY'S DATE: 2026-11-24/);
+    expect(p).toMatch(/do NOT ask them to pick one exact date first/);
+    expect(p).toMatch(/latestDate/);
+  });
+});
+
+describe('tool schemas — every leaf typed (Gemini 400 guard, extended)', () => {
+  function walk(schema, path, visit) {
+    visit(schema, path);
+    if (schema.type === 'OBJECT') for (const [k, v] of Object.entries(schema.properties || {})) walk(v, `${path}.${k}`, visit);
+    if (schema.type === 'ARRAY' && schema.items) walk(schema.items, `${path}[]`, visit);
+  }
+
+  test('no empty OBJECT, every property has a type, required ⊆ properties — with and without specs', () => {
+    for (const company of [COMPANY, { ...COMPANY, intake_specs: null }]) {
+      for (const d of agent.buildToolDeclarations(company)) {
+        walk(d.parameters, d.name, (s, path) => {
+          expect({ path, type: typeof s.type }).toEqual({ path, type: 'string' });
+          if (s.type === 'OBJECT') {
+            expect({ path, n: Object.keys(s.properties || {}).length > 0 }).toEqual({ path, n: true });
+            for (const r of s.required || []) expect(Object.keys(s.properties)).toContain(r);
+          }
+        });
+      }
+    }
+  });
+
+  test('answer maps carry both parking ends, not the legacy key', () => {
+    const price = agent.buildToolDeclarations(COMPANY).find((d) => d.name === 'price_quote');
+    const keys = Object.keys(price.parameters.properties.answers.properties);
+    expect(keys).toEqual(expect.arrayContaining(['parkingOrigin', 'parkingDestination']));
+    expect(keys).not.toContain('parking');
+    expect(price.parameters.properties.answers.properties.specialItems.description).toMatch(/customer's own words/);
   });
 });

@@ -31,7 +31,8 @@
  *                          company's own intake_specs questions (#117)
  *   check_availability   → whether a date is open on the company's Nexus
  *                          booking calendar (capacity/blackouts, #117), with
- *                          up to 3 nearest alternative open days
+ *                          up to 3 nearest alternative open days — or, with
+ *                          latestDate, up to 5 open days in a date range
  *   price_quote          → the full quote payload INCLUDING the trust block.
  *                          The #108 invariant is enforced identically by the
  *                          shared service layer: an incomplete trust block
@@ -147,8 +148,13 @@ function buildServer(company) {
     {
       title: 'Get intake questions',
       description:
-        'The estimator question battery a quote needs (home size, addresses, stairs, parking, '
-        + 'packing, special items, move date). Pass knownAnswers — {questionId: value} for anything '
+        'The estimator question battery a quote needs (home size, addresses, stairs and parking at '
+        + 'EACH end — stairsOrigin/stairsDestination, parkingOrigin/parkingDestination — packing, '
+        + 'special items, move date), plus the company\'s own questions. Questions with '
+        + 'allowCustom:true accept the customer\'s own words as well as the listed options; '
+        + 'optional:true questions may be answered with their skipValue when the customer '
+        + 'skips or is not sure. (A legacy single "parking" answer is read as parkingOrigin.) '
+        + 'Pass knownAnswers — {questionId: value} for anything '
         + 'the conversation already established — and only the still-open questions come back, so '
         + 'the customer is never asked twice.',
       inputSchema: {
@@ -175,15 +181,23 @@ function buildServer(company) {
         `Whether ${company.name} can take a move on a given date, per its Nexus booking calendar `
         + '(capacity per day minus reservations already holding a slot, plus company blackout days '
         + '— external calendars are not synced yet). Returns requestedDateOpen plus up to 3 nearest '
-        + 'alternative open dates when the day is closed (or to offer choices). Present dates '
-        + 'exactly as returned — never promise a date this tool did not say is open.',
+        + 'alternative open dates when the day is closed (or to offer choices). When the customer '
+        + 'gives a RANGE or a vague window ("sometime after the 20th"), resolve it to concrete dates '
+        + 'and pass requestedDate (start) + latestDate (end): the result adds openDates — up to 5 '
+        + 'open days in that range, earliest first (ranges over 31 days are clamped; '
+        + 'rangeTruncated says so) — to offer as choices. Present dates exactly as returned — '
+        + 'never promise a date this tool did not say is open.',
       inputSchema: {
-        requestedDate: z.string().describe('The move date to check, YYYY-MM-DD.'),
+        requestedDate: z.string().describe('The move date to check — or the START of a range — YYYY-MM-DD.'),
+        latestDate: z
+          .string()
+          .optional()
+          .describe('Optional END of a date range, YYYY-MM-DD, on or after requestedDate. When given, openDates lists up to 5 open days in the range.'),
       },
     },
-    async ({ requestedDate }) => {
+    async ({ requestedDate, latestDate }) => {
       try {
-        return toolJson(await availability.checkAvailability(company.id, requestedDate));
+        return toolJson(await availability.checkAvailability(company.id, requestedDate, { latestDate }));
       } catch (err) {
         return toolError(err, 'check_availability');
       }

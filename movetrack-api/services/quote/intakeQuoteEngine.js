@@ -35,7 +35,13 @@
  *     the customer can hold the vendor to.
  */
 
-const ENGINE_VERSION = 'intake-a-1.0.0';
+// 1.1.0 (owner feedback, Nov 2026): parking is asked per END
+// (parkingOrigin / parkingDestination) — short-walk / long-carry hours and
+// the long-carry fee apply at each end that has them. A legacy single
+// `parking` answer (quotes stored under 1.0.0, older MCP callers) is read as
+// parkingOrigin, so legacy inputs reproduce 1.0.0's numbers AND line items
+// exactly (tests/unit/fixtures/intakeEngine-1.0.0-legacy-parking.json).
+const ENGINE_VERSION = 'intake-a-1.1.0';
 
 // Q&A-only volume table (cu ft) — standard industry sizing.
 const BEDROOM_CUFT = { studio: 250, '1': 400, '2': 700, '3': 1100, '4': 1500 };
@@ -146,6 +152,30 @@ function flightsOf(v) {
 
 const isElevator = (v) => normStr(v) === 'elevator';
 
+/** Access hours for one end's parking answer ('right_outside'|'short_walk'|'long_carry'). */
+function parkingHoursOf(v) {
+  const s = normStr(v);
+  if (s === 'long_carry') return HOURS_LONG_CARRY;
+  if (s === 'short_walk') return HOURS_SHORT_WALK;
+  return 0;
+}
+
+/**
+ * Per-end parking answers, with the 1.0.0 back-compat rule: a legacy
+ * single `parking` answer stands in for parkingOrigin when that's absent.
+ * `legacy` is true when ONLY the old key is present — the line-item label
+ * then stays the 1.0.0 "Long carry" so replayed legacy quotes match byte
+ * for byte (engineVersion aside).
+ */
+function parkingEnds(answers) {
+  const hasOrigin = typeof answers.parkingOrigin === 'string' && answers.parkingOrigin.trim() !== '';
+  const hasDest = typeof answers.parkingDestination === 'string' && answers.parkingDestination.trim() !== '';
+  const origin = normStr(hasOrigin ? answers.parkingOrigin : answers.parking);
+  const destination = normStr(answers.parkingDestination);
+  const legacy = !hasOrigin && !hasDest && normStr(answers.parking) !== '';
+  return { origin, destination, legacy };
+}
+
 // ── Deposit ──────────────────────────────────────────────────────────────────
 
 /**
@@ -173,8 +203,10 @@ function depositFromCard(cardData, rangeLow) {
  *
  * @param {object} inputs
  * @param {object} inputs.answers   sanitized estimator answers:
- *   { bedrooms?, stairsOrigin?, stairsDestination?, parking?, packing?,
- *     specialItems?, moveDate?, originAddress?, destinationAddress? }
+ *   { bedrooms?, stairsOrigin?, stairsDestination?, parkingOrigin?,
+ *     parkingDestination?, packing?, specialItems?, moveDate?,
+ *     originAddress?, destinationAddress? }
+ *   (legacy `parking` is read as parkingOrigin — see parkingEnds)
  * @param {Array}  inputs.items     scanned inventory snapshot:
  *   [{ name, quantity, weightLbs, lengthIn, widthIn, heightIn }]
  * @param {object|null} inputs.distance  resolved by the route when both
@@ -204,9 +236,8 @@ function computeQuote(inputs) {
   const flights = flightsOf(answers.stairsOrigin) + flightsOf(answers.stairsDestination);
   const elevatorEnds = (isElevator(answers.stairsOrigin) ? 1 : 0)
     + (isElevator(answers.stairsDestination) ? 1 : 0);
-  const parking = normStr(answers.parking);
-  const parkingHours = parking === 'long_carry' ? HOURS_LONG_CARRY
-    : parking === 'short_walk' ? HOURS_SHORT_WALK : 0;
+  const parking = parkingEnds(answers);
+  const parkingHours = parkingHoursOf(parking.origin) + parkingHoursOf(parking.destination);
   const accessHours = flights * HOURS_PER_FLIGHT
     + elevatorEnds * HOURS_PER_ELEVATOR_END
     + parkingHours;
@@ -240,7 +271,16 @@ function computeQuote(inputs) {
     fee('stairs', `Stairs — ${flights} flight${flights === 1 ? '' : 's'}`,
       flights * (Number(surcharges.stairsPerFlight) || 0));
   }
-  if (parking === 'long_carry') fee('long_carry', 'Long carry', surcharges.longCarry);
+  if (parking.legacy) {
+    if (parking.origin === 'long_carry') fee('long_carry', 'Long carry', surcharges.longCarry);
+  } else {
+    if (parking.origin === 'long_carry') {
+      fee('long_carry_origin', 'Long carry — current place', surcharges.longCarry);
+    }
+    if (parking.destination === 'long_carry') {
+      fee('long_carry_destination', 'Long carry — new place', surcharges.longCarry);
+    }
+  }
 
   const heavyCount = items.reduce((n, it) => {
     const qty = Number(it.quantity) > 0 ? Math.floor(Number(it.quantity)) : 1;
@@ -328,6 +368,12 @@ function computeQuote(inputs) {
 
 // ── Estimator battery (PRD R2: never ask what we already know) ───────────────
 
+const PARKING_OPTIONS = [
+  { value: 'right_outside', label: 'Right outside' },
+  { value: 'short_walk', label: 'Short walk' },
+  { value: 'long_carry', label: 'Long carry' },
+];
+
 const STAIRS_OPTIONS = [
   { value: 'none', label: 'No stairs' },
   { value: '1', label: '1 flight' },
@@ -378,14 +424,16 @@ function buildQuestions({ hasInventory = false, hasOrigin = false } = {}) {
     { id: 'stairsOrigin', label: 'Stairs at your current place?', type: 'chips', options: STAIRS_OPTIONS },
     { id: 'stairsDestination', label: 'Stairs at the new place?', type: 'chips', options: STAIRS_OPTIONS },
     {
-      id: 'parking',
-      label: 'How close can the truck park?',
+      id: 'parkingOrigin',
+      label: 'How close can the truck park at your current place?',
       type: 'chips',
-      options: [
-        { value: 'right_outside', label: 'Right outside' },
-        { value: 'short_walk', label: 'Short walk' },
-        { value: 'long_carry', label: 'Long carry' },
-      ],
+      options: PARKING_OPTIONS,
+    },
+    {
+      id: 'parkingDestination',
+      label: 'How close can the truck park at the new place?',
+      type: 'chips',
+      options: PARKING_OPTIONS,
     },
     {
       id: 'packing',
@@ -400,6 +448,15 @@ function buildQuestions({ hasInventory = false, hasOrigin = false } = {}) {
       id: 'specialItems',
       label: 'Anything unusually heavy or delicate?',
       type: 'chips',
+      // Owner feedback (Nov 2026): the chips are the common cases, not the
+      // whole world — the customer may type their own ("a Peloton"). The
+      // review flags substring-match the free text (piano/safe/pool table),
+      // so a typed "baby grand piano" still routes to an estimator.
+      allowCustom: true,
+      customPlaceholder: 'Type it — e.g. a Peloton, a large aquarium',
+      // Genuinely optional: "skip"/"not sure" records the neutral value.
+      optional: true,
+      skipValue: 'none',
       options: [
         { value: 'none', label: 'Nothing special' },
         { value: 'piano', label: 'Piano' },
@@ -423,17 +480,26 @@ function sanitizeAnswers(raw) {
   take('bedrooms', 10);
   take('stairsOrigin', 20);
   take('stairsDestination', 20);
-  take('parking', 20);
+  take('parkingOrigin', 20);
+  take('parkingDestination', 20);
+  // Legacy single parking answer (pre-1.1.0 callers) ⇒ the current place.
+  if (!out.parkingOrigin && typeof src.parking === 'string' && src.parking.trim()) {
+    out.parkingOrigin = src.parking.trim().slice(0, 20);
+  }
   take('packing', 10);
-  take('specialItems', 60);
+  take('specialItems', 120); // free text allowed (allowCustom) — was 60
   take('moveDate', 20);
   take('originAddress');
   take('destinationAddress');
   return out;
 }
 
+/** Answer keys that are not questions but stay reserved (legacy aliases). */
+const LEGACY_ANSWER_KEYS = ['parking'];
+
 module.exports = {
   ENGINE_VERSION,
+  LEGACY_ANSWER_KEYS,
   BEDROOM_CUFT,
   DEFAULT_ITEM_CUFT,
   CUFT_PER_HOUR_BY_CREW,

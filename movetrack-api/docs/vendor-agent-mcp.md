@@ -105,7 +105,8 @@ curl -s $BASE/api/agent/demo/mcp \
   -d '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"price_quote","arguments":{
         "customerEmail":"customer@example.com",
         "answers":{"bedrooms":"2","originAddress":"Oakland, CA","destinationAddress":"San Jose, CA",
-                   "stairsOrigin":"1","stairsDestination":"none","parking":"right_outside",
+                   "stairsOrigin":"1","stairsDestination":"none",
+                   "parkingOrigin":"right_outside","parkingDestination":"short_walk",
                    "packing":"no","specialItems":"none","moveDate":"2026-10-15"}}}}'
 ```
 
@@ -149,7 +150,30 @@ mover-defined extras like COI/HOA rules, appended as
 `knownAnswers` the same way). Returns `{ questions, known }` where `known`
 echoes the sanitized answers that were accepted.
 
-### `check_availability` — `{ requestedDate: 'YYYY-MM-DD' }`
+Battery order (engine `intake-a-1.1.0`): `bedrooms`, `originAddress`,
+`destinationAddress`, `stairsOrigin`, `stairsDestination`, `parkingOrigin`
+("How close can the truck park at your current place?"),
+`parkingDestination` ("…at the new place?"), `packing`, `specialItems`,
+`moveDate`. Parking values: `right_outside | short_walk | long_carry`.
+
+- **Per-end parking.** Short-walk / long-carry access hours apply at each
+  end that has them, and the card's `surcharges.longCarry` fee applies once
+  per end with a long carry (line items `long_carry_origin` "Long carry —
+  current place" / `long_carry_destination` "Long carry — new place").
+- **Legacy `parking`.** Older callers may still send a single `parking`
+  answer: it is read as `parkingOrigin` when that is absent, so legacy
+  inputs price exactly as they did under `intake-a-1.0.0` (a stored 1.0.0
+  quote replays with its original "Long carry" line item).
+- **Custom and optional answers.** A question may carry
+  `allowCustom: true` (+ `customPlaceholder`): the listed options are the
+  common cases, and the customer's own words are a valid answer
+  (`specialItems` — the review flags substring-match free text, so
+  "baby grand piano" still routes to an estimator). A question with
+  `optional: true` carries a `skipValue` to record when the customer skips
+  or isn't sure (`specialItems` → `"none"`; company `intake_specs`
+  questions → `"Not sure"`).
+
+### `check_availability` — `{ requestedDate: 'YYYY-MM-DD', latestDate?: 'YYYY-MM-DD' }`
 
 Whether the company can take a move on that date, per its **Nexus booking
 calendar** (W1c, #117 — Mode B-lite; external calendar sync is W2):
@@ -161,6 +185,15 @@ where `reason` is `null | 'past_date' | 'blackout' | 'fully_booked'` and
 `alternatives` is up to 3 nearest open dates (±7-day window preferred,
 forward-weighted, extending forward when the window is dry). A malformed
 date is a tool error (`code: "invalid_input"`).
+
+**Date ranges.** When the customer gives a window ("sometime 20th to the end
+of the month"), pass the start as `requestedDate` and the end as
+`latestDate`. The result adds `{ latestDate, rangeTruncated, openDates }`:
+`openDates` is up to 5 open days in `[requestedDate, latestDate]`, earliest
+first, under the same capacity / blackout / past-date rules. Ranges longer
+than 31 days are clamped to `requestedDate + 30` (`rangeTruncated: true`,
+`latestDate` reports the clamped end). A malformed `latestDate`, or one
+before `requestedDate`, is `code: "invalid_input"`.
 
 ### `price_quote` — `{ answers: Record<string,string>, customerEmail: string }`
 

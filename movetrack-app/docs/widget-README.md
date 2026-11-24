@@ -16,7 +16,7 @@ origin (no build step, no dependencies). Live demo: `/widget-demo`.
 ```
 
 Renders a HERO-sized chat panel (up to 420px wide on desktop, full-width on
-phones, starting at 560px tall) that iframes the company's Nexus agent —
+phones, a FIXED `min(640px, 85vh)` tall) that iframes the company's Nexus agent —
 `/agent/{token}?src=widget` — directly in-page. The buyer never leaves the
 mover's site: the deterministic assistant asks the intake battery, gates the
 quote range behind an email, and reserves a move date behind a clearly-marked
@@ -27,9 +27,16 @@ agent server (`POST /api/agent/{token}/mcp`, see
 AI client can call.
 
 Chat needs no camera, so the new-tab constraint that applies to the capture
-variants does not apply here. The iframe posts its content height
-(`{ type: 'nexus-agent-height', height }`); the widget listens with an
-origin + source check and grows the panel (clamped 560–1400px).
+variants does not apply here.
+
+**Fixed height, internal scroll.** The panel never grows the host page: the
+header (with a progress bar toward the quote), the scrolling conversation
+and the pinned composer all live inside the fixed-height iframe, and the
+thread follows the newest message unless the visitor has scrolled up to
+re-read. Optional `data-height="720"` sets the panel height in px (clamped
+420–1000, still capped at 85% of the viewport so phones see the whole
+panel). Existing snippets need no change. There is no postMessage channel
+anymore (the old `nexus-agent-height` resize listener was removed).
 
 ## Embed (card variant, default)
 
