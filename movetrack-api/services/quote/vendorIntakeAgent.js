@@ -46,7 +46,9 @@ const { sanitizeForPrompt } = require('../infra/promptSafety');
 const intakeAgent = require('./intakeAgentService');
 const availabilityService = require('./vendorAvailabilityService');
 
-const MODEL_ID = 'gemini-2.5-flash';
+// Overridable so a retired Gemini model can be swapped from the Cloud Build
+// trigger's _VENDOR_AGENT_MODEL substitution without a code change.
+const MODEL_ID = process.env.VENDOR_AGENT_MODEL || 'gemini-2.5-flash';
 const MAX_TOOL_ROUNDS = 4;
 /** Per-conversation turn cap — past it the route hands off politely. */
 const TURN_CAP = 40;
