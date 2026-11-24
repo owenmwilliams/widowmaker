@@ -327,7 +327,7 @@ describe('check_availability', () => {
     wireDb({ availabilityKnobs: { capacity_per_day: 1, blackout_days: [] } });
     db.any.mockImplementation(async (sql, params) => {
       if (/FROM booking_reservations/.test(sql)) {
-        expect(sql).toMatch(/status IN \('pending_confirmation', 'confirmed'\)/);
+        expect(sql).toMatch(/status = 'confirmed'\s+OR \(status = 'pending_confirmation' AND expires_at > NOW\(\)\)/);
         expect(params[0]).toBe(COMPANY_ID);
         return [{ day: req, booked: 1 }];
       }

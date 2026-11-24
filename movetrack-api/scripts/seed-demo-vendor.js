@@ -83,13 +83,21 @@ const RATE_CARD = {
 };
 
 // Agent scheduling + intake knobs (#117): the demo vendor takes 2 jobs/day,
-// has ONE blackout day ~2 weeks out (so the availability demo has a closed
-// day to bounce off), and asks one realistic extra intake question.
+// is closed on the 15th of every month for the next 12 months (a fixed,
+// memorable date the availability demo can bounce off — "try the 15th"),
+// and asks one realistic extra intake question. Same rule as
+// scripts/demo-vendor-refresh.sql; re-run either within a year to roll it.
 const CAPACITY_PER_DAY = 2;
-function blackoutDays() {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + 14);
-  return [d.toISOString().slice(0, 10)];
+const BLACKOUT_DAY_OF_MONTH = 15;
+function blackoutDays(now = new Date()) {
+  const todayIso = now.toISOString().slice(0, 10);
+  const days = [];
+  for (let i = 0; i <= 12; i += 1) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, BLACKOUT_DAY_OF_MONTH));
+    const iso = d.toISOString().slice(0, 10);
+    if (iso > todayIso) days.push(iso);
+  }
+  return days;
 }
 const INTAKE_SPECS = [
   {
@@ -164,7 +172,7 @@ async function main() {
     const appBase = (process.env.APP_BASE_URL || 'http://localhost:5173').replace(/\/$/, '');
     console.log(`\nSeeded "${company.name}" (company ${company.id})`);
     console.log(`  contact email : ${contactEmail}`);
-    console.log(`  agent knobs   : capacity ${CAPACITY_PER_DAY}/day, blackout ${JSON.stringify(company.blackout_days)}, 1 intake spec (coi)`);
+    console.log(`  agent knobs   : capacity ${CAPACITY_PER_DAY}/day, closed the ${BLACKOUT_DAY_OF_MONTH}th monthly (${company.blackout_days.length} dates through ${company.blackout_days[company.blackout_days.length - 1]}), 1 intake spec (coi)`);
     console.log(`  capture link  : ${appBase}/c/${company.token}`);
     console.log(`  widget demo   : ${appBase}/widget-demo  (its widget already points at /c/${company.token})`);
     console.log(`  mover login   : ${appBase}/mover/login  (magic link goes to the contact email)`);

@@ -37,7 +37,7 @@ function wire({ capacity = 2, blackouts = [], booked = {} } = {}) {
     throw new Error(`unexpected oneOrNone: ${sql}`);
   });
   db.any.mockImplementation(async (sql, params) => {
-    expect(sql).toMatch(/status IN \('pending_confirmation', 'confirmed'\)/);
+    expect(sql).toMatch(/status = 'confirmed'\s+OR \(status = 'pending_confirmation' AND expires_at > NOW\(\)\)/);
     const [, start, end] = params;
     return Object.entries(booked)
       .filter(([day]) => day >= start && day <= end)
